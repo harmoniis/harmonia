@@ -1,0 +1,10 @@
+[package]
+name = "harmonia-s3-sync"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+# Add as needed: aws-sdk-s3, tokio, etc.

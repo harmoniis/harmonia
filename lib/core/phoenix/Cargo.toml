@@ -1,0 +1,10 @@
+[package]
+name = "harmonia-phoenix"
+version = "0.1.0"
+edition = "2021"
+
+[[bin]]
+name = "phoenix"
+path = "src/main.rs"
+
+[dependencies]

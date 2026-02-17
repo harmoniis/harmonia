@@ -1,0 +1,15 @@
+load("@rules_rust//rust:defs.bzl", "rust_library", "rust_shared_library")
+
+package(default_visibility = ["//visibility:public"])
+
+rust_library(
+    name = "vault",
+    srcs = glob(["src/**/*.rs"]),
+    edition = "2021",
+)
+
+rust_shared_library(
+    name = "vault-so",
+    srcs = glob(["src/**/*.rs"]),
+    edition = "2021",
+)

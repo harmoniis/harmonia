@@ -1,101 +1,34 @@
-# Copyright 2023 Harmoniis Inc.
-# 
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-# 
-#     http://www.apache.org/licenses/LICENSE-2.0
-# 
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License
+# Harmonia — Lisp Agent + lib (core, backends, tools)
+# Build all: bazel build //harmonia/lib/...
 
-load("@crate_index//:defs.bzl", "aliases", "all_crate_deps")
-load("@rules_cc//cc:defs.bzl", "cc_library")
-load("@rules_rust//bindgen:bindgen.bzl", "rust_bindgen_library")
-load("@rules_rust//rust:defs.bzl", "rust_library", "rust_test")
+package(default_visibility = ["//visibility:public"])
 
-config_setting(
-    name = "freebsd-x86_64",
-    values = {
-        "cpu": "x86_64",
-        "os": "freebsd",
-    },
-)
+filegroup(
+    name = "lib",
+    srcs = [],
+    data = [
+        # Core — essential infrastructure
+        "//harmonia/lib/core/phoenix:phoenix",
+        "//harmonia/lib/core/ouroboros:ouroboros-so",
+        "//harmonia/lib/core/vault:vault-so",
+        "//harmonia/lib/core/memory:memory-so",
+        "//harmonia/lib/core/mqtt-client:mqtt-client",
+        "//harmonia/lib/core/http:http-so",
+        "//harmonia/lib/core/s3-sync:s3-sync",
+        "//harmonia/lib/core/git-ops:git-ops",
+        "//harmonia/lib/core/rust-forge:rust-forge",
+        "//harmonia/lib/core/cron-scheduler:cron-scheduler",
+        "//harmonia/lib/core/push-sns:push-sns",
+        "//harmonia/lib/core/recovery:recovery-so",
+        "//harmonia/lib/core/browser:browser-so",
+        "//harmonia/lib/core/fs:fs-so",
 
-config_setting(
-    name = "macos-apple-silicon",
-    values = {
-        "apple_platform_type": "macos",
-        "cpu": "arm64",
-    },
-)
+        # Backends
+        "//harmonia/lib/backends/openrouter-backend:openrouter-backend",
 
-config_setting(
-    name = "macos-universal",
-    values = {
-        "apple_platform_type": "macos",
-        "cpu": "x86_64",
-    },
-)
-
-config_setting(
-    name = "ios",
-    values = {
-        "apple_platform_type": "ios",
-        "cpu": "arm64",
-    },
-)
-
-config_setting(
-    name = "ios-simulator-universal",
-    values = {
-        "apple_platform_type": "ios",
-        "cpu": "ios_x86_64",
-    },
-)
-
-config_setting(
-    name = "ios-simulator-apple-silicon",
-    values = {
-        "apple_platform_type": "ios",
-        "cpu": "ios_arm64",
-    },
-)
-
-config_setting(
-    name = "android",
-    values = {
-        "cpu": "aarch64",
-        "os": "android",
-    },
-)
-
-
-rust_library(
-    name = "sharedlib",
-    aliases = aliases(),
-    deps = all_crate_deps(
-        normal = True,
-    ),
-    proc_macro_deps = all_crate_deps(
-        proc_macro = True,
-    ),
-)
-
-rust_test(
-    name = "unit_test",
-    crate = ":sharedlib",
-    aliases = aliases(
-        normal_dev = True,
-        proc_macro_dev = True,
-    ),
-    deps = all_crate_deps(
-        normal_dev = True,
-    ),
-    proc_macro_deps = all_crate_deps(
-        proc_macro_dev = True,
-    ),
+        # Tools — optional plugins
+        "//harmonia/lib/tools/pgp-identity:pgp-identity",
+        "//harmonia/lib/tools/webcash-wallet:webcash-wallet",
+        "//harmonia/lib/tools/social:social",
+    ],
 )

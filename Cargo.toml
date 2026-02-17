@@ -1,14 +1,27 @@
+# Harmonia lib workspace.
 [workspace]
 members = [
-    "compositor",
-    "agent",
-    "context",
-    "sys",
+    # Core — essential infrastructure, agent cannot function without these
+    "lib/core/phoenix",
+    "lib/core/ouroboros",
+    "lib/core/vault",
+    "lib/core/memory",
+    "lib/core/mqtt-client",
+    "lib/core/http",
+    "lib/core/s3-sync",
+    "lib/core/git-ops",
+    "lib/core/rust-forge",
+    "lib/core/cron-scheduler",
+    "lib/core/push-sns",
+    "lib/core/recovery",
+    "lib/core/browser",
+    "lib/core/fs",
+
+    # Backends — LLM providers
+    "lib/backends/openrouter-backend",
+
+    # Tools — optional plugins
+    "lib/tools/pgp-identity",
+    "lib/tools/webcash-wallet",
+    "lib/tools/social",
 ]
-
-
-[workspace.dependencies]
-wgpu = "0.18.0"
-tracing = "0.1"
-tracing-subscriber = "0.3"
-

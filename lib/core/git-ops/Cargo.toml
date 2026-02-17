@@ -1,0 +1,10 @@
+[package]
+name = "harmonia-git-ops"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+# Add as needed: git2, etc.
