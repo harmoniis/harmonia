@@ -25,6 +25,25 @@
         s
         (subseq s 0 limit))))
 
+(defun %redact-vault-value (prompt)
+  (let* ((needle "value=")
+         (start (search needle prompt :test #'char-equal)))
+    (if (null start)
+        prompt
+        (let* ((from (+ start (length needle)))
+               (space (position #\Space prompt :start from))
+               (to (or space (length prompt))))
+          (concatenate 'string
+                       (subseq prompt 0 from)
+                       "[REDACTED]"
+                       (if space (subseq prompt to) ""))))))
+
+(defun %sanitize-prompt-for-memory (prompt)
+  (if (and prompt (search "tool " prompt :test #'char-equal)
+           (search "op=vault-set" prompt :test #'char-equal))
+      (%redact-vault-value prompt)
+      prompt))
+
 (defun %maybe-handle-self-push-test (prompt)
   (when (search "self-push-test" prompt :test #'char-equal)
     (let* ((repo (%extract-tag-value prompt "repo"))
@@ -91,6 +110,32 @@
              (error "vault-set requires key=<symbol> value=<secret>"))
            (vault-set-secret key value)
            (values "VAULT_SET_OK" "vault")))
+        ((string-equal op "vault-has")
+         (harmonic-matrix-route-or-error "orchestrator" "vault")
+         (let ((key (%extract-tag-value prompt "key")))
+           (unless key
+             (error "vault-has requires key=<symbol>"))
+           (values (if (vault-has-secret-p key) "VAULT_HAS=1" "VAULT_HAS=0") "vault")))
+        ((string-equal op "vault-list")
+         (harmonic-matrix-route-or-error "orchestrator" "vault")
+         (values (with-output-to-string (s) (prin1 (vault-list-symbols) s)) "vault"))
+        ((string-equal op "config-set")
+         (harmonic-matrix-route-or-error "orchestrator" "harmonic-matrix")
+         (let ((key (%extract-tag-value prompt "key"))
+               (value (%extract-tag-value prompt "value")))
+           (unless (and key value)
+             (error "config-set requires key=<symbol> value=<text>"))
+           (config-set key value)
+           (values "CONFIG_SET_OK" "harmonic-matrix")))
+        ((string-equal op "config-get")
+         (harmonic-matrix-route-or-error "orchestrator" "harmonic-matrix")
+         (let ((key (%extract-tag-value prompt "key")))
+           (unless key
+             (error "config-get requires key=<symbol>"))
+           (values (or (config-get key) "CONFIG_MISSING") "harmonic-matrix")))
+        ((string-equal op "config-list")
+         (harmonic-matrix-route-or-error "orchestrator" "harmonic-matrix")
+         (values (with-output-to-string (s) (prin1 (config-list) s)) "harmonic-matrix"))
         ((string-equal op "parallel-solve")
          (harmonic-matrix-route-or-error "orchestrator" "parallel-agents")
          (values (parallel-solve (or (%extract-tag-value prompt "q") prompt))
@@ -188,6 +233,17 @@
              (error "matrix-set-node requires id=<node-id> kind=<core|backend|tool>"))
            (harmonic-matrix-set-node id kind)
            (values "MATRIX_NODE_SET" "harmonic-matrix")))
+        ((string-equal op "matrix-set-store")
+         (harmonic-matrix-route-or-error "orchestrator" "harmonic-matrix")
+         (let ((kind (%extract-tag-value prompt "kind"))
+               (path (%extract-tag-value prompt "path")))
+           (unless kind
+             (error "matrix-set-store requires kind=<memory|sqlite|graph>"))
+           (harmonic-matrix-set-store kind (or path ""))
+           (values "MATRIX_STORE_SET" "harmonic-matrix")))
+        ((string-equal op "matrix-get-store")
+         (harmonic-matrix-route-or-error "orchestrator" "harmonic-matrix")
+         (values (harmonic-matrix-store-config) "harmonic-matrix"))
         ((string-equal op "matrix-set-edge")
          (harmonic-matrix-route-or-error "orchestrator" "harmonic-matrix")
          (let ((from (%extract-tag-value prompt "from"))
@@ -273,11 +329,12 @@
   (unless *runtime*
     (error "Runtime not initialized. Call HARMONIA:START first."))
   (memory-touch-activity)
-  (ignore-errors
-    (harmonic-matrix-log-event "orchestrator" "input" "prompt" (%clip-text prompt) t ""))
+  (let ((safe-prompt (%sanitize-prompt-for-memory prompt)))
+    (ignore-errors
+      (harmonic-matrix-log-event "orchestrator" "input" "prompt" (%clip-text safe-prompt) t "")))
   (setf (runtime-state-prompt-queue *runtime*)
         (append (runtime-state-prompt-queue *runtime*) (list prompt)))
-  (runtime-log *runtime* :prompt-enqueued (list :prompt prompt))
+  (runtime-log *runtime* :prompt-enqueued (list :prompt (%sanitize-prompt-for-memory prompt)))
   prompt)
 
 (defun %select-model (prompt)
@@ -285,7 +342,8 @@
 
 (defun orchestrate-once (prompt)
   (memory-touch-activity)
-  (let* ((model (%select-model prompt))
+  (let* ((safe-prompt (%sanitize-prompt-for-memory prompt))
+         (model (%select-model prompt))
          (started-at (get-internal-real-time))
          (response nil)
          (used-tool "openrouter"))
@@ -325,12 +383,12 @@
                       (error 'harmonia-backend-error
                              :phase :orchestrate
                              :detail (princ-to-string e)
-                             :payload (list :prompt prompt :model model :tool used-tool)))))
+                             :payload (list :prompt safe-prompt :model model :tool used-tool)))))
     (let* ((elapsed-ms (round (* 1000
                                  (/ (- (get-internal-real-time) started-at)
                                     internal-time-units-per-second))))
            (score (harmonic-score prompt response))
-           (memory-id (memory-record-orchestration prompt response used-tool score elapsed-ms)))
+           (memory-id (memory-record-orchestration safe-prompt response used-tool score elapsed-ms)))
       (memory-record-tool-usage used-tool :latency-ms elapsed-ms :success t)
       (ignore-errors
         (harmonic-matrix-observe-route "orchestrator" used-tool t elapsed-ms))
@@ -340,7 +398,7 @@
         (harmonic-matrix-observe-route used-tool "memory" t 1))
       (ignore-errors
         (harmonic-matrix-log-event used-tool "output" "response" (%clip-text (princ-to-string response)) t ""))
-      (push (list :prompt prompt
+      (push (list :prompt safe-prompt
                   :response response
                   :model model
                   :score score

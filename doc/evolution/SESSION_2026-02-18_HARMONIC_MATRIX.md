@@ -175,6 +175,90 @@ This session implemented the core harmonic routing matrix, moved search into cor
 - Optional tools are hot-pluggable through matrix gating.
 - Route and verification metrics are now part of observable system telemetry.
 
+## Additional Update (Same Session Continuation)
+
+14. Runtime-selectable 4D matrix storage backends
+- `lib/core/harmonic-matrix` now supports runtime backend selection:
+  - `memory` store
+  - `sqlite` store
+- New C-ABI:
+  - `harmonia_harmonic_matrix_set_store(kind, path)`
+- Persistence scope for `sqlite`:
+  - nodes, tools, edges, route_samples, events, epoch/revision.
+- Report/time-report now include:
+  - `:store-kind`
+  - `:store-path`
+- Orchestrator tool op added:
+  - `tool op=matrix-set-store kind=<memory|sqlite> [path=<db-path>]`
+
+15. Verified sqlite persistence roundtrip
+- Low-level CFFI roundtrip:
+  - set store to sqlite -> mutate graph -> observe route/event -> re-init -> state preserved.
+- Runtime agent command path verified:
+  - `tool op=matrix-set-store kind=sqlite path=...` returns `MATRIX_STORE_SET`.
+
+16. Matrix crate modularization
+- Split former monolithic `lib/core/harmonic-matrix/src/lib.rs` into:
+  - `src/model.rs` (state/data models)
+  - `src/runtime.rs` (matrix logic + storage adapters)
+  - `src/ffi.rs` (C-ABI boundary only)
+  - `src/lib.rs` (module wiring only)
+- Added deterministic Rust test:
+  - `sqlite_roundtrip_persists_usage`
+
+17. Matrix store introspection + transition safety
+- Added matrix store introspection API:
+  - C-ABI: `harmonia_harmonic_matrix_get_store`
+  - Tool op: `tool op=matrix-get-store`
+- Added graph adapter contract path:
+  - `kind=graph` is recognized but returns explicit \"pending implementation\" error.
+- Transition safety fix:
+  - failed `matrix-set-store kind=graph` no longer mutates active store config.
+- Added deterministic test:
+  - `graph_store_contract_returns_error` (asserts failed graph transition keeps prior store kind).
+
+18. Additional backend modularization (openrouter-backend)
+- Split monolithic crate into:
+  - `lib/backends/openrouter-backend/src/client.rs`
+  - `lib/backends/openrouter-backend/src/state.rs`
+  - `lib/backends/openrouter-backend/src/ffi.rs`
+  - `lib/backends/openrouter-backend/src/lib.rs` (module wiring only)
+- Verified online completion path after split (`OPENROUTER_MOD_OK`).
+
+19. De-hardcoding pass: runtime config DB and policy routing cleanup
+- Added new core crate: `lib/core/config-store` (SQLite-backed runtime config KV).
+- New C-ABI surface:
+  - `harmonia_config_store_init`
+  - `harmonia_config_store_set`
+  - `harmonia_config_store_get`
+  - `harmonia_config_store_list`
+  - `harmonia_config_store_last_error`
+  - `harmonia_config_store_free_string`
+- Added Lisp backend bridge: `src/backends/config-store.lisp`.
+- Boot now initializes config store before policy load:
+  - `init-config-store-backend` called in `harmonia:start`.
+- Added agent tool ops:
+  - `tool op=config-set key=<k> value=<v>`
+  - `tool op=config-get key=<k>`
+  - `tool op=config-list`
+- OpenRouter backend hardcoded model defaults removed:
+  - backend now resolves default model via config keys (`openrouter.default_model`, `model.default`).
+  - fallback chain now resolved from config key `openrouter.fallback_models` or env override.
+- Lisp model policy hardcoded fallback model list removed:
+  - fallback/plan defaults are now derived from loaded profiles and seeded into config DB.
+- Parallel policy state path and width moved toward runtime config:
+  - `parallel.policy.path`, `parallel.subagent_count`.
+- Harmonic matrix route defaults and topology path moved toward runtime config:
+  - `matrix.route.signal_default`, `matrix.route.noise_default`, `matrix.topology.path`.
+
+20. Validation of new runtime config path
+- `cargo test --workspace`: pass.
+- Live SBCL config-store smoke:
+  - set/get/list of runtime config keys works.
+  - matrix route defaults persisted/retrieved through config path.
+- Live OpenRouter no-hardcoded-model smoke:
+  - `backend-complete` with `model=nil` succeeds via `openrouter.default_model` in config DB (`CFG_MODEL_OK`).
+
 ## Next Hardening Steps
 
 1. Add matrix policy persistence (serialize/load topology + dynamic weights across restarts).

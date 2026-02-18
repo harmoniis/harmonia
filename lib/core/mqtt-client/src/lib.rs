@@ -43,7 +43,8 @@ fn to_c_string(value: String) -> *mut c_char {
 }
 
 fn parse_broker() -> Result<(String, u16), String> {
-    let raw = env::var("HARMONIA_MQTT_BROKER").unwrap_or_else(|_| "test.mosquitto.org:1883".to_string());
+    let raw =
+        env::var("HARMONIA_MQTT_BROKER").unwrap_or_else(|_| "test.mosquitto.org:1883".to_string());
     let (host, port_raw) = raw
         .split_once(':')
         .ok_or_else(|| format!("invalid HARMONIA_MQTT_BROKER: {raw}"))?;
@@ -82,9 +83,13 @@ fn connect(prefix: &str) -> Result<(Client, rumqttc::Connection), String> {
         let ca_path = env::var("HARMONIA_MQTT_CA_CERT")
             .map_err(|_| "HARMONIA_MQTT_CA_CERT required when HARMONIA_MQTT_TLS=1".to_string())?;
         let ca = fs::read(&ca_path).map_err(|e| format!("read ca cert failed: {e}"))?;
-        let client_auth = match (env::var("HARMONIA_MQTT_CLIENT_CERT"), env::var("HARMONIA_MQTT_CLIENT_KEY")) {
+        let client_auth = match (
+            env::var("HARMONIA_MQTT_CLIENT_CERT"),
+            env::var("HARMONIA_MQTT_CLIENT_KEY"),
+        ) {
             (Ok(cert_path), Ok(key_path)) => {
-                let cert = fs::read(cert_path).map_err(|e| format!("read client cert failed: {e}"))?;
+                let cert =
+                    fs::read(cert_path).map_err(|e| format!("read client cert failed: {e}"))?;
                 let key = fs::read(key_path).map_err(|e| format!("read client key failed: {e}"))?;
                 Some((cert, key))
             }
@@ -110,7 +115,10 @@ pub extern "C" fn harmonia_mqtt_client_healthcheck() -> i32 {
 }
 
 #[no_mangle]
-pub extern "C" fn harmonia_mqtt_client_publish(topic: *const c_char, payload: *const c_char) -> i32 {
+pub extern "C" fn harmonia_mqtt_client_publish(
+    topic: *const c_char,
+    payload: *const c_char,
+) -> i32 {
     let topic = match cstr_to_string(topic) {
         Ok(v) => v,
         Err(e) => {
@@ -139,7 +147,8 @@ pub extern "C" fn harmonia_mqtt_client_publish(topic: *const c_char, payload: *c
     let deadline = Instant::now() + Duration::from_millis(timeout_ms());
     for event in connection.iter() {
         match event {
-            Ok(Event::Outgoing(Outgoing::Publish(_))) | Ok(Event::Incoming(Incoming::PubAck(_))) => {
+            Ok(Event::Outgoing(Outgoing::Publish(_)))
+            | Ok(Event::Incoming(Incoming::PubAck(_))) => {
                 clear_error();
                 return 0;
             }
@@ -236,5 +245,4 @@ mod tests {
     fn version_ptr_is_non_null() {
         assert!(!harmonia_mqtt_client_version().is_null());
     }
-
 }

@@ -1,4 +1,4 @@
-use harmonia_vault::get_secret_for_symbol;
+use harmonia_vault::{get_secret_for_symbol, init_from_env};
 use std::ffi::{CStr, CString};
 use std::os::raw::c_char;
 use std::process::Command;
@@ -63,7 +63,10 @@ pub extern "C" fn harmonia_browser_fetch_title(url: *const c_char) -> *mut c_cha
     let body = match output {
         Ok(out) if out.status.success() => String::from_utf8_lossy(&out.stdout).to_string(),
         Ok(out) => {
-            set_error(format!("curl failed: {}", String::from_utf8_lossy(&out.stderr)));
+            set_error(format!(
+                "curl failed: {}",
+                String::from_utf8_lossy(&out.stderr)
+            ));
             return std::ptr::null_mut();
         }
         Err(e) => {
@@ -106,7 +109,10 @@ pub extern "C" fn harmonia_browser_fetch_html(url: *const c_char) -> *mut c_char
             to_c_string(String::from_utf8_lossy(&out.stdout).to_string())
         }
         Ok(out) => {
-            set_error(format!("curl failed: {}", String::from_utf8_lossy(&out.stderr)));
+            set_error(format!(
+                "curl failed: {}",
+                String::from_utf8_lossy(&out.stderr)
+            ));
             std::ptr::null_mut()
         }
         Err(e) => {
@@ -135,6 +141,7 @@ pub extern "C" fn harmonia_browser_fetch_html_with_auth_symbol(
             return std::ptr::null_mut();
         }
     };
+    let _ = init_from_env();
     let secret = match get_secret_for_symbol(&symbol) {
         Some(v) => v,
         None => {
@@ -154,7 +161,10 @@ pub extern "C" fn harmonia_browser_fetch_html_with_auth_symbol(
             to_c_string(String::from_utf8_lossy(&out.stdout).to_string())
         }
         Ok(out) => {
-            set_error(format!("curl failed: {}", String::from_utf8_lossy(&out.stderr)));
+            set_error(format!(
+                "curl failed: {}",
+                String::from_utf8_lossy(&out.stderr)
+            ));
             std::ptr::null_mut()
         }
         Err(e) => {
@@ -170,7 +180,9 @@ pub extern "C" fn harmonia_browser_extract_links(url: *const c_char) -> *mut c_c
     if html_ptr.is_null() {
         return std::ptr::null_mut();
     }
-    let html = unsafe { CStr::from_ptr(html_ptr) }.to_string_lossy().into_owned();
+    let html = unsafe { CStr::from_ptr(html_ptr) }
+        .to_string_lossy()
+        .into_owned();
     harmonia_browser_free_string(html_ptr);
 
     let mut out = Vec::new();

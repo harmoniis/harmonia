@@ -1,4 +1,4 @@
-;;; vault.lisp — CFFI bridge for write-only vault operations from Lisp.
+;;; vault.lisp — CFFI bridge for vault set + key metadata operations from Lisp.
 
 (in-package :harmonia)
 
@@ -8,6 +8,9 @@
 (cffi:defcfun ("harmonia_vault_set_secret" %vault-set-secret) :int
   (symbol :string)
   (value :string))
+(cffi:defcfun ("harmonia_vault_has_secret" %vault-has-secret) :int
+  (symbol :string))
+(cffi:defcfun ("harmonia_vault_list_symbols" %vault-list-symbols) :pointer)
 (cffi:defcfun ("harmonia_vault_last_error" %vault-last-error) :pointer)
 (cffi:defcfun ("harmonia_vault_free_string" %vault-free-string) :void
   (ptr :pointer))
@@ -37,3 +40,30 @@
     (unless (zerop rc)
       (error "Vault set failed: ~A" (vault-last-error)))
     t))
+
+(defun vault-has-secret-p (symbol)
+  (let ((rc (%vault-has-secret symbol)))
+    (cond
+      ((minusp rc) (error "Vault has-secret failed: ~A" (vault-last-error)))
+      ((zerop rc) nil)
+      (t t))))
+
+(defun %split-lines (text)
+  (let ((parts '())
+        (start 0))
+    (loop for i = (position #\Newline text :start start)
+          do (push (subseq text start (or i (length text))) parts)
+          if (null i) do (return)
+          do (setf start (1+ i)))
+    (remove-if #'(lambda (s) (zerop (length s))) (nreverse parts))))
+
+(defun vault-list-symbols ()
+  (let ((ptr (%vault-list-symbols)))
+    (if (cffi:null-pointer-p ptr)
+        '()
+        (unwind-protect
+             (let ((raw (cffi:foreign-string-to-lisp ptr)))
+               (if (zerop (length raw))
+                   '()
+                   (%split-lines raw)))
+          (%vault-free-string ptr)))))

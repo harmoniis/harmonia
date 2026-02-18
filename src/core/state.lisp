@@ -15,7 +15,7 @@
                             (responses '())
                             (rewrite-count 0)
                             (environment "test")
-                            (active-model "qwen/qwen3-coder:free")
+                            (active-model nil)
                             (harmonic-phase :observe)
                             (harmonic-context '())
                             (harmonic-x 0.5)

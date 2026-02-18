@@ -21,6 +21,29 @@ fi
 S3_BUCKET="${S3_BUCKET:-harmoniis-wallet-state-339712728485}"
 S3_PREFIX="${S3_PREFIX:-harmonia-test}"
 
+build_vault_import_map() {
+  local parts=()
+  if [ -n "${OPENROUTER_API_KEY:-}" ]; then
+    parts+=("OPENROUTER_API_KEY=openrouter")
+  fi
+  if [ -n "${EXA_API_KEY:-}" ]; then
+    parts+=("EXA_API_KEY=exa_api_key|exa")
+  fi
+  if [ -n "${BRAVE_SEARCH_API_KEY:-}" ]; then
+    parts+=("BRAVE_SEARCH_API_KEY=brave_api_key|brave")
+  fi
+  if [ -n "${BRAVE_API_KEY:-}" ]; then
+    parts+=("BRAVE_API_KEY=brave_api_key|brave")
+  fi
+  local map
+  map="$(IFS=,; echo "${parts[*]}")"
+  if [ -n "$map" ]; then
+    export HARMONIA_VAULT_IMPORT="$map"
+  fi
+}
+
+build_vault_import_map
+
 echo "[1/4] Live OpenRouter path (Lisp -> Backend; backend reads key from vault)"
 HARMONIA_ENV=test \
 HARMONIA_OPENROUTER_ALLOW_OFFLINE=0 \

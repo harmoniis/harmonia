@@ -8,3 +8,4 @@ crate-type = ["cdylib"]
 
 [dependencies]
 harmonia-vault = { path = "../../core/vault" }
+harmonia-config-store = { path = "../../core/config-store" }

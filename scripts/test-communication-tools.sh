@@ -56,5 +56,14 @@ sbcl --disable-debugger \
   --quit
 
 echo "[3/3] verify whatsapp device creds persisted in vault store"
-rg -n "whatsapp_device_id|whatsapp_device_creds" /tmp/harmonia/vault.secrets >/dev/null
+sbcl --disable-debugger \
+  --eval '(load #P"~/quicklisp/setup.lisp")' \
+  --eval '(funcall (find-symbol "QUICKLOAD" (find-package :ql)) :cffi)' \
+  --eval '(cffi:load-foreign-library #P"/Users/george/harmoniis/projects/agent/harmonia/target/release/libharmonia_vault.dylib")' \
+  --eval '(cffi:defcfun ("harmonia_vault_init" vinit) :int)' \
+  --eval '(cffi:defcfun ("harmonia_vault_list_symbols" vlist) :pointer)' \
+  --eval '(cffi:defcfun ("harmonia_vault_free_string" vfree) :void (p :pointer))' \
+  --eval '(unless (zerop (vinit)) (error "vault init failed"))' \
+  --eval '(let* ((p (vlist)) (s (if (cffi:null-pointer-p p) "" (prog1 (cffi:foreign-string-to-lisp p) (vfree p))))) (unless (and (search "whatsapp_device_id" s) (search "whatsapp_device_creds" s)) (error "vault symbols missing: ~A" s)) (format t "~&VAULT_KEYS_OK~%"))' \
+  --quit
 echo "Communication tools smoke complete."

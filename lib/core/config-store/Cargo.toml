@@ -1,5 +1,5 @@
 [package]
-name = "harmonia-vault"
+name = "harmonia-config-store"
 version = "0.1.0"
 edition = "2021"
 

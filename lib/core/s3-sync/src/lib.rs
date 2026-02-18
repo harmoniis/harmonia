@@ -139,7 +139,10 @@ pub extern "C" fn harmonia_s3_sync_upload_file(
                 0
             }
             Ok(out) => {
-                set_error(format!("aws s3 cp failed: {}", String::from_utf8_lossy(&out.stderr)));
+                set_error(format!(
+                    "aws s3 cp failed: {}",
+                    String::from_utf8_lossy(&out.stderr)
+                ));
                 -1
             }
             Err(e) => {
@@ -204,7 +207,12 @@ mod tests {
         let prefix = CString::new("v-test").unwrap();
         let key = CString::new("artifact.bin").unwrap();
         assert_eq!(
-            harmonia_s3_sync_upload_file(csrc.as_ptr(), bucket.as_ptr(), prefix.as_ptr(), key.as_ptr()),
+            harmonia_s3_sync_upload_file(
+                csrc.as_ptr(),
+                bucket.as_ptr(),
+                prefix.as_ptr(),
+                key.as_ptr()
+            ),
             0
         );
         let dest = root

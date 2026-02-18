@@ -1,4 +1,4 @@
-use harmonia_vault::get_secret_for_symbol;
+use harmonia_vault::{get_secret_for_symbol, init_from_env};
 use std::ffi::{CStr, CString};
 use std::os::raw::c_char;
 use std::process::Command;
@@ -80,7 +80,10 @@ pub extern "C" fn harmonia_http_request(method: *const c_char, url: *const c_cha
             to_c_string(String::from_utf8_lossy(&out.stdout).to_string())
         }
         Ok(out) => {
-            set_error(format!("curl failed: {}", String::from_utf8_lossy(&out.stderr)));
+            set_error(format!(
+                "curl failed: {}",
+                String::from_utf8_lossy(&out.stderr)
+            ));
             std::ptr::null_mut()
         }
         Err(e) => {
@@ -118,6 +121,7 @@ pub extern "C" fn harmonia_http_request_with_auth_symbol(
         }
     };
 
+    let _ = init_from_env();
     let secret = match get_secret_for_symbol(&auth_symbol) {
         Some(v) => v,
         None => {
@@ -141,7 +145,10 @@ pub extern "C" fn harmonia_http_request_with_auth_symbol(
             to_c_string(String::from_utf8_lossy(&out.stdout).to_string())
         }
         Ok(out) => {
-            set_error(format!("curl failed: {}", String::from_utf8_lossy(&out.stderr)));
+            set_error(format!(
+                "curl failed: {}",
+                String::from_utf8_lossy(&out.stderr)
+            ));
             std::ptr::null_mut()
         }
         Err(e) => {

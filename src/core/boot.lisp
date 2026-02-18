@@ -14,6 +14,11 @@
            :run-prompt
            :run-self-push-test
            :vault-set-secret
+           :vault-has-secret-p
+           :vault-list-symbols
+           :config-set
+           :config-get
+           :config-list
            :memory-recent
            :memory-layered-recall
            :memory-map-sexp
@@ -47,6 +52,8 @@
            :harmony-policy-set
            :harmonic-matrix-set-tool-enabled
            :harmonic-matrix-set-tool
+           :harmonic-matrix-set-store
+           :harmonic-matrix-store-config
            :harmonic-matrix-set-node
            :harmonic-matrix-set-edge
            :harmonic-matrix-route-check
@@ -101,6 +108,7 @@
 (load (%core-path "harmonic-machine.lisp"))
 (%ensure-ffi-deps)
 (load (%core-path "../backends/vault.lisp"))
+(load (%core-path "../backends/config-store.lisp"))
 (load (%core-path "../backends/openrouter.lisp"))
 (load (%core-path "../backends/git-ops.lisp"))
 (load (%core-path "../backends/harmonic-matrix.lisp"))
@@ -143,13 +151,14 @@
   (%enforce-genesis-safety)
   (setf *runtime* (make-runtime-state))
   (setf (runtime-state-environment *runtime*) (%environment))
-  (harmony-policy-load)
-  (model-policy-load)
   (unless (dna-valid-p)
     (error "DNA validation failed; refusing to start."))
   (register-default-tools *runtime*)
   (memory-seed-soul-from-dna)
   (init-vault-backend)
+  (init-config-store-backend)
+  (harmony-policy-load)
+  (model-policy-load)
   (init-native-backends)
   (init-git-ops-backend)
   (bootstrap-harmonic-matrix)

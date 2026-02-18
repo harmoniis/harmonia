@@ -6,11 +6,17 @@
 (defparameter *parallel-subagent-count* 1)
 (defparameter *parallel-policy-config-path*
   (merge-pathnames "../../config/parallel-policy.sexp" *boot-file*))
-(defparameter *parallel-policy-state-path*
-  (or (sb-ext:posix-getenv "HARMONIA_PARALLEL_POLICY_PATH")
-      "/tmp/harmonia/parallel-policy.sexp"))
 
 (declaim (ftype function parallel-load-policy))
+
+(defun %parallel-state-root ()
+  (or (sb-ext:posix-getenv "HARMONIA_STATE_ROOT")
+      "/tmp/harmonia"))
+
+(defun %parallel-policy-state-path ()
+      (or (and (fboundp 'config-get) (config-get "parallel.policy.path"))
+      (sb-ext:posix-getenv "HARMONIA_PARALLEL_POLICY_PATH")
+      (concatenate 'string (%parallel-state-root) "/parallel-policy.sexp")))
 
 (cffi:defcfun ("harmonia_parallel_agents_init" %parallel-init) :int)
 (cffi:defcfun ("harmonia_parallel_agents_set_model_price" %parallel-set-price) :int
@@ -84,21 +90,29 @@
       (read in nil nil))))
 
 (defun parallel-load-policy ()
-  (let* ((source (cond
-                   ((probe-file *parallel-policy-state-path*) (%parallel-read-file *parallel-policy-state-path*))
+  (let* ((state-path (%parallel-policy-state-path))
+         (source (cond
+                   ((probe-file state-path) (%parallel-read-file state-path))
                    ((probe-file *parallel-policy-config-path*) (%parallel-read-file *parallel-policy-config-path*))
-                   (t '(:subagent-count 1))))
+                   (t (list :subagent-count
+                            (or (and (fboundp 'config-get)
+                                     (ignore-errors (read-from-string (or (config-get "parallel.subagent_count") ""))))
+                                1)))))
          (count (or (getf source :subagent-count) 1)))
     (setf *parallel-subagent-count* (max 1 count))
+    (when (fboundp 'config-set)
+      (config-set "parallel.subagent_count" (format nil "~D" *parallel-subagent-count*)))
     *parallel-subagent-count*))
 
 (defun parallel-save-policy ()
-  (let ((path *parallel-policy-state-path*))
+  (let ((path (%parallel-policy-state-path)))
     (ensure-directories-exist path)
     (with-open-file (out path :direction :output :if-exists :supersede :if-does-not-exist :create)
       (let ((*print-pretty* t))
         (prin1 (list :subagent-count *parallel-subagent-count*) out)
         (terpri out)))
+    (when (fboundp 'config-set)
+      (config-set "parallel.subagent_count" (format nil "~D" *parallel-subagent-count*)))
     path))
 
 (defun parallel-set-subagent-count (count)

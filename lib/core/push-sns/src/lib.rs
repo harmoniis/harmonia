@@ -53,7 +53,11 @@ pub extern "C" fn harmonia_push_sns_healthcheck() -> i32 {
 }
 
 #[no_mangle]
-pub extern "C" fn harmonia_push_sns_send(topic_arn: *const c_char, subject: *const c_char, message: *const c_char) -> i32 {
+pub extern "C" fn harmonia_push_sns_send(
+    topic_arn: *const c_char,
+    subject: *const c_char,
+    message: *const c_char,
+) -> i32 {
     let topic_arn = match cstr_to_string(topic_arn) {
         Ok(v) => v,
         Err(e) => {
@@ -80,7 +84,8 @@ pub extern "C" fn harmonia_push_sns_send(topic_arn: *const c_char, subject: *con
         .map(|v| v.eq_ignore_ascii_case("log"))
         .unwrap_or(false)
     {
-        let path = env::var("HARMONIA_PUSH_SNS_LOG").unwrap_or_else(|_| "/tmp/harmonia/push.log".to_string());
+        let path = env::var("HARMONIA_PUSH_SNS_LOG")
+            .unwrap_or_else(|_| "/tmp/harmonia/push.log".to_string());
         if let Some(parent) = std::path::Path::new(&path).parent() {
             if let Err(e) = fs::create_dir_all(parent) {
                 set_error(format!("push log dir create failed: {e}"));
@@ -119,7 +124,10 @@ pub extern "C" fn harmonia_push_sns_send(topic_arn: *const c_char, subject: *con
             0
         }
         Ok(out) => {
-            set_error(format!("aws sns publish failed: {}", String::from_utf8_lossy(&out.stderr)));
+            set_error(format!(
+                "aws sns publish failed: {}",
+                String::from_utf8_lossy(&out.stderr)
+            ));
             -1
         }
         Err(e) => {

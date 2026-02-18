@@ -36,6 +36,7 @@ sbcl \
 
 echo "[4/4] SBCL orchestration smoke test"
 : "${OPENROUTER_API_KEY:?OPENROUTER_API_KEY must be set}"
+export HARMONIA_VAULT_IMPORT="${HARMONIA_VAULT_IMPORT:-OPENROUTER_API_KEY=openrouter}"
 sbcl \
     --load src/core/boot.lisp \
     --eval '(harmonia:start :run-loop nil)' \

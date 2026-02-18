@@ -6,6 +6,7 @@ cd "$ROOT_DIR"
 
 : "${OPENROUTER_API_KEY:?OPENROUTER_API_KEY must be set}"
 export HARMONIA_ENV=test
+export HARMONIA_VAULT_IMPORT="${HARMONIA_VAULT_IMPORT:-OPENROUTER_API_KEY=openrouter}"
 
 echo "[1/7] cargo test --workspace"
 cargo test --workspace

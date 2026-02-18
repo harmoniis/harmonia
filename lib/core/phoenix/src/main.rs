@@ -12,12 +12,16 @@ fn env_bool(name: &str, default: bool) -> bool {
 }
 
 fn append_trauma(line: &str) {
-    let trauma_path = env::var("PHOENIX_TRAUMA_LOG")
-        .unwrap_or_else(|_| "/tmp/harmonia/trauma.log".to_string());
+    let trauma_path =
+        env::var("PHOENIX_TRAUMA_LOG").unwrap_or_else(|_| "/tmp/harmonia/trauma.log".to_string());
     if let Some(parent) = std::path::Path::new(&trauma_path).parent() {
         let _ = fs::create_dir_all(parent);
     }
-    if let Ok(mut f) = OpenOptions::new().create(true).append(true).open(&trauma_path) {
+    if let Ok(mut f) = OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(&trauma_path)
+    {
         let _ = writeln!(f, "{line}");
     }
 }
@@ -42,7 +46,9 @@ fn run_child_once(cmdline: &str) -> i32 {
 fn main() {
     let env_mode = env::var("HARMONIA_ENV").unwrap_or_else(|_| "test".to_string());
     if env_mode.eq_ignore_ascii_case("prod") && !env_bool("HARMONIA_ALLOW_PROD_GENESIS", false) {
-        eprintln!("[phoenix] refusing to start genesis in prod without HARMONIA_ALLOW_PROD_GENESIS=1");
+        eprintln!(
+            "[phoenix] refusing to start genesis in prod without HARMONIA_ALLOW_PROD_GENESIS=1"
+        );
         std::process::exit(2);
     }
 
@@ -69,7 +75,12 @@ fn main() {
                 eprintln!("[phoenix] child exited successfully.");
                 return;
             }
-            eprintln!("[phoenix] child failed rc={} attempt={}/{}", rc, attempt + 1, max_restarts + 1);
+            eprintln!(
+                "[phoenix] child failed rc={} attempt={}/{}",
+                rc,
+                attempt + 1,
+                max_restarts + 1
+            );
             if attempt == max_restarts {
                 eprintln!("[phoenix] max restarts exceeded.");
                 std::process::exit(1);

@@ -6,14 +6,32 @@
 (defparameter *harmonic-matrix-topology* nil)
 (defparameter *harmonic-matrix-seed-config*
   (merge-pathnames "../../config/matrix-topology.sexp" *boot-file*))
-(defparameter *harmonic-route-default-signal*
-  (or (ignore-errors (read-from-string (or (sb-ext:posix-getenv "HARMONIA_ROUTE_SIGNAL_DEFAULT") "")))
-      1.0d0))
-(defparameter *harmonic-route-default-noise*
-  (or (ignore-errors (read-from-string (or (sb-ext:posix-getenv "HARMONIA_ROUTE_NOISE_DEFAULT") "")))
-      0.1d0))
+
+(defun %matrix-state-root ()
+  (or (sb-ext:posix-getenv "HARMONIA_STATE_ROOT")
+      "/tmp/harmonia"))
+
+(defun %config-number (key env-key fallback)
+  (or (ignore-errors
+        (let ((v (and (fboundp 'config-get) (config-get key))))
+          (when (and v (plusp (length v)))
+            (coerce (read-from-string v) 'double-float))))
+      (ignore-errors
+        (let ((v (sb-ext:posix-getenv env-key)))
+          (when (and v (plusp (length v)))
+            (coerce (read-from-string v) 'double-float))))
+      fallback))
+
+(defun %route-default-signal ()
+  (%config-number "matrix.route.signal_default" "HARMONIA_ROUTE_SIGNAL_DEFAULT" 1.0d0))
+
+(defun %route-default-noise ()
+  (%config-number "matrix.route.noise_default" "HARMONIA_ROUTE_NOISE_DEFAULT" 0.1d0))
 
 (cffi:defcfun ("harmonia_harmonic_matrix_init" %hm-init) :int)
+(cffi:defcfun ("harmonia_harmonic_matrix_set_store" %hm-set-store) :int
+  (kind :string) (path :string))
+(cffi:defcfun ("harmonia_harmonic_matrix_get_store" %hm-get-store) :pointer)
 (cffi:defcfun ("harmonia_harmonic_matrix_register_node" %hm-register-node) :int
   (node-id :string) (kind :string))
 (cffi:defcfun ("harmonia_harmonic_matrix_set_tool_enabled" %hm-set-tool-enabled) :int
@@ -57,6 +75,12 @@
 (defun harmonic-matrix-register-node (node kind)
   (%harmonic-matrix-check (%hm-register-node node kind) "register-node"))
 
+(defun harmonic-matrix-set-store (kind &optional (path ""))
+  (%harmonic-matrix-check (%hm-set-store kind path) "set-store"))
+
+(defun harmonic-matrix-store-config ()
+  (%hm-read-string (%hm-get-store) "get-store"))
+
 (defun harmonic-matrix-set-tool-enabled (tool-id enabled)
   (%harmonic-matrix-check (%hm-set-tool-enabled tool-id (if enabled 1 0)) "set-tool-enabled"))
 
@@ -65,17 +89,21 @@
                           "register-edge"))
 
 (defun harmonic-matrix-route-defaults ()
-  (list :signal *harmonic-route-default-signal* :noise *harmonic-route-default-noise*))
+  (list :signal (%route-default-signal) :noise (%route-default-noise)))
 
 (defun harmonic-matrix-set-route-defaults (&key signal noise)
-  (when signal (setf *harmonic-route-default-signal* (coerce signal 'double-float)))
-  (when noise (setf *harmonic-route-default-noise* (coerce noise 'double-float)))
+  (when signal
+    (when (fboundp 'config-set)
+      (config-set "matrix.route.signal_default" (format nil "~,6f" (coerce signal 'double-float)))))
+  (when noise
+    (when (fboundp 'config-set)
+      (config-set "matrix.route.noise_default" (format nil "~,6f" (coerce noise 'double-float)))))
   (harmonic-matrix-route-defaults))
 
-(defun harmonic-matrix-route-allowed-p (from to &key (signal *harmonic-route-default-signal*) (noise *harmonic-route-default-noise*))
+(defun harmonic-matrix-route-allowed-p (from to &key (signal (%route-default-signal)) (noise (%route-default-noise)))
   (plusp (%hm-route-allowed from to (coerce signal 'double-float) (coerce noise 'double-float))))
 
-(defun harmonic-matrix-route-or-error (from to &key (signal *harmonic-route-default-signal*) (noise *harmonic-route-default-noise*))
+(defun harmonic-matrix-route-or-error (from to &key (signal (%route-default-signal)) (noise (%route-default-noise)))
   (unless (harmonic-matrix-route-allowed-p from to :signal signal :noise noise)
     (error "harmonic-matrix route denied ~A -> ~A: ~A" from to (harmonic-matrix-last-error)))
   t)
@@ -100,8 +128,9 @@
   (%hm-read-string (%hm-report) "report"))
 
 (defun %matrix-topology-path ()
-  (or (sb-ext:posix-getenv "HARMONIA_MATRIX_TOPOLOGY_PATH")
-      "/tmp/harmonia/matrix-topology.sexp"))
+  (or (and (fboundp 'config-get) (config-get "matrix.topology.path"))
+      (sb-ext:posix-getenv "HARMONIA_MATRIX_TOPOLOGY_PATH")
+      (concatenate 'string (%matrix-state-root) "/matrix-topology.sexp")))
 
 (defun %default-matrix-topology ()
   (unless (probe-file *harmonic-matrix-seed-config*)
@@ -186,7 +215,7 @@
   (let ((next (%topology-upsert-tool (harmonic-matrix-current-topology) tool-id enabled)))
     (harmonic-matrix-apply-topology next :persist persist)))
 
-(defun harmonic-matrix-route-check (from to &key (signal *harmonic-route-default-signal*) (noise *harmonic-route-default-noise*))
+(defun harmonic-matrix-route-check (from to &key (signal (%route-default-signal)) (noise (%route-default-noise)))
   (list :from from
         :to to
         :signal signal

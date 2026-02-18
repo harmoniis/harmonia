@@ -45,8 +45,8 @@
              (cffi:foreign-string-to-lisp ptr)
           (%openrouter-free-string ptr)))))
 
-(defun backend-complete (prompt &optional (model "qwen/qwen3-coder:free"))
-  (let ((ptr (%openrouter-complete prompt model)))
+(defun backend-complete (prompt &optional model)
+  (let ((ptr (%openrouter-complete prompt (or model ""))))
     (if (cffi:null-pointer-p ptr)
         (error "OpenRouter request failed: ~A" (backend-last-error))
         (unwind-protect

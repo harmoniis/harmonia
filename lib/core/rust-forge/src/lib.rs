@@ -50,7 +50,10 @@ pub extern "C" fn harmonia_rust_forge_healthcheck() -> i32 {
 }
 
 #[no_mangle]
-pub extern "C" fn harmonia_rust_forge_build_package(workspace_dir: *const c_char, package: *const c_char) -> i32 {
+pub extern "C" fn harmonia_rust_forge_build_package(
+    workspace_dir: *const c_char,
+    package: *const c_char,
+) -> i32 {
     let workspace_dir = match cstr_to_string(workspace_dir) {
         Ok(v) => v,
         Err(e) => {
@@ -78,7 +81,10 @@ pub extern "C" fn harmonia_rust_forge_build_package(workspace_dir: *const c_char
             0
         }
         Ok(out) => {
-            set_error(format!("forge build failed: {}", String::from_utf8_lossy(&out.stderr)));
+            set_error(format!(
+                "forge build failed: {}",
+                String::from_utf8_lossy(&out.stderr)
+            ));
             -1
         }
         Err(e) => {

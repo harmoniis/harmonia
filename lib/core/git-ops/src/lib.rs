@@ -227,13 +227,7 @@ mod tests {
         run("git", &["-C", repo.to_str().unwrap(), "init"]);
         run(
             "git",
-            &[
-                "-C",
-                repo.to_str().unwrap(),
-                "checkout",
-                "-b",
-                "main",
-            ],
+            &["-C", repo.to_str().unwrap(), "checkout", "-b", "main"],
         );
         run(
             "git",

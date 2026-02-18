@@ -20,6 +20,7 @@ members = [
     "lib/core/search-exa",
     "lib/core/search-brave",
     "lib/core/harmonic-matrix",
+    "lib/core/config-store",
 
     # Backends — LLM providers
     "lib/backends/openrouter-backend",
