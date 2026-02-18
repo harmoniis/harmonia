@@ -19,7 +19,10 @@ OPENROUTER_API_KEY="$OPENROUTER_API_KEY" ./scripts/grind-harmonia-online.sh
 echo "[C] local PGP+TLS MQTT"
 ./scripts/test-mqtt-pgp-tls-local.sh
 
-echo "[D] Harmonia-loop self-push + cleanup"
+echo "[D] core ffi live checks"
+./scripts/test-core-live.sh
+
+echo "[E] Harmonia-loop self-push + cleanup"
 TMPDIR_TEST="$(mktemp -d /tmp/harmonia-hardproof-loop-XXXXXX)"
 REPO_DIR="$TMPDIR_TEST/harmonia"
 git clone git@github.com:harmoniis/harmonia.git "$REPO_DIR" >/tmp/hhp_clone.log 2>/tmp/hhp_clone.err
@@ -32,5 +35,11 @@ OPENROUTER_API_KEY="$OPENROUTER_API_KEY" HARMONIA_ENV=test sbcl --disable-debugg
   --quit
 git -C "$REPO_DIR" ls-remote --heads origin "$BRANCH"
 git -C "$REPO_DIR" push origin --delete "$BRANCH" >/tmp/hhp_del.log 2>/tmp/hhp_del.err
+
+echo "[F] harmonic genesis state-machine feedback loop"
+OPENROUTER_API_KEY="$OPENROUTER_API_KEY" ./scripts/test-harmonic-genesis-loop.sh
+
+echo "[G] communication/search/voice tools smoke"
+./scripts/test-communication-tools.sh
 
 echo "Hard proof grind complete."

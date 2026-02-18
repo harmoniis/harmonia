@@ -33,3 +33,14 @@ Record of every successful self-rewrite. Updated by the agent after each evoluti
 - **Size After:** Executable bootstrap loop + uniform C-ABI exports
 - **Compression Ratio:** N/A (structural completion)
 - **Summary:** Added deterministic Lisp runtime state/loop/tool registry, implemented C-ABI `version`/`healthcheck` exports across all tool crates, introduced shared `harmoniislib` payload builders, and linked iOS/Android apps to shared functionality through runtime symbol loading.
+
+## v2 — 2026-02-18
+
+- **Target:** Harmonic matrix + vault/model/tool policy surfaces
+- **Law Applied:** Law 4 (Attractors over Noise), Law 6 (Self-Similarity), Law 7 (Kolmogorov-Harmony Equivalence)
+- **Score Before:** Operational but policy-heavy in code
+- **Score After:** Data-driven runtime policy with set/get/save/load
+- **Size Before:** Mixed code+policy
+- **Size After:** Policy externalized to config/runtime state
+- **Compression Ratio:** Structural simplification (policy moved from branches to declarative state)
+- **Summary:** Removed hardcoded operational policy from execution paths by introducing declarative configs (`tools.sexp`, `model-policy.sexp`, `matrix-topology.sexp`), generic vault secret ingestion, runtime matrix/model/parallel control interfaces, and persistent mutable policy state.

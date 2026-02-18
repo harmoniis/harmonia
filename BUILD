@@ -22,6 +22,10 @@ filegroup(
         "//harmonia/lib/core/recovery:recovery-so",
         "//harmonia/lib/core/browser:browser-so",
         "//harmonia/lib/core/fs:fs-so",
+        "//harmonia/lib/core/parallel-agents:parallel-agents-so",
+        "//harmonia/lib/core/search-exa:tool-so",
+        "//harmonia/lib/core/search-brave:tool-so",
+        "//harmonia/lib/core/harmonic-matrix:harmonic-matrix-so",
 
         # Backends
         "//harmonia/lib/backends/openrouter-backend:openrouter-backend",
@@ -29,6 +33,13 @@ filegroup(
         # Tools — optional plugins
         "//harmonia/lib/tools/pgp-identity:pgp-identity",
         "//harmonia/lib/tools/webcash-wallet:webcash-wallet",
-        "//harmonia/lib/tools/social:social",
+        "//harmonia/lib/tools/whatsapp:tool-so",
+        "//harmonia/lib/tools/telegram:tool-so",
+        "//harmonia/lib/tools/slack:tool-so",
+        "//harmonia/lib/tools/mattermost:tool-so",
+        "//harmonia/lib/tools/nostr:tool-so",
+        "//harmonia/lib/tools/email-client:tool-so",
+        "//harmonia/lib/tools/whisper:tool-so",
+        "//harmonia/lib/tools/elevenlabs:tool-so",
     ],
 )

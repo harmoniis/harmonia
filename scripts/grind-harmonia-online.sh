@@ -21,7 +21,7 @@ fi
 S3_BUCKET="${S3_BUCKET:-harmoniis-wallet-state-339712728485}"
 S3_PREFIX="${S3_PREFIX:-harmonia-test}"
 
-echo "[1/4] Live OpenRouter path (Lisp -> Vault -> OpenRouter backend)"
+echo "[1/4] Live OpenRouter path (Lisp -> Backend; backend reads key from vault)"
 HARMONIA_ENV=test \
 HARMONIA_OPENROUTER_ALLOW_OFFLINE=0 \
 sbcl --disable-debugger \

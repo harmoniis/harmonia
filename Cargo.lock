@@ -107,10 +107,27 @@ dependencies = [
 [[package]]
 name = "harmonia-browser"
 version = "0.1.0"
+dependencies = [
+ "harmonia-vault",
+]
 
 [[package]]
 name = "harmonia-cron-scheduler"
 version = "0.1.0"
+
+[[package]]
+name = "harmonia-elevenlabs"
+version = "0.1.0"
+dependencies = [
+ "harmonia-vault",
+]
+
+[[package]]
+name = "harmonia-email-client"
+version = "0.1.0"
+dependencies = [
+ "harmonia-vault",
+]
 
 [[package]]
 name = "harmonia-fs"
@@ -121,8 +138,22 @@ name = "harmonia-git-ops"
 version = "0.1.0"
 
 [[package]]
+name = "harmonia-harmonic-matrix"
+version = "0.1.0"
+
+[[package]]
 name = "harmonia-http"
 version = "0.1.0"
+dependencies = [
+ "harmonia-vault",
+]
+
+[[package]]
+name = "harmonia-mattermost"
+version = "0.1.0"
+dependencies = [
+ "harmonia-vault",
+]
 
 [[package]]
 name = "harmonia-memory"
@@ -136,6 +167,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "harmonia-nostr"
+version = "0.1.0"
+dependencies = [
+ "harmonia-vault",
+]
+
+[[package]]
 name = "harmonia-openrouter"
 version = "0.1.0"
 dependencies = [
@@ -145,6 +183,13 @@ dependencies = [
 [[package]]
 name = "harmonia-ouroboros"
 version = "0.1.0"
+
+[[package]]
+name = "harmonia-parallel-agents"
+version = "0.1.0"
+dependencies = [
+ "harmonia-vault",
+]
 
 [[package]]
 name = "harmonia-pgp-identity"
@@ -171,8 +216,32 @@ name = "harmonia-s3-sync"
 version = "0.1.0"
 
 [[package]]
-name = "harmonia-social"
+name = "harmonia-search-brave"
 version = "0.1.0"
+dependencies = [
+ "harmonia-vault",
+]
+
+[[package]]
+name = "harmonia-search-exa"
+version = "0.1.0"
+dependencies = [
+ "harmonia-vault",
+]
+
+[[package]]
+name = "harmonia-slack"
+version = "0.1.0"
+dependencies = [
+ "harmonia-vault",
+]
+
+[[package]]
+name = "harmonia-telegram"
+version = "0.1.0"
+dependencies = [
+ "harmonia-vault",
+]
 
 [[package]]
 name = "harmonia-vault"
@@ -181,6 +250,20 @@ version = "0.1.0"
 [[package]]
 name = "harmonia-webcash-wallet"
 version = "0.1.0"
+
+[[package]]
+name = "harmonia-whatsapp"
+version = "0.1.0"
+dependencies = [
+ "harmonia-vault",
+]
+
+[[package]]
+name = "harmonia-whisper"
+version = "0.1.0"
+dependencies = [
+ "harmonia-vault",
+]
 
 [[package]]
 name = "libc"

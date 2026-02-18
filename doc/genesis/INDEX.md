@@ -37,6 +37,7 @@ The agent evolves toward **Kolmogorov-optimal** form: shortest program that achi
 | 1 | **[CONTEXT.md](CONTEXT.md)** | **Start here.** Grand Unification overview. Repository structure, Granular Arsenal (all 14 core .so tools), Vault scoped permissions, Memory Core, Ouroboros self-repair cycle, Algorithmic DNA, model strategy. The "Bible". |
 | 2 | **[HARMONIC_THEORY.md](HARMONIC_THEORY.md)** | **The mathematical soul.** Pythagoras, Kepler, Lambdoma matrix, Lorenz/Feigenbaum attractors, Kolmogorov-harmony equivalence, Solomonoff prior, the 8 Laws of Harmonia. Cross-domain harmonic index. |
 | 3 | **[HARMONIA.md](HARMONIA.md)** | Deep technical spec. Directory structure, FFI interfaces (OpenRouter, MQTT, Forge), core agent loop code, evolution engine, DNA/constitution, memory system bootstrap, tool registry, Bazel build, bootstrap sequence. |
+| 3b | **[CODE_HARMONY.md](CODE_HARMONY.md)** | Engineering constitution for strength, utility, beauty. Enforces data-driven policy over hardcoded behavior and defines mandatory set/get/save/load surfaces. |
 | 4 | **[SBCL.md](SBCL.md)** | Why SBCL. Homoiconicity, native compilation, serialization contract, core image dumps. |
 | 5 | **[A2UI_SPEC.md](A2UI_SPEC.md)** | **Unified A2UI component spec.** All 21 components with JSON schemas. MQTT platform identification protocol. Platform capability table. Backward-compatible primitives (iOS 15+, Android 8+). |
 | 6 | **[CICD.md](CICD.md)** | CI/CD pipeline. Bazel → TestFlight (iOS), Google Play (Android), pkgsrc/pkgin (NetBSD). Manual phase → GitHub Actions. Secrets management. |
@@ -151,7 +152,10 @@ Full spec: UIUX.md, OS4-ARCHITECTURE.md §A2UI
 - **Memory FFI (store/recall/schema)** → HARMONIA.md §FFI Memory
 - **Hot-reload protocol** → HARMONIA.md §Hot-Reload Protocol
 - **Error propagation (Rust→Lisp)** → HARMONIA.md §Error Propagation
-- **Configuration files (agent.sexp, tools.sexp, backends.sexp)** → HARMONIA.md §Configuration Files
+- **Configuration files (`tools.sexp`, `model-policy.sexp`, `matrix-topology.sexp`, `parallel-policy.sexp`, `harmony-policy.sexp`)** → HARMONIA.md §Configuration Files
+- **Code harmony rules (`strength`, `utility`, `beauty`)** → CODE_HARMONY.md
+- **Runtime matrix policy ops** → SESSION_2026-02-18_HARMONIC_MATRIX.md §8
+- **Runtime model policy ops** → SESSION_2026-02-18_HARMONIC_MATRIX.md §9
 - **Vault tool-key bindings (vault.toml)** → HARMONIA.md §Vault Configuration
 - **Phoenix supervisor (binary, not .so)** → HARMONIA.md §FFI Phoenix + §Phoenix Supervisor
 - **Core agent loop (Lisp code)** → HARMONIA.md §Core Agent Loop

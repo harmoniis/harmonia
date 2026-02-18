@@ -79,11 +79,22 @@ harmonia/
 │   └── tools/                  # Optional plugins (.so, loaded on demand)
 │       ├── pgp-identity/       # Ed25519/ECDSA cryptographic identity
 │       ├── webcash-wallet/     # Webcash operations
-│       └── social/             # WhatsApp/Telegram/Discord clients
+│       ├── whatsapp/           # WhatsApp linked-device send/store
+│       ├── telegram/           # Telegram send
+│       ├── slack/              # Slack send
+│       ├── mattermost/         # Mattermost send
+│       ├── nostr/              # Nostr publish
+│       ├── email-client/       # Email send
+│       ├── whisper/            # Whisper transcription
+│       └── elevenlabs/         # ElevenLabs TTS
 ├── config/
 │   ├── agent.sexp              # Initial agent configuration (s-expression)
 │   ├── backends.sexp           # Backend configuration (names, .so paths)
-│   └── tools.sexp              # Tool registry configuration
+│   ├── tools.sexp              # Tool registry defaults (data, not hardcoded)
+│   ├── model-policy.sexp       # Model scoring defaults (data, not hardcoded)
+│   ├── matrix-topology.sexp    # Routing topology defaults (data, not hardcoded)
+│   ├── parallel-policy.sexp    # Subagent fan-out defaults (data, not hardcoded)
+│   └── harmony-policy.sexp     # Harmonic evolution thresholds/weights (data, not hardcoded)
 ├── tests/
 │   ├── test-boot.lisp
 │   ├── test-rewrite.lisp
@@ -1732,7 +1743,14 @@ rust_binary(
 ) for tool in [
     "pgp-identity",
     "webcash-wallet",
-    "social",
+    "whatsapp",
+    "telegram",
+    "slack",
+    "mattermost",
+    "nostr",
+    "email-client",
+    "whisper",
+    "elevenlabs",
 ]]
 
 # Build SBCL core image with all Lisp files
@@ -1759,7 +1777,14 @@ sbcl_image(
         # Tools (optional — remove if not needed)
         ":pgp-identity",
         ":webcash-wallet",
-        ":social",
+        ":whatsapp",
+        ":telegram",
+        ":slack",
+        ":mattermost",
+        ":nostr",
+        ":email-client",
+        ":whisper",
+        ":elevenlabs",
     ],
     main = "src/core/boot.lisp",
     quicklisp_deps = ["cffi", "bordeaux-threads", "usocket"],
@@ -1848,64 +1873,37 @@ sbcl_test(
 ### `config/tools.sexp` — Tool Registry Configuration
 
 ```lisp
-;; Lists all Rust .so tools to load at boot.
-;; Each entry: (:name <symbol> :path <.so path> :category <core|backend|optional>
-;;              :auto-load <t|nil> :health-check <function-name>)
-
+;; Data-driven default registry. Format is simple alist:
+;; ("tool-id" . "relative/path")
 (
-  ;; Core tools — always loaded
-  (:name "vault"          :path "lib/core/vault/libvault.so"
-   :category :core :auto-load t :health-check "vault_list_keys")
-
-  (:name "memory"         :path "lib/core/memory/libmemory.so"
-   :category :core :auto-load t :health-check "memory_stats")
-
-  (:name "mqtt-client"    :path "lib/core/mqtt-client/libmqtt.so"
-   :category :core :auto-load t :health-check "mqtt_is_connected")
-
-  (:name "http"           :path "lib/core/http/libhttp.so"
-   :category :core :auto-load t :health-check nil)
-
-  (:name "s3-sync"        :path "lib/core/s3-sync/libs3.so"
-   :category :core :auto-load t :health-check nil)
-
-  (:name "git-ops"        :path "lib/core/git-ops/libgit.so"
-   :category :core :auto-load t :health-check "git_head")
-
-  (:name "rust-forge"     :path "lib/core/rust-forge/libforge.so"
-   :category :core :auto-load t :health-check nil)
-
-  (:name "cron-scheduler" :path "lib/core/cron-scheduler/libscheduler.so"
-   :category :core :auto-load t :health-check "scheduler_list")
-
-  (:name "push-sns"       :path "lib/core/push-sns/libpush.so"
-   :category :core :auto-load t :health-check nil)
-
-  (:name "recovery"       :path "lib/core/recovery/librecovery.so"
-   :category :core :auto-load t :health-check nil)
-
-  (:name "browser"        :path "lib/core/browser/libbrowser.so"
-   :category :core :auto-load t :health-check nil)
-
-  (:name "fs"             :path "lib/core/fs/libfs.so"
-   :category :core :auto-load t :health-check nil)
-
-  (:name "ouroboros"      :path "lib/core/ouroboros/libouroboros.so"
-   :category :core :auto-load t :health-check "ouroboros_health")
-
-  ;; Backend — LLM provider
-  (:name "openrouter"     :path "lib/backends/openrouter-backend/libharmonia_openrouter.so"
-   :category :backend :auto-load t :health-check "or_model_count")
-
-  ;; Optional tools — loaded on demand
-  (:name "pgp-identity"   :path "lib/tools/pgp-identity/libpgp.so"
-   :category :optional :auto-load nil :health-check nil)
-
-  (:name "webcash-wallet" :path "lib/tools/webcash-wallet/libwebcash.so"
-   :category :optional :auto-load nil :health-check nil)
-
-  (:name "social"         :path "lib/tools/social/libsocial.so"
-   :category :optional :auto-load nil :health-check nil)
+  ("vault" . "lib/core/vault")
+  ("memory" . "lib/core/memory")
+  ("mqtt-client" . "lib/core/mqtt-client")
+  ("http" . "lib/core/http")
+  ("s3-sync" . "lib/core/s3-sync")
+  ("git-ops" . "lib/core/git-ops")
+  ("rust-forge" . "lib/core/rust-forge")
+  ("cron-scheduler" . "lib/core/cron-scheduler")
+  ("push-sns" . "lib/core/push-sns")
+  ("recovery" . "lib/core/recovery")
+  ("browser" . "lib/core/browser")
+  ("fs" . "lib/core/fs")
+  ("ouroboros" . "lib/core/ouroboros")
+  ("parallel-agents" . "lib/core/parallel-agents")
+  ("search-exa" . "lib/core/search-exa")
+  ("search-brave" . "lib/core/search-brave")
+  ("harmonic-matrix" . "lib/core/harmonic-matrix")
+  ("openrouter-backend" . "lib/backends/openrouter-backend")
+  ("pgp-identity" . "lib/tools/pgp-identity")
+  ("webcash-wallet" . "lib/tools/webcash-wallet")
+  ("whatsapp" . "lib/tools/whatsapp")
+  ("telegram" . "lib/tools/telegram")
+  ("slack" . "lib/tools/slack")
+  ("mattermost" . "lib/tools/mattermost")
+  ("nostr" . "lib/tools/nostr")
+  ("email-client" . "lib/tools/email-client")
+  ("whisper" . "lib/tools/whisper")
+  ("elevenlabs" . "lib/tools/elevenlabs")
 )
 ```
 
@@ -1943,6 +1941,84 @@ sbcl_test(
    ))
 )
 ```
+
+### `config/model-policy.sexp` — Runtime Model Policy Defaults
+
+```lisp
+(:weights (:completion 0.46 :correctness 0.24 :speed 0.16 :price 0.14)
+ :profiles (
+   (:id "amazon/nova-micro-v1" :tier :micro :cost 1 :latency 1 :quality 2 :completion 2
+    :tags (:cheap :fast :routing))
+   (:id "x-ai/grok-4-fast:online" :tier :fast-smart :cost 5 :latency 2 :quality 7 :completion 7
+    :tags (:planner :fast :strong))
+   ...))
+```
+
+This file is loaded at boot and can be modified at runtime via:
+- `tool op=model-policy-get`
+- `tool op=model-policy-set-weight`
+- `tool op=model-policy-upsert`
+- `tool op=model-policy-save`
+- `tool op=model-policy-load`
+
+### `config/matrix-topology.sexp` — Runtime Routing Topology Defaults
+
+```lisp
+(:nodes (("orchestrator" . "core") ("openrouter" . "backend") ...)
+ :edges (("orchestrator" "openrouter" 1.15 0.35) ...)
+ :tools (("whatsapp" . t) ("telegram" . t) ...))
+```
+
+This file seeds matrix routing at boot and can be modified at runtime via:
+- `tool op=matrix-set-node`
+- `tool op=matrix-set-edge`
+- `tool op=matrix-tool-enable`
+- `tool op=matrix-get-topology`
+- `tool op=matrix-save`
+- `tool op=matrix-load`
+- `tool op=matrix-reset-defaults`
+
+### `config/parallel-policy.sexp` — Runtime Subagent Fan-Out Defaults
+
+```lisp
+(:subagent-count 3)
+```
+
+Runtime controls:
+- `tool op=parallel-set-width count=<int>`
+- `tool op=parallel-get-width`
+- `tool op=parallel-save-policy`
+- `tool op=parallel-load-policy`
+
+### `config/harmony-policy.sexp` — Runtime Harmonic Constants
+
+```lisp
+(:rewrite-plan (:signal-min 0.62 :noise-max 0.38 :chaos-max 0.55)
+ :logistic (:edge 3.56995 :distance-window 0.4 ...)
+ :lambdoma (:convergence-min 0.72)
+ :lorenz (:sigma 10.0 :rho 28.0 :beta 2.6666667 :dt 0.01 ...)
+ :complexity (:density-simple-mult 3.0 :density-possible-mult 8.0)
+ :vitruvian (...))
+```
+
+Runtime controls:
+- `tool op=harmony-policy-get`
+- `tool op=harmony-policy-set path=<a/b/c> value=<lisp-literal>`
+- `tool op=harmony-policy-save`
+- `tool op=harmony-policy-load`
+
+### 4D Matrix Observability
+
+Matrix telemetry includes a temporal axis:
+- `epoch`: matrix initialization time
+- `revision`: structural/telemetry state-change counter
+- per-route timeseries: `tool op=matrix-route-timeseries ...`
+- temporal event stream: `tool op=matrix-time-report since=<unix>`
+
+Orchestrator feeds matrix with:
+- `input` events (incoming prompts),
+- `output` events (tool/backend responses),
+- `error` events (runtime failures).
 
 ---
 

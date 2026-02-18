@@ -97,6 +97,15 @@ fn extract_error_message(payload: &str) -> Option<String> {
 }
 
 fn request_once(prompt: &str, model: &str, api_key: &str) -> Result<String, String> {
+    let connect_timeout = env::var("HARMONIA_OPENROUTER_CONNECT_TIMEOUT_SECS")
+        .ok()
+        .and_then(|v| v.parse::<u64>().ok())
+        .unwrap_or(10);
+    let max_time = env::var("HARMONIA_OPENROUTER_MAX_TIME_SECS")
+        .ok()
+        .and_then(|v| v.parse::<u64>().ok())
+        .unwrap_or(45);
+
     let payload = format!(
         "{{\"model\":\"{}\",\"messages\":[{{\"role\":\"user\",\"content\":\"{}\"}}]}}",
         json_escape(model),
@@ -107,6 +116,10 @@ fn request_once(prompt: &str, model: &str, api_key: &str) -> Result<String, Stri
         .arg("-sS")
         .arg("-X")
         .arg("POST")
+        .arg("--connect-timeout")
+        .arg(connect_timeout.to_string())
+        .arg("--max-time")
+        .arg(max_time.to_string())
         .arg(OPENROUTER_URL)
         .arg("-H")
         .arg(format!("Authorization: Bearer {api_key}"))
@@ -153,6 +166,8 @@ fn fallback_models() -> Vec<String> {
 }
 
 fn openrouter_complete(prompt: &str, model: &str) -> Result<String, String> {
+    // Refresh vault view so backend observes Lisp-set symbols persisted by vault.
+    let _ = init_from_env();
     let api_key = get_secret_for_symbol("openrouter")
         .ok_or_else(|| "openrouter key missing in vault".to_string())?;
 

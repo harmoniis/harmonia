@@ -2,6 +2,40 @@
 
 (in-package :harmonia)
 
+(defun %queue-pop (runtime)
+  (let ((q (runtime-state-prompt-queue runtime)))
+    (when q
+      (setf (runtime-state-prompt-queue runtime) (rest q))
+      (first q))))
+
+(defun %requeue-front (runtime prompt)
+  (setf (runtime-state-prompt-queue runtime)
+        (cons prompt (runtime-state-prompt-queue runtime))))
+
+(defun %process-prompt-safe (runtime prompt)
+  (restart-case
+      (handler-bind
+          ((error (lambda (c)
+                    (record-runtime-error c :prompt prompt)
+                    (let ((r (find-restart 'continue-with-error)))
+                      (when r (invoke-restart r))))))
+        (let ((response (orchestrate-once prompt)))
+          (handler-case
+              (maybe-self-rewrite prompt response)
+            (error (e)
+              (record-runtime-error e :prompt prompt)))
+          response))
+    (continue-with-error ()
+      (runtime-log runtime :continue-with-error (list :prompt prompt))
+      nil)
+    (retry-prompt ()
+      (%requeue-front runtime prompt)
+      (runtime-log runtime :retry-prompt (list :prompt prompt))
+      nil)
+    (drop-prompt ()
+      (runtime-log runtime :drop-prompt (list :prompt prompt))
+      nil)))
+
 (defun tick (&key (runtime *runtime*))
   "Run one deterministic control-cycle iteration."
   (unless runtime
@@ -10,12 +44,15 @@
   (setf (runtime-state-last-tick-at runtime) (get-universal-time))
   (incf (runtime-state-cycle runtime))
 
-  (when (runtime-state-prompt-queue runtime)
-    (let* ((prompt (first (runtime-state-prompt-queue runtime)))
-           (response (orchestrate-once prompt)))
-      (setf (runtime-state-prompt-queue runtime)
-            (rest (runtime-state-prompt-queue runtime)))
-      (maybe-self-rewrite prompt response)))
+  (let ((prompt (%queue-pop runtime)))
+    (when prompt
+      (%process-prompt-safe runtime prompt)))
+
+  ;; Heartbeat: run maintenance only when memory layer decides it is idle-night-safe.
+  (handler-case (memory-heartbeat :runtime runtime)
+    (error (e) (record-runtime-error e)))
+  (handler-case (harmonic-state-step :runtime runtime)
+    (error (e) (record-runtime-error e)))
 
   (runtime-log runtime :tick (list :cycle (runtime-state-cycle runtime)
                                    :tools (hash-table-count (runtime-state-tools runtime))

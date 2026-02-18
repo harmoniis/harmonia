@@ -98,13 +98,42 @@ The Agent interacts with the world via Micro-Service Dynamic Libraries. Each is 
 |---------|------|
 | `libopenrouter.so` | OpenRouter Backend — LLM access, streaming, cost tracking, model selection |
 
-**Optional Plugins (3) — Loaded on demand:**
+**Optional Plugins (10) — Loaded on demand:**
 
 | Library | Role |
 |---------|------|
 | `libpgp.so` | Ed25519/ECDSA cryptographic identity |
 | `libwebcash.so` | Webcash wallet operations |
-| `libsocial.so` | WhatsApp/Telegram/Discord clients |
+| `libwhatsapp.so` | WhatsApp linked-device send/store |
+| `libtelegram.so` | Telegram send |
+| `libslack.so` | Slack send |
+| `libmattermost.so` | Mattermost send |
+| `libnostr.so` | Nostr publish |
+| `libemail_client.so` | SMTP/Email send |
+| `libwhisper.so` | OpenAI Whisper transcription |
+| `libelevenlabs.so` | ElevenLabs text-to-speech |
+
+## 3b. Runtime Policy Layer (No Hardcoded Operational Policy)
+
+Operational policy is data, not code:
+
+- `config/tools.sexp` → default tool registry
+- `config/model-policy.sexp` → default model scoring policy
+- `config/matrix-topology.sexp` → default routing topology
+- `config/parallel-policy.sexp` → default subagent fan-out policy
+- `config/harmony-policy.sexp` → default harmonic evolution thresholds/weights
+
+Runtime state can be updated and persisted through orchestration interfaces:
+
+- Matrix: set/get/save/load/reset/route-check
+- Model policy: get/set/save/load/upsert
+- Vault: generic set by symbol, generic env ingestion (`HARMONIA_VAULT_SECRET__<SYMBOL>`)
+
+The matrix is **4D**:
+- dimensions 1-3: nodes/edges/tools (structural routing graph)
+- dimension 4: time/revision (`epoch`, `revision`, route timeseries, event history)
+
+Every critical input/output/error is logged as a temporal matrix event so the agent can query historical behavior and make feedback-driven decisions.
 
 ## 4. The OpenRouter Backend (libopenrouter.so)
 

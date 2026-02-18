@@ -438,7 +438,7 @@ agent/
 ├── harmonia/
 │   ├── src/           # Lisp (genesis state)
 │   ├── lib/           # Rust tools
-│   ├── config/        # agent.sexp, tools.sexp, identities.sexp
+│   ├── config/        # tools.sexp, model-policy.sexp, matrix-topology.sexp, parallel-policy.sexp, harmony-policy.sexp
 │   └── scripts/       # bootstrap.sh, run.sh
 ├── OS4-iOS/
 ├── OS4-Android/

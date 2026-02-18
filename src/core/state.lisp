@@ -15,7 +15,14 @@
                             (responses '())
                             (rewrite-count 0)
                             (environment "test")
-                            (active-model "qwen/qwen3-coder:free"))))
+                            (active-model "qwen/qwen3-coder:free")
+                            (harmonic-phase :observe)
+                            (harmonic-context '())
+                            (harmonic-x 0.5)
+                            (harmonic-r 3.45)
+                            (lorenz-x 0.1)
+                            (lorenz-y 0.0)
+                            (lorenz-z 0.0))))
   running
   cycle
   started-at
@@ -26,7 +33,14 @@
   responses
   rewrite-count
   environment
-  active-model)
+  active-model
+  harmonic-phase
+  harmonic-context
+  harmonic-x
+  harmonic-r
+  lorenz-x
+  lorenz-y
+  lorenz-z)
 
 (defun runtime-log (runtime tag payload)
   (push (list :time (get-universal-time) :tag tag :payload payload)

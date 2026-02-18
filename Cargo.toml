@@ -16,6 +16,10 @@ members = [
     "lib/core/recovery",
     "lib/core/browser",
     "lib/core/fs",
+    "lib/core/parallel-agents",
+    "lib/core/search-exa",
+    "lib/core/search-brave",
+    "lib/core/harmonic-matrix",
 
     # Backends — LLM providers
     "lib/backends/openrouter-backend",
@@ -23,5 +27,12 @@ members = [
     # Tools — optional plugins
     "lib/tools/pgp-identity",
     "lib/tools/webcash-wallet",
-    "lib/tools/social",
+    "lib/tools/whatsapp",
+    "lib/tools/telegram",
+    "lib/tools/slack",
+    "lib/tools/mattermost",
+    "lib/tools/nostr",
+    "lib/tools/email-client",
+    "lib/tools/whisper",
+    "lib/tools/elevenlabs",
 ]

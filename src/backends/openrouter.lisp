@@ -3,10 +3,8 @@
 (in-package :harmonia)
 
 (defparameter *cffi-ready* nil)
-(defparameter *vault-lib* nil)
 (defparameter *openrouter-lib* nil)
 
-(cffi:defcfun ("harmonia_vault_init" %vault-init) :int)
 (cffi:defcfun ("harmonia_openrouter_init" %openrouter-init) :int)
 (cffi:defcfun ("harmonia_openrouter_complete" %openrouter-complete) :pointer
   (prompt :string)
@@ -32,15 +30,12 @@
 
 (defun init-native-backends ()
   (ensure-cffi)
-  (setf *vault-lib*
-        (cffi:load-foreign-library (%release-lib-path "libharmonia_vault.dylib")))
   (setf *openrouter-lib*
         (cffi:load-foreign-library (%release-lib-path "libharmonia_openrouter.dylib")))
 
-  (let ((vault-status (%vault-init))
-        (or-status (%openrouter-init)))
-    (runtime-log *runtime* :native-init (list :vault vault-status :openrouter or-status))
-    (and (zerop vault-status) (zerop or-status))))
+  (let ((or-status (%openrouter-init)))
+    (runtime-log *runtime* :native-init (list :openrouter or-status))
+    (zerop or-status)))
 
 (defun backend-last-error ()
   (let ((ptr (%openrouter-last-error)))

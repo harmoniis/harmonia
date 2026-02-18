@@ -13,6 +13,55 @@
            :feed-prompt
            :run-prompt
            :run-self-push-test
+           :vault-set-secret
+           :memory-recent
+           :memory-layered-recall
+           :memory-map-sexp
+           :harmonic-state-step
+           :whatsapp-store-linked-device
+           :whatsapp-send-text
+           :telegram-send-text
+           :slack-send-text
+           :mattermost-send-text
+           :nostr-publish-text
+           :email-send
+           :search-web
+           :parallel-set-model-price
+           :parallel-submit
+           :parallel-run-pending
+           :parallel-task-result
+           :parallel-report
+           :parallel-solve
+           :parallel-set-subagent-count
+           :parallel-get-subagent-count
+           :parallel-load-policy
+           :parallel-save-policy
+           :model-policy-get
+           :model-policy-set-weight
+           :model-policy-upsert-profile
+           :model-policy-load
+           :model-policy-save
+           :harmony-policy-get
+           :harmony-policy-load
+           :harmony-policy-save
+           :harmony-policy-set
+           :harmonic-matrix-set-tool-enabled
+           :harmonic-matrix-set-tool
+           :harmonic-matrix-set-node
+           :harmonic-matrix-set-edge
+           :harmonic-matrix-route-check
+           :harmonic-matrix-route-defaults
+           :harmonic-matrix-set-route-defaults
+           :harmonic-matrix-current-topology
+           :harmonic-matrix-save-topology
+           :harmonic-matrix-load-topology
+           :harmonic-matrix-reset-defaults
+           :harmonic-matrix-log-event
+           :harmonic-matrix-route-timeseries
+           :harmonic-matrix-time-report
+           :harmonic-matrix-report
+           :whisper-transcribe
+           :elevenlabs-tts-to-file
            :reset-test-genesis
            :*runtime*))
 
@@ -45,10 +94,18 @@
 (load (%core-path "tools.lisp"))
 (load (%core-path "../dna/dna.lisp"))
 (load (%core-path "../memory/store.lisp"))
+(load (%core-path "conditions.lisp"))
 (load (%core-path "../harmony/scorer.lisp"))
+(load (%core-path "harmony-policy.lisp"))
+(load (%core-path "model-policy.lisp"))
+(load (%core-path "harmonic-machine.lisp"))
 (%ensure-ffi-deps)
+(load (%core-path "../backends/vault.lisp"))
 (load (%core-path "../backends/openrouter.lisp"))
 (load (%core-path "../backends/git-ops.lisp"))
+(load (%core-path "../backends/harmonic-matrix.lisp"))
+(load (%core-path "../backends/integrations.lisp"))
+(load (%core-path "../backends/parallel-agents.lisp"))
 (load (%core-path "../orchestrator/conductor.lisp"))
 (load (%core-path "rewrite.lisp"))
 (load (%core-path "loop.lisp"))
@@ -62,7 +119,14 @@
       (setf (runtime-state-prompt-queue *runtime*) '())
       (setf (runtime-state-responses *runtime*) '())
       (setf (runtime-state-cycle *runtime*) 0)
-      (setf (runtime-state-rewrite-count *runtime*) 0))
+      (setf (runtime-state-rewrite-count *runtime*) 0)
+      (setf (runtime-state-harmonic-phase *runtime*) :observe)
+      (setf (runtime-state-harmonic-context *runtime*) '())
+      (setf (runtime-state-harmonic-x *runtime*) 0.5)
+      (setf (runtime-state-harmonic-r *runtime*) 3.45)
+      (setf (runtime-state-lorenz-x *runtime*) 0.1)
+      (setf (runtime-state-lorenz-y *runtime*) 0.0)
+      (setf (runtime-state-lorenz-z *runtime*) 0.0))
     (memory-reset)))
 
 (defun run-prompt (prompt &key (max-cycles 4))
@@ -79,11 +143,18 @@
   (%enforce-genesis-safety)
   (setf *runtime* (make-runtime-state))
   (setf (runtime-state-environment *runtime*) (%environment))
+  (harmony-policy-load)
+  (model-policy-load)
   (unless (dna-valid-p)
     (error "DNA validation failed; refusing to start."))
   (register-default-tools *runtime*)
+  (memory-seed-soul-from-dna)
+  (init-vault-backend)
   (init-native-backends)
   (init-git-ops-backend)
+  (bootstrap-harmonic-matrix)
+  (init-integrations-backends)
+  (init-parallel-agents-backend)
   (format t "[harmonia] bootstrap complete (~D tools registered).~%"
           (hash-table-count (runtime-state-tools *runtime*)))
   (when run-loop
