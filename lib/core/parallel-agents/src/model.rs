@@ -93,9 +93,18 @@ pub(crate) fn now_unix() -> u64 {
         .unwrap_or(0)
 }
 
+fn state_root() -> String {
+    env::var("HARMONIA_STATE_ROOT").unwrap_or_else(|_| {
+        env::temp_dir()
+            .join("harmonia")
+            .to_string_lossy()
+            .to_string()
+    })
+}
+
 pub(crate) fn metrics_log_path() -> String {
     env::var("HARMONIA_PARALLEL_METRICS_LOG")
-        .unwrap_or_else(|_| "/tmp/harmonia/parallel_agents_metrics.tsv".to_string())
+        .unwrap_or_else(|_| format!("{}/parallel_agents_metrics.tsv", state_root()))
 }
 
 pub(crate) fn json_escape(input: &str) -> String {

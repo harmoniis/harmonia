@@ -11,9 +11,18 @@ fn env_bool(name: &str, default: bool) -> bool {
         .unwrap_or(default)
 }
 
+fn state_root() -> String {
+    env::var("HARMONIA_STATE_ROOT").unwrap_or_else(|_| {
+        env::temp_dir()
+            .join("harmonia")
+            .to_string_lossy()
+            .to_string()
+    })
+}
+
 fn append_trauma(line: &str) {
     let trauma_path =
-        env::var("PHOENIX_TRAUMA_LOG").unwrap_or_else(|_| "/tmp/harmonia/trauma.log".to_string());
+        env::var("PHOENIX_TRAUMA_LOG").unwrap_or_else(|_| format!("{}/trauma.log", state_root()));
     if let Some(parent) = std::path::Path::new(&trauma_path).parent() {
         let _ = fs::create_dir_all(parent);
     }

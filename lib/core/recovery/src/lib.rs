@@ -42,8 +42,17 @@ fn to_c_string(value: String) -> *mut c_char {
     }
 }
 
+fn state_root() -> String {
+    env::var("HARMONIA_STATE_ROOT").unwrap_or_else(|_| {
+        env::temp_dir()
+            .join("harmonia")
+            .to_string_lossy()
+            .to_string()
+    })
+}
+
 fn log_path() -> String {
-    env::var("HARMONIA_RECOVERY_LOG").unwrap_or_else(|_| "/tmp/harmonia/recovery.log".to_string())
+    env::var("HARMONIA_RECOVERY_LOG").unwrap_or_else(|_| format!("{}/recovery.log", state_root()))
 }
 
 #[no_mangle]

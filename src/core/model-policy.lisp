@@ -6,22 +6,16 @@
   (merge-pathnames "../../config/model-policy.sexp" *boot-file*))
 (defparameter *model-policy-state-path*
   (or (sb-ext:posix-getenv "HARMONIA_MODEL_POLICY_PATH")
-      "/tmp/harmonia/model-policy.sexp"))
+      (let ((root (or (sb-ext:posix-getenv "HARMONIA_STATE_ROOT")
+                      (let ((base (or (sb-ext:posix-getenv "TMPDIR")
+                                      (namestring (user-homedir-pathname)))))
+                        (concatenate 'string (string-right-trim "/" base) "/harmonia")))))
+        (concatenate 'string root "/model-policy.sexp"))))
 
 (defparameter *model-profiles* '())
 (defparameter *model-harmony-weights* '())
 
-(declaim (ftype function backend-complete model-policy-get model-policy-seed-runtime-config config-get config-set))
-
-(defun %config-value (key &optional default)
-  (if (fboundp 'config-get)
-      (or (config-get key) default)
-      default))
-
-(defun %config-set-if-empty (key value)
-  (when (and (fboundp 'config-set)
-             (null (config-get key)))
-    (config-set key value)))
+(declaim (ftype function backend-complete model-policy-get))
 
 (defun %model-policy-read-file (path)
   (with-open-file (in path :direction :input)
@@ -41,44 +35,14 @@
   (let ((src (%model-policy-load-source)))
     (setf *model-profiles* (copy-tree (getf src :profiles)))
     (setf *model-harmony-weights* (copy-tree (getf src :weights)))
-    (model-policy-seed-runtime-config)
     (model-policy-get)))
 
 (defun %profiles-by-cost ()
   (sort (copy-list *model-profiles*) #'< :key (lambda (p) (getf p :cost 9999))))
 
-(defun %join-model-ids (profiles)
-  (format nil "~{~A~^,~}" (mapcar (lambda (p) (getf p :id)) profiles)))
-
-(defun %split-comma-values (text)
-  (let ((parts '())
-        (start 0))
-    (loop for i = (position #\, text :start start)
-          for piece = (string-trim '(#\Space #\Tab #\Newline) (subseq text start (or i (length text))))
-          do (unless (zerop (length piece))
-               (push piece parts))
-          if (null i) do (return)
-          do (setf start (1+ i)))
-    (nreverse parts)))
-
 (defun %planner-profile-id ()
   (or (getf (find-if (lambda (p) (member :planner (getf p :tags))) *model-profiles*) :id)
       (getf (first *model-profiles*) :id)))
-
-(defun model-policy-seed-runtime-config ()
-  "Seed runtime config DB from model policy when keys are absent."
-  (let* ((ordered (%profiles-by-cost))
-         (first-id (getf (first ordered) :id))
-         (fallbacks (subseq ordered 0 (min 3 (length ordered)))))
-    (when first-id
-      (%config-set-if-empty "model.default" first-id)
-      (%config-set-if-empty "openrouter.default_model" first-id))
-    (when fallbacks
-      (%config-set-if-empty "openrouter.fallback_models" (%join-model-ids fallbacks))
-      (%config-set-if-empty "model.safe_fallbacks" (%join-model-ids fallbacks)))
-    (let ((planner-id (%planner-profile-id)))
-      (when planner-id
-        (%config-set-if-empty "model.planner.model" planner-id)))))
 
 (defun model-policy-save ()
   (let ((path *model-policy-state-path*))
@@ -149,18 +113,14 @@
   (let* ((task (%task-kind prompt))
          (cands (%model-candidates task :limit 1)))
     (or (first cands)
-        (%config-value "model.default")
         (getf (first *model-profiles*) :id))))
 
 (defun %planner-enabled-p ()
-  (string= (or (sb-ext:posix-getenv "HARMONIA_MODEL_PLANNER")
-               (%config-value "model.planner.enabled")
-               "1")
+  (string= (or (sb-ext:posix-getenv "HARMONIA_MODEL_PLANNER") "1")
            "1"))
 
 (defun %planner-model ()
   (or (sb-ext:posix-getenv "HARMONIA_MODEL_PLANNER_MODEL")
-      (%config-value "model.planner.model")
       (%planner-profile-id)))
 
 (defun model-policy-get ()
@@ -190,7 +150,6 @@
   (let* ((task (%task-kind prompt))
          (cands (%model-candidates task :limit 6))
          (fallback (or (first cands)
-                       (%config-value "model.default")
                        (getf (first *model-profiles*) :id))))
     (if (not (%planner-enabled-p))
         fallback
@@ -209,12 +168,9 @@
 (defun model-escalation-chain (prompt chosen)
   (let* ((task (%task-kind prompt))
          (ordered (%model-candidates task :limit 6))
-         (safe-raw (%config-value "model.safe_fallbacks" ""))
          (safe-models
-           (if (plusp (length safe-raw))
-               (%split-comma-values safe-raw)
-               (mapcar (lambda (p) (getf p :id))
-                       (subseq (%profiles-by-cost) 0 (min 3 (length *model-profiles*)))))))
+           (mapcar (lambda (p) (getf p :id))
+                   (subseq (%profiles-by-cost) 0 (min 3 (length *model-profiles*))))))
     (let ((chain (append ordered safe-models)))
       (setf chain (remove-duplicates chain :test #'string=))
       (if (member chosen chain :test #'string=)

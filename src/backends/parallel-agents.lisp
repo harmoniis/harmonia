@@ -11,10 +11,12 @@
 
 (defun %parallel-state-root ()
   (or (sb-ext:posix-getenv "HARMONIA_STATE_ROOT")
-      "/tmp/harmonia"))
+      (let ((base (or (sb-ext:posix-getenv "TMPDIR")
+                      (namestring (user-homedir-pathname)))))
+        (concatenate 'string (string-right-trim "/" base) "/harmonia"))))
 
 (defun %parallel-policy-state-path ()
-      (or (and (fboundp 'config-get) (config-get "parallel.policy.path"))
+      (or
       (sb-ext:posix-getenv "HARMONIA_PARALLEL_POLICY_PATH")
       (concatenate 'string (%parallel-state-root) "/parallel-policy.sexp")))
 
@@ -94,14 +96,9 @@
          (source (cond
                    ((probe-file state-path) (%parallel-read-file state-path))
                    ((probe-file *parallel-policy-config-path*) (%parallel-read-file *parallel-policy-config-path*))
-                   (t (list :subagent-count
-                            (or (and (fboundp 'config-get)
-                                     (ignore-errors (read-from-string (or (config-get "parallel.subagent_count") ""))))
-                                1)))))
+                   (t '(:subagent-count 1))))
          (count (or (getf source :subagent-count) 1)))
     (setf *parallel-subagent-count* (max 1 count))
-    (when (fboundp 'config-set)
-      (config-set "parallel.subagent_count" (format nil "~D" *parallel-subagent-count*)))
     *parallel-subagent-count*))
 
 (defun parallel-save-policy ()
@@ -111,8 +108,6 @@
       (let ((*print-pretty* t))
         (prin1 (list :subagent-count *parallel-subagent-count*) out)
         (terpri out)))
-    (when (fboundp 'config-set)
-      (config-set "parallel.subagent_count" (format nil "~D" *parallel-subagent-count*)))
     path))
 
 (defun parallel-set-subagent-count (count)

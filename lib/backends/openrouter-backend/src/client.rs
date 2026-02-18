@@ -1,7 +1,6 @@
 use std::env;
 use std::process::Command;
 
-use harmonia_config_store::get_value as get_config_value;
 use harmonia_vault::{get_secret_for_symbol, init_from_env};
 
 const OPENROUTER_URL: &str = "https://openrouter.ai/api/v1/chat/completions";
@@ -116,18 +115,8 @@ fn request_once(prompt: &str, model: &str, api_key: &str) -> Result<String, Stri
     Err(format!("missing content in response: {stdout}"))
 }
 
-fn configured_value(key: &str) -> Option<String> {
-    get_config_value("global", key)
-        .ok()
-        .flatten()
-        .map(|v| v.trim().to_string())
-        .filter(|v| !v.is_empty())
-}
-
 fn fallback_models() -> Vec<String> {
-    let raw = configured_value("openrouter.fallback_models")
-        .or_else(|| env::var("HARMONIA_OPENROUTER_FALLBACK_MODELS").ok())
-        .unwrap_or_default();
+    let raw = env::var("HARMONIA_OPENROUTER_FALLBACK_MODELS").unwrap_or_default();
     raw.split(',')
         .map(|m| m.trim().to_string())
         .filter(|m| !m.is_empty())
@@ -135,16 +124,22 @@ fn fallback_models() -> Vec<String> {
 }
 
 fn default_model() -> Result<String, String> {
-    if let Some(v) = configured_value("openrouter.default_model") {
+    if let Ok(v) = env::var("HARMONIA_OPENROUTER_DEFAULT_MODEL") {
+        let trimmed = v.trim();
+        if !trimmed.is_empty() {
+            return Ok(trimmed.to_string());
+        }
+    }
+    if let Ok(v) = env::var("HARMONIA_MODEL_DEFAULT") {
+        let trimmed = v.trim();
+        if !trimmed.is_empty() {
+            return Ok(trimmed.to_string());
+        }
+    }
+    if let Some(v) = fallback_models().into_iter().next() {
         return Ok(v);
     }
-    if let Some(v) = configured_value("model.default") {
-        return Ok(v);
-    }
-    if let Some(first) = fallback_models().into_iter().next() {
-        return Ok(first);
-    }
-    Err("no openrouter default model configured".to_string())
+    Err("no default model provided (set model in request or env HARMONIA_OPENROUTER_DEFAULT_MODEL/HARMONIA_OPENROUTER_FALLBACK_MODELS)".to_string())
 }
 
 pub(crate) fn init_backend() -> Result<(), String> {

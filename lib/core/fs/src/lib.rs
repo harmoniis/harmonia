@@ -42,9 +42,13 @@ fn to_c_string(value: String) -> *mut c_char {
 }
 
 fn sandbox_root() -> PathBuf {
+    let default_root = env::var("HARMONIA_STATE_ROOT")
+        .map(PathBuf::from)
+        .unwrap_or_else(|_| env::temp_dir().join("harmonia"))
+        .join("fs");
     env::var("HARMONIA_FS_ROOT")
         .map(PathBuf::from)
-        .unwrap_or_else(|_| PathBuf::from("/tmp/harmonia-fs"))
+        .unwrap_or(default_root)
 }
 
 fn resolve_in_sandbox(input: &str) -> Result<PathBuf, String> {

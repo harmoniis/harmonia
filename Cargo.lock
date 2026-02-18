@@ -211,7 +211,6 @@ dependencies = [
 name = "harmonia-openrouter"
 version = "0.1.0"
 dependencies = [
- "harmonia-config-store",
  "harmonia-vault",
 ]
 

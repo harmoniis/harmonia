@@ -825,10 +825,11 @@ mod tests {
     #[test]
     fn sqlite_roundtrip_persists_usage() {
         let _guard = test_guard();
-        let db = "/tmp/harmonia/hmatrix-modtest.db";
-        let _ = std::fs::remove_file(db);
+        let db = std::env::temp_dir().join("harmonia-hmatrix-modtest.db");
+        let _ = std::fs::remove_file(&db);
+        let dbs = db.to_string_lossy().to_string();
 
-        set_store("sqlite", Some(db)).expect("set store sqlite");
+        set_store("sqlite", Some(&dbs)).expect("set store sqlite");
         init().expect("init");
         register_node("a", "core").expect("node a");
         register_node("b", "tool").expect("node b");

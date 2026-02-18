@@ -259,6 +259,29 @@ This session implemented the core harmonic routing matrix, moved search into cor
 - Live OpenRouter no-hardcoded-model smoke:
   - `backend-complete` with `model=nil` succeeds via `openrouter.default_model` in config DB (`CFG_MODEL_OK`).
 
+21. Path de-hardcoding sweep (state-root routing)
+- Replaced fixed `/tmp/harmonia*` runtime defaults in core Rust modules with:
+  - explicit env override (module-specific key), then
+  - `HARMONIA_STATE_ROOT`, then
+  - `std::env::temp_dir()/harmonia`.
+- Updated modules:
+  - vault store path + legacy migration path
+  - fs sandbox root
+  - recovery log path
+  - push-sns log path
+  - phoenix trauma log
+  - parallel-agents metrics log path
+  - harmonic-matrix sqlite db default path
+- Removed hardcoded graph URI fallback (`HARMONIA_MATRIX_GRAPH_URI` now required when graph backend is selected).
+- Removed hardcoded ElevenLabs default voice id in orchestration path:
+  - runtime resolves from config/env key (`elevenlabs.default_voice`) or explicit prompt value.
+
+22. Policy boundary correction (Lisp data remains Lisp data)
+- Kept mutable Lisp policy/state (`model-policy`, `harmony-policy`, matrix topology) file-first in `.sexp`.
+- Removed DB-derived model default/fallback behavior from model-policy logic.
+- OpenRouter backend no longer depends on config-store for model defaults:
+  - direct backend default model comes from env/runtime call arguments only.
+
 ## Next Hardening Steps
 
 1. Add matrix policy persistence (serialize/load topology + dynamic weights across restarts).

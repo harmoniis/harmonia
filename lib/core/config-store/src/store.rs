@@ -10,7 +10,7 @@ fn state_root() -> PathBuf {
             return PathBuf::from(trimmed);
         }
     }
-    PathBuf::from("/tmp/harmonia")
+    env::temp_dir().join("harmonia")
 }
 
 fn db_path() -> PathBuf {

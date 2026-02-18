@@ -4,10 +4,16 @@ use std::path::PathBuf;
 
 use rusqlite::{params, Connection};
 
+fn state_root() -> PathBuf {
+    env::var("HARMONIA_STATE_ROOT")
+        .map(PathBuf::from)
+        .unwrap_or_else(|_| env::temp_dir().join("harmonia"))
+}
+
 pub fn store_path() -> PathBuf {
     env::var("HARMONIA_VAULT_DB")
         .map(PathBuf::from)
-        .unwrap_or_else(|_| PathBuf::from("/tmp/harmonia/vault.db"))
+        .unwrap_or_else(|_| state_root().join("vault.db"))
 }
 
 pub fn normalize_symbol(symbol: &str) -> String {
@@ -103,7 +109,7 @@ pub fn has_symbol(symbol: &str) -> Result<bool, String> {
 pub fn load_legacy_kv_into_db_if_present() -> Result<(), String> {
     let legacy_path = env::var("HARMONIA_VAULT_STORE")
         .map(PathBuf::from)
-        .unwrap_or_else(|_| PathBuf::from("/tmp/harmonia/vault.secrets"));
+        .unwrap_or_else(|_| state_root().join("vault.secrets"));
     if !legacy_path.exists() {
         return Ok(());
     }

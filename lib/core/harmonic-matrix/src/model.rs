@@ -1,6 +1,19 @@
 use std::collections::HashMap;
 use std::env;
 
+fn state_root() -> String {
+    env::var("HARMONIA_STATE_ROOT").unwrap_or_else(|_| {
+        env::temp_dir()
+            .join("harmonia")
+            .to_string_lossy()
+            .to_string()
+    })
+}
+
+fn default_matrix_db() -> String {
+    format!("{}/harmonic-matrix.db", state_root())
+}
+
 #[derive(Clone, Debug)]
 pub(crate) struct Edge {
     pub(crate) weight: f64,
@@ -64,12 +77,13 @@ impl Default for StoreConfig {
             _ => StoreKind::Memory,
         };
         let path = match kind {
-            StoreKind::Memory => env::var("HARMONIA_MATRIX_DB")
-                .unwrap_or_else(|_| "/tmp/harmonia/harmonic-matrix.db".to_string()),
-            StoreKind::Sqlite => env::var("HARMONIA_MATRIX_DB")
-                .unwrap_or_else(|_| "/tmp/harmonia/harmonic-matrix.db".to_string()),
-            StoreKind::Graph => env::var("HARMONIA_MATRIX_GRAPH_URI")
-                .unwrap_or_else(|_| "bolt://127.0.0.1:7687".to_string()),
+            StoreKind::Memory => {
+                env::var("HARMONIA_MATRIX_DB").unwrap_or_else(|_| default_matrix_db())
+            }
+            StoreKind::Sqlite => {
+                env::var("HARMONIA_MATRIX_DB").unwrap_or_else(|_| default_matrix_db())
+            }
+            StoreKind::Graph => env::var("HARMONIA_MATRIX_GRAPH_URI").unwrap_or_default(),
         };
         Self { kind, path }
     }

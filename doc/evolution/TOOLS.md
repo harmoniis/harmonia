@@ -71,7 +71,7 @@ None yet. Runtime forge additions are not recorded in this local build snapshot.
 - Format: `ENV_A=symbol_one|symbol_two,ENV_B=symbol_three`.
 - Example:
   - `OPENROUTER_API_KEY=openrouter,EXA_API_KEY=exa_api_key|exa,BRAVE_SEARCH_API_KEY=brave_api_key|brave`
-- Vault persistence is DB-backed (`HARMONIA_VAULT_DB`, default `/tmp/harmonia/vault.db`).
+- Vault persistence is DB-backed (`HARMONIA_VAULT_DB`, default `${HARMONIA_STATE_ROOT:-$TMPDIR/harmonia}/vault.db`).
 - Lisp/C policy boundary:
   - Allowed: set value, check if key exists, list keys.
   - Denied: read secret value over C API.
@@ -84,7 +84,7 @@ None yet. Runtime forge additions are not recorded in this local build snapshot.
   - `graph` (interface contract reserved; explicit runtime error until adapter is implemented)
 - Env defaults:
   - `HARMONIA_MATRIX_STORE_KIND=memory|sqlite`
-  - `HARMONIA_MATRIX_DB=/tmp/harmonia/harmonic-matrix.db`
+  - `HARMONIA_MATRIX_DB=${HARMONIA_STATE_ROOT:-$TMPDIR/harmonia}/harmonic-matrix.db`
 - Runtime switch from agent loop:
   - `tool op=matrix-set-store kind=sqlite path=/tmp/harmonia/hmatrix-runtime.db`
 - Runtime introspection:
@@ -98,14 +98,18 @@ None yet. Runtime forge additions are not recorded in this local build snapshot.
   - `config-get key=<k>`
   - `config-list`
 - Current keys used by core orchestration:
-  - `openrouter.default_model`
-  - `openrouter.fallback_models`
-  - `model.default`
-  - `model.safe_fallbacks`
-  - `model.planner.model`
-  - `model.planner.enabled`
-  - `matrix.route.signal_default`
-  - `matrix.route.noise_default`
-  - `matrix.topology.path`
-  - `parallel.policy.path`
-  - `parallel.subagent_count`
+  - `elevenlabs.default_voice`
+  - `elevenlabs.default_output_path`
+
+- Lisp policy model data stays in `.sexp`:
+  - `config/model-policy.sexp` + mutable `model-policy.sexp` state path.
+- Matrix topology and route defaults stay in Lisp/env/file paths:
+  - `config/matrix-topology.sexp`
+  - `HARMONIA_MATRIX_TOPOLOGY_PATH`
+  - `HARMONIA_ROUTE_SIGNAL_DEFAULT`
+  - `HARMONIA_ROUTE_NOISE_DEFAULT`
+- Parallel policy stays in Lisp/env/file paths:
+  - `config/parallel-policy.sexp`
+  - `HARMONIA_PARALLEL_POLICY_PATH`
+- OpenRouter backend default model for direct backend calls:
+  - request model argument, otherwise env (`HARMONIA_OPENROUTER_DEFAULT_MODEL`, `HARMONIA_OPENROUTER_FALLBACK_MODELS`).

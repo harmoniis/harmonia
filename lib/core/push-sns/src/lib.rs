@@ -42,6 +42,15 @@ fn to_c_string(value: String) -> *mut c_char {
     }
 }
 
+fn state_root() -> String {
+    env::var("HARMONIA_STATE_ROOT").unwrap_or_else(|_| {
+        env::temp_dir()
+            .join("harmonia")
+            .to_string_lossy()
+            .to_string()
+    })
+}
+
 #[no_mangle]
 pub extern "C" fn harmonia_push_sns_version() -> *const c_char {
     VERSION.as_ptr().cast()
@@ -85,7 +94,7 @@ pub extern "C" fn harmonia_push_sns_send(
         .unwrap_or(false)
     {
         let path = env::var("HARMONIA_PUSH_SNS_LOG")
-            .unwrap_or_else(|_| "/tmp/harmonia/push.log".to_string());
+            .unwrap_or_else(|_| format!("{}/push.log", state_root()));
         if let Some(parent) = std::path::Path::new(&path).parent() {
             if let Err(e) = fs::create_dir_all(parent) {
                 set_error(format!("push log dir create failed: {e}"));

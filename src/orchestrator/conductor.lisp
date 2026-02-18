@@ -25,6 +25,25 @@
         s
         (subseq s 0 limit))))
 
+(defun %state-root ()
+  (or (sb-ext:posix-getenv "HARMONIA_STATE_ROOT")
+      (let ((base (or (sb-ext:posix-getenv "TMPDIR")
+                      (namestring (user-homedir-pathname)))))
+        (concatenate 'string (string-right-trim "/" base) "/harmonia"))))
+
+(defun %config-or-env (cfg-key env-key default)
+  (or (and (fboundp 'config-get) (config-get cfg-key))
+      (sb-ext:posix-getenv env-key)
+      default))
+
+(defun %default-tts-voice ()
+  (%config-or-env "elevenlabs.default_voice" "HARMONIA_ELEVENLABS_DEFAULT_VOICE" ""))
+
+(defun %default-tts-output ()
+  (%config-or-env "elevenlabs.default_output_path"
+                  "HARMONIA_ELEVENLABS_DEFAULT_OUTPUT"
+                  (concatenate 'string (%state-root) "/tts.mp3")))
+
 (defun %redact-vault-value (prompt)
   (let* ((needle "value=")
          (start (search needle prompt :test #'char-equal)))
@@ -319,8 +338,8 @@
         ((string-equal op "elevenlabs-tts")
          (harmonic-matrix-route-or-error "orchestrator" "elevenlabs")
          (values (elevenlabs-tts-to-file (or (%extract-tag-value prompt "text") "")
-                                         (or (%extract-tag-value prompt "voice") "JBFqnCBsd6RMkjVDRZzb")
-                                         (or (%extract-tag-value prompt "out") "/tmp/harmonia-tts.mp3"))
+                                         (or (%extract-tag-value prompt "voice") (%default-tts-voice))
+                                         (or (%extract-tag-value prompt "out") (%default-tts-output)))
                  "elevenlabs"))
         (t
          (error "unknown tool op: ~A" op))))))
