@@ -33,6 +33,23 @@ fn append_trauma(line: &str) {
     {
         let _ = writeln!(f, "{line}");
     }
+
+    let recovery_path = env::var("HARMONIA_RECOVERY_LOG")
+        .unwrap_or_else(|_| format!("{}/recovery.log", state_root()));
+    if let Some(parent) = std::path::Path::new(&recovery_path).parent() {
+        let _ = fs::create_dir_all(parent);
+    }
+    if let Ok(mut f) = OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(&recovery_path)
+    {
+        let ts = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_secs();
+        let _ = writeln!(f, "{}\t{}\t{}", ts, "phoenix/restart", line);
+    }
 }
 
 fn run_child_once(cmdline: &str) -> i32 {

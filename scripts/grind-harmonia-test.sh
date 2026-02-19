@@ -8,6 +8,16 @@ cd "$ROOT_DIR"
 export HARMONIA_ENV=test
 export HARMONIA_VAULT_IMPORT="${HARMONIA_VAULT_IMPORT:-OPENROUTER_API_KEY=openrouter}"
 
+TMPDIR_TEST="$(mktemp -d /tmp/harmonia-grind-XXXXXX)"
+cleanup() {
+  if [[ -n "${MOSQ_PID:-}" ]]; then
+    kill "$MOSQ_PID" >/dev/null 2>&1 || true
+    wait "$MOSQ_PID" >/dev/null 2>&1 || true
+  fi
+  rm -rf "$TMPDIR_TEST" >/dev/null 2>&1 || true
+}
+trap cleanup EXIT
+
 echo "[1/7] cargo test --workspace"
 cargo test --workspace
 
@@ -22,7 +32,6 @@ fi
 echo "prod genesis block: OK"
 
 echo "[4/7] phoenix supervised restart test lane"
-TMPDIR_TEST="$(mktemp -d /tmp/harmonia-grind-XXXXXX)"
 PHX_SENTINEL="$TMPDIR_TEST/phoenix-first-fail"
 PHX_TRAUMA="$TMPDIR_TEST/trauma.log"
 export PHOENIX_MAX_RESTARTS=2
@@ -58,6 +67,37 @@ S3_LOCAL="$TMPDIR_TEST/s3-local"
 S3_SRC="$TMPDIR_TEST/artifact.bin"
 echo "artifact" > "$S3_SRC"
 
+if [[ -z "${HARMONIA_MQTT_BROKER:-}" ]]; then
+  MOSQ_BIN="${HARMONIA_MOSQUITTO_BIN:-}"
+  if [[ -z "$MOSQ_BIN" ]]; then
+    if command -v mosquitto >/dev/null 2>&1; then
+      MOSQ_BIN="$(command -v mosquitto)"
+    elif [[ -x "/opt/homebrew/sbin/mosquitto" ]]; then
+      MOSQ_BIN="/opt/homebrew/sbin/mosquitto"
+    elif [[ -x "/usr/local/opt/mosquitto/sbin/mosquitto" ]]; then
+      MOSQ_BIN="/usr/local/opt/mosquitto/sbin/mosquitto"
+    fi
+  fi
+  if [[ -z "$MOSQ_BIN" || ! -x "$MOSQ_BIN" ]]; then
+    echo "ERROR: mosquitto broker binary not found. Set HARMONIA_MQTT_BROKER or HARMONIA_MOSQUITTO_BIN."
+    exit 1
+  fi
+  MQTT_PORT="${HARMONIA_MQTT_LOCAL_PORT:-18883}"
+  MQTT_HOST="${HARMONIA_MQTT_LOCAL_HOST:-127.0.0.1}"
+  MQTT_CONF="$TMPDIR_TEST/mosquitto.conf"
+  MQTT_LOG="$TMPDIR_TEST/mosquitto.log"
+  cat > "$MQTT_CONF" <<EOF
+listener $MQTT_PORT $MQTT_HOST
+persistence false
+allow_anonymous true
+EOF
+  "$MOSQ_BIN" -c "$MQTT_CONF" -v >"$MQTT_LOG" 2>&1 &
+  MOSQ_PID=$!
+  sleep 1
+  export HARMONIA_MQTT_BROKER="${MQTT_HOST}:${MQTT_PORT}"
+  export HARMONIA_MQTT_TLS=0
+fi
+
 LISP_TEST="$TMPDIR_TEST/grind.lisp"
 cat > "$LISP_TEST" <<EOF
 (load #P"~/quicklisp/setup.lisp")
@@ -78,6 +118,7 @@ cat > "$LISP_TEST" <<EOF
 (cffi:defcfun ("harmonia_mqtt_client_publish" mqtt-publish) :int (topic :string) (payload :string))
 (cffi:defcfun ("harmonia_mqtt_client_poll" mqtt-poll) :pointer (topic :string))
 (cffi:defcfun ("harmonia_mqtt_client_free_string" mqtt-free) :void (p :pointer))
+(cffi:defcfun ("harmonia_mqtt_client_last_error" mqtt-last-error) :pointer)
 
 (cffi:defcfun ("harmonia_git_ops_commit_all" git-commit-all) :int
   (repo :string) (msg :string) (name :string) (email :string))
@@ -98,7 +139,12 @@ cat > "$LISP_TEST" <<EOF
   (mem-free p))
 
 (unless (zerop (mqtt-reset)) (error "mqtt reset failed"))
-(unless (zerop (mqtt-publish "harmonia/test/grind-001" "(event . ok)")) (error "mqtt publish failed"))
+(unless (zerop (mqtt-publish "harmonia/test/grind-001" "(event . ok)"))
+  (let ((ep (mqtt-last-error)))
+    (unwind-protect
+         (error "mqtt publish failed: ~A"
+                (if (cffi:null-pointer-p ep) "<unknown>" (cffi:foreign-string-to-lisp ep)))
+      (unless (cffi:null-pointer-p ep) (mqtt-free ep)))))
 (let ((p (mqtt-poll "harmonia/test/grind-001")))
   (when (cffi:null-pointer-p p) (error "mqtt poll null"))
   (format t "~&MQTT=~A~%" (cffi:foreign-string-to-lisp p))
@@ -124,7 +170,7 @@ cat > "$LISP_TEST" <<EOF
 (sb-ext:exit :code 0)
 EOF
 
-HARMONIA_S3_MODE=local HARMONIA_S3_LOCAL_ROOT="$S3_LOCAL" sbcl --load "$LISP_TEST" --quit
+HARMONIA_S3_MODE=local HARMONIA_S3_LOCAL_ROOT="$S3_LOCAL" sbcl --disable-debugger --load "$LISP_TEST" --quit
 
 git --git-dir "$TEST_REMOTE" rev-parse refs/heads/main >/dev/null
 test -f "$S3_LOCAL/test-bucket/v-test/artifact.bin"

@@ -1,31 +1,14 @@
 use std::env;
 use std::ffi::{CStr, CString};
 use std::fs;
+use std::io::{BufRead, BufReader, Write};
 use std::os::raw::c_char;
 use std::path::PathBuf;
 use std::sync::{OnceLock, RwLock};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 const VERSION: &[u8] = b"harmonia-ouroboros/0.2.0\0";
-
-#[derive(Clone)]
-struct CrashEvent {
-    ts: u64,
-    component: String,
-    detail: String,
-}
-
-#[derive(Default)]
-struct OuroborosState {
-    crashes: Vec<CrashEvent>,
-}
-
-static STATE: OnceLock<RwLock<OuroborosState>> = OnceLock::new();
 static LAST_ERROR: OnceLock<RwLock<String>> = OnceLock::new();
-
-fn state() -> &'static RwLock<OuroborosState> {
-    STATE.get_or_init(|| RwLock::new(OuroborosState::default()))
-}
 
 fn last_error() -> &'static RwLock<String> {
     LAST_ERROR.get_or_init(|| RwLock::new(String::new()))
@@ -66,6 +49,50 @@ fn to_c_string(value: String) -> *mut c_char {
     }
 }
 
+fn state_root() -> String {
+    env::var("HARMONIA_STATE_ROOT").unwrap_or_else(|_| {
+        env::temp_dir()
+            .join("harmonia")
+            .to_string_lossy()
+            .to_string()
+    })
+}
+
+fn recovery_log_path() -> String {
+    env::var("HARMONIA_RECOVERY_LOG").unwrap_or_else(|_| format!("{}/recovery.log", state_root()))
+}
+
+fn append_recovery(kind: &str, detail: &str) -> Result<(), String> {
+    let path = recovery_log_path();
+    if let Some(parent) = std::path::Path::new(&path).parent() {
+        fs::create_dir_all(parent).map_err(|e| format!("create recovery dir failed: {e}"))?;
+    }
+    let mut file = std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(&path)
+        .map_err(|e| format!("open recovery log failed: {e}"))?;
+    let ts = now_secs();
+    writeln!(file, "{}\t{}\t{}", ts, kind, detail)
+        .map_err(|e| format!("write recovery log failed: {e}"))?;
+    Ok(())
+}
+
+fn last_recovery_line() -> Result<String, String> {
+    let path = recovery_log_path();
+    let file = std::fs::File::open(&path).map_err(|e| format!("open recovery log failed: {e}"))?;
+    let reader = BufReader::new(file);
+    let mut last = None;
+    for line in reader.lines() {
+        match line {
+            Ok(v) if !v.trim().is_empty() => last = Some(v),
+            Ok(_) => {}
+            Err(e) => return Err(format!("read recovery log failed: {e}")),
+        }
+    }
+    last.ok_or_else(|| "no crash event".to_string())
+}
+
 #[no_mangle]
 pub extern "C" fn harmonia_ouroboros_version() -> *const c_char {
     VERSION.as_ptr().cast()
@@ -95,19 +122,14 @@ pub extern "C" fn harmonia_ouroboros_record_crash(
             return -1;
         }
     };
-    let event = CrashEvent {
-        ts: now_secs(),
-        component,
-        detail,
-    };
-    match state().write() {
-        Ok(mut st) => {
-            st.crashes.push(event);
+    let kind = format!("ouroboros/{}", component);
+    match append_recovery(&kind, &detail) {
+        Ok(()) => {
             clear_error();
             0
         }
-        Err(_) => {
-            set_error("ouroboros lock poisoned");
+        Err(e) => {
+            set_error(e);
             -1
         }
     }
@@ -115,22 +137,44 @@ pub extern "C" fn harmonia_ouroboros_record_crash(
 
 #[no_mangle]
 pub extern "C" fn harmonia_ouroboros_last_crash() -> *mut c_char {
-    let st = match state().read() {
+    match last_recovery_line() {
+        Ok(line) => {
+            clear_error();
+            to_c_string(line)
+        }
+        Err(e) => {
+            set_error(e);
+            std::ptr::null_mut()
+        }
+    }
+}
+
+#[no_mangle]
+pub extern "C" fn harmonia_ouroboros_history(limit: i32) -> *mut c_char {
+    let n = if limit <= 0 { 20 } else { limit as usize };
+    let path = recovery_log_path();
+    let file = match std::fs::File::open(&path) {
         Ok(v) => v,
         Err(_) => {
-            set_error("ouroboros lock poisoned");
+            set_error("open recovery log failed");
             return std::ptr::null_mut();
         }
     };
-    if let Some(last) = st.crashes.last() {
-        clear_error();
-        return to_c_string(format!(
-            "(:ts {} :component {:?} :detail {:?})",
-            last.ts, last.component, last.detail
-        ));
+    let reader = BufReader::new(file);
+    let mut lines: Vec<String> = Vec::new();
+    for line in reader.lines() {
+        match line {
+            Ok(v) if !v.trim().is_empty() => lines.push(v),
+            Ok(_) => {}
+            Err(e) => {
+                set_error(format!("read recovery log failed: {e}"));
+                return std::ptr::null_mut();
+            }
+        }
     }
-    set_error("no crash event");
-    std::ptr::null_mut()
+    let start = lines.len().saturating_sub(n);
+    clear_error();
+    to_c_string(lines[start..].join("\n"))
 }
 
 #[no_mangle]
@@ -180,6 +224,12 @@ pub extern "C" fn harmonia_ouroboros_last_error() -> *mut c_char {
 }
 
 #[no_mangle]
+pub extern "C" fn harmonia_ouroboros_health() -> *mut c_char {
+    clear_error();
+    to_c_string("{\"status\":\"ok\",\"role\":\"repair-engine\",\"crash-ledger\":\"recovery\"}".to_string())
+}
+
+#[no_mangle]
 pub extern "C" fn harmonia_ouroboros_free_string(ptr: *mut c_char) {
     if ptr.is_null() {
         return;
@@ -211,6 +261,6 @@ mod tests {
         assert!(!ptr.is_null());
         let text = unsafe { CStr::from_ptr(ptr) }.to_string_lossy().to_string();
         harmonia_ouroboros_free_string(ptr);
-        assert!(text.contains("http"));
+        assert!(text.contains("ouroboros/http"));
     }
 }

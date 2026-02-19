@@ -36,23 +36,40 @@
       (runtime-log runtime :drop-prompt (list :prompt prompt))
       nil)))
 
+(defun %reduce-tick-actions (runtime)
+  "Pure-ish planner: derive a unidirectional action list for this cycle."
+  (let ((actions '()))
+    (let ((prompt (%queue-pop runtime)))
+      (when prompt
+        (push (list :process-prompt prompt) actions)))
+    (push '(:memory-heartbeat) actions)
+    (push '(:harmonic-step) actions)
+    (nreverse actions)))
+
+(defun %run-tick-action (runtime action)
+  "Side-effect executor: handles exactly one effect action."
+  (case (first action)
+    (:process-prompt
+     (%process-prompt-safe runtime (second action)))
+    (:memory-heartbeat
+     (handler-case (memory-heartbeat :runtime runtime)
+       (error (e) (record-runtime-error e))))
+    (:harmonic-step
+     (handler-case (harmonic-state-step :runtime runtime)
+       (error (e) (record-runtime-error e))))
+    (t
+     (runtime-log runtime :unknown-tick-action action))))
+
 (defun tick (&key (runtime *runtime*))
-  "Run one deterministic control-cycle iteration."
+  "Run one deterministic control-cycle iteration with action->effect flow."
   (unless runtime
     (error "Runtime not initialized. Call HARMONIA:START first."))
 
   (setf (runtime-state-last-tick-at runtime) (get-universal-time))
   (incf (runtime-state-cycle runtime))
 
-  (let ((prompt (%queue-pop runtime)))
-    (when prompt
-      (%process-prompt-safe runtime prompt)))
-
-  ;; Heartbeat: run maintenance only when memory layer decides it is idle-night-safe.
-  (handler-case (memory-heartbeat :runtime runtime)
-    (error (e) (record-runtime-error e)))
-  (handler-case (harmonic-state-step :runtime runtime)
-    (error (e) (record-runtime-error e)))
+  (dolist (action (%reduce-tick-actions runtime))
+    (%run-tick-action runtime action))
 
   (runtime-log runtime :tick (list :cycle (runtime-state-cycle runtime)
                                    :tools (hash-table-count (runtime-state-tools runtime))

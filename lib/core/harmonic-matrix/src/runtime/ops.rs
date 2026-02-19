@@ -1,0 +1,164 @@
+use crate::model::{Edge, MatrixEvent, RouteSample, State};
+
+use super::shared::{bump_revision, history_limit, now_unix, push_limited, state, truncate_payload};
+use super::store::persist_if_needed;
+
+fn tool_allowed(st: &State, node_id: &str) -> bool {
+    if st.nodes.get(node_id).map(|k| k.as_str()) != Some("tool") {
+        return true;
+    }
+    st.plugged.get(node_id).copied().unwrap_or(true)
+}
+
+pub(crate) fn register_node(node_id: &str, kind: &str) -> Result<(), String> {
+    let mut st = state()
+        .write()
+        .map_err(|_| "harmonic matrix state lock poisoned".to_string())?;
+
+    st.nodes.insert(node_id.to_string(), kind.to_string());
+    if kind == "tool" {
+        st.plugged.entry(node_id.to_string()).or_insert(true);
+    }
+    bump_revision(&mut st);
+    persist_if_needed(&st)
+}
+
+pub(crate) fn set_tool_enabled(tool_id: &str, enabled: bool) -> Result<(), String> {
+    let mut st = state()
+        .write()
+        .map_err(|_| "harmonic matrix state lock poisoned".to_string())?;
+
+    match st.nodes.get(tool_id) {
+        Some(kind) if kind == "tool" => {
+            st.plugged.insert(tool_id.to_string(), enabled);
+            bump_revision(&mut st);
+            persist_if_needed(&st)
+        }
+        _ => Err("tool not registered or not kind=tool".to_string()),
+    }
+}
+
+pub(crate) fn register_edge(
+    from: &str,
+    to: &str,
+    weight: f64,
+    min_harmony: f64,
+) -> Result<(), String> {
+    let mut st = state()
+        .write()
+        .map_err(|_| "harmonic matrix state lock poisoned".to_string())?;
+
+    if !st.nodes.contains_key(from) || !st.nodes.contains_key(to) {
+        return Err("both nodes must be registered before edge registration".to_string());
+    }
+
+    st.edges.insert(
+        (from.to_string(), to.to_string()),
+        Edge {
+            weight,
+            min_harmony,
+            uses: 0,
+            successes: 0,
+            total_latency_ms: 0,
+            total_cost_usd: 0.0,
+        },
+    );
+
+    bump_revision(&mut st);
+    persist_if_needed(&st)
+}
+
+pub(crate) fn route_allowed(from: &str, to: &str, signal: f64, noise: f64) -> Result<bool, String> {
+    let st = state()
+        .read()
+        .map_err(|_| "harmonic matrix state lock poisoned".to_string())?;
+
+    let edge = st
+        .edges
+        .get(&(from.to_string(), to.to_string()))
+        .ok_or_else(|| format!("route denied: edge missing {} -> {}", from, to))?;
+
+    if !tool_allowed(&st, from) || !tool_allowed(&st, to) {
+        return Err(format!(
+            "route denied: unplugged tool on {} -> {}",
+            from, to
+        ));
+    }
+
+    let harmonic_signal = signal - noise + edge.weight;
+    let allowed = signal >= noise && harmonic_signal >= edge.min_harmony;
+    if !allowed {
+        return Err(format!(
+            "route denied by harmonic threshold {} -> {} (signal={:.4} noise={:.4} weight={:.4} min={:.4})",
+            from, to, signal, noise, edge.weight, edge.min_harmony
+        ));
+    }
+
+    Ok(true)
+}
+
+pub(crate) fn observe_route(
+    from: &str,
+    to: &str,
+    success: bool,
+    latency_ms: u64,
+    cost_usd: f64,
+) -> Result<(), String> {
+    let mut st = state()
+        .write()
+        .map_err(|_| "harmonic matrix state lock poisoned".to_string())?;
+
+    let edge = st
+        .edges
+        .get_mut(&(from.to_string(), to.to_string()))
+        .ok_or_else(|| format!("route observe failed: edge missing {} -> {}", from, to))?;
+
+    edge.uses += 1;
+    if success {
+        edge.successes += 1;
+    }
+    edge.total_latency_ms += latency_ms;
+    edge.total_cost_usd += cost_usd.max(0.0);
+
+    let key = (from.to_string(), to.to_string());
+    let sample = RouteSample {
+        ts: now_unix(),
+        success,
+        latency_ms,
+        cost_usd: cost_usd.max(0.0),
+    };
+    let limit = history_limit();
+    let samples = st.route_history.entry(key).or_default();
+    push_limited(samples, sample, limit);
+    bump_revision(&mut st);
+
+    persist_if_needed(&st)
+}
+
+pub(crate) fn log_event(
+    component: &str,
+    direction: &str,
+    channel: &str,
+    payload: &str,
+    success: bool,
+    error: &str,
+) -> Result<(), String> {
+    let mut st = state()
+        .write()
+        .map_err(|_| "harmonic matrix state lock poisoned".to_string())?;
+
+    let event = MatrixEvent {
+        ts: now_unix(),
+        component: component.to_string(),
+        direction: direction.to_string(),
+        channel: channel.to_string(),
+        payload: truncate_payload(payload, 512),
+        success,
+        error: truncate_payload(error, 512),
+    };
+    let limit = history_limit();
+    push_limited(&mut st.events, event, limit);
+    bump_revision(&mut st);
+
+    persist_if_needed(&st)
+}

@@ -224,6 +224,17 @@ Every component uses ONLY these primitives, available on both iOS 15+ and Androi
 
 ### Component Specifications
 
+### High-Utility Core Template Set
+
+These templates should always exist on iOS and Android because they cover most practical interactions:
+
+1. `TextBubble` — conversational output.
+2. `ActionCard` — one-step action with explicit CTA.
+3. `ChoiceChips` — fast branching/confirmation.
+4. `KeyValueList` — compact factual status display.
+5. `Progress` — long-running task visibility.
+6. `Checklist` — plan tracking and completion feedback.
+
 #### 1. TextBubble
 
 Agent text response with optional audio playback button.
