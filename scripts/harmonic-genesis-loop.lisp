@@ -12,11 +12,30 @@
   (unless pred
     (apply #'fail fmt args)))
 
+(defun %parse-int-env (name default)
+  (let ((raw (sb-ext:posix-getenv name)))
+    (if (and raw (> (length raw) 0))
+        (handler-case
+            (max 1 (parse-integer raw))
+          (error () default))
+        default)))
+
+(defparameter *genesis-start-unix* (get-universal-time))
+(defparameter *genesis-max-seconds* (%parse-int-env "HARMONIA_GENESIS_MAX_SECONDS" 240))
+
+(defun ensure-within-deadline (label)
+  (let ((elapsed (- (get-universal-time) *genesis-start-unix*)))
+    (when (> elapsed *genesis-max-seconds*)
+      (fail "genesis deadline exceeded (~Ds > ~Ds) at ~A"
+            elapsed *genesis-max-seconds* label))))
+
 (defun find-event (tag events)
   (find tag events :key (lambda (e) (getf e :tag))))
 
 (defun run-live-prompt-with-retry (prompt &key (attempts 3))
+  (ensure-within-deadline "pre-live-prompt")
   (loop for i from 1 to attempts do
+    (ensure-within-deadline "live-prompt-attempt")
     (handler-case
         (return (harmonia:run-prompt prompt :max-cycles 2))
       (error (e)
@@ -33,12 +52,14 @@
                                  (list :prompt prompt :error (princ-to-string e)))
           (return nil))))))
 
+(ensure-within-deadline "pre-start")
 (harmonia:start :run-loop nil)
 
 ;; Human-like prompt stream across domains to shape deeper concept graph layers.
 (dolist (p '("Explain how music ratios can help memory compression."
              "Explain how music ratios can help memory compression for planning."
              "Relate beauty, utility, and strength for software architecture."))
+  (ensure-within-deadline "seed-live-prompts")
   (run-live-prompt-with-retry p))
 
 ;; Deterministic local anchor for compression tests even under provider turbulence.
@@ -57,9 +78,11 @@
 
 ;; Force idle-night maintenance window for deterministic local test feedback.
 (setf harmonia::*memory-last-active-at* 0)
+(ensure-within-deadline "pre-heartbeat-1")
 (harmonia::memory-heartbeat)
 
 ;; Run enough cycles to execute full harmonic state-machine phases.
+(ensure-within-deadline "pre-run-loop")
 (harmonia:run-loop :max-cycles 14 :sleep-seconds 0.01)
 
 ;; Final deterministic compression pass (post-loop) for stable local assertions.
@@ -76,8 +99,10 @@
  0.35
  1)
 (setf harmonia::*memory-last-active-at* 0)
+(ensure-within-deadline "pre-heartbeat-2")
 (harmonia::memory-heartbeat)
 
+(ensure-within-deadline "pre-final-assertions")
 (let* ((events (harmonia::runtime-state-events harmonia:*runtime*))
        (map (harmonia:memory-map-sexp :entry-limit 300 :edge-limit 400))
        (layers (getf map :layers))

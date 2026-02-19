@@ -168,6 +168,30 @@ Every render command follows this structure:
 | `replace_id` | string? | If set, replaces widget with this ID |
 | `expires_at` | string? | ISO 8601 timestamp. Widget auto-removes after this time. |
 
+### Canonical Envelope (Shared Across Agent + harmoniislib + iOS + Android)
+
+All MQTT command payloads are wrapped in a versioned JSON envelope:
+
+```json
+{
+  "v": 1,
+  "kind": "cmd|resp|state|event",
+  "type": "render_widget|tool_call|permission_request|...",
+  "id": "uuid-v4",
+  "ts": "2026-02-19T12:00:00Z",
+  "agent_fp": "AGENT_FP",
+  "client_fp": "CLIENT_FP",
+  "body": {}
+}
+```
+
+Rules:
+
+1. `v=1` is mandatory for current clients.
+2. `body` carries command payload (render params, tool-call args, permission prompts).
+3. Mobile apps dispatch by `type`, then invoke pre-compiled local handlers only.
+4. No runtime code generation, no downloaded executable code.
+
 ---
 
 ## Component Registry

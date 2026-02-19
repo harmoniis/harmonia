@@ -29,6 +29,7 @@ Gate status: PASS (test-genesis/live hardproof paths green)
 6. Harmonic genesis state-machine loop
 - Command: `OPENROUTER_API_KEY=... ./scripts/test-harmonic-genesis-loop.sh`
 - Result: PASS (`GENESIS_LOOP_OK ...`)
+- Hardening: loop now has deterministic watchdog deadline (`HARMONIA_GENESIS_MAX_SECONDS`, default 240s).
 
 7. Communication/search/voice smoke
 - Command: `./scripts/test-communication-tools.sh`
