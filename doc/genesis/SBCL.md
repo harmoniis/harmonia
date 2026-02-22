@@ -69,7 +69,7 @@ After bootstrap, Harmonia dumps a core image to disk. This image contains:
 - The current state machine state
 - Memory store contents
 
-On restart, SBCL loads the core image and resumes instantly — no recompilation, no re-evaluation. This is the "Body" in the DNA/Body architecture.
+On restart, SBCL loads the core image and resumes instantly — no recompilation, no re-evaluation. This is part of the epigenetic layer (runtime expression), not the genomic source layer.
 
 ```lisp
 ;; Dump core image

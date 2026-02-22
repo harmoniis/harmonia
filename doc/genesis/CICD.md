@@ -130,22 +130,22 @@ load_rc_config $name
 run_rc_command "$@"
 ```
 
-### Versioning Strategy (DNA + Body)
+### Versioning Strategy (Genomic + Epigenetic)
 
 The package version tracks two things:
 
-1. **DNA version** — the Lisp source code (S-expressions). This is the "soul" — architecture-neutral.
-2. **Body version** — the compiled Rust .so binaries. Architecture-specific (aarch64, x86_64).
+1. **Genomic version** — Lisp source + policy (S-expressions). Architecture-neutral.
+2. **Epigenetic/runtime version** — compiled Rust .so set + runtime expression artifacts. Architecture-specific (aarch64, x86_64).
 
 When the agent evolves and reaches a stable state:
 
 ```
 Agent evolves → runs validation → harmonic score improves →
-  Agent commits DNA to git →
+  Agent commits genomic updates to git →
   CI builds new .so binaries for all architectures →
   CI creates pkgsrc release →
   pkgin update pulls latest stable version →
-  Phoenix restarts with new DNA + Body
+  Phoenix restarts with new genomic + epigenetic/runtime bundle
 ```
 
 ### Package Update Flow
@@ -154,8 +154,8 @@ Agent evolves → runs validation → harmonic score improves →
 User: pkgin update && pkgin upgrade harmonia
 
 pkgin fetches:
-  - New Lisp source files (DNA) → /usr/local/share/harmonia/src/
-  - New .so binaries (Body) → /usr/local/lib/harmonia/
+  - New Lisp source/policy files (genomic) → /usr/local/share/harmonia/src/
+  - New .so binaries (runtime instrument layer) → /usr/local/lib/harmonia/
   - service harmonia restart (Phoenix picks up changes)
 ```
 

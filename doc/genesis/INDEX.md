@@ -8,6 +8,11 @@
 
 Harmonia is a recursive self-improving Common Lisp agent. It runs on SBCL, loads Rust dynamic libraries for all I/O, communicates over MQTT, and rewrites its own source code. OS4 is the custom NetBSD operating system that hosts it. Mobile apps (iOS/Android/XR) are sensory organs.
 
+What makes it different from typical self-improving agents:
+- Genomic layer: architecture-neutral source + policy in S-expressions.
+- Epigenetic layer: runtime expression (loaded modules, weights, checkpoints, hot patches).
+- Hot patch + rollback loop with explicit scoring and validation gates (not opaque auto-mutation).
+
 **Core rule:** Lisp is orchestration only. Rust handles all I/O. No exceptions.
 
 ---
@@ -208,5 +213,5 @@ sbcl --load src/core/boot.lisp --eval '(harmonia:start)'
 3. **No data hoarding.** Only evolved orchestration S-expressions survive. Kolmogorov-optimal.
 4. **DNA is immutable.** Evolution engine cannot modify `core/dna.lisp`.
 5. **A2UI = templates only.** No runtime code generation on mobile.
-6. **Deploy from source.** DNA is architecture-neutral S-expressions. Body is compiled per-architecture. Binary snapshots are convenience, not truth.
+6. **Deploy from source.** Genomic layer (DNA) is architecture-neutral S-expressions. Epigenetic/runtime images are architecture-specific. Binary snapshots are convenience, not truth.
 7. **Safety: agent cannot stop its own instances.** IAM policy restricts EC2/Lambda management access.

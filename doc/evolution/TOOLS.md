@@ -111,5 +111,15 @@ None yet. Runtime forge additions are not recorded in this local build snapshot.
 - Parallel policy stays in Lisp/env/file paths:
   - `config/parallel-policy.sexp`
   - `HARMONIA_PARALLEL_POLICY_PATH`
+- Code-mode batching (token-minimizing multi-step orchestration) is available from orchestrator:
+  - `tool op=codemode-run steps=search:q=rust%20mcp|vault-has:key=openrouter`
+  - Steps execute locally in one control turn without LLM relay between each step.
+- Model policy weights now include:
+  - `completion`, `correctness`, `speed`, `price`, `token-efficiency`, `orchestration-efficiency`
+- Harmony score policy now includes:
+  - `score/base-weight`
+  - `score/token-efficiency-weight`
+  - `score/codemode-efficiency-weight`
+  - relay/chain/source knobs for code-mode efficiency.
 - OpenRouter backend default model for direct backend calls:
   - request model argument, otherwise env (`HARMONIA_OPENROUTER_DEFAULT_MODEL`, `HARMONIA_OPENROUTER_FALLBACK_MODELS`).

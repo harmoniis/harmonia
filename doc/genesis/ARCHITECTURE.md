@@ -2,7 +2,7 @@
 
 ## Repository: `$WORKSPACE/agent/harmonia`
 
-Harmonia is the recursive self-improving Common Lisp agent. This is the soul of OS4. It runs on SBCL, loads Rust dynamic libraries for ALL tools, backends, and I/O, communicates over MQTT (via Rust `.so`), and rewrites its own source code to better discover harmonic truth.
+Harmonia is the recursive self-improving Common Lisp agent. It runs on SBCL, loads Rust dynamic libraries for ALL tools/backends/I/O, communicates over MQTT (via Rust `.so`), and rewrites source/policy under validation gates. Its distinguishing architecture is genomic + epigenetic evolution with hot patching and rollback.
 
 **Cardinal rule: Lisp is orchestration only.** No tooling in Lisp. No `cl-mqtt`. No `cl-json`. No serialization libraries. No HTTP clients. The agent thinks, plans, composes, and orchestrates in Lisp. Everything that touches the outside world is a Rust dynamic library loaded via CFFI. All serialization and deserialization happens in Rust at the MQTT boundary — Lisp speaks s-expressions natively, and Rust translates at the edge.
 
@@ -54,7 +54,7 @@ harmonia/
 │   │   ├── backend-loader.lisp     # Load backend .so, extract function pointers via CFFI
 │   │   └── model-selector.lisp     # Harmonic model selection: quality × speed ÷ cost
 │   └── dna/
-│       ├── snapshot.lisp       # Coordinate Body snapshot to S3 (via s3-sync .so)
+│       ├── snapshot.lisp       # Coordinate epigenetic runtime snapshot to S3 (via s3-sync .so)
 │       ├── journal.lisp        # Journal modifications as s-expressions
 │       ├── git-sync.lisp       # Coordinate DNA sync to Git (via git-ops .so)
 │       └── merge.lisp          # Merge DNA from other agents
@@ -66,7 +66,7 @@ harmonia/
 │   │   ├── memory/             # Rust storage backend for Lisp memory system
 │   │   ├── mqtt-client/        # MQTT communication backbone (sexp↔JSON at boundary)
 │   │   ├── http/               # HTTP client (.so for outbound requests)
-│   │   ├── s3-sync/            # Body snapshot to S3
+│   │   ├── s3-sync/            # Epigenetic/runtime snapshot to S3
 │   │   ├── git-ops/            # DNA sync to Git
 │   │   ├── rust-forge/         # Self-extending tool system (compile .so at runtime)
 │   │   ├── cron-scheduler/     # Cron / heartbeat scheduling
@@ -104,7 +104,7 @@ harmonia/
 └── scripts/
     ├── bootstrap.sh            # First-time setup: install SBCL, Quicklisp, compile tools
     ├── run.sh                  # Start the agent (via Phoenix Supervisor)
-    └── snapshot.sh             # Manual Body snapshot
+    └── snapshot.sh             # Manual epigenetic/runtime snapshot
 ```
 
 ---

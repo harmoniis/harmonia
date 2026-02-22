@@ -2,6 +2,8 @@
 
 (in-package :harmonia)
 
+(declaim (ftype function %maybe-handle-tool-command))
+
 (defun %extract-tag-value (prompt tag)
   (let* ((needle (format nil "~A=" tag))
          (start (search needle prompt :test #'char-equal)))
@@ -18,6 +20,15 @@
           if (null i) do (return)
           do (setf start (1+ i)))
     (remove-if (lambda (s) (zerop (length s))) (nreverse parts))))
+
+(defun %split-by-char (text ch)
+  (let ((parts '())
+        (start 0))
+    (loop for i = (position ch text :start start)
+          do (push (subseq text start (or i (length text))) parts)
+          if (null i) do (return)
+          do (setf start (1+ i)))
+    (nreverse parts)))
 
 (defun %clip-text (text &optional (limit 512))
   (let ((s (or text "")))
@@ -56,6 +67,84 @@
                        (subseq prompt 0 from)
                        "[REDACTED]"
                        (if space (subseq prompt to) ""))))))
+
+(defun %url-decode-min (text)
+  ;; Minimal decoder for codemode step values passed as key=value tokens.
+  (let ((s (or text "")))
+    (setf s (substitute #\Space #\+ s))
+    (with-output-to-string (out)
+      (loop for i from 0 below (length s) do
+        (let ((ch (char s i)))
+          (if (and (char= ch #\%) (<= (+ i 2) (1- (length s))))
+              (let* ((hex (subseq s (1+ i) (+ i 3)))
+                     (code (ignore-errors (parse-integer hex :radix 16))))
+                (if code
+                    (progn
+                      (write-char (code-char code) out)
+                      (incf i 2))
+                    (write-char ch out)))
+              (write-char ch out)))))))
+
+(defun %step-plist->tool-prompt (step)
+  (let ((op (getf step :op)))
+    (unless (and op (> (length op) 0))
+      (error "codemode step missing op"))
+    (when (string-equal op "codemode-run")
+      (error "codemode-run cannot recursively execute codemode-run"))
+    (with-output-to-string (s)
+      (format s "tool op=~A" op)
+      (loop for (k v) on step by #'cddr do
+        (unless (eq k :op)
+          (format s " ~A=~A" (string-downcase (subseq (symbol-name k) 1))
+                  (%url-decode-min (princ-to-string v))))))))
+
+(defun %parse-codemode-steps (raw-steps)
+  ;; steps format:
+  ;; search:q=rust%20mcp,page=1|vault-has:key=openrouter
+  (let ((steps '()))
+    (dolist (chunk (%split-by-char (or raw-steps "") #\|))
+      (let* ((trim (string-trim '(#\Space #\Tab) chunk))
+             (colon (position #\: trim)))
+        (unless colon
+          (error "invalid codemode step (expected op:key=value,...): ~A" trim))
+        (let* ((op (string-downcase (subseq trim 0 colon)))
+               (args-raw (subseq trim (1+ colon)))
+               (plist (list :op op)))
+          (dolist (pair (%split-by-comma args-raw))
+            (let ((eq (position #\= pair)))
+              (unless eq
+                (error "invalid codemode arg (expected key=value): ~A" pair))
+              (let ((k (intern (concatenate 'string ":" (string-upcase (subseq pair 0 eq))) :keyword))
+                    (v (subseq pair (1+ eq))))
+                (setf (getf plist k) v))))
+          (push plist steps))))
+    (nreverse steps)))
+
+(defun %run-codemode-steps (raw-steps)
+  (let* ((steps (%parse-codemode-steps raw-steps))
+         (outputs '())
+         (sources '())
+         (intermediate-bytes 0))
+    (when (null steps)
+      (error "codemode-run requires non-empty steps=<...>"))
+    (dolist (step steps)
+      (multiple-value-bind (step-out step-tool)
+          (%maybe-handle-tool-command (%step-plist->tool-prompt step))
+        (unless step-out
+          (error "codemode step failed: ~A" (getf step :op)))
+        (when step-tool
+          (pushnew step-tool sources :test #'string=))
+        (push step-out outputs)))
+    (let ((ordered (nreverse outputs)))
+      (dolist (o (butlast ordered))
+        (incf intermediate-bytes (length (princ-to-string o))))
+      (list :final (princ-to-string (car (last ordered)))
+            :trace ordered
+            :tool-calls (length ordered)
+            :llm-calls 0
+            :datasource-count (length sources)
+            :intermediate-tokens (round (/ intermediate-bytes 4.0))
+            :mode :codemode))))
 
 (defun %sanitize-prompt-for-memory (prompt)
   (if (and prompt (search "tool " prompt :test #'char-equal)
@@ -121,6 +210,10 @@
         ((string-equal op "search")
          (values (search-web (or (%extract-tag-value prompt "q") ""))
                  "search-exa"))
+        ((string-equal op "codemode-run")
+         (let* ((steps (%extract-tag-value prompt "steps"))
+                (run (%run-codemode-steps steps)))
+           (values (getf run :final) "codemode" run)))
         ((string-equal op "vault-set")
          (harmonic-matrix-route-or-error "orchestrator" "vault")
          (let ((key (%extract-tag-value prompt "key"))
@@ -195,7 +288,7 @@
          (let ((metric (%extract-tag-value prompt "metric"))
                (value (%extract-tag-value prompt "value")))
            (unless (and metric value)
-             (error "model-policy-set-weight requires metric=<completion|correctness|speed|price> value=<float>"))
+             (error "model-policy-set-weight requires metric=<completion|correctness|speed|price|token-efficiency|orchestration-efficiency> value=<float>"))
            (model-policy-set-weight (intern (string-upcase metric) :keyword) (read-from-string value))
            (values "MODEL_POLICY_WEIGHT_SET" "openrouter")))
         ((string-equal op "model-policy-upsert")
@@ -362,19 +455,32 @@
 (defun orchestrate-once (prompt)
   (memory-touch-activity)
   (let* ((safe-prompt (%sanitize-prompt-for-memory prompt))
+         (llm-prompt (dna-compose-llm-prompt prompt :mode :orchestrate))
          (model (%select-model prompt))
          (started-at (get-internal-real-time))
          (response nil)
-         (used-tool "openrouter"))
+         (used-tool "openrouter")
+         (llm-calls 0)
+         (tool-calls 0)
+         (datasource-count 1)
+         (intermediate-tokens 0)
+         (mode :llm))
     (setf response
           (handler-case
-              (multiple-value-bind (tool-res tool-id)
+              (multiple-value-bind (tool-res tool-id tool-meta)
                   (or (let ((x (%maybe-handle-self-push-test prompt)))
                         (when x (values x "git-ops")))
                       (%maybe-handle-tool-command prompt))
                 (if tool-res
                     (progn
+                      (setf mode :tool)
                       (setf used-tool tool-id)
+                      (setf tool-calls (max 1 (or (getf tool-meta :tool-calls) 1)))
+                      (setf llm-calls (or (getf tool-meta :llm-calls) 0))
+                      (setf datasource-count (or (getf tool-meta :datasource-count) 1))
+                      (setf intermediate-tokens (or (getf tool-meta :intermediate-tokens) 0))
+                      (when (and tool-meta (eq (getf tool-meta :mode) :codemode))
+                        (setf mode :codemode))
                       tool-res)
                     (progn
                       (harmonic-matrix-route-or-error "orchestrator" "openrouter")
@@ -384,14 +490,18 @@
                         (dolist (m chain)
                           (unless ok
                             (handler-case
-                                (progn
-                                  (setf result (backend-complete prompt m))
+                                  (progn
+                                  (incf llm-calls)
+                                  (setf result (backend-complete llm-prompt m))
                                   (setf model m)
                                   (setf ok t))
                               (error (_)
                                 (declare (ignore _))))))
                         (if ok
-                            result
+                            (progn
+                              (setf tool-calls 1)
+                              (setf datasource-count 1)
+                              result)
                             (error "all model attempts failed"))))))
                     (error (e)
                       (ignore-errors
@@ -405,9 +515,15 @@
                              :payload (list :prompt safe-prompt :model model :tool used-tool)))))
     (let* ((elapsed-ms (round (* 1000
                                  (/ (- (get-internal-real-time) started-at)
-                                    internal-time-units-per-second))))
-           (score (harmonic-score prompt response))
-           (memory-id (memory-record-orchestration safe-prompt response used-tool score elapsed-ms)))
+                                   internal-time-units-per-second))))
+           (harmony
+             (list :mode mode
+                   :llm-calls llm-calls
+                   :tool-calls tool-calls
+                   :datasource-count datasource-count
+                   :intermediate-tokens intermediate-tokens))
+           (score (harmonic-score prompt response :context harmony))
+           (memory-id (memory-record-orchestration safe-prompt response used-tool score elapsed-ms :harmony harmony)))
       (memory-record-tool-usage used-tool :latency-ms elapsed-ms :success t)
       (ignore-errors
         (harmonic-matrix-observe-route "orchestrator" used-tool t elapsed-ms))
@@ -421,7 +537,8 @@
                   :response response
                   :model model
                   :score score
+                  :harmony harmony
                   :memory-id memory-id)
             (runtime-state-responses *runtime*))
-      (runtime-log *runtime* :orchestrated (list :model model :score score :memory-id memory-id))
+      (runtime-log *runtime* :orchestrated (list :model model :score score :harmony harmony :memory-id memory-id))
       response)))

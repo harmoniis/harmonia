@@ -29,7 +29,7 @@ The project is organized into 6 major components, all built with Bazel:
 - **Mechanism:** Independent .so files (e.g., `libvault.so`, `libmemory.so`, `libhttp.so`).
 - **Evolution:** The Agent can compile/recompile these individually and hot-reload them without restarting the core. No monolithic build.
 
-### agent/harmoniislib (The Mobile/OS Body)
+### agent/harmoniislib (Shared Client Runtime Layer)
 
 - **Language:** Rust.
 - **Role:** The shared "Standard Library" for External Components (iOS, Android, XR, OS4).
@@ -83,7 +83,7 @@ The Agent interacts with the world via Micro-Service Dynamic Libraries. Each is 
 | `libmemory.so` | Vector/Graph Database Core — Rust handles I/O, Lisp evolves topology |
 | `libmqtt.so` | MQTT client — sexp↔JSON translation at boundary, signaling backbone |
 | `libhttp.so` | HTTP client with Vault-injected auth headers |
-| `libs3.so` | S3 protocol — body snapshots, binary backups, images, bulk storage |
+| `libs3.so` | S3 protocol — epigenetic/runtime snapshots, binary backups, images, bulk storage |
 | `libgit.so` | Git operations — DNA sync, self-versioning, commit/push |
 | `libforge.so` | THE FORGE: compile Rust source → .so at runtime |
 | `libscheduler.so` | Cron/Heartbeat scheduling |

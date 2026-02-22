@@ -55,11 +55,18 @@
 
 (defun %task-weights (task)
   (case task
-    (:tooling '(:completion 0.30 :correctness 0.20 :speed 0.30 :price 0.20))
-    (:vision '(:completion 0.42 :correctness 0.28 :speed 0.16 :price 0.14))
-    (:critical-reasoning '(:completion 0.55 :correctness 0.25 :speed 0.10 :price 0.10))
-    (:planning '(:completion 0.50 :correctness 0.24 :speed 0.14 :price 0.12))
-    (:coding '(:completion 0.48 :correctness 0.26 :speed 0.14 :price 0.12))
+    (:tooling '(:completion 0.24 :correctness 0.20 :speed 0.22 :price 0.16
+                :token-efficiency 0.10 :orchestration-efficiency 0.08))
+    (:vision '(:completion 0.36 :correctness 0.28 :speed 0.14 :price 0.10
+               :token-efficiency 0.07 :orchestration-efficiency 0.05))
+    (:critical-reasoning '(:completion 0.44 :correctness 0.25 :speed 0.08 :price 0.08
+                           :token-efficiency 0.07 :orchestration-efficiency 0.08))
+    (:planning '(:completion 0.34 :correctness 0.21 :speed 0.12 :price 0.10
+                 :token-efficiency 0.10 :orchestration-efficiency 0.13))
+    (:coding '(:completion 0.34 :correctness 0.24 :speed 0.12 :price 0.10
+               :token-efficiency 0.10 :orchestration-efficiency 0.10))
+    (:codemode '(:completion 0.22 :correctness 0.16 :speed 0.16 :price 0.16
+                 :token-efficiency 0.16 :orchestration-efficiency 0.14))
     (t *model-harmony-weights*)))
 
 (defun %model-weight (weights k)
@@ -68,6 +75,9 @@
 (defun %task-kind (prompt)
   (let ((p (string-downcase prompt)))
     (cond
+      ((or (search "codemode" p) (search "mcp" p) (search "pipeline" p)
+           (search "batch tools" p) (search "tool chain" p))
+       :codemode)
       ((or (search "ocr" p) (search "image" p) (search "vision" p)) :vision)
       ((or (search "rewrite" p) (search "evolution" p) (search "architecture" p)) :critical-reasoning)
       ((or (search "plan" p) (search "orchestrate" p) (search "decision" p)) :planning)
@@ -81,8 +91,15 @@
     (:critical-reasoning '(:thinking :frontier :reasoning))
     (:planning '(:planner :thinking :reasoning))
     (:tooling '(:fast :cheap))
+    (:codemode '(:codemode :token-efficient :tool-use))
     (:coding '(:coding :reasoning))
     (t '(:balanced :reasoning))))
+
+(defun %tag-hit-score (tags tag-a tag-b)
+  (cond
+    ((member tag-a tags) 1.0)
+    ((member tag-b tags) 0.6)
+    (t 0.2)))
 
 (defun %model-score (profile task)
   (let* ((weights (%task-weights task))
@@ -96,8 +113,12 @@
          (completion-s (* (%model-weight weights :completion) completion))
          (quality-s (* (%model-weight weights :correctness) quality))
          (speed-s (* (%model-weight weights :speed) (/ 10.0 (max 1 latency))))
-         (price-s (* (%model-weight weights :price) (/ 10.0 (max 1 cost)))))
-    (+ completion-s quality-s speed-s price-s (* 0.5 fit))))
+         (price-s (* (%model-weight weights :price) (/ 10.0 (max 1 cost))))
+         (token-s (* (%model-weight weights :token-efficiency)
+                     (max 0.0 (min 1.0 (/ 10.0 (+ cost (* 0.5 latency)))))))
+         (orch-s (* (%model-weight weights :orchestration-efficiency)
+                    (%tag-hit-score tags :codemode :tool-use))))
+    (+ completion-s quality-s speed-s price-s token-s orch-s (* 0.5 fit))))
 
 (defun %profile-by-id (id)
   (find id *model-profiles* :key (lambda (p) (getf p :id)) :test #'string=))
@@ -158,8 +179,9 @@
                      (format nil
                              "Pick exactly one model id from this list for task kind ~A. Reply ONLY with model id.~%Candidates: ~{~A~^, ~}~%Prompt: ~A"
                              task cands prompt))
+                   (decision-with-dna (dna-compose-llm-prompt decision-prompt :mode :planner))
                    (picked (string-trim '(#\Space #\Newline #\Tab)
-                                        (backend-complete decision-prompt (%planner-model)))))
+                                        (backend-complete decision-with-dna (%planner-model)))))
               (if (%profile-by-id picked) picked fallback))
           (error (_)
             (declare (ignore _))

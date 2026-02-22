@@ -146,7 +146,7 @@
               :depth 0
               :tags (list :tool-metric)))
 
-(defun memory-record-orchestration (prompt response tool score latency-ms)
+(defun memory-record-orchestration (prompt response tool score latency-ms &key harmony)
   (let ((daily-id
           (memory-put :daily
                       (list :prompt prompt
@@ -154,6 +154,7 @@
                             :score score
                             :tool tool
                             :latency-ms latency-ms
+                            :harmony harmony
                             :channel :human)
                       :depth 0
                       :tags (list :interaction :orchestration))))
