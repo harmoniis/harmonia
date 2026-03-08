@@ -25,3 +25,4 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Parallel agent orchestration (tmux-based swarm)
 - Self-rewrite protocol (Claude Code > Codex > OpenRouter)
 - 8 Laws of Harmonia evolution framework
+# Release 0.1.2
