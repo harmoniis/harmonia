@@ -78,6 +78,7 @@ jobs:
             target: aarch64-unknown-freebsd
             platform: freebsd-aarch64
             use_cross: true
+            build_std: true
     steps:
       - uses: actions/checkout@v4
 
@@ -98,15 +99,18 @@ jobs:
       - name: Install cross
         if: matrix.use_cross
         run: |
-          # Install nightly for cross (requires rustc 1.92+)
           rustup toolchain install nightly
+          rustup component add rust-src --toolchain nightly
           cargo +nightly install cross --git https://github.com/cross-rs/cross
 
       - name: Build release binaries
         shell: bash
         run: |
           VERSION=${GITHUB_REF_NAME#harmonia-v}
-          if [ "${{ matrix.use_cross }}" = "true" ]; then
+          if [ "${{ matrix.build_std }}" = "true" ]; then
+            cross +nightly build --workspace --release --target ${{ matrix.target }} \
+              -Z build-std=std,panic_abort
+          elif [ "${{ matrix.use_cross }}" = "true" ]; then
             cross build --workspace --release --target ${{ matrix.target }}
           else
             HOST_TARGET=$(rustc -vV | grep host | awk '{print $2}')
