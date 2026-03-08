@@ -33,12 +33,12 @@ detect_platform() {
         *)       error "Unsupported OS: $os" ;;
     esac
     case "$arch" in
-        x86_64|amd64)    arch="x86_64"  ;;
-        aarch64|arm64)   arch="aarch64" ;;
-        riscv64)         arch="riscv64" ;;
-        ppc64|powerpc64) arch="ppc64"   ;;
-        sparc64)         arch="sparc64" ;;
-        *)               error "Unsupported architecture: $arch" ;;
+        x86_64|amd64)          arch="x86_64"   ;;
+        aarch64|arm64)         arch="aarch64"  ;;
+        riscv64)               arch="riscv64"  ;;
+        powerpc|ppc)           arch="powerpc"  ;;
+        sparc64)               arch="sparc64"  ;;
+        *)                     error "Unsupported architecture: $arch" ;;
     esac
     echo "${os}-${arch}"
 }
