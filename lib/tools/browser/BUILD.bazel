@@ -1,0 +1,31 @@
+load("@rules_rust//rust:defs.bzl", "rust_library", "rust_shared_library")
+
+package(default_visibility = ["//visibility:public"])
+
+rust_library(
+    name = "browser",
+    srcs = glob(["src/**/*.rs"]),
+    edition = "2021",
+    deps = [
+        "//lib/core/vault:vault",
+        "@crate_index//:log",
+        "@crate_index//:serde",
+        "@crate_index//:serde_json",
+        "@crate_index//:tokio",
+        "@crate_index//:ureq",
+    ],
+)
+
+rust_shared_library(
+    name = "browser-so",
+    srcs = glob(["src/**/*.rs"]),
+    edition = "2021",
+    deps = [
+        "//lib/core/vault:vault",
+        "@crate_index//:log",
+        "@crate_index//:serde",
+        "@crate_index//:serde_json",
+        "@crate_index//:tokio",
+        "@crate_index//:ureq",
+    ],
+)

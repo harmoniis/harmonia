@@ -1,0 +1,17 @@
+[package]
+name = "harmonia-nostr"
+version = "0.1.0"
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+authors.workspace = true
+description = "Nostr protocol frontend for the Harmonia agent"
+keywords = ["harmonia", "nostr"]
+categories = ["network-programming"]
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+harmonia-vault = { version = "0.1.0", path = "../../core/vault" }

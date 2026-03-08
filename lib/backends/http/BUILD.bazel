@@ -1,0 +1,21 @@
+load("@rules_rust//rust:defs.bzl", "rust_library", "rust_shared_library")
+
+package(default_visibility = ["//visibility:public"])
+
+rust_library(
+    name = "http",
+    srcs = glob(["src/**/*.rs"]),
+    edition = "2021",
+    deps = [
+        "//lib/core/vault:vault",
+    ],
+)
+
+rust_shared_library(
+    name = "http-so",
+    srcs = glob(["src/**/*.rs"]),
+    edition = "2021",
+    deps = [
+        "//lib/core/vault:vault",
+    ],
+)

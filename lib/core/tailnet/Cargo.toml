@@ -1,0 +1,21 @@
+[package]
+name = "harmonia-tailnet"
+version = "0.1.0"
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+authors.workspace = true
+description = "Tailscale mesh networking for inter-node communication"
+keywords = ["harmonia", "tailscale"]
+categories = ["network-programming"]
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+log = "0.4"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+sha2 = "0.10"
+hex = "0.4"

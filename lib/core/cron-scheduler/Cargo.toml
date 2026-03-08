@@ -1,0 +1,17 @@
+[package]
+name = "harmonia-cron-scheduler"
+version = "0.1.0"
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+authors.workspace = true
+description = "Cron-style task scheduler for the Harmonia agent"
+keywords = ["harmonia", "cron"]
+categories = ["date-and-time"]
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+# Add as needed: cron, tokio, etc.

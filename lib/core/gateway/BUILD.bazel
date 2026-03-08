@@ -1,0 +1,25 @@
+load("@rules_rust//rust:defs.bzl", "rust_library", "rust_shared_library")
+
+package(default_visibility = ["//visibility:public"])
+
+rust_library(
+    name = "gateway",
+    srcs = glob(["src/**/*.rs"]),
+    edition = "2021",
+    deps = [
+        "@crate_index//:libloading",
+        "@crate_index//:log",
+        "@crate_index//:parking_lot",
+    ],
+)
+
+rust_shared_library(
+    name = "gateway-so",
+    srcs = glob(["src/**/*.rs"]),
+    edition = "2021",
+    deps = [
+        "@crate_index//:libloading",
+        "@crate_index//:log",
+        "@crate_index//:parking_lot",
+    ],
+)

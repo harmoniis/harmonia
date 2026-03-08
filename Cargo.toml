@@ -1,0 +1,81 @@
+[workspace]
+resolver = "2"
+members = [
+    # Core — essential infrastructure
+    "lib/core/phoenix",
+    "lib/core/ouroboros",
+    "lib/core/vault",
+    "lib/core/memory",
+    "lib/core/git-ops",
+    "lib/core/rust-forge",
+    "lib/core/cron-scheduler",
+    "lib/core/recovery",
+    "lib/core/fs",
+    "lib/core/parallel-agents",
+    "lib/core/harmonic-matrix",
+    "lib/core/config-store",
+    "lib/core/tailnet",
+    "lib/core/gateway",
+    "lib/core/signal-integrity",
+    "lib/core/admin-intent",
+
+    # Backends — LLM providers + storage + HTTP
+    "lib/backends/llms/openrouter",
+    "lib/backends/storage/s3",
+    "lib/backends/http",
+
+    # Tools — utility plugins
+    "lib/tools/browser",
+    "lib/tools/search-exa",
+    "lib/tools/search-brave",
+    "lib/tools/whisper",
+    "lib/tools/elevenlabs",
+    "lib/tools/social",
+
+    # Frontends — hot-pluggable communication channels
+    "lib/frontends/push",
+    "lib/frontends/mqtt-client",
+    "lib/frontends/whatsapp",
+    "lib/frontends/telegram",
+    "lib/frontends/slack",
+    "lib/frontends/mattermost",
+    "lib/frontends/nostr",
+    "lib/frontends/email-client",
+    "lib/frontends/tui",
+    "lib/frontends/imessage",
+    "lib/frontends/tailscale",
+]
+
+[workspace.package]
+edition = "2021"
+license = "BUSL-1.1"
+repository = "https://github.com/harmoniis/harmonia"
+homepage = "https://harmoniis.com"
+authors = ["Harmoniis <dev@harmoniis.com>"]
+
+[package]
+name = "harmonia"
+version = "0.1.0"
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+authors.workspace = true
+description = "Self-improving Common Lisp + Rust agent"
+keywords = ["ai", "agent", "lisp", "self-improving"]
+categories = ["command-line-utilities"]
+default-run = "harmonia"
+
+[[bin]]
+name = "harmonia"
+path = "cli/main.rs"
+
+[dependencies]
+clap = { version = "4", features = ["derive"] }
+dialoguer = "0.11"
+console = "0.15"
+indicatif = "0.17"
+dirs = "5"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+harmonia-vault = { version = "0.1.0", path = "lib/core/vault" }

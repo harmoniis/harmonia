@@ -1,0 +1,21 @@
+[package]
+name = "harmonia-admin-intent"
+version = "0.1.0"
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+authors.workspace = true
+description = "Ed25519 admin intent verification for privileged Harmonia mutations"
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+ed25519-dalek = { version = "2", features = ["rand_core"] }
+hex = "0.4"
+harmonia-vault = { version = "0.1.0", path = "../vault" }
+log = "0.4"
+
+[dev-dependencies]
+rand_core = { version = "0.6", features = ["getrandom"] }

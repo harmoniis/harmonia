@@ -1,0 +1,26 @@
+load("@rules_rust//rust:defs.bzl", "rust_library", "rust_shared_library")
+
+package(default_visibility = ["//visibility:public"])
+
+rust_library(
+    name = "tailnet",
+    crate_name = "harmonia_tailnet",
+    srcs = glob(["src/**/*.rs"]),
+    edition = "2021",
+    deps = [
+        "@crate_index//:log",
+        "@crate_index//:serde",
+        "@crate_index//:serde_json",
+    ],
+)
+
+rust_shared_library(
+    name = "tailnet-so",
+    srcs = glob(["src/**/*.rs"]),
+    edition = "2021",
+    deps = [
+        "@crate_index//:log",
+        "@crate_index//:serde",
+        "@crate_index//:serde_json",
+    ],
+)

@@ -1,0 +1,25 @@
+[package]
+name = "harmonia-mqtt-client"
+version = "0.1.0"
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+authors.workspace = true
+description = "MQTT messaging frontend for the Harmonia agent"
+keywords = ["harmonia", "mqtt"]
+categories = ["network-programming"]
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+rumqttc = "0.24"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+uuid = { version = "1", features = ["v4"] }
+chrono = { version = "0.4", features = ["clock"] }
+harmonia-push = { version = "0.2.0", path = "../push" }
+harmonia-vault = { version = "0.1.0", path = "../../core/vault" }
+log = "0.4"
+ureq = "2"

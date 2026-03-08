@@ -1,0 +1,88 @@
+# Harmonia — Self-improving Common Lisp + Rust agent
+#
+# Build all:    bazel build //...
+# Test all:     bazel test //...
+# Run CLI:      bazel run //:harmonia -- version
+# Publish:      bazel run //:publish
+
+load("@rules_rust//rust:defs.bzl", "rust_binary")
+load("@rules_shell//shell:sh_binary.bzl", "sh_binary")
+
+package(default_visibility = ["//visibility:public"])
+
+# ---------------------------------------------------------------------------
+# CLI binary
+# ---------------------------------------------------------------------------
+rust_binary(
+    name = "harmonia",
+    srcs = glob(["cli/**/*.rs"]),
+    edition = "2021",
+    deps = [
+        "//lib/core/vault:vault",
+        "@crate_index//:clap",
+        "@crate_index//:dialoguer",
+        "@crate_index//:console",
+        "@crate_index//:indicatif",
+        "@crate_index//:dirs",
+        "@crate_index//:serde",
+        "@crate_index//:serde_json",
+    ],
+)
+
+# ---------------------------------------------------------------------------
+# All shared libraries (.so / .dylib) for SBCL CFFI
+# ---------------------------------------------------------------------------
+filegroup(
+    name = "lib",
+    srcs = [],
+    data = [
+        # Core — essential infrastructure
+        "//lib/core/phoenix:phoenix",
+        "//lib/core/ouroboros:ouroboros-so",
+        "//lib/core/vault:vault-so",
+        "//lib/core/memory:memory-so",
+        "//lib/core/git-ops:git-ops",
+        "//lib/core/rust-forge:rust-forge",
+        "//lib/core/cron-scheduler:cron-scheduler",
+        "//lib/core/recovery:recovery-so",
+        "//lib/core/fs:fs-so",
+        "//lib/core/parallel-agents:parallel-agents-so",
+        "//lib/core/harmonic-matrix:harmonic-matrix-so",
+        "//lib/core/config-store:config-store-so",
+        "//lib/core/tailnet:tailnet-so",
+        "//lib/core/gateway:gateway-so",
+
+        # Backends — providers and adapters
+        "//lib/backends/http:http-so",
+        "//lib/backends/storage/s3:s3",
+        "//lib/backends/llms/openrouter:openrouter-backend",
+
+        # Tools — utility plugins
+        "//lib/tools/browser:browser-so",
+        "//lib/tools/search-exa:tool-so",
+        "//lib/tools/search-brave:tool-so",
+        "//lib/tools/whisper:tool-so",
+        "//lib/tools/elevenlabs:tool-so",
+        "//lib/tools/social:whatsapp-connector",
+
+        # Frontends — hot-pluggable communication channels
+        "//lib/frontends/tui:tui-so",
+        "//lib/frontends/mqtt-client:mqtt-client",
+        "//lib/frontends/telegram:tool-so",
+        "//lib/frontends/slack:tool-so",
+        "//lib/frontends/whatsapp:tool-so",
+        "//lib/frontends/imessage:imessage-so",
+        "//lib/frontends/mattermost:tool-so",
+        "//lib/frontends/nostr:tool-so",
+        "//lib/frontends/email-client:tool-so",
+        "//lib/frontends/tailscale:tailscale-so",
+    ],
+)
+
+# ---------------------------------------------------------------------------
+# Publish all crates to crates.io
+# ---------------------------------------------------------------------------
+sh_binary(
+    name = "publish",
+    srcs = ["scripts/publish-all.sh"],
+)

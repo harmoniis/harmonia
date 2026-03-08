@@ -1,0 +1,143 @@
+name: CI
+
+on:
+  push:
+    tags: ['harmonia-v*']
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: Build + Test (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: "1.85.0"
+          components: rustfmt, clippy
+
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: cargo-${{ matrix.os }}-${{ hashFiles('Cargo.lock') }}
+          restore-keys: cargo-${{ matrix.os }}-
+
+      - name: Check documentation coverage
+        run: bash scripts/check-doc-reference-coverage.sh
+
+      - name: Check formatting
+        run: cargo fmt --check
+
+      - name: Build all crates
+        run: cargo build --workspace --release
+
+      - name: Run all tests
+        run: cargo test --workspace
+
+  release:
+    name: Release (${{ matrix.platform }})
+    needs: build
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            target: x86_64-unknown-linux-gnu
+            platform: linux-x86_64
+          - os: ubuntu-24.04-arm
+            target: aarch64-unknown-linux-gnu
+            platform: linux-aarch64
+          - os: macos-latest
+            target: aarch64-apple-darwin
+            platform: macos-aarch64
+          - os: macos-latest
+            target: x86_64-apple-darwin
+            platform: macos-x86_64
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: "1.85.0"
+          targets: ${{ matrix.target }}
+
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: release-${{ matrix.platform }}-${{ hashFiles('Cargo.lock') }}
+          restore-keys: release-${{ matrix.platform }}-
+
+      - name: Build release binaries
+        run: |
+          VERSION=${GITHUB_REF_NAME#harmonia-v}
+          HOST_TARGET=$(rustc -vV | grep host | awk '{print $2}')
+          if [ "${{ matrix.target }}" != "$HOST_TARGET" ]; then
+            cargo build --workspace --release --target ${{ matrix.target }}
+            mkdir -p target/release
+            cp target/${{ matrix.target }}/release/harmonia target/release/ 2>/dev/null || true
+            cp target/${{ matrix.target }}/release/*.so target/release/ 2>/dev/null || true
+            cp target/${{ matrix.target }}/release/*.dylib target/release/ 2>/dev/null || true
+          else
+            cargo build --workspace --release
+          fi
+          bash scripts/build_release.sh "$VERSION"
+
+      - name: Upload to GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            harmonia-*-${{ matrix.platform }}.tar.gz
+            harmonia-*-${{ matrix.platform }}.tar.gz.sha256
+
+      - name: Upload install script
+        if: matrix.platform == 'linux-x86_64'
+        uses: softprops/action-gh-release@v2
+        with:
+          files: scripts/install.sh
+
+      - name: Upload to S3 (optional)
+        if: env.AWS_ACCESS_KEY_ID != ''
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          S3_BUCKET: ${{ secrets.S3_BUCKET }}
+        run: |
+          VERSION=${GITHUB_REF_NAME#harmonia-v}
+          TARBALL="harmonia-${VERSION}-${{ matrix.platform }}.tar.gz"
+          if [ -n "$S3_BUCKET" ] && [ -f "$TARBALL" ]; then
+            pip install awscli
+            aws s3 cp "$TARBALL" "s3://${S3_BUCKET}/releases/${VERSION}/"
+          else
+            echo "S3 upload skipped (no bucket configured or tarball missing)"
+          fi
+
+  publish-crates:
+    name: Publish to crates.io
+    needs: build
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: "1.85.0"
+
+      - name: Publish all crates
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
+        run: bash scripts/publish-all.sh

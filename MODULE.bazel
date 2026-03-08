@@ -1,0 +1,39 @@
+module(
+    name = "harmonia",
+    version = "0.1.0",
+)
+
+# Rust toolchain
+bazel_dep(name = "rules_rust", version = "0.69.0")
+
+rust = use_extension("@rules_rust//rust:extensions.bzl", "rust")
+rust.toolchain(
+    edition = "2021",
+    versions = ["1.85.0"],
+)
+use_repo(rust, "rust_toolchains")
+
+register_toolchains("@rust_toolchains//:all")
+
+# Crate universe — resolve Cargo dependencies for Bazel
+crate = use_extension("@rules_rust//crate_universe:extensions.bzl", "crate")
+crate.from_cargo(
+    name = "crate_index",
+    cargo_lockfile = "//:Cargo.lock",
+    manifests = ["//:Cargo.toml"],
+    # All triples supported by rules_rust platform definitions.
+    supported_platform_triples = [
+        "aarch64-apple-darwin",
+        "x86_64-apple-darwin",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-unknown-linux-gnu",
+        "x86_64-pc-windows-msvc",
+        "x86_64-unknown-freebsd",
+        "i686-unknown-freebsd",
+        "riscv64gc-unknown-linux-gnu",
+    ],
+)
+use_repo(crate, "crate_index")
+
+# Shell rules (for sh_binary)
+bazel_dep(name = "rules_shell", version = "0.6.1")

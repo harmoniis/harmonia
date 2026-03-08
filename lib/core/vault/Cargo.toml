@@ -1,0 +1,22 @@
+[package]
+name = "harmonia-vault"
+version = "0.1.0"
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+authors.workspace = true
+description = "Encrypted secret vault with SQLite backend for the Harmonia agent"
+keywords = ["harmonia", "vault"]
+categories = ["cryptography"]
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+rusqlite = { version = "0.31", features = ["bundled"] }
+hex = "0.4"
+aes-gcm = "0.10"
+hkdf = "0.12"
+sha2 = "0.10"
+rand_core = { version = "0.6", features = ["getrandom"] }

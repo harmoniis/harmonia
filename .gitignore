@@ -1,0 +1,65 @@
+# OS
+.DS_Store
+Thumbs.db
+Desktop.ini
+
+# IDE / Editor
+.vscode/
+.idea/
+*.sublime-project
+*.sublime-workspace
+*.swp
+*.swo
+*~
+
+# Bazel
+bazel-*/
+output/
+
+# Rust / Cargo
+target/
+*.so
+*.dylib
+*.dll
+*.rlib
+*.rmeta
+
+# Lisp / SBCL
+*.fasl
+*.*fsl
+*.core
+
+# Data / SQLite
+*.db
+*.db-wal
+*.db-shm
+*.sqlite
+*.sqlite3
+
+# C / C++ objects
+*.o
+*.obj
+*.exe
+*.out
+*.app
+compile_commands.json
+.cache/
+.clangd
+
+# Temp / Backup
+*.bak
+*.tmp
+*.log
+
+# Secrets
+.env
+.env.*
+*.secret
+config/local.*
+
+# Coverage / Profiling
+lcov.info
+*.profraw
+*.profdata
+tarpaulin-report.html
+cobertura.xml

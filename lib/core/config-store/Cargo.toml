@@ -1,0 +1,17 @@
+[package]
+name = "harmonia-config-store"
+version = "0.1.0"
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+authors.workspace = true
+description = "Configuration persistence with SQLite backend for the Harmonia agent"
+keywords = ["harmonia", "config"]
+categories = ["config"]
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+rusqlite = { version = "0.31", features = ["bundled"] }

@@ -1,0 +1,18 @@
+[package]
+name = "harmonia-search-exa"
+version = "0.1.0"
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+authors.workspace = true
+description = "Exa search API client for the Harmonia agent"
+keywords = ["harmonia", "search"]
+categories = ["api-bindings"]
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+harmonia-vault = { version = "0.1.0", path = "../../core/vault" }
+harmonia-signal-integrity = { version = "0.1.0", path = "../../core/signal-integrity" }

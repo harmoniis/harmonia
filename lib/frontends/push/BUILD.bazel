@@ -1,0 +1,15 @@
+load("@rules_rust//rust:defs.bzl", "rust_library")
+
+package(default_visibility = ["//visibility:public"])
+
+# Push is an rlib utility consumed by mqtt-client, not a standalone cdylib frontend.
+rust_library(
+    name = "push",
+    srcs = glob(["src/**/*.rs"]),
+    edition = "2021",
+    deps = [
+        "@crate_index//:serde",
+        "@crate_index//:serde_json",
+        "@crate_index//:ureq",
+    ],
+)

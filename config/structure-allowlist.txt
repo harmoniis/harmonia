@@ -1,0 +1,6 @@
+# Temporary structural debt tracked by check-structure.sh.
+# Remove entries as files are split.
+
+harmonia/lib/core/harmonic-matrix/src/ffi.rs
+harmonia/lib/core/mqtt-client/src/lib.rs
+harmonia/src/orchestrator/conductor.lisp
