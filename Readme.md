@@ -1,10 +1,18 @@
 <p align="center">
-  <strong>Harmonia</strong><br>
+<pre>
+  _   _                                  _
+ | | | | __ _ _ __ _ __ ___   ___  _ __ (_) __ _
+ | |_| |/ _` | '__| '_ ` _ \ / _ \| '_ \| |/ _` |
+ |  _  | (_| | |  | | | | | | (_) | | | | | (_| |
+ |_| |_|\__,_|_|  |_| |_| |_|\___/|_| |_|_|\__,_|
+</pre>
+</p>
+
+<p align="center">
   <em>Distributed evolutionary homoiconic self-improving agent</em>
 </p>
 
 <p align="center">
-  <a href="https://crates.io/crates/harmonia"><img src="https://img.shields.io/crates/v/harmonia.svg" alt="crates.io"></a>
   <a href="https://github.com/harmoniis/harmonia/actions"><img src="https://github.com/harmoniis/harmonia/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-BUSL--1.1-orange.svg" alt="Business Source License 1.1"></a>
 </p>
@@ -21,7 +29,13 @@ Harmonia is a recursive self-improving agent built on SBCL Common Lisp with a mo
 curl -sSf https://harmoniis.com/harmonia/install | sh
 ```
 
-By default this installer is **binary-first** (GitHub release artifacts) with source-build fallback.
+**Windows (PowerShell):**
+
+```powershell
+iwr https://harmoniis.com/harmonia/install.ps1 -UseB | iex
+```
+
+By default the installer is **binary-first** (GitHub release artifacts) with source-build fallback.
 
 Optional install mode overrides:
 
@@ -31,19 +45,6 @@ HARMONIA_INSTALL_MODE=source curl -sSf https://harmoniis.com/harmonia/install | 
 
 # Binary install + optional local source checkout for source-rewrite workflows
 HARMONIA_WITH_SOURCE=1 curl -sSf https://harmoniis.com/harmonia/install | sh
-```
-
-**Windows (PowerShell):**
-
-```powershell
-iwr https://harmoniis.com/harmonia/install.ps1 -UseB | iex
-```
-
-**From source:**
-
-```bash
-cargo install harmonia
-harmonia setup
 ```
 
 ### Prerequisites
@@ -62,9 +63,6 @@ harmonia setup
 
 # Start the agent
 harmonia start
-
-# Start in production mode
-harmonia start --env prod
 ```
 
 The setup wizard will:
@@ -79,6 +77,18 @@ The setup wizard will:
 8. Let you select which frontends to enable
 9. Collect credentials for selected frontends
 10. Build and configure everything
+
+## Upgrade
+
+```bash
+harmonia upgrade
+```
+
+## Uninstall
+
+```bash
+harmonia uninstall
+```
 
 ## Architecture
 

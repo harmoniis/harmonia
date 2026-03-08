@@ -1,5 +1,7 @@
 mod setup;
 mod start;
+mod uninstall;
+mod upgrade;
 
 use clap::{Parser, Subcommand};
 
@@ -27,6 +29,10 @@ enum Commands {
         #[arg(short, long, default_value = "dev")]
         env: String,
     },
+    /// Uninstall Harmonia (preserves wallet data)
+    Uninstall,
+    /// Upgrade to the latest release (preserves evolved state and wallet data)
+    Upgrade,
     /// Show version and system info
     Version,
 }
@@ -44,6 +50,18 @@ fn main() {
         Commands::Start { env } => {
             if let Err(e) = start::run(&env) {
                 eprintln!("Start failed: {}", e);
+                std::process::exit(1);
+            }
+        }
+        Commands::Uninstall => {
+            if let Err(e) = uninstall::run() {
+                eprintln!("Uninstall failed: {}", e);
+                std::process::exit(1);
+            }
+        }
+        Commands::Upgrade => {
+            if let Err(e) = upgrade::run() {
+                eprintln!("Upgrade failed: {}", e);
                 std::process::exit(1);
             }
         }
