@@ -1,6 +1,6 @@
 [package]
 name = "harmonia-gateway"
-version = "0.1.3"
+version = "0.1.4"
 edition.workspace = true
 license.workspace = true
 repository.workspace = true
@@ -17,4 +17,4 @@ crate-type = ["cdylib", "rlib"]
 libloading = "0.8"
 log = "0.4"
 parking_lot = "0.12"
-harmonia-signal-integrity = { version = "0.1.3", path = "../signal-integrity" }
+harmonia-signal-integrity = { version = "0.1.4", path = "../signal-integrity" }
