@@ -245,12 +245,11 @@ install_harmonia() {
 
 run_setup() {
     printf "\n"
-    if [ -t 0 ] && [ -t 1 ]; then
-        harmonia setup
-    else
-        warn "Skipping interactive setup (no TTY detected)."
-        printf "Run this next:\n  harmonia setup\n"
-    fi
+    printf "${BOLD}  What's next${RESET}\n\n"
+    printf "  Configure your agent (API keys, frontends, evolution mode):\n\n"
+    printf "    ${CYAN}${BOLD}harmonia setup${RESET}\n\n"
+    printf "  Then start the agent:\n\n"
+    printf "    ${CYAN}${BOLD}harmonia start${RESET}\n\n"
 }
 
 main "$@"
