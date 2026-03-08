@@ -764,7 +764,7 @@ dependencies = [
 
 [[package]]
 name = "harmonia"
-version = "0.1.0"
+version = "0.1.3"
 dependencies = [
  "clap",
  "console",
@@ -778,7 +778,7 @@ dependencies = [
 
 [[package]]
 name = "harmonia-admin-intent"
-version = "0.1.0"
+version = "0.1.3"
 dependencies = [
  "ed25519-dalek",
  "harmonia-vault",
@@ -802,36 +802,36 @@ dependencies = [
 
 [[package]]
 name = "harmonia-config-store"
-version = "0.1.0"
+version = "0.1.3"
 dependencies = [
  "rusqlite",
 ]
 
 [[package]]
 name = "harmonia-cron-scheduler"
-version = "0.1.0"
+version = "0.1.3"
 
 [[package]]
 name = "harmonia-elevenlabs"
-version = "0.1.0"
+version = "0.1.3"
 dependencies = [
  "harmonia-vault",
 ]
 
 [[package]]
 name = "harmonia-email-client"
-version = "0.1.0"
+version = "0.1.3"
 dependencies = [
  "harmonia-vault",
 ]
 
 [[package]]
 name = "harmonia-fs"
-version = "0.1.0"
+version = "0.1.3"
 
 [[package]]
 name = "harmonia-gateway"
-version = "0.1.0"
+version = "0.1.3"
 dependencies = [
  "harmonia-signal-integrity",
  "libloading",
@@ -841,25 +841,25 @@ dependencies = [
 
 [[package]]
 name = "harmonia-git-ops"
-version = "0.1.0"
+version = "0.1.3"
 
 [[package]]
 name = "harmonia-harmonic-matrix"
-version = "0.1.0"
+version = "0.1.3"
 dependencies = [
  "rusqlite",
 ]
 
 [[package]]
 name = "harmonia-http"
-version = "0.1.0"
+version = "0.1.3"
 dependencies = [
  "harmonia-vault",
 ]
 
 [[package]]
 name = "harmonia-imessage"
-version = "0.1.0"
+version = "0.1.3"
 dependencies = [
  "serde",
  "serde_json",
@@ -868,18 +868,18 @@ dependencies = [
 
 [[package]]
 name = "harmonia-mattermost"
-version = "0.1.0"
+version = "0.1.3"
 dependencies = [
  "harmonia-vault",
 ]
 
 [[package]]
 name = "harmonia-memory"
-version = "0.1.0"
+version = "0.1.3"
 
 [[package]]
 name = "harmonia-mqtt-client"
-version = "0.1.0"
+version = "0.1.3"
 dependencies = [
  "chrono",
  "harmonia-push",
@@ -894,14 +894,14 @@ dependencies = [
 
 [[package]]
 name = "harmonia-nostr"
-version = "0.1.0"
+version = "0.1.3"
 dependencies = [
  "harmonia-vault",
 ]
 
 [[package]]
 name = "harmonia-openrouter"
-version = "0.1.0"
+version = "0.1.3"
 dependencies = [
  "harmonia-vault",
  "serde_json",
@@ -909,7 +909,7 @@ dependencies = [
 
 [[package]]
 name = "harmonia-ouroboros"
-version = "0.1.0"
+version = "0.1.3"
 
 [[package]]
 name = "harmonia-parallel-agents"
@@ -920,7 +920,7 @@ dependencies = [
 
 [[package]]
 name = "harmonia-phoenix"
-version = "0.1.0"
+version = "0.1.3"
 
 [[package]]
 name = "harmonia-push"
@@ -933,19 +933,19 @@ dependencies = [
 
 [[package]]
 name = "harmonia-recovery"
-version = "0.1.0"
+version = "0.1.3"
 
 [[package]]
 name = "harmonia-rust-forge"
-version = "0.1.0"
+version = "0.1.3"
 
 [[package]]
 name = "harmonia-s3"
-version = "0.1.0"
+version = "0.1.3"
 
 [[package]]
 name = "harmonia-search-brave"
-version = "0.1.0"
+version = "0.1.3"
 dependencies = [
  "harmonia-signal-integrity",
  "harmonia-vault",
@@ -953,7 +953,7 @@ dependencies = [
 
 [[package]]
 name = "harmonia-search-exa"
-version = "0.1.0"
+version = "0.1.3"
 dependencies = [
  "harmonia-signal-integrity",
  "harmonia-vault",
@@ -961,7 +961,7 @@ dependencies = [
 
 [[package]]
 name = "harmonia-signal-integrity"
-version = "0.1.0"
+version = "0.1.3"
 
 [[package]]
 name = "harmonia-slack"
@@ -974,11 +974,11 @@ dependencies = [
 
 [[package]]
 name = "harmonia-social"
-version = "0.1.0"
+version = "0.1.3"
 
 [[package]]
 name = "harmonia-tailnet"
-version = "0.1.0"
+version = "0.1.3"
 dependencies = [
  "hex",
  "log",
@@ -989,7 +989,7 @@ dependencies = [
 
 [[package]]
 name = "harmonia-tailscale-frontend"
-version = "0.1.0"
+version = "0.1.3"
 dependencies = [
  "harmonia-tailnet",
  "serde_json",
@@ -1006,14 +1006,14 @@ dependencies = [
 
 [[package]]
 name = "harmonia-tui"
-version = "0.1.0"
+version = "0.1.3"
 dependencies = [
  "crossterm",
 ]
 
 [[package]]
 name = "harmonia-vault"
-version = "0.1.0"
+version = "0.1.3"
 dependencies = [
  "aes-gcm",
  "hex",
@@ -1034,7 +1034,7 @@ dependencies = [
 
 [[package]]
 name = "harmonia-whisper"
-version = "0.1.0"
+version = "0.1.3"
 dependencies = [
  "harmonia-vault",
 ]

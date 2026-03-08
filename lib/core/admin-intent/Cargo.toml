@@ -1,6 +1,6 @@
 [package]
 name = "harmonia-admin-intent"
-version = "0.1.0"
+version = "0.1.3"
 edition.workspace = true
 license.workspace = true
 repository.workspace = true
@@ -14,7 +14,7 @@ crate-type = ["cdylib", "rlib"]
 [dependencies]
 ed25519-dalek = { version = "2", features = ["rand_core"] }
 hex = "0.4"
-harmonia-vault = { version = "0.1.0", path = "../vault" }
+harmonia-vault = { version = "0.1.3", path = "../vault" }
 log = "0.4"
 
 [dev-dependencies]

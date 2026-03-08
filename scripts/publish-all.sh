@@ -14,7 +14,18 @@ SLEEP=75
 publish() {
     local crate="$1"
     echo "--- Publishing $crate ---"
-    cargo publish -p "$crate" $DRY_RUN
+    local output
+    if output=$(cargo publish -p "$crate" $DRY_RUN 2>&1); then
+        echo "$output"
+    else
+        if echo "$output" | grep -q "already exists"; then
+            echo "    $crate already published, skipping"
+        else
+            echo "$output" >&2
+            echo "    ERROR: failed to publish $crate"
+            return 1
+        fi
+    fi
     if [ -z "$DRY_RUN" ]; then
         echo "    Waiting ${SLEEP}s for crates.io index..."
         sleep "$SLEEP"

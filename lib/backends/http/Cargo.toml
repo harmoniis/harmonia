@@ -1,6 +1,6 @@
 [package]
 name = "harmonia-http"
-version = "0.1.0"
+version = "0.1.3"
 edition.workspace = true
 license.workspace = true
 repository.workspace = true
@@ -14,4 +14,4 @@ categories = ["web-programming::http-client"]
 crate-type = ["cdylib", "rlib"]
 
 [dependencies]
-harmonia-vault = { version = "0.1.0", path = "../../core/vault" }
+harmonia-vault = { version = "0.1.3", path = "../../core/vault" }
