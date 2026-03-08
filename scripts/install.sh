@@ -176,5 +176,24 @@ if [ -x "$PREFIX/bin/harmonia" ]; then
 fi
 
 if [ -n "$SHELL_RC" ]; then
-    warn "Restart your shell or run: source ${SHELL_RC}"
+    case ":$PATH:" in
+        *":$PREFIX/bin:"*) ;;
+        *)
+            info "To use harmonia, restart your shell or run:"
+            echo ""
+            echo "    source ${SHELL_RC}"
+            echo ""
+            ;;
+    esac
 fi
+
+echo "  \033[1mWhat's next\033[0m"
+echo ""
+echo "  Configure your agent (API keys, frontends, evolution mode):"
+echo ""
+echo "    \033[1;36mharmonia setup\033[0m"
+echo ""
+echo "  Then start the agent:"
+echo ""
+echo "    \033[1;36mharmonia start\033[0m"
+echo ""
