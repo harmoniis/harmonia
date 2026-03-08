@@ -126,7 +126,10 @@ jobs:
 
       - name: Install cross
         if: matrix.use_cross
-        run: cargo install cross --git https://github.com/cross-rs/cross
+        run: |
+          # Install nightly for cross (requires rustc 1.92+)
+          rustup toolchain install nightly
+          cargo +nightly install cross --git https://github.com/cross-rs/cross
 
       - name: Install NetBSD cross-toolchain
         if: matrix.use_netbsd_cross
@@ -135,18 +138,18 @@ jobs:
           # Extract arch from target triple
           ARCH="${{ matrix.target }}"
           ARCH="${ARCH%%-*}"
-          # Map Rust arch names to NetBSD/GCC arch names
+          # Map Rust arch names to NetBSD/GCC arch names and cc-rs expected tool names
           case "$ARCH" in
-            x86_64)     GCC_ARCH="x86_64"   ; NBSD_ARCH="amd64"   ;;
-            aarch64)    GCC_ARCH="aarch64"   ; NBSD_ARCH="evbarm-aarch64" ;;
-            riscv64gc)  GCC_ARCH="riscv64"   ; NBSD_ARCH="riscv-riscv64" ;;
-            powerpc)    GCC_ARCH="powerpc"   ; NBSD_ARCH="evbppc"  ;;
-            sparc64)    GCC_ARCH="sparc64"   ; NBSD_ARCH="sparc64" ;;
+            x86_64)     GCC_ARCH="x86_64"   ; NBSD_ARCH="amd64"            ; CC_NAME="x86_64--netbsd" ;;
+            aarch64)    GCC_ARCH="aarch64"   ; NBSD_ARCH="evbarm-aarch64"   ; CC_NAME="aarch64--netbsd" ;;
+            riscv64gc)  GCC_ARCH="riscv64"   ; NBSD_ARCH="riscv-riscv64"    ; CC_NAME="riscv64gc--netbsd" ;;
+            powerpc)    GCC_ARCH="powerpc"   ; NBSD_ARCH="evbppc"           ; CC_NAME="powerpc--netbsd" ;;
+            sparc64)    GCC_ARCH="sparc64"   ; NBSD_ARCH="sparc64"          ; CC_NAME="sparc64--netbsd" ;;
           esac
-          # Install GCC cross-compiler for the target
+          # Install GCC cross-compiler for the target arch
           sudo apt-get update
           sudo apt-get install -y gcc-${GCC_ARCH}-linux-gnu || true
-          # Download NetBSD base sets (includes headers + libs)
+          # Download NetBSD base + comp sets (includes headers + libs)
           NETBSD_VER="10.1"
           NETBSD_URL="https://cdn.netbsd.org/pub/NetBSD/NetBSD-${NETBSD_VER}/${NBSD_ARCH}/binary/sets"
           SYSROOT="/opt/netbsd-sysroot"
@@ -161,22 +164,33 @@ jobs:
               sudo tar xzf "/tmp/${set}.tgz" -C "$SYSROOT"
             fi
           done
-          # Create a wrapper script for the C compiler
-          WRAPPER="/usr/local/bin/${ARCH}-unknown-netbsd-cc"
-          cat <<WRAPPER_EOF | sudo tee "$WRAPPER" > /dev/null
-          #!/bin/sh
-          exec ${GCC_ARCH}-linux-gnu-gcc --sysroot=${SYSROOT} "\$@"
-          WRAPPER_EOF
-          sudo chmod +x "$WRAPPER"
+          # Create wrapper scripts matching cc-rs expected names
+          # cc-rs looks for: ${ARCH}--netbsd-gcc and ${ARCH}--netbsd-ar
+          for tool_suffix in gcc cc; do
+            WRAPPER="/usr/local/bin/${CC_NAME}-${tool_suffix}"
+            sudo tee "$WRAPPER" > /dev/null <<WRAPPER_EOF
+#!/bin/sh
+exec ${GCC_ARCH}-linux-gnu-gcc --sysroot=${SYSROOT} "\$@"
+WRAPPER_EOF
+            sudo chmod +x "$WRAPPER"
+          done
+          # Create ar wrapper
+          AR_WRAPPER="/usr/local/bin/${CC_NAME}-ar"
+          sudo tee "$AR_WRAPPER" > /dev/null <<WRAPPER_EOF
+#!/bin/sh
+exec ${GCC_ARCH}-linux-gnu-ar "\$@"
+WRAPPER_EOF
+          sudo chmod +x "$AR_WRAPPER"
           # Configure cargo to use the cross-linker
           mkdir -p .cargo
-          TARGET_UPPER=$(echo "${{ matrix.target }}" | tr '-' '_' | tr '[:lower:]' '[:upper:]')
           cat >> .cargo/config.toml <<CARGO_EOF
-          [target.${{ matrix.target }}]
-          linker = "${WRAPPER}"
-          CARGO_EOF
-          echo "CC_$TARGET_UPPER=${WRAPPER}" >> $GITHUB_ENV
-          echo "CFLAGS_$TARGET_UPPER=--sysroot=${SYSROOT}" >> $GITHUB_ENV
+[target.${{ matrix.target }}]
+linker = "${CC_NAME}-gcc"
+CARGO_EOF
+          # Set CC/AR env vars for cc-rs crate
+          TARGET_UPPER=$(echo "${{ matrix.target }}" | tr '-' '_' | tr '[:lower:]' '[:upper:]')
+          echo "CC_${TARGET_UPPER}=${CC_NAME}-gcc" >> $GITHUB_ENV
+          echo "AR_${TARGET_UPPER}=${CC_NAME}-ar" >> $GITHUB_ENV
 
       - name: Build release binaries
         shell: bash
