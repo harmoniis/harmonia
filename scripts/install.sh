@@ -65,7 +65,7 @@ fetch() {
 # ---------------------------------------------------------------------------
 
 # Check if we're running from inside an extracted tarball
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)"
 if [ -d "$SCRIPT_DIR/bin" ] && [ -d "$SCRIPT_DIR/lib" ]; then
     # Local install from extracted tarball
     info "Installing from local tarball..."
@@ -187,13 +187,13 @@ if [ -n "$SHELL_RC" ]; then
     esac
 fi
 
-echo "  \033[1mWhat's next\033[0m"
-echo ""
-echo "  Configure your agent (API keys, frontends, evolution mode):"
-echo ""
-echo "    \033[1;36mharmonia setup\033[0m"
-echo ""
-echo "  Then start the agent:"
-echo ""
-echo "    \033[1;36mharmonia start\033[0m"
-echo ""
+printf '  \033[1mWhat'\''s next\033[0m\n'
+printf '\n'
+printf '  Configure your agent (API keys, frontends, evolution mode):\n'
+printf '\n'
+printf '    \033[1;36mharmonia setup\033[0m\n'
+printf '\n'
+printf '  Then start the agent:\n'
+printf '\n'
+printf '    \033[1;36mharmonia start\033[0m\n'
+printf '\n'
