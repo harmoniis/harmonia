@@ -168,25 +168,15 @@ jobs:
           # cc-rs looks for: ${ARCH}--netbsd-gcc and ${ARCH}--netbsd-ar
           for tool_suffix in gcc cc; do
             WRAPPER="/usr/local/bin/${CC_NAME}-${tool_suffix}"
-            sudo tee "$WRAPPER" > /dev/null <<WRAPPER_EOF
-#!/bin/sh
-exec ${GCC_ARCH}-linux-gnu-gcc --sysroot=${SYSROOT} "\$@"
-WRAPPER_EOF
+            printf '#!/bin/sh\nexec %s-linux-gnu-gcc --sysroot=%s "$@"\n' "${GCC_ARCH}" "${SYSROOT}" | sudo tee "$WRAPPER" > /dev/null
             sudo chmod +x "$WRAPPER"
           done
-          # Create ar wrapper
           AR_WRAPPER="/usr/local/bin/${CC_NAME}-ar"
-          sudo tee "$AR_WRAPPER" > /dev/null <<WRAPPER_EOF
-#!/bin/sh
-exec ${GCC_ARCH}-linux-gnu-ar "\$@"
-WRAPPER_EOF
+          printf '#!/bin/sh\nexec %s-linux-gnu-ar "$@"\n' "${GCC_ARCH}" | sudo tee "$AR_WRAPPER" > /dev/null
           sudo chmod +x "$AR_WRAPPER"
           # Configure cargo to use the cross-linker
           mkdir -p .cargo
-          cat >> .cargo/config.toml <<CARGO_EOF
-[target.${{ matrix.target }}]
-linker = "${CC_NAME}-gcc"
-CARGO_EOF
+          printf '[target.%s]\nlinker = "%s-gcc"\n' "${{ matrix.target }}" "${CC_NAME}" >> .cargo/config.toml
           # Set CC/AR env vars for cc-rs crate
           TARGET_UPPER=$(echo "${{ matrix.target }}" | tr '-' '_' | tr '[:lower:]' '[:upper:]')
           echo "CC_${TARGET_UPPER}=${CC_NAME}-gcc" >> $GITHUB_ENV
