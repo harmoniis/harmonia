@@ -25,7 +25,7 @@ main() {
     printf " |  _  | (_| | |  | | | | | | (_) | | | | | (_| |\n"
     printf " |_| |_|\\__,_|_|  |_| |_| |_|\\___/|_| |_|_|\\__,_|\n"
     printf "${RESET}\n"
-    printf "  ${DIM}Self-improving Common Lisp + Rust agent${RESET}\n\n"
+    printf "  ${DIM}Distributed evolutionary homoiconic self-improving agent${RESET}\n\n"
 
     detect_platform
     check_rust
@@ -43,7 +43,6 @@ detect_platform() {
         Linux*)   PLATFORM="linux" ;;
         Darwin*)  PLATFORM="macos" ;;
         FreeBSD*) PLATFORM="freebsd" ;;
-        NetBSD*)  PLATFORM="netbsd" ;;
         MINGW*|MSYS*|CYGWIN*)
             err "Windows detected. Use install.ps1 instead:"
             printf "  iwr https://harmoniis.com/harmonia/install.ps1 -UseB | iex\n"
@@ -111,13 +110,6 @@ check_sbcl() {
             ;;
         freebsd)
             sudo pkg install -y sbcl
-            ;;
-        netbsd)
-            if command -v pkgin > /dev/null 2>&1; then
-                sudo pkgin install sbcl
-            else
-                sudo pkg_add sbcl
-            fi
             ;;
     esac
 

@@ -541,7 +541,7 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
     println!("{}", style(BANNER).cyan().bold());
     println!(
         "  {}",
-        style("Self-improving Common Lisp + Rust agent").dim()
+        style("Distributed evolutionary homoiconic self-improving agent").dim()
     );
     println!();
 
@@ -592,7 +592,6 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
         println!("      Ubuntu/Debian: sudo apt install sbcl");
         println!("      Fedora:       sudo dnf install sbcl");
         println!("      FreeBSD:      sudo pkg install sbcl");
-        println!("      NetBSD:       sudo pkgin install sbcl");
         println!("      Arch:         sudo pacman -S sbcl");
         println!();
         println!("    Install SBCL and re-run: harmonia setup");

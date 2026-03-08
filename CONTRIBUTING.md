@@ -15,7 +15,6 @@ This project follows the [Contributor Covenant](https://www.contributor-covenant
   - macOS: `brew install sbcl`
   - Ubuntu/Debian: `sudo apt install sbcl`
   - FreeBSD: `sudo pkg install sbcl`
-  - NetBSD: `sudo pkgin install sbcl`
 - **Quicklisp** — Common Lisp package manager
   ```bash
   curl -O https://beta.quicklisp.org/quicklisp.lisp

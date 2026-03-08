@@ -19,7 +19,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - 11 extraction macros including audio source extraction
 - 7 frontend channels: TUI, MQTT, iMessage, WhatsApp, Telegram, Slack, Tailscale
 - Interactive setup wizard (`harmonia setup`)
-- Cross-platform install script (macOS, Linux, FreeBSD, NetBSD, Windows)
+- Cross-platform install script (macOS, Linux, FreeBSD, Windows)
 - Vault-based secret management (SQLite)
 - Harmonic matrix routing and scoring
 - Parallel agent orchestration (tmux-based swarm)

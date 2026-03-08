@@ -29,15 +29,11 @@ detect_platform() {
         Linux)   os="linux"   ;;
         Darwin)  os="macos"   ;;
         FreeBSD) os="freebsd" ;;
-        NetBSD)  os="netbsd"  ;;
         *)       error "Unsupported OS: $os" ;;
     esac
     case "$arch" in
         x86_64|amd64)          arch="x86_64"   ;;
         aarch64|arm64)         arch="aarch64"  ;;
-        riscv64)               arch="riscv64"  ;;
-        powerpc|ppc)           arch="powerpc"  ;;
-        sparc64)               arch="sparc64"  ;;
         *)                     error "Unsupported architecture: $arch" ;;
     esac
     echo "${os}-${arch}"

@@ -1,6 +1,6 @@
 <p align="center">
   <strong>Harmonia</strong><br>
-  <em>Self-improving Common Lisp + Rust agent</em>
+  <em>Distributed evolutionary homoiconic self-improving agent</em>
 </p>
 
 <p align="center">
@@ -15,7 +15,7 @@ Harmonia is a recursive self-improving agent built on SBCL Common Lisp with a mo
 
 ## Install
 
-**macOS / Linux / FreeBSD / NetBSD:**
+**macOS / Linux / FreeBSD:**
 
 ```bash
 curl -sSf https://harmoniis.com/harmonia/install | sh
@@ -209,7 +209,6 @@ After running `harmonia setup`, the system workspace lives at `~/.harmoniis/harm
 | macOS (Apple Silicon / Intel) | `curl -sSf ... \| sh` | Supported |
 | Linux (x86_64 / aarch64) | `curl -sSf ... \| sh` | Supported |
 | FreeBSD | `curl -sSf ... \| sh` | Supported |
-| NetBSD | `curl -sSf ... \| sh` | Supported |
 | Windows | `iwr ... \| iex` | Supported |
 
 ## License

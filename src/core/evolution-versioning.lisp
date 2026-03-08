@@ -2,15 +2,23 @@
 
 (in-package :harmonia)
 
-(defparameter *evolution-doc-root*
-  (merge-pathnames "../boot/evolution/"
-                   (make-pathname :name nil :type nil :defaults *boot-file*)))
-(defparameter *evolution-latest-dir*
-  (merge-pathnames "latest/" *evolution-doc-root*))
-(defparameter *evolution-versions-dir*
-  (merge-pathnames "versions/" *evolution-doc-root*))
-(defparameter *evolution-version-file*
-  (merge-pathnames "version.sexp" *evolution-doc-root*))
+(defparameter *evolution-doc-root* nil)
+(defparameter *evolution-latest-dir* nil)
+(defparameter *evolution-versions-dir* nil)
+(defparameter *evolution-version-file* nil)
+
+(defun %evolution-doc-root ()
+  "Resolve evolution doc root at runtime.
+   Uses HARMONIA_SYSTEM_DIR if set, otherwise falls back to
+   *boot-file* relative path for developer-local workflow."
+  (let ((sys (sb-ext:posix-getenv "HARMONIA_SYSTEM_DIR")))
+    (if (and sys (> (length sys) 0))
+        (let ((base (if (char= (char sys (1- (length sys))) #\/)
+                        sys
+                        (concatenate 'string sys "/"))))
+          (pathname (concatenate 'string base "evolution/")))
+        (merge-pathnames "../boot/evolution/"
+                         (make-pathname :name nil :type nil :defaults *boot-file*)))))
 (defparameter *evolution-current-version* 0)
 (defparameter *evolution-latest-files-cache* '())
 (defparameter *legacy-evolution-latest-files*
@@ -164,6 +172,10 @@
 
 (defun init-evolution-versioning ()
   "Initialize evolution docs layout and load latest version metadata at boot."
+  (setf *evolution-doc-root* (%evolution-doc-root))
+  (setf *evolution-latest-dir* (merge-pathnames "latest/" *evolution-doc-root*))
+  (setf *evolution-versions-dir* (merge-pathnames "versions/" *evolution-doc-root*))
+  (setf *evolution-version-file* (merge-pathnames "version.sexp" *evolution-doc-root*))
   (%ensure-dir *evolution-doc-root*)
   (%ensure-dir *evolution-latest-dir*)
   (%ensure-dir *evolution-versions-dir*)
