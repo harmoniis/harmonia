@@ -14,4 +14,4 @@ categories = ["concurrency"]
 crate-type = ["cdylib", "rlib"]
 
 [dependencies]
-harmonia-vault = { version = "0.1.4", path = "../vault" }
+harmonia-vault = { version = "0.1.5", path = "../vault" }

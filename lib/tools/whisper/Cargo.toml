@@ -1,6 +1,6 @@
 [package]
 name = "harmonia-whisper"
-version = "0.1.4"
+version = "0.1.5"
 edition.workspace = true
 license.workspace = true
 repository.workspace = true
@@ -14,4 +14,4 @@ categories = ["multimedia::audio"]
 crate-type = ["cdylib", "rlib"]
 
 [dependencies]
-harmonia-vault = { version = "0.1.4", path = "../../core/vault" }
+harmonia-vault = { version = "0.1.5", path = "../../core/vault" }
