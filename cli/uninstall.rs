@@ -18,14 +18,14 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
     let vault_backup = harmoniis_dir.join("harmonia-vault-backup.db");
 
     println!();
-    println!(
-        "  {}",
-        style("Harmonia Uninstall").bold().red()
-    );
+    println!("  {}", style("Harmonia Uninstall").bold().red());
     println!();
 
     // ── Describe what will be removed ────────────────────────────────
-    println!("  The following will be {} :", style("removed").red().bold());
+    println!(
+        "  The following will be {} :",
+        style("removed").red().bold()
+    );
     println!();
 
     let mut items_to_remove: Vec<String> = Vec::new();
@@ -133,10 +133,7 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
         .interact()?;
 
     if !confirmed {
-        println!(
-            "  {} Uninstall cancelled.",
-            style("✗").red().bold()
-        );
+        println!("  {} Uninstall cancelled.", style("✗").red().bold());
         return Ok(());
     }
 
@@ -189,10 +186,7 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
         style("✓").green().bold()
     );
     if vault_backup.exists() {
-        println!(
-            "  Vault backup: {}",
-            style(vault_backup.display()).cyan()
-        );
+        println!("  Vault backup: {}", style(vault_backup.display()).cyan());
     }
     println!(
         "  Wallet data in {} was {}.",
@@ -245,7 +239,9 @@ fn remove_harmonia_block(path: &Path) -> Result<(), Box<dyn std::error::Error>> 
                 || trimmed.starts_with("HARMONIA_HOME=")
                 || (trimmed.contains("HARMONIA_HOME") && trimmed.contains("PATH"))
                 || (trimmed.contains(".harmoniis/harmonia") && trimmed.contains("PATH"))
-                || (trimmed.contains(".local/bin") && trimmed.contains("PATH") && trimmed.contains("harmonia"))
+                || (trimmed.contains(".local/bin")
+                    && trimmed.contains("PATH")
+                    && trimmed.contains("harmonia"))
                 || trimmed.starts_with("# Harmonia")
             {
                 continue;

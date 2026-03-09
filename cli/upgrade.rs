@@ -22,19 +22,13 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
 
     // 2. Fetch latest release info from GitHub
     let release_info = fetch_latest_release()?;
-    let latest_version = release_info
-        .tag_name
-        .trim_start_matches('v')
-        .to_string();
+    let latest_version = release_info.tag_name.trim_start_matches('v').to_string();
 
     println!("  Latest version:  {}", style(&latest_version).green());
 
     // 3. Compare versions
     if current_version == latest_version {
-        println!(
-            "\n  {} Already up to date.",
-            style("✓").green().bold()
-        );
+        println!("\n  {} Already up to date.", style("✓").green().bold());
         return Ok(());
     }
 
@@ -89,10 +83,7 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
     let wallet_dir = home.join(".harmoniis").join("wallet");
     let wallet_db = home.join(".harmoniis").join("master.db");
     if wallet_dir.exists() || wallet_db.exists() {
-        println!(
-            "  {} Wallet data untouched",
-            style("✓").green().bold()
-        );
+        println!("  {} Wallet data untouched", style("✓").green().bold());
     }
 
     // 9. Re-run SBCL / Quicklisp checks
@@ -152,10 +143,7 @@ fn fetch_latest_release() -> Result<ReleaseInfo, Box<dyn std::error::Error>> {
         .ok_or("GitHub API response missing tag_name")?
         .to_string();
 
-    let tarball_url = json["tarball_url"]
-        .as_str()
-        .unwrap_or("")
-        .to_string();
+    let tarball_url = json["tarball_url"].as_str().unwrap_or("").to_string();
 
     let mut assets = Vec::new();
     if let Some(arr) = json["assets"].as_array() {
@@ -236,20 +224,12 @@ fn platform_tags() -> (String, String) {
 // Download + extract
 // ---------------------------------------------------------------------------
 
-fn download_and_extract(
-    url: &str,
-    staging_dir: &Path,
-) -> Result<(), Box<dyn std::error::Error>> {
+fn download_and_extract(url: &str, staging_dir: &Path) -> Result<(), Box<dyn std::error::Error>> {
     let tarball_path = staging_dir.join("release.tar.gz");
     println!("  Downloading...");
 
     let status = Command::new("curl")
-        .args([
-            "-sSL",
-            "-o",
-            &tarball_path.to_string_lossy(),
-            url,
-        ])
+        .args(["-sSL", "-o", &tarball_path.to_string_lossy(), url])
         .status()?;
 
     if !status.success() {
@@ -401,11 +381,7 @@ fn sha256_file(path: &Path) -> Result<String, Box<dyn std::error::Error>> {
     }
 
     let stdout = String::from_utf8_lossy(&output.stdout);
-    let hash = stdout
-        .split_whitespace()
-        .next()
-        .unwrap_or("")
-        .to_string();
+    let hash = stdout.split_whitespace().next().unwrap_or("").to_string();
 
     Ok(hash)
 }
@@ -427,10 +403,7 @@ fn clean_upgrade(
             fs::remove_dir_all(&target_src)?;
         }
         copy_dir_recursive(&new_src, &target_src)?;
-        println!(
-            "  {} Source files updated",
-            style("✓").green().bold()
-        );
+        println!("  {} Source files updated", style("✓").green().bold());
     }
 
     // Install new binaries/libraries if present
@@ -504,8 +477,7 @@ fn evolution_upgrade(
         let original_hash = original_checksums.get(rel_path);
         let new_hash = new_checksums.get(rel_path);
 
-        let file_evolved =
-            original_hash.map_or(true, |orig| evolved_hash != orig);
+        let file_evolved = original_hash.map_or(true, |orig| evolved_hash != orig);
 
         if !file_evolved {
             // File was not changed by evolution — use the new version
@@ -603,9 +575,7 @@ fn evolution_upgrade(
     Ok(())
 }
 
-fn collect_checksums(
-    dir: &Path,
-) -> Result<HashMap<String, String>, Box<dyn std::error::Error>> {
+fn collect_checksums(dir: &Path) -> Result<HashMap<String, String>, Box<dyn std::error::Error>> {
     let mut map = HashMap::new();
     let files = walk_lisp_files(dir)?;
     for file_path in files {
@@ -666,10 +636,7 @@ fn install_binaries(
                 fs::copy(entry.path(), &dest)?;
             }
         }
-        println!(
-            "  {} Libraries updated",
-            style("✓").green().bold()
-        );
+        println!("  {} Libraries updated", style("✓").green().bold());
     }
 
     Ok(())
@@ -743,10 +710,7 @@ fn check_sbcl_quicklisp(home: &Path) -> Result<(), Box<dyn std::error::Error>> {
         .unwrap_or(false);
 
     if sbcl_ok {
-        println!(
-            "  {} SBCL installed",
-            style("✓").green().bold()
-        );
+        println!("  {} SBCL installed", style("✓").green().bold());
     } else {
         println!(
             "  {} SBCL not found — run `harmonia setup` to install",
@@ -757,10 +721,7 @@ fn check_sbcl_quicklisp(home: &Path) -> Result<(), Box<dyn std::error::Error>> {
     // Check Quicklisp
     let quicklisp_path = home.join("quicklisp").join("setup.lisp");
     if quicklisp_path.exists() {
-        println!(
-            "  {} Quicklisp installed",
-            style("✓").green().bold()
-        );
+        println!("  {} Quicklisp installed", style("✓").green().bold());
     } else {
         println!(
             "  {} Quicklisp not found — run `harmonia setup` to install",
