@@ -223,7 +223,10 @@ After running `harmonia setup`, the system workspace lives at `~/.harmoniis/harm
 
 ## License
 
-[Business Source License 1.1 (BUSL-1.1)](LICENSE) with an Additional Use Grant.
-Commercial production use outside that grant requires a separate commercial
-license from Harmoniis Agents Ltd. The Change Date for this version is
-**2030-03-05**, after which it converts to **Apache License, Version 2.0**.
+[Business Source License 1.1 (BUSL-1.1)](LICENSE).
+
+- **Free** for personal, non-revenue use.
+- **Production License** required for freelancers, organisations, and any revenue-generating use: **3% of prior-year annual gross revenue** for unlimited use per calendar year (prorated mid-year).
+- Buy instantly at [harmoniis.com/pricing/subscriptions](https://harmoniis.com/pricing/subscriptions).
+
+Change Date: **2030-03-05** → converts to **Apache License, Version 2.0**.

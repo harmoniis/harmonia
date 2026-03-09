@@ -7,16 +7,20 @@ Licensor:             Harmoniis Agents Ltd
 Licensed Work:        Harmonia, including all source code and configuration files
                       in this repository, and any updates released by Licensor.
 Additional Use Grant: You may make production use of the Licensed Work at no charge
-                      only if all of the following are true:
-                      (1) You are an individual, educational institution, or
-                          non-profit organization; or you are a for-profit entity
-                          with less than USD 1,000,000 in annual gross revenue.
-                      (2) You do not offer the Licensed Work to third parties as a
-                          paid hosted or managed service.
-                      (3) You do not embed the Licensed Work in a paid product or
-                          paid service.
-                      Any production use that does not meet all conditions above
-                      requires a separate commercial license from Licensor.
+                      only if you are an individual using it for personal, non-revenue
+                      purposes.
+
+                      All production use that generates revenue — including by
+                      freelancers, organisations, and any commercial activity —
+                      requires a Production License from Licensor.
+
+                      The Production License fee is 3% of the licensee's prior-year
+                      annual gross revenue, granting unlimited use of the Licensed
+                      Work for the calendar year of purchase. Licenses acquired
+                      mid-year are prorated to the remaining months.
+
+                      Production Licenses can be purchased instantly at:
+                      https://harmoniis.com/pricing/subscriptions
 Change Date:          2030-03-05
 Change License:       Apache License, Version 2.0
 
