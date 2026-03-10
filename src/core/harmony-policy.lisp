@@ -4,13 +4,20 @@
 
 (defparameter *harmony-policy-config-path*
   (merge-pathnames "../../config/harmony-policy.sexp" *boot-file*))
-(defparameter *harmony-policy-state-path*
-  (or (config-get-for "harmony-policy" "path")
-      (let ((root (or (config-get-for "harmony-policy" "state-root" "global")
-                      (let ((base (or (sb-ext:posix-getenv "TMPDIR")
-                                      (namestring (user-homedir-pathname)))))
-                        (concatenate 'string (string-right-trim "/" base) "/harmonia")))))
-        (concatenate 'string root "/harmony-policy.sexp"))))
+(defparameter *harmony-policy-state-path* nil)
+
+(defun %harmony-policy-resolve-state-path ()
+  "Resolve state path lazily (config-store not available at load time)."
+  (or *harmony-policy-state-path*
+      (setf *harmony-policy-state-path*
+            (or (and (fboundp 'config-get-for)
+                     (config-get-for "harmony-policy" "path"))
+                (let ((root (or (and (fboundp 'config-get-for)
+                                     (config-get-for "harmony-policy" "state-root" "global"))
+                                (let ((base (or (sb-ext:posix-getenv "TMPDIR")
+                                                (namestring (user-homedir-pathname)))))
+                                  (concatenate 'string (string-right-trim "/" base) "/harmonia")))))
+                  (concatenate 'string root "/harmony-policy.sexp"))))))
 (defparameter *harmony-policy* '())
 
 (defun %harmony-policy-read-file (path)
@@ -19,23 +26,25 @@
       (read in nil nil))))
 
 (defun harmony-policy-load ()
-  (let ((src (cond
-               ((probe-file *harmony-policy-state-path*)
-                (%harmony-policy-read-file *harmony-policy-state-path*))
-               ((probe-file *harmony-policy-config-path*)
-                (%harmony-policy-read-file *harmony-policy-config-path*))
-               (t
-                (error "harmony policy config missing: ~A" *harmony-policy-config-path*)))))
+  (let* ((state-path (%harmony-policy-resolve-state-path))
+         (src (cond
+                ((probe-file state-path)
+                 (%harmony-policy-read-file state-path))
+                ((probe-file *harmony-policy-config-path*)
+                 (%harmony-policy-read-file *harmony-policy-config-path*))
+                (t
+                 (error "harmony policy config missing: ~A" *harmony-policy-config-path*)))))
     (setf *harmony-policy* (copy-tree src))
     *harmony-policy*))
 
 (defun harmony-policy-save ()
-  (ensure-directories-exist *harmony-policy-state-path*)
-  (with-open-file (out *harmony-policy-state-path* :direction :output :if-exists :supersede :if-does-not-exist :create)
-    (let ((*print-pretty* t))
-      (prin1 *harmony-policy* out)
-      (terpri out)))
-  *harmony-policy-state-path*)
+  (let ((state-path (%harmony-policy-resolve-state-path)))
+    (ensure-directories-exist state-path)
+    (with-open-file (out state-path :direction :output :if-exists :supersede :if-does-not-exist :create)
+      (let ((*print-pretty* t))
+        (prin1 *harmony-policy* out)
+        (terpri out)))
+    state-path))
 
 (defun harmony-policy-get ()
   (or *harmony-policy* (harmony-policy-load)))

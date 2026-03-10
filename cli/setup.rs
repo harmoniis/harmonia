@@ -1,6 +1,7 @@
-use console::style;
-use dialoguer::{Input, MultiSelect, Password};
+use console::{style, Term};
+use dialoguer::{Input, MultiSelect};
 use std::fs;
+use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
@@ -265,16 +266,44 @@ fn llm_provider_defs() -> Vec<LlmProviderDef> {
     ]
 }
 
+/// Read a secret with per-character `*` feedback (handles typing, paste, and backspace).
+fn read_masked(prompt: &str) -> Result<String, Box<dyn std::error::Error>> {
+    let term = Term::stderr();
+    eprint!("{}: ", prompt);
+    std::io::stderr().flush()?;
+    let mut buf = String::new();
+    loop {
+        let key = term.read_key()?;
+        match key {
+            console::Key::Char(c) if !c.is_control() => {
+                buf.push(c);
+                eprint!("*");
+                std::io::stderr().flush()?;
+            }
+            console::Key::Backspace => {
+                if buf.pop().is_some() {
+                    // Move cursor back, overwrite with space, move back again
+                    eprint!("\x08 \x08");
+                    std::io::stderr().flush()?;
+                }
+            }
+            console::Key::Enter => {
+                eprintln!();
+                break;
+            }
+            _ => {}
+        }
+    }
+    Ok(buf)
+}
+
 fn prompt_llm_secret(
     provider: &LlmProviderDef,
     secret: &LlmSecretDef,
 ) -> Result<String, Box<dyn std::error::Error>> {
     let prompt = format!("    {} {}", provider.display, secret.prompt);
     let value = if secret.is_password {
-        Password::new()
-            .with_prompt(prompt)
-            .allow_empty_password(true)
-            .interact()?
+        read_masked(&prompt)?
     } else {
         let mut input = Input::<String>::new().with_prompt(prompt);
         if let Some(default) = secret.default {
@@ -593,10 +622,7 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
 
             for (symbol, prompt, is_password) in &def.vault_keys {
                 let value = if *is_password {
-                    Password::new()
-                        .with_prompt(format!("    {} {}", def.display, prompt))
-                        .allow_empty_password(true)
-                        .interact()?
+                    read_masked(&format!("    {} {}", def.display, prompt))?
                 } else {
                     Input::<String>::new()
                         .with_prompt(format!("    {} {}", def.display, prompt))
@@ -619,10 +645,7 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
         ("elevenlabs-api-key", "ElevenLabs API key"),
     ];
     for (symbol, prompt) in &optional_keys {
-        let value: String = Input::new()
-            .with_prompt(format!("    {}", prompt))
-            .allow_empty(true)
-            .interact_text()?;
+        let value = read_masked(&format!("    {}", prompt))?;
         if !value.is_empty() {
             harmonia_vault::set_secret_for_symbol(symbol, &value)
                 .map_err(|e| format!("vault write failed for {}: {e}", symbol))?;
@@ -640,10 +663,7 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
         harmonia_vault::set_secret_for_symbol("github-fork-url", &fork_url)
             .map_err(|e| format!("vault write failed for github-fork-url: {e}"))?;
 
-        let github_token: String = Password::new()
-            .with_prompt("    GitHub PAT (for git push to fork, Enter to skip)")
-            .allow_empty_password(true)
-            .interact()?;
+        let github_token = read_masked("    GitHub PAT (for git push to fork, Enter to skip)")?;
         if !github_token.is_empty() {
             harmonia_vault::set_secret_for_symbol("github-token", &github_token)
                 .map_err(|e| format!("vault write failed for github-token: {e}"))?;
@@ -670,10 +690,7 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
             let _ = harmonia_vault::set_secret_for_symbol("aws-access-key-id", &s3_access_key);
         }
 
-        let s3_secret_key: String = Password::new()
-            .with_prompt("    AWS secret access key")
-            .allow_empty_password(true)
-            .interact()?;
+        let s3_secret_key = read_masked("    AWS secret access key")?;
         if !s3_secret_key.is_empty() {
             harmonia_vault::set_secret_for_symbol("s3-secret-access-key", &s3_secret_key)
                 .map_err(|e| format!("vault write failed for s3-secret-access-key: {e}"))?;

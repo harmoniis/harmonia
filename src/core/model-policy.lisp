@@ -4,13 +4,20 @@
 
 (defparameter *model-policy-config-path*
   (merge-pathnames "../../config/model-policy.sexp" *boot-file*))
-(defparameter *model-policy-state-path*
-  (or (config-get-for "model-policy" "path")
-      (let ((root (or (config-get-for "model-policy" "state-root" "global")
-                      (let ((base (or (sb-ext:posix-getenv "TMPDIR")
-                                      (namestring (user-homedir-pathname)))))
-                        (concatenate 'string (string-right-trim "/" base) "/harmonia")))))
-        (concatenate 'string root "/model-policy.sexp"))))
+(defparameter *model-policy-state-path* nil)
+
+(defun %model-policy-resolve-state-path ()
+  "Resolve state path lazily (config-store not available at load time)."
+  (or *model-policy-state-path*
+      (setf *model-policy-state-path*
+            (or (and (fboundp 'config-get-for)
+                     (config-get-for "model-policy" "path"))
+                (let ((root (or (and (fboundp 'config-get-for)
+                                     (config-get-for "model-policy" "state-root" "global"))
+                                (let ((base (or (sb-ext:posix-getenv "TMPDIR")
+                                                (namestring (user-homedir-pathname)))))
+                                  (concatenate 'string (string-right-trim "/" base) "/harmonia")))))
+                  (concatenate 'string root "/model-policy.sexp"))))))
 
 (defparameter *model-profiles* '())
 (defparameter *model-harmony-weights* '())
@@ -24,13 +31,14 @@
       (read in nil nil))))
 
 (defun %model-policy-load-source ()
-  (cond
-    ((probe-file *model-policy-state-path*)
-     (%model-policy-read-file *model-policy-state-path*))
-    ((probe-file *model-policy-config-path*)
-     (%model-policy-read-file *model-policy-config-path*))
-    (t
-     (error "model policy config missing: ~A" *model-policy-config-path*))))
+  (let ((state-path (%model-policy-resolve-state-path)))
+    (cond
+      ((probe-file state-path)
+       (%model-policy-read-file state-path))
+      ((probe-file *model-policy-config-path*)
+       (%model-policy-read-file *model-policy-config-path*))
+      (t
+       (error "model policy config missing: ~A" *model-policy-config-path*)))))
 
 (defun model-policy-load ()
   (let ((src (%model-policy-load-source)))
@@ -47,7 +55,7 @@
       (getf (first *model-profiles*) :id)))
 
 (defun model-policy-save ()
-  (let ((path *model-policy-state-path*))
+  (let ((path (%model-policy-resolve-state-path)))
     (ensure-directories-exist path)
     (with-open-file (out path :direction :output :if-exists :supersede :if-does-not-exist :create)
       (let ((*print-pretty* t))
