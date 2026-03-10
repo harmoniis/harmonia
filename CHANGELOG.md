@@ -7,7 +7,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-## [0.2.0] — 2026-03-10
+## [0.1.6] — 2026-03-10
 
 ### Added
 - **Config-store v2**: SQLite-backed scoped configuration store with in-memory cache, component access policies, and env var fallback chain
@@ -35,8 +35,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - 7 Lisp files migrated from `sb-ext:posix-getenv` to `config-get-for`/`config-get-or`
 - Frontend secrets exclusively via vault (no env var fallback); non-secret config via config-store
 - OpenRouter backend rewritten with expanded model catalogue and background API sync
-- `harmonia-config-store` bumped to 0.2.0
-- Root crate bumped to 0.2.0
+- `harmonia-config-store` bumped to 0.1.6
+- Root crate bumped to 0.1.6
 
 ### Removed
 - `runtime.env` file generation and loading

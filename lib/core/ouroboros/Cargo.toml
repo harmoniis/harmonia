@@ -1,6 +1,6 @@
 [package]
 name = "harmonia-ouroboros"
-version = "0.1.5"
+version = "0.1.6"
 edition.workspace = true
 license.workspace = true
 repository.workspace = true
@@ -14,4 +14,4 @@ categories = ["development-tools"]
 crate-type = ["cdylib", "rlib"]
 
 [dependencies]
-harmonia-config-store = { version = "0.2.0", path = "../config-store" }
+harmonia-config-store = { version = "0.1.6", path = "../config-store" }

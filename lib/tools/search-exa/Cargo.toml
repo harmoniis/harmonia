@@ -1,6 +1,6 @@
 [package]
 name = "harmonia-search-exa"
-version = "0.1.5"
+version = "0.1.6"
 edition.workspace = true
 license.workspace = true
 repository.workspace = true
@@ -14,6 +14,6 @@ categories = ["api-bindings"]
 crate-type = ["cdylib", "rlib"]
 
 [dependencies]
-harmonia-vault = { version = "0.1.5", path = "../../core/vault" }
-harmonia-signal-integrity = { version = "0.1.5", path = "../../core/signal-integrity" }
-harmonia-config-store = { version = "0.2.0", path = "../../core/config-store" }
+harmonia-vault = { version = "0.1.6", path = "../../core/vault" }
+harmonia-signal-integrity = { version = "0.1.6", path = "../../core/signal-integrity" }
+harmonia-config-store = { version = "0.1.6", path = "../../core/config-store" }

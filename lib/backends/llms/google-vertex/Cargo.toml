@@ -1,6 +1,6 @@
 [package]
 name = "harmonia-google-vertex"
-version = "0.2.0"
+version = "0.1.6"
 edition.workspace = true
 license.workspace = true
 repository.workspace = true
@@ -14,6 +14,6 @@ categories = ["api-bindings"]
 crate-type = ["cdylib"]
 
 [dependencies]
-harmonia-config-store = { version = "0.2.0", path = "../../../core/config-store" }
-harmonia-provider-protocol = { version = "0.2.0", path = "../provider-protocol" }
+harmonia-config-store = { version = "0.1.6", path = "../../../core/config-store" }
+harmonia-provider-protocol = { version = "0.1.6", path = "../provider-protocol" }
 serde_json = "1"
