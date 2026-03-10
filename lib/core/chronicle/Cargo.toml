@@ -15,5 +15,6 @@ crate-type = ["cdylib", "rlib"]
 
 [dependencies]
 harmonia-config-store = { version = "0.1.7", path = "../config-store" }
+harmonia-actor-protocol = { version = "0.1.7", path = "../actor-protocol" }
 rusqlite = { version = "0.31", features = ["bundled"] }
 serde_json = "1"

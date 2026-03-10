@@ -19,6 +19,7 @@ It is not a replacement for canonical long-form docs. It is the structured map t
 | File | What It Covers | Primary Sources |
 |---|---|---|
 | `system-map.md` | end-to-end architecture and flow topology | genesis `CONTEXT.md`, `ARCHITECTURE.md`, `GATEWAY.md`, `SWARM.md` |
+| `signalograd-architecture.md` | chaos-computing adaptive kernel, learning rules, actor integration, persistence, audit boundaries | `lib/core/signalograd`, `src/core/signalograd.lisp`, evolution snapshot docs |
 | `src-runtime-reference.md` | Lisp runtime modules, boot order, port boundaries | `src/core/*`, `src/orchestrator/*`, `src/ports/*`, genesis `ARCHITECTURE.md` |
 | `lib-crate-reference.md` | Rust crate inventory by pillar | `Cargo.toml`, evolution `TOOLS.md`, genesis `ARCHITECTURE.md` |
 | `policy-and-state-reference.md` | config/state files, env overrides, persistence boundaries | `config/*.sexp`, core/port policy loaders, evolution `HARMONIC_MATRIX.md` |
@@ -46,10 +47,11 @@ This reference set explicitly covers:
 ## Usage Order
 
 1. Start with `system-map.md`.
-2. Read `migration-map.md` to find the exact source doc for a concept.
-3. Use `src-runtime-reference.md` and `lib-crate-reference.md` for code navigation.
-4. Use `policy-and-state-reference.md` and `operations-runbook.md` for runtime changes.
-5. Use `evolution-reference.md` when changing self-modification behavior.
+2. Read `signalograd-architecture.md` when changing adaptive learning behavior.
+3. Read `migration-map.md` to find the exact source doc for a concept.
+4. Use `src-runtime-reference.md` and `lib-crate-reference.md` for code navigation.
+5. Use `policy-and-state-reference.md` and `operations-runbook.md` for runtime changes.
+6. Use `evolution-reference.md` when changing self-modification behavior.
 
 ## Maintenance Rules
 

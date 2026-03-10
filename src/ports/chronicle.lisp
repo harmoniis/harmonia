@@ -84,6 +84,19 @@
   (tokens-in :int64)
   (tokens-out :int64))
 
+(cffi:defcfun ("harmonia_chronicle_record_signalograd_event" %chronicle-record-signalograd-event) :int
+  (event-type :string)
+  (cycle :int64)
+  (confidence :double)
+  (stability :double)
+  (novelty :double)
+  (reward :double)
+  (accepted :int)
+  (recall-hits :int)
+  (checkpoint-path :string)
+  (checkpoint-digest :string)
+  (detail :string))
+
 (cffi:defcfun ("harmonia_chronicle_record_graph" %chronicle-record-graph) :int64
   (source :string)
   (sexp :string)
@@ -166,6 +179,12 @@
   (let ((rc (%chronicle-init)))
     (unless (zerop rc)
       (error "chronicle init failed: ~A" (%chronicle-error-string))))
+  ;; Register chronicle as actor through the unified registry (in parallel-agents dylib)
+  (when *runtime*
+    (ignore-errors
+      (let ((actor-id (actor-register "chronicle")))
+        (setf (runtime-state-chronicle-actor-id *runtime*) actor-id)
+        (setf (gethash actor-id (runtime-state-actor-kinds *runtime*)) "chronicle"))))
   (runtime-log *runtime* :chronicle-init
                (list :version (%chronicle-version) :status :ok))
   t)
@@ -274,6 +293,24 @@
                              concept-edges))))
       (%chronicle-record-graph "memory" sexp-str nodes-json edges-json))))
 
+(defun chronicle-record-signalograd-event (event-type &key cycle confidence stability novelty
+                                                      reward accepted recall-hits checkpoint-path
+                                                      checkpoint-digest detail)
+  "Record an auditable Signalograd lifecycle event."
+  (ignore-errors
+    (%chronicle-record-signalograd-event
+     (or event-type "unknown")
+     (or cycle 0)
+     (coerce (or confidence 0.0) 'double-float)
+     (coerce (or stability 0.0) 'double-float)
+     (coerce (or novelty 0.0) 'double-float)
+     (coerce (or reward 0.0) 'double-float)
+     (if accepted 1 0)
+     (or recall-hits 0)
+     (or checkpoint-path "")
+     (or checkpoint-digest "")
+     (or detail ""))))
+
 ;;; --- Query API ---
 
 (defun chronicle-query (sql)
@@ -327,6 +364,23 @@
 (defun chronicle-graph-evolution (&key (since-ts 0))
   "Track how the knowledge graph has grown/changed over time."
   (%chronicle-read-sexp (%chronicle-graph-evolution since-ts) "graph-evolution"))
+
+;;; --- Batched recording support ---
+
+(defun chronicle-batch-harmonic (ctx)
+  "Queue a harmonic snapshot for batched writing during %tick-chronicle-flush.
+   Falls back to direct recording if runtime is not available."
+  (if (and (boundp '*runtime*) *runtime*)
+      (push (list :type "harmonic" :ctx ctx)
+            (runtime-state-chronicle-pending *runtime*))
+      (chronicle-record-harmonic ctx)))
+
+(defun chronicle-batch-delegation (&rest args)
+  "Queue a delegation record for batched writing during %tick-chronicle-flush."
+  (if (and (boundp '*runtime*) *runtime*)
+      (push (list :type "delegation" :args args)
+            (runtime-state-chronicle-pending *runtime*))
+      (apply #'chronicle-record-delegation args)))
 
 ;;; --- Maintenance ---
 

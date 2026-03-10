@@ -33,7 +33,7 @@ fn to_c_string(value: String) -> *mut c_char {
         .unwrap_or(std::ptr::null_mut())
 }
 
-// ─── Legacy FFI (backward compatible) ───────────────────────────────
+// ─── Simple FFI (no policy enforcement) ─────────────────────────────
 
 #[no_mangle]
 pub extern "C" fn harmonia_config_store_version() -> *const c_char {

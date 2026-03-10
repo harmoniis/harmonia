@@ -2,7 +2,7 @@
 use std::env;
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use crate::legacy::all_legacy_entries;
+use crate::registry;
 use crate::store;
 
 pub(crate) fn seed_from_env() -> Result<u32, String> {
@@ -12,7 +12,7 @@ pub(crate) fn seed_from_env() -> Result<u32, String> {
     }
 
     let mut count: u32 = 0;
-    for (scope, key, env_name) in all_legacy_entries() {
+    for (scope, key, env_name) in registry::all_entries() {
         if let Ok(val) = env::var(env_name) {
             let val = val.trim().to_string();
             if !val.is_empty() {

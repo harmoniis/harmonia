@@ -30,27 +30,29 @@
         (concatenate 'string base "." (%shared-lib-extension))
         (concatenate 'string name "." (%shared-lib-extension)))))
 
-(defun %release-lib-root ()
-  (let ((env (sb-ext:posix-getenv "HARMONIA_LIB_DIR")))
-    (cond
-      ;; Explicit env var override
-      ((and env (> (length env) 0))
-       (pathname (if (char= (char env (1- (length env))) #\/)
-                     env
-                     (concatenate 'string env "/"))))
-      ;; Platform-standard: ~/.local/lib/harmonia/
-      (t (let* ((home (sb-ext:posix-getenv "HOME"))
-                (platform-lib (when home
-                                (pathname (concatenate 'string home "/.local/lib/harmonia/")))))
-           (if (and platform-lib (probe-file platform-lib))
-               platform-lib
-               ;; Dev fallback: target/release/ relative to boot.lisp
-               (merge-pathnames "../../target/release/" *boot-file*)))))))
+(defun %release-lib-roots ()
+  (let ((roots '())
+        (env (sb-ext:posix-getenv "HARMONIA_LIB_DIR")))
+    (when (and env (> (length env) 0))
+      (push (pathname (if (char= (char env (1- (length env))) #\/)
+                          env
+                          (concatenate 'string env "/")))
+            roots))
+    ;; Dev fallback: target/release/ relative to boot.lisp
+    (push (merge-pathnames "../../target/release/" *boot-file*) roots)
+    (let* ((home (sb-ext:posix-getenv "HOME"))
+           (platform-lib (when home
+                           (pathname (concatenate 'string home "/.local/lib/harmonia/")))))
+      (when platform-lib
+        (push platform-lib roots)))
+    (nreverse roots)))
 
 (defun %release-lib-path (name)
-  (merge-pathnames
-   (%normalize-lib-name name)
-   (%release-lib-root)))
+  (let* ((normalized (%normalize-lib-name name))
+         (candidates (mapcar (lambda (root) (merge-pathnames normalized root))
+                             (%release-lib-roots))))
+    (or (find-if #'probe-file candidates)
+        (first candidates))))
 
 (defun %split-lines (text)
   (let ((parts '())

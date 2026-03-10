@@ -57,6 +57,12 @@
         #'string<
         :key #'namestring))
 
+(defun %latest-snapshot-files ()
+  (sort (append (directory (merge-pathnames "*.md" *evolution-latest-dir*))
+                (directory (merge-pathnames "*.sexp" *evolution-latest-dir*)))
+        #'string<
+        :key #'namestring))
+
 (defun %path-last-dir-name (path)
   (let* ((dirs (pathname-directory (pathname path)))
          (last (car (last dirs))))
@@ -101,7 +107,7 @@
 (defun %snapshot-latest-to-version (version)
   (let ((target (%version-dir version)))
     (%ensure-dir target)
-    (dolist (src (%latest-doc-files))
+    (dolist (src (%latest-snapshot-files))
       (%copy-file-bytes src (merge-pathnames (file-namestring src) target)))
     target))
 
@@ -122,7 +128,7 @@
         (mapcar (lambda (path)
                   (list :file (file-namestring path)
                         :bytes (%file-byte-size path)))
-                (%latest-doc-files))))
+                (%latest-snapshot-files))))
 
 (defun %append-latest-changelog-entry (version reason note)
   (let ((path (merge-pathnames "changelog.md" *evolution-latest-dir*)))
@@ -211,6 +217,8 @@
   "Create a new immutable snapshot from latest/ into versions/vN and bump version."
   (let* ((current (or *evolution-current-version* 0))
          (next (1+ current)))
+    (when (fboundp 'signalograd-checkpoint-latest)
+      (signalograd-checkpoint-latest :runtime *runtime*))
     (%append-latest-changelog-entry next reason note)
     (let ((path (%snapshot-latest-to-version next)))
       (setf *evolution-current-version* next)

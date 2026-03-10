@@ -9,10 +9,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [0.1.7] — 2026-03-10
 
+### Added
+- `harmonia-signalograd` core crate and Lisp bridge for bounded adaptive routing/presentation feedback
+- Unified actor-protocol runtime path for async swarm task supervision and chronicle integration
+- `/feedback` command path plus hidden per-response presentation telemetry for evolution inputs
+
+### Changed
+- Visible reply hygiene is now explicit in genesis and runtime: internal constitutions/telemetry stay hidden, contaminated terminal artifacts are sanitized, and frontend-visible text is normalized before delivery
+- Truth-seeking routing now seeds `x-ai/grok-4.1-fast` as a swarm subagent for controversial or reality-accuracy tasks, with OpenRouter native web/X search enabled while keeping Exa/Brave as structured evidence sources
+- TUI prompt rendering now uses crossterm cursor control and width-aware cursor math instead of raw ANSI cursor sequences
+
 ### Fixed
 - Boot crash: `CONFIG-GET-FOR is undefined` — harmony-policy and model-policy used config-store at load time before store.lisp was loaded; replaced with lazy resolvers using `fboundp` guards
 - Boot crash: `(PROBE-FILE NIL)` — state path resolvers now have TMPDIR/homedir fallbacks that always produce a valid string
 - Masked API key input: replaced `dialoguer::Password` (showed `[hidden]` with no typing feedback) with custom `read_masked()` showing `*` per character with backspace support
+- Workspace CI flake in `harmonia-vault` tests: isolated vault env-dependent tests from ambient machine state and poisoned mutex follow-on failures
 
 ## [0.1.6] — 2026-03-10
 
@@ -20,9 +31,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Config-store v2**: SQLite-backed scoped configuration store with in-memory cache, component access policies, and env var fallback chain
   - Policy engine mirrors vault's component-scoped model (read/write/delete per component)
   - Admin components (`conductor`, `admin-intent`, `harmonia-cli`) get full access
-  - Fallback chain: cache → DB → legacy env alias → canonical `HARMONIA_{SCOPE}_{KEY}` → default
-  - Legacy env var seeding on first init (captures existing env vars permanently)
-  - 22 config-store unit tests
+  - Fallback chain: cache → DB → registry-derived env var → default
+  - Env var seeding on first init (captures existing env vars into DB)
+  - 27 config-store unit tests
 - **9 native LLM backend crates** with standardised provider-protocol:
   - `harmonia-openai`, `harmonia-anthropic`, `harmonia-xai`, `harmonia-groq`, `harmonia-alibaba`
   - `harmonia-google-ai-studio`, `harmonia-google-vertex`, `harmonia-amazon-bedrock`

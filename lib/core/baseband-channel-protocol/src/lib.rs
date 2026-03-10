@@ -314,7 +314,11 @@ impl ChannelEnvelope {
         let attachments = if self.attachments.is_empty() {
             "nil".to_string()
         } else {
-            let items: Vec<String> = self.attachments.iter().map(|item| sexp_string(item)).collect();
+            let items: Vec<String> = self
+                .attachments
+                .iter()
+                .map(|item| sexp_string(item))
+                .collect();
             format!("({})", items.join(" "))
         };
         format!(
@@ -347,7 +351,11 @@ impl ChannelBatch {
         if self.envelopes.is_empty() {
             return "nil".to_string();
         }
-        let items: Vec<String> = self.envelopes.iter().map(|envelope| envelope.to_sexp()).collect();
+        let items: Vec<String> = self
+            .envelopes
+            .iter()
+            .map(|envelope| envelope.to_sexp())
+            .collect();
         format!("({})", items.join(" "))
     }
 }

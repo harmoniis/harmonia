@@ -8,7 +8,7 @@ pub fn record_snapshot(
     source: &str,
     sexp: &str,
     nodes: &[(String, String, i32, i32, i32, String)], // (concept, domain, count, depth_min, depth_max, classes)
-    edges: &[(String, String, i32, bool, String)],      // (a, b, weight, interdisciplinary, reasons)
+    edges: &[(String, String, i32, bool, String)],     // (a, b, weight, interdisciplinary, reasons)
 ) -> Result<i64, String> {
     let db = db::conn()?;
     let lock = db.lock().map_err(|e| e.to_string())?;
@@ -46,7 +46,13 @@ pub fn record_snapshot(
             .map_err(|e| e.to_string())?;
         for (concept, domain, count, depth_min, depth_max, classes) in nodes {
             stmt.execute(params![
-                snapshot_id, concept, domain, *count, *depth_min, *depth_max, classes,
+                snapshot_id,
+                concept,
+                domain,
+                *count,
+                *depth_min,
+                *depth_max,
+                classes,
             ])
             .map_err(|e| e.to_string())?;
         }
@@ -82,7 +88,11 @@ fn md5_simple(input: &str) -> u64 {
 
 /// Query: find all concepts connected to a given concept within N hops.
 /// Uses recursive CTE for graph traversal — this is the power of SQL on graph data.
-pub fn traverse_from(concept: &str, max_hops: i32, snapshot_id: Option<i64>) -> Result<String, String> {
+pub fn traverse_from(
+    concept: &str,
+    max_hops: i32,
+    snapshot_id: Option<i64>,
+) -> Result<String, String> {
     let snap_filter = match snapshot_id {
         Some(id) => format!("AND snapshot_id = {}", id),
         None => {

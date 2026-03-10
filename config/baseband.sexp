@@ -41,8 +41,9 @@
    (:name "signal"
     :so-path "target/release/libharmonia_signal.so"
     :security-label :authenticated
-    :auto-load t
-    :vault-keys nil)
+    :auto-load :if-ready
+    :vault-keys nil
+    :config-keys (("signal-frontend" "account")))
    (:name "tailscale"
     :so-path "target/release/libharmonia_tailscale_frontend.so"
     :security-label :authenticated

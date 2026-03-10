@@ -23,35 +23,47 @@
 | `matrix-topology.sexp` | `src/ports/matrix.lisp` | mutable matrix topology |
 | `swarm.sexp` | `src/ports/swarm.lisp` | mutable swarm fan-out state |
 | `swarm_model_scores.sexp` | `src/core/model-policy.lisp` | per-model success/latency/cost/vitruvian score history used for seed evolution |
+| `signalograd.sexp` | `lib/core/signalograd` | persisted local Signalograd kernel state for adaptive reflection and online attractor learning |
 | `recovery.log` | recovery/ouroboros/phoenix flows | crash/restart ledger |
 | `vault.db` | vault crate | encrypted secret store |
-| `chronicle.db` | chronicle crate | SQL-queryable knowledge base (harmonic snapshots, delegation, graph) |
+| `chronicle.db` | chronicle crate | SQL-queryable knowledge base (harmonic snapshots, delegation, graph, `signalograd_events`) |
 
 ## Evolution Snapshot State (`src/boot/evolution/`)
 
 | Path | Role |
 |---|---|
-| `src/boot/evolution/latest/*` | current mutable evolution snapshot |
-| `src/boot/evolution/versions/vN/*` | immutable evolution history snapshots |
+| `src/boot/evolution/latest/*` | current mutable evolution snapshot, including `signalograd.sexp` checkpoints |
+| `src/boot/evolution/versions/vN/*` | immutable evolution history snapshots, including version-matched `signalograd.sexp` |
 | `src/boot/evolution/version.sexp` | current version integer used at boot |
 
 ## Key Environment Overrides
 
-| Variable | Effect |
-|---|---|
-| `HARMONIA_ENV` | runtime environment mode |
-| `HARMONIA_ALLOW_PROD_GENESIS` | explicit production bootstrap override |
-| `HARMONIA_STATE_ROOT` | root for mutable runtime state files |
-| `HARMONIA_MODEL_POLICY_PATH` | override model-policy state path |
-| `HARMONIA_HARMONY_POLICY_PATH` | override harmony-policy state path |
-| `HARMONIA_MATRIX_TOPOLOGY_PATH` | override matrix-topology state path |
-| `HARMONIA_PARALLEL_POLICY_PATH` | override swarm state path |
-| `HARMONIA_ROUTE_SIGNAL_DEFAULT` | default matrix route signal |
-| `HARMONIA_ROUTE_NOISE_DEFAULT` | default matrix route noise |
-| `HARMONIA_MODEL_PLANNER` | enable/disable planner model selection |
-| `HARMONIA_MODEL_PLANNER_MODEL` | explicit planner model id |
-| `HARMONIA_LIB_DIR` | override platform library directory |
-| `HARMONIA_SOURCE_DIR` | override source directory (share dir) |
+All config keys are resolved through config-store with the fallback chain: cache → DB → registry-derived env var → default. Env var names are derived from `(scope, key)` pairs by the config-store registry (see `lib/core/config-store/src/registry.rs`).
+
+| Variable | Scope / Key | Effect |
+|---|---|---|
+| `HARMONIA_ENV` | `global / env` | runtime environment mode |
+| `HARMONIA_ALLOW_PROD_GENESIS` | `phoenix-core / allow-prod-genesis` | explicit production bootstrap override |
+| `HARMONIA_STATE_ROOT` | `global / state-root` | root for mutable runtime state files |
+| `HARMONIA_MODEL_POLICY_PATH` | `model-policy / path` | override model-policy state path |
+| `HARMONIA_HARMONY_POLICY_PATH` | `harmony-policy / path` | override harmony-policy state path |
+| `HARMONIA_MATRIX_TOPOLOGY_PATH` | `harmonic-matrix / topology-path` | override matrix-topology state path |
+| `HARMONIA_PARALLEL_POLICY_PATH` | `parallel-agents-core / policy-path` | override swarm state path |
+| `HARMONIA_ROUTE_SIGNAL_DEFAULT` | `harmonic-matrix / route-signal-default` | default matrix route signal |
+| `HARMONIA_ROUTE_NOISE_DEFAULT` | `harmonic-matrix / route-noise-default` | default matrix route noise |
+| `HARMONIA_MODEL_PLANNER` | `model-policy / planner` | enable/disable planner model selection |
+| `HARMONIA_MODEL_PLANNER_MODEL` | `model-policy / planner-model` | explicit planner model id |
+| `HARMONIA_LIB_DIR` | `global / lib-dir` | override platform library directory |
+| `HARMONIA_SOURCE_DIR` | `global / source-dir` | override source directory (share dir) |
+| `HARMONIA_SIGNALOGRAD_STATE_PATH` | `signalograd-core / state-path` | persisted kernel working-state path |
+| `HARMONIA_LOG_LEVEL` | `global / log-level` | log verbosity (debug/info/warn/error) |
+| `HARMONIA_CHRONICLE_DB` | `chronicle / db` | override chronicle database path |
+
+## Signalograd Config Keys
+
+| Scope | Key | Purpose |
+|---|---|---|
+| `signalograd-core` | `state-path` | persisted kernel working-state path |
 
 ## Config-Store Seed Keys (`scope = model-policy`)
 

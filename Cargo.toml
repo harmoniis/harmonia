@@ -18,8 +18,10 @@ members = [
     "lib/core/gateway",
     "lib/core/baseband-channel-protocol",
     "lib/core/signal-integrity",
+    "lib/core/signalograd",
     "lib/core/admin-intent",
     "lib/core/chronicle",
+    "lib/core/actor-protocol",
 
     # Backends — provider protocol + LLM providers + storage + HTTP
     "lib/backends/llms/provider-protocol",

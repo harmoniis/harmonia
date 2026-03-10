@@ -157,7 +157,7 @@ pub fn record_llm_perf(
     usd_out_1k: f64,
 ) {
     let ts = now_secs();
-    if std::env::var("HARMONIA_LOG_LEVEL")
+    if harmonia_config_store::get_config_or(COMPONENT, "global", "log-level", "info")
         .map(|v| v == "debug")
         .unwrap_or(false)
     {

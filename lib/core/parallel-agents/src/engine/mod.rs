@@ -82,9 +82,16 @@ pub(crate) fn run_pending(max_parallel: i32) -> Result<(), String> {
         return Ok(());
     }
 
-    let key = get_secret_for_component("parallel-agents-core", "openrouter")
+    let key = get_secret_for_component("openrouter-backend", "openrouter-api-key")
         .map_err(|e| format!("vault policy error: {e}"))?
-        .ok_or_else(|| "missing secret: openrouter".to_string())?;
+        .or_else(|| {
+            get_secret_for_component("openrouter-backend", "openrouter")
+                .ok()
+                .flatten()
+        })
+        .ok_or_else(|| {
+            "missing secret: openrouter-api-key (vault component: openrouter-backend)".to_string()
+        })?;
 
     let limit = if max_parallel <= 0 {
         1usize
@@ -171,6 +178,170 @@ pub(crate) fn run_pending(max_parallel: i32) -> Result<(), String> {
     }
 
     Ok(())
+}
+
+/// Run pending tasks asynchronously — workers post results to the unified
+/// actor mailbox when done instead of blocking on join.
+///
+/// Returns a list of `(task_id, actor_id, model)` tuples so the Lisp
+/// supervisor can create tracking records BEFORE workers finish.
+pub(crate) fn run_pending_async(max_parallel: i32) -> Result<Vec<(u64, u64, String)>, String> {
+    init_from_env().map_err(|e| e.to_string())?;
+
+    let pending: Vec<Task> = {
+        let st = state()
+            .read()
+            .map_err(|_| "parallel state lock poisoned".to_string())?;
+        st.tasks
+            .values()
+            .filter(|t| t.status == "pending")
+            .cloned()
+            .collect()
+    };
+
+    if pending.is_empty() {
+        return Ok(vec![]);
+    }
+
+    let key = get_secret_for_component("openrouter-backend", "openrouter-api-key")
+        .map_err(|e| format!("vault policy error: {e}"))?
+        .or_else(|| {
+            get_secret_for_component("openrouter-backend", "openrouter")
+                .ok()
+                .flatten()
+        })
+        .ok_or_else(|| {
+            "missing secret: openrouter-api-key (vault component: openrouter-backend)".to_string()
+        })?;
+
+    let limit = if max_parallel <= 0 {
+        1usize
+    } else {
+        max_parallel as usize
+    };
+
+    // Pre-register ALL tasks as actors before spawning workers.
+    // This lets Lisp create tracking records immediately.
+    let mut actor_assignments: Vec<(u64, u64, String)> = Vec::with_capacity(pending.len());
+    {
+        let mut reg = crate::actor_core::registry()
+            .write()
+            .map_err(|_| "actor registry lock poisoned".to_string())?;
+        for t in &pending {
+            let aid = reg.register(crate::actor_core::ActorKind::LlmTask);
+            reg.set_state(aid, crate::actor_core::ActorState::Running);
+            actor_assignments.push((t.id, aid, t.model.clone()));
+        }
+    }
+
+    // Build a map from task index → actor_id for workers
+    let actor_ids: Arc<Vec<u64>> =
+        Arc::new(actor_assignments.iter().map(|(_, aid, _)| *aid).collect());
+
+    let tasks = Arc::new(pending);
+    let cursor = Arc::new(RwLock::new(0usize));
+
+    // Mark all pending as running
+    {
+        let mut st = state()
+            .write()
+            .map_err(|_| "parallel state lock poisoned".to_string())?;
+        for t in tasks.iter() {
+            if let Some(task) = st.tasks.get_mut(&t.id) {
+                task.status = "running".to_string();
+            }
+        }
+    }
+
+    for _ in 0..limit {
+        let tasks = Arc::clone(&tasks);
+        let cursor = Arc::clone(&cursor);
+        let key = key.clone();
+        let actor_ids = Arc::clone(&actor_ids);
+
+        // Each worker is a fire-and-forget thread
+        thread::spawn(move || loop {
+            let next = {
+                let mut idx = match cursor.write() {
+                    Ok(v) => v,
+                    Err(_) => return,
+                };
+                if *idx >= tasks.len() {
+                    None
+                } else {
+                    let i = *idx;
+                    *idx += 1;
+                    Some(i)
+                }
+            };
+            let i = match next {
+                Some(v) => v,
+                None => break,
+            };
+            let mut t = tasks[i].clone();
+            let actor_id = actor_ids[i];
+
+            let start = std::time::Instant::now();
+            match request_openrouter(&t.prompt, &t.model, &key) {
+                Ok(resp) => {
+                    t.response = resp;
+                    t.success = true;
+                    let (verified, source, detail) = verify_with_search(&t.prompt, &t.response);
+                    t.verified = verified;
+                    t.verification_source = source;
+                    t.verification_detail = detail;
+                    t.status = "done".to_string();
+                }
+                Err(e) => {
+                    t.error = e;
+                    t.success = false;
+                    t.verified = false;
+                    t.verification_source = "none".to_string();
+                    t.verification_detail = "openrouter-error".to_string();
+                    t.status = "error".to_string();
+                }
+            }
+            t.latency_ms = start.elapsed().as_millis() as u64;
+            t.cost_usd = if t.success {
+                estimate_cost(&t.model, &t.prompt, &t.response)
+            } else {
+                0.0
+            };
+
+            // Update global state
+            if let Ok(mut st) = state().write() {
+                st.tasks.insert(t.id, t.clone());
+                append_metric_line(&t);
+            }
+
+            // Post result to unified mailbox
+            if let Ok(mut reg) = crate::actor_core::registry().write() {
+                let payload = if t.success {
+                    crate::actor_core::MessagePayload::TaskCompleted {
+                        output: t.response.clone(),
+                        exit_code: 0,
+                        duration_ms: t.latency_ms,
+                    }
+                } else {
+                    crate::actor_core::MessagePayload::TaskFailed {
+                        error: t.error.clone(),
+                        duration_ms: t.latency_ms,
+                    }
+                };
+                reg.post_from(actor_id, 0, crate::actor_core::ActorKind::LlmTask, payload);
+                reg.set_state(
+                    actor_id,
+                    if t.success {
+                        crate::actor_core::ActorState::Completed
+                    } else {
+                        crate::actor_core::ActorState::Failed(t.error.clone())
+                    },
+                );
+            }
+        });
+    }
+
+    Ok(actor_assignments)
 }
 
 pub(crate) fn task_result(task_id: i64) -> Result<String, String> {
@@ -287,6 +458,19 @@ pub(crate) fn tmux_list() -> Result<String, String> {
 
 pub(crate) fn tmux_swarm_poll() -> Result<String, String> {
     controller::swarm_poll()
+}
+
+// ---------------------------------------------------------------------------
+// Actor mailbox (unified — delegates to actor-protocol registry)
+// ---------------------------------------------------------------------------
+
+/// Drain all pending actor messages from the unified mailbox.
+/// Returns s-expression list of messages.
+pub(crate) fn actor_drain_mailbox() -> Result<String, String> {
+    let mut reg = crate::actor_core::registry()
+        .write()
+        .map_err(|_| "actor registry lock poisoned".to_string())?;
+    Ok(reg.drain_sexp())
 }
 
 // ---------------------------------------------------------------------------

@@ -159,28 +159,32 @@ pub fn full_digest() -> Result<String, String> {
         "SELECT event_type, COUNT(*) AS n
          FROM memory_events
          WHERE ts >= (CAST(strftime('%s','now') AS INTEGER) * 1000 - 86400000)
-         GROUP BY event_type"
-    ).unwrap_or_else(|_| "()".to_string());
+         GROUP BY event_type",
+    )
+    .unwrap_or_else(|_| "()".to_string());
 
     let recent_phoenix = db::query_sexp(
         "SELECT event_type, COUNT(*) AS n
          FROM phoenix_events
          WHERE ts >= (CAST(strftime('%s','now') AS INTEGER) * 1000 - 86400000)
-         GROUP BY event_type"
-    ).unwrap_or_else(|_| "()".to_string());
+         GROUP BY event_type",
+    )
+    .unwrap_or_else(|_| "()".to_string());
 
     let recent_ouroboros = db::query_sexp(
         "SELECT event_type, COUNT(*) AS n
          FROM ouroboros_events
          WHERE ts >= (CAST(strftime('%s','now') AS INTEGER) * 1000 - 86400000)
-         GROUP BY event_type"
-    ).unwrap_or_else(|_| "()".to_string());
+         GROUP BY event_type",
+    )
+    .unwrap_or_else(|_| "()".to_string());
 
     let graph_stats = db::query_sexp(
         "SELECT node_count, edge_count, interdisciplinary_edges
          FROM graph_snapshots
-         ORDER BY ts DESC LIMIT 1"
-    ).unwrap_or_else(|_| "()".to_string());
+         ORDER BY ts DESC LIMIT 1",
+    )
+    .unwrap_or_else(|_| "()".to_string());
 
     Ok(format!(
         "(:harmony {} :delegation {} :cost {} :memory-24h {} :phoenix-24h {} :ouroboros-24h {} :graph {})",

@@ -27,12 +27,139 @@
   (prompt :string) (model :string))
 (cffi:defcfun ("harmonia_parallel_agents_run_pending" %parallel-run-pending) :int
   (max-parallel :int))
+(cffi:defcfun ("harmonia_parallel_agents_run_pending_async" %parallel-run-pending-async) :pointer
+  (max-parallel :int))
 (cffi:defcfun ("harmonia_parallel_agents_task_result" %parallel-task-result) :pointer
   (task-id :long-long))
 (cffi:defcfun ("harmonia_parallel_agents_report" %parallel-report) :pointer)
 (cffi:defcfun ("harmonia_parallel_agents_last_error" %parallel-last-error) :pointer)
 (cffi:defcfun ("harmonia_parallel_agents_free_string" %parallel-free-string) :void
   (ptr :pointer))
+
+;;; --- Tmux CLI Agent CFFI bindings ---
+
+(cffi:defcfun ("harmonia_tmux_spawn" %tmux-spawn) :long-long
+  (cli-type :string) (workdir :string) (prompt :string))
+(cffi:defcfun ("harmonia_tmux_poll" %tmux-poll) :pointer (id :long-long))
+(cffi:defcfun ("harmonia_tmux_kill" %tmux-kill) :int (id :long-long))
+(cffi:defcfun ("harmonia_tmux_capture" %tmux-capture) :pointer
+  (id :long-long) (history :int))
+(cffi:defcfun ("harmonia_tmux_swarm_poll" %tmux-swarm-poll) :pointer)
+;;; --- Unified Actor Protocol CFFI bindings ---
+
+(cffi:defcfun ("harmonia_actor_register" %actor-register) :long-long (kind :string))
+(cffi:defcfun ("harmonia_actor_heartbeat" %actor-heartbeat) :int (id :long-long) (bytes :unsigned-long-long))
+(cffi:defcfun ("harmonia_actor_post" %actor-post) :int (source :long-long) (target :long-long) (payload :string))
+(cffi:defcfun ("harmonia_actor_drain" %actor-drain) :pointer)
+(cffi:defcfun ("harmonia_actor_state" %actor-state) :pointer (id :long-long))
+(cffi:defcfun ("harmonia_actor_list" %actor-list) :pointer)
+(cffi:defcfun ("harmonia_actor_deregister" %actor-deregister) :int (id :long-long))
+(cffi:defcfun ("harmonia_actor_free_string" %actor-free-string) :void (ptr :pointer))
+
+;;; --- Unified Actor Protocol Lisp wrappers ---
+
+(defun actor-register (kind)
+  "Register an actor of KIND (string: gateway, cli-agent, llm-task, chronicle, tailnet).
+   Returns actor-id (>= 1) or signals error."
+  (let ((id (%actor-register kind)))
+    (when (minusp id)
+      (error "actor-register failed for kind ~A" kind))
+    id))
+
+(defun actor-heartbeat (id &optional (bytes-delta 0))
+  "Report progress heartbeat for actor ID."
+  (let ((rc (%actor-heartbeat id bytes-delta)))
+    (unless (zerop rc)
+      (error "actor-heartbeat failed for actor ~D" id))
+    t))
+
+(defun actor-post (source target payload-sexp)
+  "Post a message to the unified mailbox."
+  (let ((rc (%actor-post source target payload-sexp)))
+    (unless (zerop rc)
+      (error "actor-post failed: source=~D target=~D" source target))
+    t))
+
+(defun actor-drain ()
+  "Drain all pending messages from the unified actor mailbox. Returns sexp list."
+  (let ((ptr (%actor-drain)))
+    (if (cffi:null-pointer-p ptr)
+        '()
+        (let ((raw (unwind-protect
+                        (cffi:foreign-string-to-lisp ptr)
+                     (%actor-free-string ptr))))
+          (handler-case
+              (let ((*read-eval* nil))
+                (read-from-string raw))
+            (error () '()))))))
+
+(defun actor-state (id)
+  "Get actor state as parsed sexp."
+  (let ((ptr (%actor-state id)))
+    (if (cffi:null-pointer-p ptr)
+        nil
+        (let ((raw (unwind-protect
+                        (cffi:foreign-string-to-lisp ptr)
+                     (%actor-free-string ptr))))
+          (handler-case
+              (let ((*read-eval* nil))
+                (read-from-string raw))
+            (error () nil))))))
+
+(defun actor-list ()
+  "List all registered actors as parsed sexp."
+  (let ((ptr (%actor-list)))
+    (if (cffi:null-pointer-p ptr)
+        '()
+        (let ((raw (unwind-protect
+                        (cffi:foreign-string-to-lisp ptr)
+                     (%actor-free-string ptr))))
+          (handler-case
+              (let ((*read-eval* nil))
+                (read-from-string raw))
+            (error () '()))))))
+
+(defun actor-deregister (id)
+  "Deregister an actor by ID."
+  (let ((rc (%actor-deregister id)))
+    (zerop rc)))
+
+;;; --- Legacy mailbox drain (delegates to unified) ---
+
+(cffi:defcfun ("harmonia_actor_drain_mailbox" %actor-drain-mailbox) :pointer)
+
+;;; --- Tmux Lisp wrappers ---
+
+(defun tmux-spawn (cli-type workdir prompt)
+  "Spawn a tmux CLI agent. Returns agent id (>= 0) or signals error."
+  (let ((id (%tmux-spawn cli-type workdir (or prompt ""))))
+    (when (minusp id)
+      (error "tmux spawn failed: ~A" (parallel-last-error)))
+    id))
+
+(defun tmux-poll (id)
+  "Poll a tmux agent state. Returns sexp string."
+  (%ptr->string (%tmux-poll id)))
+
+(defun tmux-kill (id)
+  "Kill a tmux agent."
+  (let ((rc (%tmux-kill id)))
+    (unless (zerop rc)
+      (error "tmux kill failed: ~A" (parallel-last-error)))
+    t))
+
+(defun tmux-capture (id &optional (history 200))
+  "Capture terminal output of a tmux agent."
+  (%ptr->string (%tmux-capture id history)))
+
+(defun tmux-swarm-poll ()
+  "Poll all active tmux agents."
+  (%ptr->string (%tmux-swarm-poll)))
+
+(defun actor-drain-mailbox ()
+  "Drain all pending actor messages from unified actor mailbox. Returns sexp list.
+   Delegates to the unified actor-drain which reads from actor-protocol registry."
+  (actor-drain))
 
 (defun init-swarm-port ()
   (ensure-cffi)
@@ -68,6 +195,20 @@
     (unless (zerop rc)
       (error "parallel run pending failed: ~A" (parallel-last-error)))
     t))
+
+(defun parallel-run-pending-async (&optional (max-parallel 3))
+  "Run pending tasks asynchronously — results arrive via unified actor mailbox.
+   Returns list of (:task-id T :actor-id A :model M) plists for Lisp-side tracking."
+  (let ((ptr (%parallel-run-pending-async max-parallel)))
+    (if (cffi:null-pointer-p ptr)
+        (error "parallel run pending async failed: ~A" (parallel-last-error))
+        (let ((raw (unwind-protect
+                        (cffi:foreign-string-to-lisp ptr)
+                     (%parallel-free-string ptr))))
+          (handler-case
+              (let ((*read-eval* nil))
+                (read-from-string raw))
+            (error () '()))))))
 
 (defun %ptr->string (ptr)
   (if (cffi:null-pointer-p ptr)
@@ -131,59 +272,32 @@
 (defun %swarm-cli-id (model)
   (if (%swarm-cli-model-p model) (subseq model 4) model))
 
-(defun %swarm-cli-timeout-seconds ()
-  (max 5 (or (ignore-errors (model-policy-cli-timeout-seconds)) 90)))
+(defun %swarm-actor-stall-threshold ()
+  "Ticks with zero output delta before killing an actor (progress-based, not time-based)."
+  (max 5 (or (ignore-errors (model-policy-actor-stall-threshold)) 50)))
 
-(defun %swarm-read-stream-text (stream)
-  (if stream
-      (with-output-to-string (s)
-        (loop for line = (read-line stream nil nil)
-              while line
-              do (write-line line s)))
-      ""))
-
-(defun %swarm-process-running-p (proc)
-  (string= (string (sb-ext:process-status proc)) "RUNNING"))
-
-(defun %swarm-run-cli-subagent (model prompt)
+(defun %swarm-spawn-cli-actor (model prompt &optional originating-signal orchestration-ctx)
+  "Spawn a CLI subagent as a tmux actor. Returns actor-id. Does NOT block."
   (let* ((cli (%swarm-cli-id model))
-         (command (cond
-                    ((string= cli "claude-code") "claude")
-                    ((string= cli "codex") "codex")
-                    (t cli)))
-         (args (cond
-                 ((string= cli "claude-code")
-                  (list "--dangerously-skip-permissions" "-p" (or prompt "")))
-                 ((string= cli "codex")
-                  (list "exec" "--full-auto" (or prompt "")))
-                 (t (list (or prompt "")))))
-         (timeout-seconds (%swarm-cli-timeout-seconds))
-         (started-at (get-internal-real-time))
-         (proc (sb-ext:run-program command args
-                                   :output :stream
-                                   :error :output
-                                   :search t
-                                   :wait nil)))
-    (loop while (%swarm-process-running-p proc) do
-      (let ((elapsed (/ (- (get-internal-real-time) started-at)
-                        internal-time-units-per-second)))
-        (when (>= elapsed timeout-seconds)
-          (ignore-errors (sb-ext:process-kill proc 15))
-          (sleep 0.2)
-          (when (%swarm-process-running-p proc)
-            (ignore-errors (sb-ext:process-kill proc 9)))
-          (error "cli subagent ~A timed out after ~Ds" cli timeout-seconds)))
-      (sleep 0.1))
-    (let* ((stream (sb-ext:process-output proc))
-           (output (%swarm-read-stream-text stream))
-           (exit-code (sb-ext:process-exit-code proc)))
-      (ignore-errors (when stream (close stream)))
-      (unless (and exit-code (zerop exit-code))
-        (error "cli subagent ~A failed: ~A" cli output))
-      (let ((trimmed (string-trim '(#\Space #\Newline #\Tab) output)))
-        (unless (> (length trimmed) 0)
-          (error "cli subagent ~A returned empty output" cli))
-        trimmed))))
+         (workdir (or (ignore-errors (config-get-for "conductor" "workdir"))
+                      (namestring (user-homedir-pathname))))
+         (actor-id (tmux-spawn cli workdir prompt)))
+    ;; Register in actor registry
+    (let ((record (make-actor-record
+                   :id actor-id
+                   :model model
+                   :prompt prompt
+                   :state :running
+                   :spawned-at (get-universal-time)
+                   :last-heartbeat (get-universal-time)
+                   :stall-ticks 0
+                   :originating-signal originating-signal
+                   :orchestration-context orchestration-ctx
+                   :cost-usd 0.0
+                   :duration-ms 0)))
+      (setf (gethash actor-id (runtime-state-actor-registry *runtime*)) record)
+      (push actor-id (runtime-state-actor-pending *runtime*)))
+    actor-id))
 
 (defun %swarm-clean-text (text)
   (string-trim '(#\Space #\Newline #\Tab #\Return) (or text "")))
@@ -221,8 +335,11 @@
               :cost-usd 0.0
               :error "")))))
 
-(defun parallel-solve (prompt &key return-structured preferred-models max-subagents)
-  "Spawn N subagents with different model/cost profiles, then return best + report."
+(defun parallel-solve (prompt &key return-structured preferred-models max-subagents
+                                   originating-signal orchestration-context)
+  "Spawn N subagents with different model/cost profiles, then return best + report.
+   CLI models are spawned as non-blocking tmux actors. If ALL models are CLI,
+   returns (values :deferred nil nil nil) — results delivered later by %tick-actor-deliver."
   (let* ((n (max 1 (or max-subagents (parallel-get-subagent-count))))
          (chain (or preferred-models
                     (model-escalation-chain prompt (choose-model prompt))))
@@ -230,21 +347,21 @@
          (jobs '())
          (results '())
          (scheduled 0)
+         (cli-spawned 0)
          (used-parallel nil)
          (parallel-routed nil))
     (loop while (and queue (< scheduled n)) do
       (let ((m (pop queue)))
         (if (%swarm-cli-model-p m)
+            ;; Non-blocking: spawn tmux actor
             (handler-case
                 (progn
-                  (push (list :model m
-                              :text (%swarm-run-cli-subagent m prompt)
-                              :success t
-                              :latency-ms 0
-                              :cost-usd 0.0
-                              :error "")
-                        results)
-                  (incf scheduled))
+                  (%swarm-spawn-cli-actor m prompt originating-signal
+                                          (or orchestration-context
+                                              (list :chain chain
+                                                    :prepared-prompt prompt)))
+                  (incf scheduled)
+                  (incf cli-spawned))
               (error (e)
                 (let ((msg (princ-to-string e)))
                   (ignore-errors (model-policy-mark-cli-cooloff (%swarm-cli-id m)))
@@ -257,6 +374,7 @@
                      :latency-ms 0
                      :harmony-score 0.0
                      :cost-usd 0.0)))))
+            ;; OpenRouter: submit for parallel execution (blocking on join)
             (progn
               (unless parallel-routed
                 (harmonic-matrix-route-or-error "orchestrator" "parallel-agents")
@@ -264,13 +382,47 @@
               (push (cons (parallel-submit (format nil "[subagent model=~A] ~A" m prompt) m) m) jobs)
               (setf used-parallel t)
               (incf scheduled)))))
+    ;; If ALL scheduled models were CLI, return :deferred
+    (when (and (> cli-spawned 0) (null jobs) (null results))
+      (return-from parallel-solve
+        (if return-structured
+            (values :deferred nil nil nil)
+            :deferred)))
+    ;; Run OpenRouter jobs asynchronously — results arrive via unified actor mailbox.
+    ;; Create Lisp-side actor records so %tick-actor-supervisor can track them.
     (when jobs
-      (parallel-run-pending (length jobs))
-      (dolist (job jobs)
-        (push (%swarm-parse-task-result (parallel-task-result (car job)) (cdr job)) results)))
+      (let ((assignments (parallel-run-pending-async (length jobs))))
+        (when (listp assignments)
+          (dolist (a assignments)
+            (let* ((actor-id (getf a :actor-id))
+                   (model (getf a :model))
+                   (record (make-actor-record
+                            :id actor-id
+                            :model (or model "openrouter")
+                            :prompt prompt
+                            :state :running
+                            :spawned-at (get-universal-time)
+                            :last-heartbeat (get-universal-time)
+                            :stall-ticks 0
+                            :originating-signal originating-signal
+                            :orchestration-context orchestration-context
+                            :cost-usd 0.0
+                            :duration-ms 0)))
+              (setf (gethash actor-id (runtime-state-actor-registry *runtime*)) record)
+              (push actor-id (runtime-state-actor-pending *runtime*))))))
+      (return-from parallel-solve
+        (if return-structured
+            (values :deferred nil nil nil)
+            :deferred)))
     (setf results (nreverse results))
     (unless results
-      (error "parallel solve failed: no model produced output"))
+      (if (> cli-spawned 0)
+          ;; CLI actors spawned but no OpenRouter results — defer
+          (return-from parallel-solve
+            (if return-structured
+                (values :deferred nil nil nil)
+                :deferred))
+          (error "parallel solve failed: no model produced output")))
     (let ((usable-results '()))
       (dolist (entry results)
         (let* ((model (or (getf entry :model) "unknown"))

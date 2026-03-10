@@ -147,6 +147,7 @@ pub fn run(env: &str, foreground: bool) -> Result<(), Box<dyn std::error::Error>
             .arg("--eval")
             .arg("(harmonia:start)")
             .env("HARMONIA_STATE_ROOT", system_dir.to_string_lossy().as_ref())
+            .env("HARMONIA_SYSTEM_DIR", system_dir.to_string_lossy().as_ref())
             .env("HARMONIA_VAULT_DB", vault_path.to_string_lossy().as_ref())
             .env(
                 "HARMONIA_VAULT_WALLET_DB",
@@ -183,6 +184,7 @@ pub fn run(env: &str, foreground: bool) -> Result<(), Box<dyn std::error::Error>
             .arg("--eval")
             .arg("(harmonia:start)")
             .env("HARMONIA_STATE_ROOT", system_dir.to_string_lossy().as_ref())
+            .env("HARMONIA_SYSTEM_DIR", system_dir.to_string_lossy().as_ref())
             .env("HARMONIA_VAULT_DB", vault_path.to_string_lossy().as_ref())
             .env(
                 "HARMONIA_VAULT_WALLET_DB",
@@ -216,10 +218,7 @@ pub fn run(env: &str, foreground: bool) -> Result<(), Box<dyn std::error::Error>
                 .bold()
         );
         if should_start_embedded_broker() {
-            println!(
-                "  broker: {}",
-                crate::paths::broker_log_path()?.display()
-            );
+            println!("  broker: {}", crate::paths::broker_log_path()?.display());
         }
     }
 
@@ -285,6 +284,7 @@ fn spawn_broker_process(
     let child = Command::new(exe)
         .arg("broker")
         .env("HARMONIA_STATE_ROOT", system_dir.to_string_lossy().as_ref())
+        .env("HARMONIA_SYSTEM_DIR", system_dir.to_string_lossy().as_ref())
         .env("HARMONIA_VAULT_DB", vault_path.to_string_lossy().as_ref())
         .env(
             "HARMONIA_VAULT_WALLET_DB",
@@ -303,6 +303,34 @@ fn spawn_broker_process(
 
 fn is_runtime_root(path: &Path) -> bool {
     path.join("src").join("core").join("boot.lisp").exists()
+}
+
+fn is_installed_binary() -> bool {
+    let Some(home) = dirs::home_dir() else {
+        return false;
+    };
+    let installed_bin_dir = home.join(".local").join("bin");
+    std::env::current_exe()
+        .ok()
+        .map(|exe| exe.starts_with(installed_bin_dir))
+        .unwrap_or(false)
+}
+
+fn is_truthy_config(raw: &str) -> bool {
+    let value = raw.trim();
+    !value.is_empty()
+        && !matches!(
+            value.to_ascii_lowercase().as_str(),
+            "0" | "false" | "nil" | "no" | "off"
+        )
+}
+
+fn source_rewrite_enabled() -> bool {
+    harmonia_config_store::get_config("harmonia-cli", "evolution", "source-rewrite-enabled")
+        .ok()
+        .flatten()
+        .map(|raw| is_truthy_config(&raw))
+        .unwrap_or(false)
 }
 
 fn shared_lib_ext() -> &'static str {
@@ -363,7 +391,11 @@ fn resolve_lib_dir(source_dir: &Path) -> PathBuf {
     }
     // Platform-standard lib dir (~/.local/lib/harmonia/)
     if let Ok(platform_lib) = crate::paths::lib_dir() {
-        if platform_lib.exists() && platform_lib.read_dir().map_or(false, |mut d| d.next().is_some()) {
+        if platform_lib.exists()
+            && platform_lib
+                .read_dir()
+                .map_or(false, |mut d| d.next().is_some())
+        {
             return platform_lib;
         }
     }
@@ -431,35 +463,53 @@ fn ensure_runtime_artifacts(
 }
 
 fn resolve_source_dir(system_dir: &Path) -> Result<PathBuf, Box<dyn std::error::Error>> {
-    // Priority 1: Config-store (set during setup)
-    if let Ok(Some(stored)) =
-        harmonia_config_store::get_config("harmonia-cli", "global", "source-dir")
-    {
-        let p = PathBuf::from(&stored);
+    // Priority 1: explicit env override
+    if let Ok(explicit) = std::env::var("HARMONIA_SOURCE_DIR") {
+        let p = PathBuf::from(explicit);
         if is_runtime_root(&p) {
             return Ok(p);
         }
     }
 
-    // Priority 2: Current directory (developer-local workflow)
+    let stored_source = harmonia_config_store::get_config("harmonia-cli", "global", "source-dir")
+        .ok()
+        .flatten()
+        .map(PathBuf::from)
+        .filter(|path| is_runtime_root(path));
+    let installed_share = crate::paths::share_dir()
+        .ok()
+        .filter(|path| is_runtime_root(path));
+
+    // Installed runtime should default to the installed share tree unless
+    // source-rewrite is explicitly enabled or the user set an override.
+    if is_installed_binary() && !source_rewrite_enabled() {
+        if let Some(share) = installed_share.clone() {
+            return Ok(share);
+        }
+    }
+
+    // Priority 2: Config-store (set during setup)
+    if let Some(stored) = stored_source {
+        return Ok(stored);
+    }
+
+    // Priority 3: Current directory (developer-local workflow)
     let cwd = std::env::current_dir()?;
     if is_runtime_root(&cwd) {
         return Ok(cwd);
     }
 
-    // Priority 3: Platform-standard share dir (~/.local/share/harmonia/)
-    if let Ok(share) = crate::paths::share_dir() {
-        if is_runtime_root(&share) {
-            return Ok(share);
-        }
+    // Priority 4: Platform-standard share dir (~/.local/share/harmonia/)
+    if let Some(share) = installed_share {
+        return Ok(share);
     }
 
-    // Priority 4: Legacy install location (~/.harmoniis/harmonia) — migration compat
+    // Priority 5: Legacy install location (~/.harmoniis/harmonia) — migration compat
     if is_runtime_root(system_dir) {
         return Ok(system_dir.to_path_buf());
     }
 
-    // Priority 5: Walk up from binary location
+    // Priority 6: Walk up from binary location
     let exe = std::env::current_exe()?;
     let mut dir = exe.parent().unwrap().to_path_buf();
 

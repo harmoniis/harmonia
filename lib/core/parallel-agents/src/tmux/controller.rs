@@ -13,6 +13,7 @@
 use super::cli_profiles::profile_for;
 use super::detector::detect_state;
 use super::session;
+use crate::actor_core::{self, ActorKind, MessagePayload};
 use crate::model::{append_tmux_metric_line, now_unix, state, CliState, CliType, TmuxAgent};
 
 const SESSION_PREFIX: &str = "harmonia-";
@@ -136,13 +137,27 @@ pub(crate) fn poll(id: u64) -> Result<CliState, String> {
 
     // Check if session still exists
     if !session::session_exists(&sess) {
-        let mut st = state()
-            .write()
-            .map_err(|_| "parallel state lock poisoned".to_string())?;
-        if let Some(agent) = st.tmux_agents.get_mut(&id) {
-            agent.state = CliState::Terminated;
-            agent.last_poll_at = now_unix();
-            append_tmux_metric_line(agent, "terminated");
+        {
+            let mut st = state()
+                .write()
+                .map_err(|_| "parallel state lock poisoned".to_string())?;
+            if let Some(agent) = st.tmux_agents.get_mut(&id) {
+                agent.state = CliState::Terminated;
+                agent.last_poll_at = now_unix();
+                append_tmux_metric_line(agent, "terminated");
+            }
+        }
+        // Push failed message to unified mailbox
+        if let Ok(mut reg) = actor_core::registry().write() {
+            reg.post_from(
+                id,
+                0,
+                ActorKind::CliAgent,
+                MessagePayload::TaskFailed {
+                    error: "tmux session terminated unexpectedly".to_string(),
+                    duration_ms: 0,
+                },
+            );
         }
         return Ok(CliState::Terminated);
     }
@@ -151,25 +166,74 @@ pub(crate) fn poll(id: u64) -> Result<CliState, String> {
     let detected = detect_state(&output, &cli_type);
 
     {
-        let mut st = state()
-            .write()
-            .map_err(|_| "parallel state lock poisoned".to_string())?;
-        if let Some(agent) = st.tmux_agents.get_mut(&id) {
-            let prev_state = agent.state.clone();
-            agent.state = detected.clone();
-            agent.last_output = output;
-            agent.last_poll_at = now_unix();
-            agent.interaction_count += 1;
+        // Collect messages to post to unified mailbox after releasing state lock
+        let mut pending_payloads: Vec<MessagePayload> = Vec::new();
 
-            // Accumulate cost and duration tracking
-            agent.duration_ms = (now_unix() - agent.created_at) * 1000;
-            if matches!(detected, CliState::Processing) {
-                agent.estimated_cost_usd += agent.cli_type.estimated_cost_per_interaction();
+        {
+            let mut st = state()
+                .write()
+                .map_err(|_| "parallel state lock poisoned".to_string())?;
+
+            if let Some(agent) = st.tmux_agents.get_mut(&id) {
+                let prev_state = agent.state.clone();
+                let prev_output_len = agent.last_output.len();
+                agent.state = detected.clone();
+                agent.last_output = output.clone();
+                agent.last_poll_at = now_unix();
+                agent.interaction_count += 1;
+
+                // Accumulate cost and duration tracking
+                agent.duration_ms = (now_unix() - agent.created_at) * 1000;
+                if matches!(detected, CliState::Processing) {
+                    agent.estimated_cost_usd += agent.cli_type.estimated_cost_per_interaction();
+                }
+
+                let dur = agent.duration_ms;
+
+                // Log state transitions and collect mailbox messages
+                if std::mem::discriminant(&prev_state) != std::mem::discriminant(&detected) {
+                    append_tmux_metric_line(agent, &format!("state:{}", state_label(&detected)));
+
+                    pending_payloads.push(MessagePayload::StateChanged {
+                        to: detected.to_sexp(),
+                    });
+
+                    match &detected {
+                        CliState::Completed => {
+                            pending_payloads.push(MessagePayload::TaskCompleted {
+                                output: output.clone(),
+                                exit_code: 0,
+                                duration_ms: dur,
+                            });
+                        }
+                        CliState::Error(e) => {
+                            pending_payloads.push(MessagePayload::TaskFailed {
+                                error: e.clone(),
+                                duration_ms: dur,
+                            });
+                        }
+                        _ => {}
+                    }
+                }
+
+                // Progress heartbeat if output changed
+                let bytes_delta = if output.len() > prev_output_len {
+                    (output.len() - prev_output_len) as u64
+                } else {
+                    0
+                };
+                if bytes_delta > 0 {
+                    pending_payloads.push(MessagePayload::ProgressHeartbeat { bytes_delta });
+                }
             }
+        }
 
-            // Log state transitions
-            if std::mem::discriminant(&prev_state) != std::mem::discriminant(&detected) {
-                append_tmux_metric_line(agent, &format!("state:{}", state_label(&detected)));
+        // Post all collected messages to unified mailbox
+        if !pending_payloads.is_empty() {
+            if let Ok(mut reg) = actor_core::registry().write() {
+                for payload in pending_payloads {
+                    reg.post_from(id, 0, ActorKind::CliAgent, payload);
+                }
             }
         }
     }

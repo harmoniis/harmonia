@@ -82,6 +82,8 @@ These cannot be overridden by configuration, admin intent, or any runtime mutati
 
 The adaptive shell provides defense-in-depth through harmonic mechanisms.
 
+`signalograd` participates only in this shell. It may tune bounded soft parameters such as dissonance weighting and anomaly sensitivity, but it cannot alter the deterministic policy gate, taint propagation, privileged-op lists, or invariant guards.
+
 ### Dissonance Scoring
 
 At gateway signal parse time (`lib/core/gateway/src/baseband.rs`), payloads are scanned for injection patterns:

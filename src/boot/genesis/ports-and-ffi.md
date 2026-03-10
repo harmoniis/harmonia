@@ -17,6 +17,7 @@ Each port encapsulates one capability contract and binds to one or more Rust cra
 | Swarm | `src/ports/swarm.lisp` | `lib/core/parallel-agents` | Parallel and tmux subagents |
 | Evolution | `src/ports/evolution.lisp` | `lib/core/ouroboros` (+ phoenix process) | Rewrite prep/execute/rollback |
 | Chronicle | `src/ports/chronicle.lisp` | `lib/core/chronicle` | Graph-native knowledge base, time-series observability, concept graph SQL traversal |
+| Signalograd | `src/ports/signalograd.lisp` | `lib/core/signalograd` | chaos-computing advisory kernel: observe, feedback, checkpoint, restore, status |
 | Signal Integrity | (used by gateway + conductor) | `lib/core/signal-integrity` | Shared injection detection + dissonance scoring |
 | Admin Intent | (used by conductor policy gate) | `lib/core/admin-intent` | Ed25519 admin intent signature verification |
 
@@ -26,12 +27,14 @@ Defined in `src/ports/vault.lisp` and reused by all ports:
 
 - `ensure-cffi`: one-time CFFI bootstrap.
 - `%release-lib-path`: resolve release dylib paths.
-- `%release-lib-root`: resolve the library root directory via fallback chain: `HARMONIA_LIB_DIR` env var → `~/.local/lib/harmonia/` → `target/release/`.
+- `%release-lib-roots`: resolve candidate library roots via fallback chain: `HARMONIA_LIB_DIR` env var → `target/release/` → `~/.local/lib/harmonia/`.
 - `%split-lines`: decode newline-returned ffi outputs.
 
 ## Core Contract Rule
 
 All external effects go through one of these ports.
+
+`signalograd` is a special case inside that rule: it is not an external network effect port, but it is still kept behind a port boundary so the adaptive kernel remains explicit, inspectable, and replaceable.
 
 That guarantees:
 

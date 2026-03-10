@@ -129,7 +129,9 @@
          (ag-scale (harmony-policy-number "logistic/aggression-scale" 0.65))
          (ag-min (harmony-policy-number "logistic/aggression-min" 0.05))
          (ag-max (harmony-policy-number "logistic/aggression-max" 0.95))
-         (aggression (%clamp (* (- 1.0 chaos-risk) (+ ag-base (* ag-scale x2))) ag-min ag-max)))
+         (aggression (signalograd-adjust-aggression
+                      (%clamp (* (- 1.0 chaos-risk) (+ ag-base (* ag-scale x2))) ag-min ag-max)
+                      runtime)))
     (setf (runtime-state-harmonic-x runtime) x2)
     (list :x x2 :r r :chaos-risk chaos-risk :rewrite-aggression aggression)))
 
@@ -214,7 +216,9 @@
                             (* (harmony-policy-number "vitruvian/signal-beauty-weight" 0.33) beauty))
                          0.0 1.0))
          (noise (- 1.0 signal)))
-    (list :strength strength :utility utility :beauty beauty :signal signal :noise noise)))
+    (signalograd-adjust-vitruvian
+     (list :strength strength :utility utility :beauty beauty :signal signal :noise noise)
+     *runtime*)))
 
 (defun %next-phase (phase)
   (case phase
@@ -278,9 +282,9 @@
               (vitruvian (%vitruvian-scores global local projection logistic lorenz map))
               (ok (and (getf projection :convergent-p)
                        (< (getf logistic :chaos-risk)
-                          (harmony-policy-number "rewrite-plan/chaos-max" 0.55))
+                          (signalograd-effective-harmony-number "rewrite-plan/chaos-max" 0.55 runtime))
                        (>= (getf vitruvian :signal)
-                           (harmony-policy-number "rewrite-plan/signal-min" 0.62))))
+                           (signalograd-effective-harmony-number "rewrite-plan/signal-min" 0.62 runtime))))
               (plan (list :state-machine :harmonic
                           :ready ok
                           :focus (getf (getf ctx :local) :focus)
@@ -333,6 +337,7 @@
        ;; Chronicle: record full harmonic state + concept graph snapshot
        (ignore-errors (chronicle-record-harmonic ctx))
        (ignore-errors (chronicle-record-graph-snapshot))
+       (ignore-errors (signalograd-dispatch-reflection ctx :runtime runtime))
        (setf (runtime-state-harmonic-phase runtime) :observe))
       (t
        (setf (runtime-state-harmonic-phase runtime) :observe)))

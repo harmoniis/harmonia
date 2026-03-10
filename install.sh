@@ -11,6 +11,8 @@ CYAN='\033[0;36m'
 DIM='\033[2m'
 RESET='\033[0m'
 
+SCRIPT_DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+
 info()  { printf "${CYAN}→${RESET} %s\n" "$1"; }
 ok()    { printf "${GREEN}✓${RESET} %s\n" "$1"; }
 warn()  { printf "${YELLOW}!${RESET} %s\n" "$1"; }
@@ -32,7 +34,7 @@ main() {
     check_sbcl
     check_quicklisp
     install_harmonia
-    run_setup
+    print_next_steps
 }
 
 detect_platform() {
@@ -148,9 +150,32 @@ check_quicklisp() {
     fi
 }
 
+share_root() {
+    case "$PLATFORM" in
+        linux)
+            if [ -n "${XDG_DATA_HOME:-}" ]; then
+                printf '%s\n' "${XDG_DATA_HOME}/harmonia"
+            else
+                printf '%s\n' "$HOME/.local/share/harmonia"
+            fi
+            ;;
+        macos|freebsd)
+            printf '%s\n' "$HOME/.local/share/harmonia"
+            ;;
+    esac
+}
+
+run_local_repo_installer() {
+    INSTALLER="$1"
+    if [ -n "${HARMONIA_VERSION:-}" ]; then
+        HARMONIA_VERSION="$HARMONIA_VERSION" sh "$INSTALLER"
+    else
+        sh "$INSTALLER"
+    fi
+}
+
 install_harmonia_binary() {
     INSTALL_URL="${HARMONIA_BINARY_INSTALL_URL:-https://github.com/harmoniis/harmonia/releases/latest/download/install.sh}"
-    PREFIX="${HARMONIA_PREFIX:-$HOME/.harmoniis/harmonia}"
     TMP_INSTALL="$(mktemp /tmp/harmonia-release-install-XXXXXX.sh)"
 
     info "Installing Harmonia binary release (${PLATFORM_TAG})..."
@@ -160,50 +185,37 @@ install_harmonia_binary() {
     fi
     chmod +x "$TMP_INSTALL"
 
-    if ! HARMONIA_PREFIX="$PREFIX" HARMONIA_VERSION="${HARMONIA_VERSION:-}" sh "$TMP_INSTALL"; then
+    if ! run_local_repo_installer "$TMP_INSTALL"; then
         rm -f "$TMP_INSTALL"
         return 1
     fi
     rm -f "$TMP_INSTALL"
 
-    mkdir -p "$HOME/.local/bin"
-    ln -sf "$PREFIX/bin/harmonia" "$HOME/.local/bin/harmonia"
-
-    ok "Harmonia binary installed at $PREFIX"
+    ok "Harmonia installed"
     return 0
 }
 
 install_harmonia_source() {
     HARMONIA_REPO="${HARMONIA_REPO:-https://github.com/harmoniis/harmonia.git}"
-    HARMONIA_SRC="$HOME/.harmoniis/harmonia/src"
+    HARMONIA_SOURCE_ROOT="${HARMONIA_SOURCE_ROOT:-$(share_root)/source-checkout}"
 
-    if [ -d "$HARMONIA_SRC/.git" ]; then
-        info "Updating existing source at $HARMONIA_SRC..."
-        cd "$HARMONIA_SRC"
-        git pull --ff-only || warn "git pull failed — continuing with existing source"
+    if [ -d "$HARMONIA_SOURCE_ROOT/.git" ]; then
+        info "Updating source checkout at $HARMONIA_SOURCE_ROOT..."
+        (
+            cd "$HARMONIA_SOURCE_ROOT"
+            git pull --ff-only || warn "git pull failed — continuing with existing source"
+        )
     else
         info "Cloning Harmonia source from $HARMONIA_REPO..."
-        mkdir -p "$(dirname "$HARMONIA_SRC")"
-        git clone "$HARMONIA_REPO" "$HARMONIA_SRC"
+        mkdir -p "$(dirname "$HARMONIA_SOURCE_ROOT")"
+        git clone "$HARMONIA_REPO" "$HARMONIA_SOURCE_ROOT"
     fi
 
-    cd "$HARMONIA_SRC"
-    info "Building Harmonia..."
-    cargo build --workspace --release
-
-    mkdir -p "$HOME/.local/bin"
-    ln -sf "$HARMONIA_SRC/target/release/harmonia" "$HOME/.local/bin/harmonia"
-
-    # Ensure ~/.local/bin is on PATH
-    case ":$PATH:" in
-        *":$HOME/.local/bin:"*) ;;
-        *)
-            warn "Add ~/.local/bin to your PATH:"
-            printf "  export PATH=\"\$HOME/.local/bin:\$PATH\"\n"
-            ;;
-    esac
-
-    ok "Harmonia installed: $(harmonia version 2>/dev/null || echo 'built from source')"
+    info "Installing from source checkout..."
+    (
+        cd "$HARMONIA_SOURCE_ROOT"
+        sh scripts/install.sh
+    )
 }
 
 install_optional_source_checkout() {
@@ -211,11 +223,13 @@ install_optional_source_checkout() {
     [ "$WITH_SOURCE" = "1" ] || return 0
 
     HARMONIA_REPO="${HARMONIA_REPO:-https://github.com/harmoniis/harmonia.git}"
-    SOURCE_ROOT="$HOME/.harmoniis/harmonia/source-rewrite"
+    SOURCE_ROOT="${HARMONIA_SOURCE_REWRITE_ROOT:-$(share_root)/source-rewrite}"
     info "Installing optional source checkout for source-rewrite mode..."
     if [ -d "$SOURCE_ROOT/.git" ]; then
-        cd "$SOURCE_ROOT"
-        git pull --ff-only || warn "source checkout update failed (continuing)"
+        (
+            cd "$SOURCE_ROOT"
+            git pull --ff-only || warn "source checkout update failed (continuing)"
+        )
     else
         mkdir -p "$(dirname "$SOURCE_ROOT")"
         git clone "$HARMONIA_REPO" "$SOURCE_ROOT"
@@ -224,6 +238,12 @@ install_optional_source_checkout() {
 }
 
 install_harmonia() {
+    if [ -f "$SCRIPT_DIR/Cargo.toml" ] && [ -d "$SCRIPT_DIR/src" ] && [ -f "$SCRIPT_DIR/scripts/install.sh" ]; then
+        info "Installing from local repository checkout..."
+        run_local_repo_installer "$SCRIPT_DIR/scripts/install.sh"
+        return 0
+    fi
+
     INSTALL_MODE="${HARMONIA_INSTALL_MODE:-binary}"
     case "$INSTALL_MODE" in
         binary)
@@ -239,11 +259,12 @@ install_harmonia() {
             ;;
         *)
             err "Invalid HARMONIA_INSTALL_MODE=$INSTALL_MODE (use binary or source)"
+            exit 1
             ;;
     esac
 }
 
-run_setup() {
+print_next_steps() {
     printf "\n"
     printf "${BOLD}  What's next${RESET}\n\n"
     printf "  Configure your agent (API keys, frontends, evolution mode):\n\n"

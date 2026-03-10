@@ -1,7 +1,7 @@
 use chrono::Utc;
 use harmonia_baseband_channel_protocol::CanonicalMobileEnvelope;
-use rusqlite::{params, Connection};
 use rumqttc::{Client, Event, Incoming, MqttOptions, Outgoing, QoS, TlsConfiguration, Transport};
+use rusqlite::{params, Connection};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::collections::{HashMap, HashSet, VecDeque};
@@ -129,7 +129,12 @@ fn state_root() -> String {
         .ok()
         .flatten()
         .or_else(|| std::env::var("HARMONIA_STATE_ROOT").ok())
-        .unwrap_or_else(|| std::env::temp_dir().join("harmonia").to_string_lossy().to_string())
+        .unwrap_or_else(|| {
+            std::env::temp_dir()
+                .join("harmonia")
+                .to_string_lossy()
+                .to_string()
+        })
 }
 
 fn offline_queue_path() -> PathBuf {
@@ -186,7 +191,9 @@ fn take_offline_messages(device_id: &str) -> Result<Vec<(String, String)>, Strin
         )
         .map_err(|e| format!("prepare offline queue select failed: {e}"))?;
     let messages = stmt
-        .query_map(params![device_id], |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?)))
+        .query_map(params![device_id], |row| {
+            Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+        })
         .map_err(|e| format!("query offline queue failed: {e}"))?
         .collect::<Result<Vec<_>, _>>()
         .map_err(|e| format!("read offline queue rows failed: {e}"))?;
@@ -234,10 +241,11 @@ fn load_remote_device_registry() {
 }
 
 fn trusted_origin_fingerprints() -> HashSet<String> {
-    let trusted_clients = harmonia_config_store::get_own(COMPONENT, "trusted-client-fingerprints-json")
-        .ok()
-        .flatten()
-        .unwrap_or_else(|| "[]".to_string());
+    let trusted_clients =
+        harmonia_config_store::get_own(COMPONENT, "trusted-client-fingerprints-json")
+            .ok()
+            .flatten()
+            .unwrap_or_else(|| "[]".to_string());
     serde_json::from_str::<Vec<String>>(&trusted_clients)
         .unwrap_or_default()
         .into_iter()
@@ -666,7 +674,11 @@ struct VaultSignResult {
     signature: String,
 }
 
-fn sign_with_vault(wallet: &PathBuf, label: &str, message: &str) -> Result<VaultSignResult, String> {
+fn sign_with_vault(
+    wallet: &PathBuf,
+    label: &str,
+    message: &str,
+) -> Result<VaultSignResult, String> {
     let output = Command::new(resolve_hrmw_bin())
         .args([
             "key",
@@ -694,11 +706,8 @@ fn sign_with_vault(wallet: &PathBuf, label: &str, message: &str) -> Result<Vault
 }
 
 fn resolve_hrmw_bin() -> String {
-    std::env::var("HARMONIA_HRMW_BIN")
-        .ok()
-        .filter(|value| !value.trim().is_empty())
-        .or_else(|| std::env::var("HRMW_BIN").ok().filter(|value| !value.trim().is_empty()))
-        .unwrap_or_else(|| "hrmw".to_string())
+    harmonia_config_store::get_config_or("mqtt-frontend", "global", "hrmw-bin", "hrmw")
+        .unwrap_or_else(|_| "hrmw".to_string())
 }
 
 fn parse_hrmw_output_field(output: &str, prefix: &str) -> Result<String, String> {
@@ -1033,8 +1042,11 @@ pub extern "C" fn harmonia_frontend_init(config: *const c_char) -> i32 {
     }
 
     // Parse push webhook config
-    let push_url = extract_sexp_value(&config, "push-webhook-url")
-        .or_else(|| harmonia_config_store::get_own(COMPONENT, "push-webhook-url").ok().flatten());
+    let push_url = extract_sexp_value(&config, "push-webhook-url").or_else(|| {
+        harmonia_config_store::get_own(COMPONENT, "push-webhook-url")
+            .ok()
+            .flatten()
+    });
     if let Some(url) = push_url {
         if !url.is_empty() {
             let token = extract_sexp_value(&config, "push-webhook-token").or_else(|| {

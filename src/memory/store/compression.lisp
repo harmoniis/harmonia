@@ -98,8 +98,8 @@
 
 (defun %crystallize-before-compression ()
   "Tag uncompressed dailies scoring >= threshold with :crystal. Return count."
-  (let ((threshold (if (fboundp 'harmony-policy-number)
-                       (harmony-policy-number "memory/crystal-min-score" 0.7)
+  (let ((threshold (if (fboundp 'signalograd-effective-harmony-number)
+                       (signalograd-effective-harmony-number "memory/crystal-min-score" 0.7 *runtime*)
                        0.7))
         (count 0))
     (dolist (entry (%daily-uncompressed-entries))

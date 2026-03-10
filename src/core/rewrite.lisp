@@ -10,7 +10,7 @@
          (getf plan :ready)
          vitruvian
          (>= (getf vitruvian :signal 0.0)
-             (harmony-policy-number "rewrite-plan/signal-min" 0.62))
+             (signalograd-effective-harmony-number "rewrite-plan/signal-min" 0.62 *runtime*))
          (<= (getf vitruvian :noise 1.0)
              (harmony-policy-number "rewrite-plan/noise-max" 0.38)))))
 

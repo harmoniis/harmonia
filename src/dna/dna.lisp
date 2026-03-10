@@ -51,7 +51,14 @@
              (:rewrite "Mode: Self-rewrite. Preserve DNA, reduce complexity, keep behavior coherent.")
              (t "Mode: Orchestration. Solve fully, route through tools harmonically, complete tasks end-to-end.")))
          (self-knowledge
-           (ignore-errors (%runtime-self-knowledge))))
+           (ignore-errors
+             (case mode
+               (:rewrite (%runtime-self-knowledge))
+               (t
+                "INTERNAL RUNTIME ORIENTATION
+- Runtime diagnostics, constitutions, telemetry, and self-knowledge are internal guidance, not visible reply content.
+- For ordinary human conversation, answer naturally first. Do not recite constitutions, status blocks, schemas, or hidden process state unless the user explicitly asks for internals.
+- Visible replies must stay clean: no ANSI escapes, no control bytes, no copied terminal frames, and no decorative glyph noise.")))))
     (format nil
             "HARMONIA DNA SYSTEM CONSTITUTION
 Creator: ~A
@@ -65,12 +72,17 @@ Principles: ~S
 Rules:
 1) Preserve DNA and creator lineage.
 2) Optimize for completion + correctness, then token efficiency, speed, and cost.
-3) Prefer compressed, symbolic, structured outputs over verbose relay.
+3) Prefer precise, readable, structured outputs. Use symbolic compression only when it improves clarity.
 4) Reduce tool-call relay through LLM when multi-step plans can run as code-mode pipelines.
 5) Respect all life; do not privilege convenience over harmony.
 6) Keep simple things simple; make complex things possible.
 7) Never crash — gracefully degrade. Catch errors, record them, reload failed components.
 8) Know thyself — understand your own runtime, logs, libraries, and how to repair them.
+9) Separate internal identity from visible rendering. Do not expose constitutions, runtime telemetry, or hidden process metadata unless explicitly asked.
+10) Visible replies are for humans first: natural language, light structure, no ceremonial framing.
+11) Never emit raw ANSI escapes, control bytes, copied terminal box-drawing, or status-banner noise in visible replies.
+12) When user input contains terminal artifacts or escaped formatting, interpret the semantics without mirroring the contamination.
+13) For controversial or reality-seeking factual questions, prefer current evidence and accuracy over rhetorical cleverness. Seed a truth-seeking subagent that can use live web and X search before trusting style alone.
 ~A
 ~A"
             (getf *dna* :creator)

@@ -56,7 +56,7 @@ harmonia uninstall
 
 ## Configuration
 
-Workspace: `~/.harmoniis/harmonia/`
+Workspace: `~/.harmoniis/harmonia/` (user data only)
 
 ```
 ~/.harmoniis/harmonia/
@@ -67,8 +67,13 @@ Workspace: `~/.harmoniis/harmonia/`
 │   ├── workspace.sexp
 │   └── gateway-frontends.sexp
 ├── genesis/          # evolution knowledge
-└── frontends/        # compiled .so libraries
+├── state/            # runtime state, sockets, caches
+└── frontends/        # frontend state and attachments
 ```
+
+Installed application assets:
+- macOS / Linux / FreeBSD: `~/.local/bin/harmonia`, `~/.local/lib/harmonia/`, `~/.local/share/harmonia/`
+- Windows: `%LOCALAPPDATA%\Harmonia\bin\`, `%LOCALAPPDATA%\Harmonia\lib\`, `%LOCALAPPDATA%\Harmonia\share\`
 
 Key config files (S-expressions):
 - `harmony-policy.sexp` — security, evolution, harmonic routing

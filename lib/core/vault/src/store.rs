@@ -394,12 +394,55 @@ pub fn load_legacy_kv_into_db_if_present() -> Result<(), String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::ffi::OsString;
     use std::sync::{Mutex, OnceLock};
     use std::time::{SystemTime, UNIX_EPOCH};
+
+    const TEST_ENV_KEYS: &[&str] = &[
+        "HOME",
+        "HARMONIA_VAULT_WALLET_DB",
+        "HARMONIA_WALLET_DB",
+        "HARMONIIS_WALLET_DB",
+        "HARMONIA_VAULT_DB",
+        "HARMONIA_VAULT_MASTER_KEY",
+        "HARMONIA_VAULT_ALLOW_UNENCRYPTED",
+        "HARMONIA_VAULT_SLOT_FAMILY",
+    ];
 
     fn env_lock() -> &'static Mutex<()> {
         static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
         LOCK.get_or_init(|| Mutex::new(()))
+    }
+
+    fn acquire_env_lock() -> std::sync::MutexGuard<'static, ()> {
+        match env_lock().lock() {
+            Ok(guard) => guard,
+            Err(poisoned) => poisoned.into_inner(),
+        }
+    }
+
+    struct EnvSnapshot(Vec<(&'static str, Option<OsString>)>);
+
+    impl EnvSnapshot {
+        fn capture(keys: &[&'static str]) -> Self {
+            Self(
+                keys.iter()
+                    .map(|key| (*key, env::var_os(key)))
+                    .collect::<Vec<_>>(),
+            )
+        }
+    }
+
+    impl Drop for EnvSnapshot {
+        fn drop(&mut self) {
+            for (key, value) in &self.0 {
+                if let Some(saved) = value {
+                    env::set_var(key, saved);
+                } else {
+                    env::remove_var(key);
+                }
+            }
+        }
     }
 
     fn make_temp_dir(prefix: &str) -> PathBuf {
@@ -414,7 +457,8 @@ mod tests {
 
     #[test]
     fn wallet_slot_root_encrypts_and_decrypts() {
-        let _guard = env_lock().lock().expect("env lock");
+        let _guard = acquire_env_lock();
+        let _snapshot = EnvSnapshot::capture(TEST_ENV_KEYS);
 
         let root = make_temp_dir("harmonia-vault-wallet-test");
         let wallet_db = root.join("master.db");
@@ -434,6 +478,7 @@ mod tests {
             )
             .expect("wallet slot insert");
 
+        env::set_var("HOME", &root);
         env::set_var("HARMONIA_VAULT_WALLET_DB", &wallet_db);
         env::set_var("HARMONIA_VAULT_DB", &vault_db);
         env::remove_var("HARMONIA_VAULT_MASTER_KEY");
@@ -464,11 +509,15 @@ mod tests {
 
     #[test]
     fn write_fails_without_any_key_root() {
-        let _guard = env_lock().lock().expect("env lock");
+        let _guard = acquire_env_lock();
+        let _snapshot = EnvSnapshot::capture(TEST_ENV_KEYS);
         let root = make_temp_dir("harmonia-vault-nokey-test");
         let vault_db = root.join("vault.db");
 
+        env::set_var("HOME", &root);
         env::remove_var("HARMONIA_VAULT_WALLET_DB");
+        env::remove_var("HARMONIA_WALLET_DB");
+        env::remove_var("HARMONIIS_WALLET_DB");
         env::set_var("HARMONIA_VAULT_DB", &vault_db);
         env::remove_var("HARMONIA_VAULT_MASTER_KEY");
         env::remove_var("HARMONIA_VAULT_ALLOW_UNENCRYPTED");

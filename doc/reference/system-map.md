@@ -19,6 +19,7 @@ Harmonia is layered as a constrained orchestration system:
 
 3. `Rust Capability Layer` (`lib/`)
 - `core/`: vault, gateway, matrix, recovery, forge, etc.
+- `signalograd`: tiny chaotic advisory kernel with local online learning and evolution checkpoints.
 - `backends/`: llm/storage/http adapters
 - `tools/`: search, browser, voice tools
 - `frontends/`: channels loaded via gateway/baseband
@@ -38,6 +39,7 @@ Harmonia is layered as a constrained orchestration system:
 6. `Experience Layer`
 - Runtime logs, memory entries, matrix telemetry, recovery logs, and evolution snapshots feed future behavior.
 - Chronicle knowledge base (`lib/core/chronicle`) durably records harmonic snapshots, memory evolution, delegation decisions, and concept graph decompositions in SQLite — queryable with complex SQL returning s-expressions. Pressure-aware GC preserves high-signal data (inflection points, failures, recoveries) while thinning noise.
+- `signalograd` adds a bounded epigenetic layer: it learns from telemetry, stores a compact attractor state, emits advisory overlays, and now records `observe` / `feedback` / `proposal` / `checkpoint` / `restore` events into chronicle.
 
 ## Core Runtime Flows
 
@@ -66,10 +68,11 @@ Harmonia is layered as a constrained orchestration system:
 
 1. Harmonic machine computes readiness context (`src/core/harmonic-machine.lisp`).
 2. Rewrite trigger bookkeeping occurs (`src/core/rewrite.lisp`).
-3. Evolution mode dispatch via `src/ports/evolution.lisp`:
+3. `signalograd` observes the stabilized cycle, receives one-step-late feedback, and posts bounded proposals for the next cycle.
+4. Evolution mode dispatch via `src/ports/evolution.lisp`:
 - `:source-rewrite` (Ouroboros patch path), or
 - `:artifact-rollout` (Phoenix-supervised rollout path).
-4. Version snapshots are managed in `src/core/evolution-versioning.lisp` and `src/boot/evolution/`.
+5. Version snapshots are managed in `src/core/evolution-versioning.lisp` and `src/boot/evolution/`, including `signalograd.sexp` checkpoints alongside accepted evolution versions.
 
 ## Source-of-Truth Concept Map
 
@@ -95,4 +98,5 @@ Harmonia is layered as a constrained orchestration system:
 4. Evolution requires explicit safety gates and rollback path.
 5. Security kernel gates are deterministic and non-bypassable for privileged operations.
 6. External signal taint must propagate through the entire orchestration chain.
-7. Reference docs must preserve, not truncate, concept coverage from canonical docs.
+7. `signalograd` is advisory only; it cannot become a second sovereign controller.
+8. Reference docs must preserve, not truncate, concept coverage from canonical docs.

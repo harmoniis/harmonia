@@ -125,7 +125,7 @@ Append-only evolution ledger.
     - `~/.local/bin/harmonia` — binary (direct copy, not symlink).
     - `~/Library/Logs/Harmonia/` (macOS) / `~/.local/state/harmonia/` (Linux) — logs.
     - `$TMPDIR/harmonia/` (macOS) / `$XDG_RUNTIME_DIR/harmonia/` (Linux) — PID, socket.
-    - Library path fallback chain: `HARMONIA_LIB_DIR` env → `~/.local/lib/harmonia/` → `target/release/`.
+    - Library path fallback chain: `HARMONIA_LIB_DIR` env → `target/release/` → `~/.local/lib/harmonia/`.
   - **Uninstall with Evolution Safety** (`cli/uninstall.rs`):
     - Detects evolution state and checks if source is pushed to git and/or propagated to distributed store.
     - If local-only evolution: strong warning, offers `evolution-export` before proceeding, requires explicit confirmation.

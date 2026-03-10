@@ -1,4 +1,4 @@
-use rusqlite::{Connection, params};
+use rusqlite::{params, Connection};
 use std::env;
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -7,28 +7,25 @@ use std::sync::{Mutex, OnceLock};
 static DB_CONN: OnceLock<Mutex<Connection>> = OnceLock::new();
 
 // ─── Schema version for migrations ────────────────────────────────────
-const SCHEMA_VERSION: i32 = 1;
+const SCHEMA_VERSION: i32 = 2;
 
 fn state_root() -> PathBuf {
     let default = env::temp_dir()
         .join("harmonia")
         .to_string_lossy()
         .to_string();
-    let root = harmonia_config_store::get_config_or(
-        "chronicle",
-        "global",
-        "state-root",
-        &default,
-    )
-    .unwrap_or_else(|_| default);
+    let root = harmonia_config_store::get_config_or("chronicle", "global", "state-root", &default)
+        .unwrap_or_else(|_| default);
     PathBuf::from(root)
 }
 
 fn db_path() -> PathBuf {
-    if let Ok(v) = env::var("HARMONIA_CHRONICLE_DB") {
-        let trimmed = v.trim();
-        if !trimmed.is_empty() {
-            return PathBuf::from(trimmed);
+    if let Some(v) = harmonia_config_store::get_own("chronicle", "db")
+        .ok()
+        .flatten()
+    {
+        if !v.is_empty() {
+            return PathBuf::from(v);
         }
     }
     state_root().join("chronicle.db")
@@ -83,6 +80,9 @@ fn run_migrations(conn: &Connection) -> Result<(), String> {
 
     if current_version < 1 {
         migrate_v1(conn)?;
+    }
+    if current_version < 2 {
+        migrate_v2(conn)?;
     }
 
     conn.execute(
@@ -273,6 +273,33 @@ fn migrate_v1(conn: &Connection) -> Result<(), String> {
     Ok(())
 }
 
+fn migrate_v2(conn: &Connection) -> Result<(), String> {
+    conn.execute_batch(
+        "
+        CREATE TABLE IF NOT EXISTS signalograd_events (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            ts INTEGER NOT NULL DEFAULT (CAST(strftime('%s','now') AS INTEGER) * 1000),
+            event_type TEXT NOT NULL,
+            cycle INTEGER NOT NULL DEFAULT 0,
+            confidence REAL NOT NULL DEFAULT 0.0,
+            stability REAL NOT NULL DEFAULT 0.0,
+            novelty REAL NOT NULL DEFAULT 0.0,
+            reward REAL NOT NULL DEFAULT 0.0,
+            accepted INTEGER NOT NULL DEFAULT 0,
+            recall_hits INTEGER NOT NULL DEFAULT 0,
+            checkpoint_path TEXT,
+            checkpoint_digest TEXT,
+            detail TEXT
+        );
+        CREATE INDEX IF NOT EXISTS idx_se_ts ON signalograd_events(ts);
+        CREATE INDEX IF NOT EXISTS idx_se_type ON signalograd_events(event_type);
+        CREATE INDEX IF NOT EXISTS idx_se_cycle ON signalograd_events(cycle);
+        ",
+    )
+    .map_err(|e| e.to_string())?;
+    Ok(())
+}
+
 pub(crate) fn conn() -> Result<&'static Mutex<Connection>, String> {
     if let Some(c) = DB_CONN.get() {
         return Ok(c);
@@ -379,21 +406,17 @@ pub fn gc() -> Result<i32, String> {
     let now = now_ms();
 
     // Read configurable limits from config-store (fall back to defaults)
-    let soft = harmonia_config_store::get_config_or(
-        "chronicle", "gc", "soft-limit-mb", "50",
-    )
-    .ok()
-    .and_then(|s| s.parse::<i64>().ok())
-    .unwrap_or(50)
+    let soft = harmonia_config_store::get_config_or("chronicle", "gc", "soft-limit-mb", "50")
+        .ok()
+        .and_then(|s| s.parse::<i64>().ok())
+        .unwrap_or(50)
         * 1024
         * 1024;
 
-    let hard = harmonia_config_store::get_config_or(
-        "chronicle", "gc", "hard-limit-mb", "150",
-    )
-    .ok()
-    .and_then(|s| s.parse::<i64>().ok())
-    .unwrap_or(150)
+    let hard = harmonia_config_store::get_config_or("chronicle", "gc", "hard-limit-mb", "150")
+        .ok()
+        .and_then(|s| s.parse::<i64>().ok())
+        .unwrap_or(150)
         * 1024
         * 1024;
 
@@ -597,11 +620,7 @@ fn prune_events_preserving_failures(
 /// Thin graph snapshots: beyond the threshold, keep only 1 per day
 /// (the one with the most structural change from its predecessor).
 /// Always keeps the latest snapshot regardless.
-fn thin_graph_snapshots(
-    conn: &Connection,
-    now: i64,
-    older_than: i64,
-) -> Result<i32, String> {
+fn thin_graph_snapshots(conn: &Connection, now: i64, older_than: i64) -> Result<i32, String> {
     let cutoff = now - older_than;
 
     // Keep: the latest snapshot + 1 per day (MAX id per day bucket) + any with unique digests

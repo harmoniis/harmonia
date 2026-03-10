@@ -44,6 +44,12 @@
   (setf *gateway-lib*
         (cffi:load-foreign-library (%release-lib-path "libharmonia_gateway.dylib")))
   (let ((rc (%gateway-init)))
+    ;; Register gateway as actor through the unified registry (in parallel-agents dylib)
+    (when (and (zerop rc) *runtime*)
+      (ignore-errors
+        (let ((actor-id (actor-register "gateway")))
+          (setf (runtime-state-gateway-actor-id *runtime*) actor-id)
+          (setf (gethash actor-id (runtime-state-actor-kinds *runtime*)) "gateway"))))
     (runtime-log *runtime* :gateway-init (list :status rc))
     (zerop rc)))
 
@@ -160,18 +166,47 @@
           (if (probe-file candidate) candidate normalized))
         normalized)))
 
+(defun %vault-keys-ready-p (vault-keys)
+  (if (null vault-keys)
+      t
+      (every (lambda (key)
+               (vault-has-secret-p (string-downcase (symbol-name key))))
+             vault-keys)))
+
+(defun %config-fragment-string (value)
+  (typecase value
+    (string value)
+    (symbol (string-downcase (symbol-name value)))
+    (t (princ-to-string value))))
+
+(defun %config-key-ready-p (entry)
+  (cond
+    ((null entry) t)
+    ((and (consp entry) (= (length entry) 2))
+     (let* ((scope (%config-fragment-string (first entry)))
+            (key (%config-fragment-string (second entry)))
+            (value (ignore-errors (config-get key scope))))
+       (and value
+            (> (length (string-trim '(#\Space #\Tab #\Newline #\Return) value)) 0))))
+    (t
+     nil)))
+
+(defun %config-keys-ready-p (config-keys)
+  (if (null config-keys)
+      t
+      (every #'%config-key-ready-p config-keys)))
+
 (defun %should-auto-load-p (auto-load vault-keys)
   "Determine if a frontend should auto-load.
-   T = always, :IF-VAULT-KEYS = only if all vault keys present, NIL = never."
+   T = always, :IF-VAULT-KEYS = only if all vault keys present,
+   :IF-READY = readiness-gated via vault/config prerequisites, NIL = never."
   (cond
     ((eq auto-load t) t)
     ((eq auto-load nil) nil)
     ((eq auto-load :if-vault-keys)
-     (if (null vault-keys)
-         t  ; no keys required means always load
-         (every (lambda (key)
-                  (vault-has-secret-p (string-downcase (symbol-name key))))
-                vault-keys)))
+     (%vault-keys-ready-p vault-keys))
+    ((eq auto-load :if-ready)
+     (%vault-keys-ready-p vault-keys))
     (t nil)))
 
 (defun register-configured-frontends ()
@@ -182,8 +217,10 @@
         (dolist (fe (getf config :frontends))
           (let ((name (getf fe :name))
                 (auto-load (getf fe :auto-load))
-                (vault-keys (getf fe :vault-keys)))
-            (when (%should-auto-load-p auto-load vault-keys)
+                (vault-keys (getf fe :vault-keys))
+                (config-keys (getf fe :config-keys)))
+            (when (and (%should-auto-load-p auto-load vault-keys)
+                       (%config-keys-ready-p config-keys))
               (handler-case
                   (gateway-register
                     name

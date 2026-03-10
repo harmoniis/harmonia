@@ -31,10 +31,10 @@
   (:id "moonshotai/kimi-k2.5" :tier :thinking :cost 6 :latency 5 :quality 7 :completion 7
    :usd-in-1k 0.002 :usd-out-1k 0.008
    :tags (:thinking :planning :software-dev))
-  (:id "x-ai/grok-4-fast:online" :tier :fast-smart :cost 5 :latency 2 :quality 7 :completion 7
-   :usd-in-1k 0.003 :usd-out-1k 0.015
-   :features (:reasoning t :web-search t :x-search t)
-   :tags (:planner :fast :strong :codemode))
+  (:id "x-ai/grok-4.1-fast" :tier :fast-smart :cost 5 :latency 2 :quality 7 :completion 7
+   :usd-in-1k 0.0002 :usd-out-1k 0.0005
+   :features (:reasoning t :web-search t :x-search t :truth-seeking t)
+   :tags (:truth-seeking :fast :strong :reasoning :web-search :x-search :realtime))
   (:id "google/gemini-2.5-pro" :tier :pro :cost 7 :latency 5 :quality 8 :completion 8
    :usd-in-1k 0.0025 :usd-out-1k 0.015
    :tags (:reasoning :vision :codemode :software-dev))
@@ -58,6 +58,11 @@
   :memory-ops (:models ("qwen/qwen3.5-flash-02-23" "inception/mercury-2"
                          "minimax/minimax-m2.5" "google/gemini-3.1-flash-lite-preview"
                          "amazon/nova-micro-v1"))
+  :truth-seeking (:models ("x-ai/grok-4.1-fast"
+                           "google/gemini-2.5-pro"
+                           "anthropic/claude-sonnet-4.6"
+                           "openai/gpt-5")
+                  :openrouter-fallback t)
   :casual (:models ("inception/mercury-2" "qwen/qwen3.5-flash-02-23"
                      "google/gemini-3.1-flash-lite-preview" "amazon/nova-lite-v1"
                      "qwen/qwen3-coder:free")))
@@ -68,10 +73,11 @@
   (:openrouter ("inception/mercury-2"
                 "qwen/qwen3.5-flash-02-23"
                 "minimax/minimax-m2.5"
-                "google/gemini-3.1-flash-lite-preview")
+                "google/gemini-3.1-flash-lite-preview"
+                "x-ai/grok-4.1-fast")
    :openai ("openai/gpt-5")
    :anthropic ("anthropic/claude-sonnet-4.6" "anthropic/claude-opus-4.6")
-   :xai ("x-ai/grok-4-fast:online")
+   :xai ("x-ai/grok-4.1-fast")
    :google-ai-studio ("google/gemini-3.1-flash-lite-preview" "google/gemini-2.5-pro")
    :google-vertex ("google/gemini-3.1-flash-lite-preview" "google/gemini-2.5-pro")
    :bedrock ("amazon/nova-micro-v1" "amazon/nova-lite-v1" "amazon/nova-pro-v1")
@@ -87,7 +93,7 @@
                            "anthropic/claude-sonnet-4.6")
   :cli-preference ("claude-code" "codex")
   :cli-task-kinds (:software-dev :coding :critical-reasoning)
-  :cli-timeout-seconds 90
+  :actor-stall-threshold 50
   :cli-cooloff-seconds 3600
   :cli-quota-patterns ("quota" "rate limit" "cooldown" "usage cap" "too many requests")
   :vitruvian-signal-min 0.62

@@ -4,12 +4,12 @@ Snapshot date: 2026-03-10
 
 ## Active Evolution Mode
 
-Default mode is `:source-rewrite` (Ouroboros-backed patch flow).
+Current configured mode is `:artifact-rollout` by default, with source rewrite disabled unless explicitly re-enabled by policy/config.
 
 From `src/ports/evolution.lisp`:
 
 - `evolution-prepare` inspects health and crash state.
-- `evolution-execute` writes patch artifacts in source-rewrite mode.
+- `evolution-execute` signals artifact rollout under Phoenix or writes patch artifacts only when source rewrite is enabled.
 - `evolution-rollback` records rollback as crash telemetry.
 
 ## Runtime Readiness Signals
@@ -68,6 +68,31 @@ Memory pipeline is active with four layers:
 - Temporal journaling (yesterday summary).
 
 Compression and crystal thresholds are policy-controlled (`:memory` section in harmony policy).
+
+## Signalograd State
+
+`signalograd` is now part of the active adaptive runtime.
+
+It is not a conventional deep net and does not use gradient descent. The current target architecture is:
+
+- a Lorenz-style chaotic reservoir / plastic CTRNN regime as temporal compute
+- a Hopfield-like attractor memory storing compressed successful states
+- tiny bounded readout heads for harmony, routing, memory, evolution, and security shell
+- local online learning only: Hebbian, Oja-style normalization, decay, and homeostatic control
+
+Operational rules:
+
+- telemetry-first inputs only in v1
+- no raw prompt text as model input
+- advisory output only
+- deterministic policy, matrix constraints, and privileged security rules remain sovereign
+
+Persistence is two-tier:
+
+- live working model under `${HARMONIA_STATE_ROOT}/signalograd.sexp`
+- evolution checkpoints under `src/boot/evolution/latest/signalograd.sexp` and `versions/vN/signalograd.sexp`
+
+On boot, runtime restores the evolution-matched checkpoint first when present, then continues continual local learning into the working-state file.
 
 ## Gateway Signal Protocol State
 

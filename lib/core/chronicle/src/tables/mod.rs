@@ -1,6 +1,7 @@
-pub mod harmonic;
-pub mod memory;
-pub mod phoenix;
-pub mod ouroboros;
 pub mod delegation;
 pub mod graph;
+pub mod harmonic;
+pub mod memory;
+pub mod ouroboros;
+pub mod phoenix;
+pub mod signalograd;

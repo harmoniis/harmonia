@@ -24,7 +24,13 @@ fn state_root() -> String {
         .unwrap_or_else(|_| default)
 }
 
-fn chronicle_record(event_type: &str, exit_code: Option<i32>, attempt: Option<i32>, max_attempts: Option<i32>, detail: Option<&str>) {
+fn chronicle_record(
+    event_type: &str,
+    exit_code: Option<i32>,
+    attempt: Option<i32>,
+    max_attempts: Option<i32>,
+    detail: Option<&str>,
+) {
     let _ = harmonia_chronicle::phoenix::record(
         event_type,
         exit_code,
@@ -36,8 +42,9 @@ fn chronicle_record(event_type: &str, exit_code: Option<i32>, attempt: Option<i3
 }
 
 fn append_trauma(line: &str) {
-    let trauma_path =
-        env::var("PHOENIX_TRAUMA_LOG").unwrap_or_else(|_| format!("{}/trauma.log", state_root()));
+    let default_trauma = format!("{}/trauma.log", state_root());
+    let trauma_path = harmonia_config_store::get_own_or(COMPONENT, "trauma-log", &default_trauma)
+        .unwrap_or(default_trauma);
     if let Some(parent) = std::path::Path::new(&trauma_path).parent() {
         let _ = fs::create_dir_all(parent);
     }
@@ -49,7 +56,7 @@ fn append_trauma(line: &str) {
         let _ = writeln!(f, "{line}");
     }
 
-    let recovery_path = harmonia_config_store::get_own(COMPONENT, "recovery-log")
+    let recovery_path = harmonia_config_store::get_config(COMPONENT, "global", "recovery-log")
         .ok()
         .flatten()
         .unwrap_or_else(|| format!("{}/recovery.log", state_root()));
@@ -87,7 +94,7 @@ fn run_child_once(cmdline: &str) -> i32 {
 }
 
 fn main() {
-    let env_mode = harmonia_config_store::get_own_or(COMPONENT, "env", "test")
+    let env_mode = harmonia_config_store::get_config_or(COMPONENT, "global", "env", "test")
         .unwrap_or_else(|_| "test".to_string());
     if env_mode.eq_ignore_ascii_case("prod") && !config_bool("allow-prod-genesis", false) {
         eprintln!(
@@ -104,27 +111,48 @@ fn main() {
     }
 
     let _ = harmonia_chronicle::init();
-    chronicle_record("start", None, None, None, Some(&format!("env={} heartbeat={}s", env_mode, heartbeat_secs)));
+    chronicle_record(
+        "start",
+        None,
+        None,
+        None,
+        Some(&format!("env={} heartbeat={}s", env_mode, heartbeat_secs)),
+    );
 
     eprintln!(
         "[INFO] [phoenix] Supervisor online (env={}, heartbeat={}s)",
         env_mode, heartbeat_secs
     );
 
-    if let Ok(child_cmd) = env::var("PHOENIX_CHILD_CMD") {
-        let max_restarts = env::var("PHOENIX_MAX_RESTARTS")
+    if let Some(child_cmd) = harmonia_config_store::get_own(COMPONENT, "child-cmd")
+        .ok()
+        .flatten()
+    {
+        let max_restarts = harmonia_config_store::get_own(COMPONENT, "max-restarts")
             .ok()
+            .flatten()
             .and_then(|v| v.parse::<u32>().ok())
             .unwrap_or(3);
         for attempt in 0..=max_restarts {
             let rc = run_child_once(&child_cmd);
             if rc == 0 {
-                chronicle_record("child_exit", Some(0), Some(attempt as i32), Some(max_restarts as i32), None);
+                chronicle_record(
+                    "child_exit",
+                    Some(0),
+                    Some(attempt as i32),
+                    Some(max_restarts as i32),
+                    None,
+                );
                 eprintln!("[INFO] [phoenix] Child exited successfully.");
                 return;
             }
-            chronicle_record("child_exit", Some(rc), Some(attempt as i32), Some(max_restarts as i32),
-                Some(&format!("rc={}", rc)));
+            chronicle_record(
+                "child_exit",
+                Some(rc),
+                Some(attempt as i32),
+                Some(max_restarts as i32),
+                Some(&format!("rc={}", rc)),
+            );
             eprintln!(
                 "[WARN] [phoenix] Child failed rc={} attempt={}/{}",
                 rc,
@@ -132,7 +160,13 @@ fn main() {
                 max_restarts + 1
             );
             if attempt == max_restarts {
-                chronicle_record("max_restarts", Some(rc), Some(attempt as i32), Some(max_restarts as i32), None);
+                chronicle_record(
+                    "max_restarts",
+                    Some(rc),
+                    Some(attempt as i32),
+                    Some(max_restarts as i32),
+                    None,
+                );
                 eprintln!("[ERROR] [phoenix] Max restarts exceeded.");
                 std::process::exit(1);
             }

@@ -86,7 +86,10 @@ fn stop_broker_if_running() -> Result<(), Box<dyn std::error::Error>> {
     }
 
     let pid_str = std::fs::read_to_string(&pid_path)?;
-    let pid: i32 = pid_str.trim().parse().map_err(|_| "invalid broker PID file")?;
+    let pid: i32 = pid_str
+        .trim()
+        .parse()
+        .map_err(|_| "invalid broker PID file")?;
 
     #[cfg(unix)]
     {

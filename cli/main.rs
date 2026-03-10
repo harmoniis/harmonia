@@ -47,6 +47,15 @@ enum Commands {
     },
     /// Stop the Harmonia daemon
     Stop,
+    /// Restart the Harmonia daemon (stop + start)
+    Restart {
+        /// Environment (test, dev, prod)
+        #[arg(short, long, default_value = "dev")]
+        env: String,
+        /// Enable debug logging (verbose output)
+        #[arg(long)]
+        debug: bool,
+    },
     /// Run the embedded MQTT broker/runtime helper
     #[command(hide = true)]
     Broker,
@@ -114,6 +123,17 @@ fn main() {
         Some(Commands::Stop) => {
             if let Err(e) = stop::run() {
                 eprintln!("Stop failed: {}", e);
+                std::process::exit(1);
+            }
+        }
+        Some(Commands::Restart { env, debug }) => {
+            if debug {
+                std::env::set_var("HARMONIA_LOG_LEVEL", "debug");
+            }
+            let _ = stop::run(); // ignore error if not running
+            std::thread::sleep(std::time::Duration::from_secs(1));
+            if let Err(e) = start::run(&env, false) {
+                eprintln!("Restart failed: {}", e);
                 std::process::exit(1);
             }
         }
@@ -197,7 +217,11 @@ fn status() -> Result<(), Box<dyn std::error::Error>> {
             println!("  log:    {}", log_path.display());
             if broker_pid_path.exists() {
                 if let Ok(pid_str) = std::fs::read_to_string(&broker_pid_path) {
-                    println!("  broker: {} (PID {})", broker_log_path.display(), pid_str.trim());
+                    println!(
+                        "  broker: {} (PID {})",
+                        broker_log_path.display(),
+                        pid_str.trim()
+                    );
                 }
             }
             println!();

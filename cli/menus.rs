@@ -6,8 +6,7 @@
 use crossterm::{
     cursor,
     event::{self, Event, KeyCode, KeyEvent, KeyModifiers},
-    terminal,
-    ExecutableCommand,
+    terminal, ExecutableCommand,
 };
 use std::io::{Stdout, Write};
 
@@ -193,7 +192,10 @@ fn draw_menu(
     stdout.execute(cursor::MoveUp(total_lines as u16))?;
 
     // Title
-    write!(stdout, "\r\x1b[2K  {BOLD_CYAN}◆{RESET} {BOLD}{title}{RESET}\r\n")?;
+    write!(
+        stdout,
+        "\r\x1b[2K  {BOLD_CYAN}◆{RESET} {BOLD}{title}{RESET}\r\n"
+    )?;
     write!(
         stdout,
         "\r\x1b[2K  {DIM}──────────────────────────────────────{RESET}\r\n"
@@ -231,10 +233,7 @@ fn draw_menu(
     Ok(())
 }
 
-fn clear_menu(
-    stdout: &mut Stdout,
-    lines: usize,
-) -> Result<(), Box<dyn std::error::Error>> {
+fn clear_menu(stdout: &mut Stdout, lines: usize) -> Result<(), Box<dyn std::error::Error>> {
     // Move up and clear each line
     stdout.execute(cursor::MoveUp(1))?; // we're already one line past
     for _ in 0..lines {
@@ -264,13 +263,33 @@ pub fn main_menu_items() -> Vec<MenuItem> {
 pub fn backends_menu_items() -> Vec<MenuItem> {
     vec![
         MenuItem::new("Overview", "/backends", "List all backends with key status"),
-        MenuItem::new("OpenRouter", "/backends openrouter", "OpenRouter backend details"),
+        MenuItem::new(
+            "OpenRouter",
+            "/backends openrouter",
+            "OpenRouter backend details",
+        ),
         MenuItem::new("OpenAI", "/backends openai", "OpenAI backend details"),
-        MenuItem::new("Anthropic", "/backends anthropic", "Anthropic backend details"),
+        MenuItem::new(
+            "Anthropic",
+            "/backends anthropic",
+            "Anthropic backend details",
+        ),
         MenuItem::new("xAI", "/backends xai", "xAI backend details"),
-        MenuItem::new("Google AI", "/backends google-ai-studio", "Google AI Studio details"),
-        MenuItem::new("Google Vertex", "/backends google-vertex", "Google Vertex details"),
-        MenuItem::new("Amazon Bedrock", "/backends amazon-bedrock", "Amazon Bedrock details"),
+        MenuItem::new(
+            "Google AI",
+            "/backends google-ai-studio",
+            "Google AI Studio details",
+        ),
+        MenuItem::new(
+            "Google Vertex",
+            "/backends google-vertex",
+            "Google Vertex details",
+        ),
+        MenuItem::new(
+            "Amazon Bedrock",
+            "/backends amazon-bedrock",
+            "Amazon Bedrock details",
+        ),
         MenuItem::new("Groq", "/backends groq", "Groq backend details"),
         MenuItem::new("Alibaba", "/backends alibaba", "Alibaba backend details"),
     ]
@@ -295,7 +314,11 @@ pub fn chronicle_menu_items() -> Vec<MenuItem> {
     vec![
         MenuItem::new("Overview", "/chronicle", "Chronicle summary & GC status"),
         MenuItem::new("Harmony", "/chronicle harmony", "Harmonic state trajectory"),
-        MenuItem::new("Delegation", "/chronicle delegation", "Model delegation report"),
+        MenuItem::new(
+            "Delegation",
+            "/chronicle delegation",
+            "Model delegation report",
+        ),
         MenuItem::new("Costs", "/chronicle costs", "Cost analysis"),
         MenuItem::new("Graph", "/chronicle graph", "Concept graph overview"),
         MenuItem::new("GC Status", "/chronicle gc", "Garbage collection pressure"),
@@ -305,8 +328,16 @@ pub fn chronicle_menu_items() -> Vec<MenuItem> {
 pub fn security_menu_items() -> Vec<MenuItem> {
     vec![
         MenuItem::new("Overview", "/security", "Security audit summary"),
-        MenuItem::new("Posture", "/security posture", "Current security posture details"),
-        MenuItem::new("Errors", "/security errors", "Recent errors from error ring"),
+        MenuItem::new(
+            "Posture",
+            "/security posture",
+            "Current security posture details",
+        ),
+        MenuItem::new(
+            "Errors",
+            "/security errors",
+            "Recent errors from error ring",
+        ),
     ]
 }
 

@@ -104,11 +104,7 @@ fn run_evolution_export(output: Option<String>) -> Result<(), Box<dyn std::error
             &output_path.to_string_lossy(),
             "-C",
             &staging.parent().unwrap().to_string_lossy(),
-            &staging
-                .file_name()
-                .unwrap()
-                .to_string_lossy()
-                .to_string(),
+            &staging.file_name().unwrap().to_string_lossy().to_string(),
         ])
         .status()?;
 
@@ -245,8 +241,8 @@ fn run_uninstall() -> Result<(), Box<dyn std::error::Error>> {
 
     // ── Check evolution safety gates ─────────────────────────────────
 
-    let has_evolution = data_dir.join("evolution").exists()
-        && data_dir.join("evolution").join("versions").exists();
+    let has_evolution =
+        data_dir.join("evolution").exists() && data_dir.join("evolution").join("versions").exists();
     let evolution_version = read_evolution_version(&data_dir);
 
     if has_evolution && evolution_version > 0 {
@@ -257,10 +253,7 @@ fn run_uninstall() -> Result<(), Box<dyn std::error::Error>> {
         );
 
         // Initialize config-store to check distributed settings
-        std::env::set_var(
-            "HARMONIA_STATE_ROOT",
-            data_dir.to_string_lossy().as_ref(),
-        );
+        std::env::set_var("HARMONIA_STATE_ROOT", data_dir.to_string_lossy().as_ref());
         let _ = harmonia_config_store::init_v2();
 
         let source_pushed = check_source_pushed(&data_dir);
@@ -315,10 +308,7 @@ fn run_uninstall() -> Result<(), Box<dyn std::error::Error>> {
                 .interact()?;
 
             if !confirmed {
-                println!(
-                    "  {} Uninstall cancelled.",
-                    style("✗").red().bold()
-                );
+                println!("  {} Uninstall cancelled.", style("✗").red().bold());
                 return Ok(());
             }
         } else {
@@ -441,10 +431,7 @@ fn run_uninstall() -> Result<(), Box<dyn std::error::Error>> {
     // ── Stop daemon if running ────────────────────────────────────
     if let Ok(pid_path) = crate::paths::pid_path() {
         if pid_path.exists() {
-            println!(
-                "  {} Stopping daemon...",
-                style("→").cyan().bold()
-            );
+            println!("  {} Stopping daemon...", style("→").cyan().bold());
             let _ = crate::stop::run();
         }
     }
@@ -510,7 +497,9 @@ fn run_uninstall() -> Result<(), Box<dyn std::error::Error>> {
     println!("  To reinstall:");
     println!(
         "    {}",
-        style("cargo install harmonia && harmonia setup").cyan().bold()
+        style("cargo install harmonia && harmonia setup")
+            .cyan()
+            .bold()
     );
     println!();
 
@@ -569,20 +558,21 @@ fn check_source_pushed(data_dir: &Path) -> bool {
 
 fn check_distributed_propagated() -> bool {
     // Check config-store for distributed evolution settings
-    if let Ok(Some(enabled)) =
-        harmonia_config_store::get_config("harmonia-cli", "evolution", "distributed-evolution-enabled")
-    {
-        let is_enabled = matches!(
-            enabled.to_lowercase().as_str(),
-            "1" | "true" | "yes" | "on"
-        );
+    if let Ok(Some(enabled)) = harmonia_config_store::get_config(
+        "harmonia-cli",
+        "evolution",
+        "distributed-evolution-enabled",
+    ) {
+        let is_enabled = matches!(enabled.to_lowercase().as_str(), "1" | "true" | "yes" | "on");
         if !is_enabled {
             return false;
         }
         // If distributed is enabled AND bucket is configured, assume propagated
-        if let Ok(Some(bucket)) =
-            harmonia_config_store::get_config("harmonia-cli", "evolution", "distributed-store-bucket")
-        {
+        if let Ok(Some(bucket)) = harmonia_config_store::get_config(
+            "harmonia-cli",
+            "evolution",
+            "distributed-store-bucket",
+        ) {
             return !bucket.is_empty();
         }
     }
@@ -604,7 +594,10 @@ fn export_config_keys(staging: &Path) -> Result<(), Box<dyn std::error::Error>> 
     let mut entries = Vec::new();
     for (scope, key) in &keys {
         if let Ok(Some(value)) = harmonia_config_store::get_config("harmonia-cli", scope, key) {
-            entries.push(format!("  (:scope \"{}\" :key \"{}\" :value \"{}\")", scope, key, value));
+            entries.push(format!(
+                "  (:scope \"{}\" :key \"{}\" :value \"{}\")",
+                scope, key, value
+            ));
         }
     }
     if !entries.is_empty() {
@@ -697,10 +690,7 @@ fn merge_evolution_dirs(src: &Path, dst: &Path) -> Result<(), Box<dyn std::error
     let src_ver = src.join("version.sexp");
     let dst_ver = dst.join("version.sexp");
     if src_ver.exists() {
-        let src_v: u32 = fs::read_to_string(&src_ver)?
-            .trim()
-            .parse()
-            .unwrap_or(0);
+        let src_v: u32 = fs::read_to_string(&src_ver)?.trim().parse().unwrap_or(0);
         let dst_v: u32 = fs::read_to_string(&dst_ver)
             .unwrap_or_default()
             .trim()

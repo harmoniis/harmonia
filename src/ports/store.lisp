@@ -4,7 +4,7 @@
 
 (defparameter *config-store-lib* nil)
 
-;; ─── Legacy FFI bindings (backward compat) ───────────────────────────
+;; ─── Simple FFI bindings (no policy enforcement) ─────────────────────
 
 (cffi:defcfun ("harmonia_config_store_init" %config-init) :int)
 (cffi:defcfun ("harmonia_config_store_set" %config-set) :int
@@ -20,7 +20,7 @@
 (cffi:defcfun ("harmonia_config_store_free_string" %config-free-string) :void
   (ptr :pointer))
 
-;; ─── Component-aware FFI bindings (v0.2.0) ───────────────────────────
+;; ─── Component-aware FFI bindings (policy-gated) ─────────────────────
 
 (cffi:defcfun ("harmonia_config_store_get_for" %config-get-for) :pointer
   (component :string)
@@ -64,7 +64,7 @@
              (cffi:foreign-string-to-lisp ptr)
           (%config-free-string ptr)))))
 
-;; ─── Legacy wrappers (admin-level, no policy check) ─────────────────
+;; ─── Simple wrappers (admin-level, no policy check) ──────────────────
 
 (defun config-set (key value &optional (scope "global"))
   (let ((rc (%config-set scope key (or value ""))))
@@ -91,7 +91,7 @@
                    (%split-lines raw)))
           (%config-free-string ptr)))))
 
-;; ─── Component-aware wrappers (v0.2.0) ──────────────────────────────
+;; ─── Component-aware wrappers (policy-gated) ─────────────────────────
 
 (defun config-get-for (component key &optional (scope component))
   "Get a config value with policy enforcement and env fallback chain."
@@ -138,7 +138,7 @@
           (%config-free-string ptr)))))
 
 (defun config-ingest-env ()
-  "Seed config DB from legacy environment variables (first-run only)."
+  "Seed config DB from environment variables (first-run only)."
   (let ((rc (%config-ingest-env)))
     (unless (zerop rc)
       (error "Config store ingest-env failed: ~A" (config-last-error)))

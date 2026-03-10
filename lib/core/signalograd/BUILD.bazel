@@ -1,0 +1,28 @@
+load("@rules_rust//rust:defs.bzl", "rust_library", "rust_shared_library")
+
+package(default_visibility = ["//visibility:public"])
+
+rust_library(
+    name = "signalograd",
+    srcs = glob(["src/**/*.rs"]),
+    edition = "2021",
+    deps = [
+        "//lib/core/actor-protocol:actor-protocol",
+        "//lib/core/config-store",
+        "@crate_index//:serde",
+        "@crate_index//:serde_json",
+    ],
+)
+
+rust_shared_library(
+    name = "signalograd-so",
+    srcs = glob(["src/**/*.rs"]),
+    crate_root = "src/lib.rs",
+    edition = "2021",
+    deps = [
+        "//lib/core/actor-protocol:actor-protocol",
+        "//lib/core/config-store",
+        "@crate_index//:serde",
+        "@crate_index//:serde_json",
+    ],
+)

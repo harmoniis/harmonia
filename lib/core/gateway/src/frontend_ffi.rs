@@ -110,8 +110,8 @@ impl FrontendVtable {
         let c_config = CString::new(config).map_err(|e| format!("invalid config: {e}"))?;
         let f = self.fn_init;
         let ptr = c_config.as_ptr();
-        let rc = panic::catch_unwind(AssertUnwindSafe(|| unsafe { f(ptr) }))
-            .map_err(panic_message)?;
+        let rc =
+            panic::catch_unwind(AssertUnwindSafe(|| unsafe { f(ptr) })).map_err(panic_message)?;
         if rc == 0 {
             Ok(())
         } else {
@@ -159,8 +159,7 @@ impl FrontendVtable {
 
     pub fn shutdown(&self) -> Result<(), String> {
         let f = self.fn_shutdown;
-        let rc = panic::catch_unwind(AssertUnwindSafe(|| unsafe { f() }))
-            .map_err(panic_message)?;
+        let rc = panic::catch_unwind(AssertUnwindSafe(|| unsafe { f() })).map_err(panic_message)?;
         if rc == 0 {
             Ok(())
         } else {

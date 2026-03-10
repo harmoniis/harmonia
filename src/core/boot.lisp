@@ -103,6 +103,9 @@
            :chronicle-record-graph-snapshot
            :chronicle-gc
            :chronicle-gc-status
+           :signalograd-status
+           :signalograd-snapshot
+           :signalograd-current-projection
            :evolution-mode
            :evolution-set-mode
            :evolution-prepare
@@ -197,8 +200,10 @@
 (%load-module (%core-path "../memory/store.lisp") "memory")
 (%load-module (%core-path "conditions.lisp"))
 (%load-module (%core-path "introspection.lisp"))
+(%load-module (%core-path "supervision-state.lisp") "supervision-state")
 (%load-module (%core-path "../harmony/scorer.lisp") "harmony-scorer")
 (%load-module (%core-path "harmony-policy.lisp"))
+(%load-module (%core-path "signalograd.lisp") "signalograd")
 (%load-module (%core-path "../orchestrator/prompt-assembly.lisp") "prompt-assembly")
 (%load-module (%core-path "model-policy.lisp"))
 (%load-module (%core-path "harmonic-machine.lisp"))
@@ -215,6 +220,7 @@
 (%load-module (%core-path "../ports/swarm.lisp") "port/swarm")
 (%load-module (%core-path "../ports/evolution.lisp") "port/evolution")
 (%load-module (%core-path "../ports/chronicle.lisp") "port/chronicle")
+(%load-module (%core-path "../ports/signalograd.lisp") "port/signalograd")
 (%load-module (%core-path "system-commands.lisp") "system-commands")
 (%load-module (%core-path "../orchestrator/conductor.lisp") "conductor")
 (%load-module (%core-path "rewrite.lisp"))
@@ -230,6 +236,9 @@
       (setf (runtime-state-events *runtime*) '())
       (setf (runtime-state-prompt-queue *runtime*) '())
       (setf (runtime-state-responses *runtime*) '())
+      (setf (runtime-state-response-seq *runtime*) 0)
+      (setf (runtime-state-presentation-feedback *runtime*) '())
+      (setf (runtime-state-last-response-telemetry *runtime*) '())
       (setf (runtime-state-cycle *runtime*) 0)
       (setf (runtime-state-rewrite-count *runtime*) 0)
       (setf (runtime-state-harmonic-phase *runtime*) :observe)
@@ -282,7 +291,11 @@
   (init-swarm-port)
   (init-evolution-port)
   (init-chronicle-port)
+  (init-signalograd-port)
+  (ignore-errors
+    (signalograd-restore-for-current-evolution :runtime *runtime*))
   (%log :info "chronicle" "Initialized.")
+  (%log :info "signalograd" "Initialized.")
   (%log :info "boot" "Bootstrap complete (~D tools registered)."
         (hash-table-count (runtime-state-tools *runtime*)))
   (when run-loop

@@ -29,7 +29,11 @@ pub fn record(
             entries_source,
             old_size,
             new_size,
-            if old_size > 0 { Some(new_size as f64 / old_size as f64) } else { None },
+            if old_size > 0 {
+                Some(new_size as f64 / old_size as f64)
+            } else {
+                None
+            },
             node_count,
             edge_count,
             interdisciplinary_edges,

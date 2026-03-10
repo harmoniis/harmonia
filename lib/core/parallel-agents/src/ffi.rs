@@ -439,6 +439,51 @@ pub extern "C" fn harmonia_tmux_list() -> *mut c_char {
     }
 }
 
+/// Run pending tasks asynchronously — workers post results to the unified
+/// actor mailbox when done. Does NOT block on thread join.
+#[no_mangle]
+pub extern "C" fn harmonia_parallel_agents_run_pending_async(max_parallel: i32) -> *mut c_char {
+    match engine::run_pending_async(max_parallel) {
+        Ok(assignments) => {
+            clear_error();
+            // Return sexp: ((:task-id T :actor-id A :model "M") ...)
+            let mut sexp = String::from("(");
+            for (i, (task_id, actor_id, model)) in assignments.iter().enumerate() {
+                if i > 0 {
+                    sexp.push(' ');
+                }
+                sexp.push_str(&format!(
+                    "(:task-id {} :actor-id {} :model \"{}\")",
+                    task_id, actor_id, model
+                ));
+            }
+            sexp.push(')');
+            to_c_string(sexp)
+        }
+        Err(e) => {
+            set_error(e);
+            std::ptr::null_mut()
+        }
+    }
+}
+
+/// Drain all pending actor messages from the mailbox.
+/// Returns s-expression list. Each message: (:actor-id N :kind <kind> :timestamp N ...)
+/// Caller must free with harmonia_parallel_agents_free_string.
+#[no_mangle]
+pub extern "C" fn harmonia_actor_drain_mailbox() -> *mut c_char {
+    match engine::actor_drain_mailbox() {
+        Ok(v) => {
+            clear_error();
+            to_c_string(v)
+        }
+        Err(e) => {
+            set_error(e);
+            std::ptr::null_mut()
+        }
+    }
+}
+
 /// Poll ALL active tmux agents — the swarm heartbeat.
 /// Returns s-expression with collective state and per-agent status.
 #[no_mangle]

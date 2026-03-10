@@ -24,10 +24,12 @@ Primary conceptual source: `../../../doc/agent/evolution/latest/GENOMIC_MODEL.md
 | `src/core/harmonic-machine.lisp` | computes rewrite readiness context |
 | `src/core/rewrite.lisp` | runtime rewrite trigger bookkeeping |
 | `src/core/evolution-versioning.lisp` | snapshot version management |
+| `src/core/signalograd.lisp` | adaptive checkpoint/restore orchestration tied to accepted evolution versions |
 | `src/ports/evolution.lisp` | mode dispatch + rollback hooks |
 | `lib/core/ouroboros` | crash history and patch artifact APIs |
 | `lib/core/phoenix` | supervisor-level restart/rollout control |
 | `lib/core/recovery` | canonical crash/restart ledger substrate |
+| `lib/core/signalograd` | compact adaptive model whose checkpoint artifact travels with accepted evolution |
 | `src/core/introspection.lisp` | runtime self-knowledge, self-compilation, hot-reload, error ring |
 
 ## Versioned Evolution State
@@ -39,6 +41,7 @@ Two parallel documentation tracks are active and both matter:
 
 2. `src/boot/evolution/*`
 - runtime-adjacent snapshots loaded by Lisp boot (`version.sexp`, `latest/`, `versions/vN/`)
+- includes `signalograd.sexp` when adaptive state is checkpointed alongside an accepted evolution snapshot
 
 These should be kept semantically aligned.
 

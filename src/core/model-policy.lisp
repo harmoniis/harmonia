@@ -36,7 +36,7 @@
                              "anthropic/claude-sonnet-4.6")
     :cli-preference ("claude-code" "codex")
     :cli-task-kinds (:software-dev :coding :critical-reasoning)
-    :cli-timeout-seconds 90
+    :actor-stall-threshold 50
     :cli-cooloff-seconds 3600
     :cli-quota-patterns ("quota" "rate limit" "cooldown" "usage cap" "too many requests")
     :vitruvian-signal-min 0.62
@@ -109,6 +109,25 @@
 
 ;;; --- Task Classification ---
 
+(defun %truth-seeking-prompt-p (prompt)
+  (let ((p (string-downcase (or prompt ""))))
+    (or (search "truth" p)
+        (search "reality" p)
+        (search "accurate" p)
+        (search "accuracy" p)
+        (search "fact-check" p)
+        (search "fact check" p)
+        (search "verify" p)
+        (search "verification" p)
+        (search "debunk" p)
+        (search "controvers" p)
+        (search "what actually" p)
+        (search "what is really" p)
+        (search "real-time" p)
+        (search "realtime" p)
+        (search "current event" p)
+        (search "harmonic truth" p))))
+
 (defun %task-kind (prompt)
   (let ((p (string-downcase prompt)))
     (cond
@@ -120,6 +139,7 @@
       ((or (search "summarize" p) (search "compress" p) (search "memory" p)
            (search "digest" p) (search "consolidate" p) (search "journal" p))
        :memory-ops)
+      ((%truth-seeking-prompt-p p) :truth-seeking)
       ((or (search "codemode" p) (search "mcp" p) (search "pipeline" p)
            (search "batch tools" p) (search "tool chain" p))
        :codemode)
@@ -138,6 +158,8 @@
                      :token-efficiency 0.07 :orchestration-efficiency 0.12 :experience 0.06))
     (:memory-ops '(:completion 0.20 :correctness 0.10 :speed 0.25 :price 0.30
                    :token-efficiency 0.10 :orchestration-efficiency 0.05 :experience 0.00))
+    (:truth-seeking '(:completion 0.28 :correctness 0.32 :speed 0.06 :price 0.06
+                      :token-efficiency 0.04 :orchestration-efficiency 0.08 :experience 0.16))
     (:tooling '(:completion 0.24 :correctness 0.20 :speed 0.22 :price 0.16
                 :token-efficiency 0.10 :orchestration-efficiency 0.08))
     (:vision '(:completion 0.36 :correctness 0.28 :speed 0.14 :price 0.10
@@ -158,6 +180,7 @@
   (case task
     (:software-dev '(:software-dev :codemode :reasoning))
     (:memory-ops '(:memory-ops :cheap :fast))
+    (:truth-seeking '(:truth-seeking :reasoning :web-search :x-search))
     (:vision '(:vision :ocr))
     (:critical-reasoning '(:thinking :frontier :reasoning))
     (:planning '(:planner :thinking :reasoning))
@@ -307,8 +330,9 @@
     (setf (gethash (or cli-id "") *cli-cooloff-until*) (+ (%now-secs) ttl))
     t))
 
-(defun model-policy-cli-timeout-seconds ()
-  (max 5 (or (getf *model-evolution-policy* :cli-timeout-seconds) 90)))
+(defun model-policy-actor-stall-threshold ()
+  "Ticks with zero output delta before killing an actor. Progress-based, not time-based."
+  (max 5 (or (getf *model-evolution-policy* :actor-stall-threshold) 50)))
 
 (defun %cli-on-cooloff-p (cli-id)
   (> (or (gethash (or cli-id "") *cli-cooloff-until*) 0)
@@ -376,7 +400,7 @@
   (let* ((ctx (and *runtime* (runtime-state-harmonic-context *runtime*)))
          (plan (and ctx (getf ctx :plan)))
          (vit (and plan (getf plan :vitruvian)))
-         (fallback (or (getf *model-evolution-policy* :vitruvian-signal-min) 0.62)))
+         (fallback (signalograd-routing-vitruvian-min *runtime*)))
     (or (and vit (getf vit :signal))
         fallback)))
 
@@ -404,17 +428,23 @@
 (defun %seed-score (profile)
   (let* ((entry (%score-entry-for-model (getf profile :id)))
          (weights (or (getf *model-evolution-policy* :seed-weights) '()))
+         (w-price (signalograd-routing-weight :price (or (getf weights :price) 0.35) *runtime*))
+         (w-speed (signalograd-routing-weight :speed (or (getf weights :speed) 0.20) *runtime*))
+         (w-success (signalograd-routing-weight :success (or (getf weights :success) 0.20) *runtime*))
+         (w-reasoning (signalograd-routing-weight :reasoning (or (getf weights :reasoning) 0.15) *runtime*))
+         (w-vitruvian (or (getf weights :vitruvian) 0.10))
+         (weight-sum (max 0.001 (+ w-price w-speed w-success w-reasoning w-vitruvian)))
          (price (/ (%usd-price-score profile) 10.0))
          (speed (%observed-latency-score entry profile))
          (success (or (and entry (getf entry :success-rate)) 0.5))
          (reasoning (%reasoning-score profile))
          (vitruvian (or (and entry (getf entry :vitruvian-signal))
                         (%runtime-vitruvian-signal))))
-    (+ (* (or (getf weights :price) 0.35) price)
-       (* (or (getf weights :speed) 0.20) speed)
-       (* (or (getf weights :success) 0.20) success)
-       (* (or (getf weights :reasoning) 0.15) reasoning)
-       (* (or (getf weights :vitruvian) 0.10) vitruvian))))
+    (+ (* (/ w-price weight-sum) price)
+       (* (/ w-speed weight-sum) speed)
+       (* (/ w-success weight-sum) success)
+       (* (/ w-reasoning weight-sum) reasoning)
+       (* (/ w-vitruvian weight-sum) vitruvian))))
 
 (defun %seed-models ()
   (let* ((provider (%active-provider-id))
@@ -462,12 +492,21 @@
       (%stable-unique-strings
        (remove-if-not #'%profile-by-id models)))))
 
+(defun %truth-seeking-models ()
+  (%stable-unique-strings
+   (append '("x-ai/grok-4.1-fast")
+           (or (%task-route-models :truth-seeking) '())
+           (%seed-order)
+           (%last-resort-models))))
+
 (defun %task-primary-models (task)
   (cond
     ((eq task :critical-reasoning)
      (%rewrite-capable-models))
     ((eq task :memory-ops)
      (or (%task-route-models :memory-ops) (%seed-order)))
+    ((eq task :truth-seeking)
+     (%truth-seeking-models))
     (t
      (%seed-order))))
 
@@ -490,7 +529,7 @@
   (let* ((task (%task-kind prompt))
          (cli (%cli-chain-for-task task))
          (vit (%runtime-vitruvian-signal))
-         (vit-min (or (getf *model-evolution-policy* :vitruvian-signal-min) 0.62))
+         (vit-min (signalograd-routing-vitruvian-min *runtime*))
          (primary (%task-primary-models task))
          (fallback (if (eq task :critical-reasoning)
                        '()

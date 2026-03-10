@@ -1,8 +1,8 @@
 /// Policy-gated public API with env fallback chain.
 use std::env;
 
-use crate::legacy::{canonical_env_name, legacy_env_name};
 use crate::policy;
+use crate::registry;
 use crate::store;
 
 /// Initialize the config store: open DB, load cache, seed from env on first run.
@@ -14,9 +14,8 @@ pub fn init() -> Result<(), String> {
 
 /// Get a config value with full fallback chain:
 /// 1. In-memory cache / DB
-/// 2. Legacy env var alias
-/// 3. Canonical env var `HARMONIA_{SCOPE}_{KEY}`
-/// 4. None
+/// 2. Environment variable (derived from registry)
+/// 3. None
 pub fn get_config(component: &str, scope: &str, key: &str) -> Result<Option<String>, String> {
     let scope = store::norm_scope(scope);
     let key = store::norm_key(key);
@@ -35,19 +34,9 @@ pub fn get_config(component: &str, scope: &str, key: &str) -> Result<Option<Stri
         return Ok(Some(v));
     }
 
-    // 2. Legacy env alias
-    if let Some(env_name) = legacy_env_name(&scope, &key) {
-        if let Ok(v) = env::var(env_name) {
-            let v = v.trim().to_string();
-            if !v.is_empty() {
-                return Ok(Some(v));
-            }
-        }
-    }
-
-    // 3. Canonical env var
-    let canonical = canonical_env_name(&scope, &key);
-    if let Ok(v) = env::var(&canonical) {
+    // 2. Environment variable (single lookup, derived from registry)
+    let env = registry::env_name(&scope, &key);
+    if let Ok(v) = env::var(&env) {
         let v = v.trim().to_string();
         if !v.is_empty() {
             return Ok(Some(v));

@@ -217,63 +217,12 @@
 (defun %token-estimate (text)
   (max 1 (round (/ (float (length (or text ""))) 4.0))))
 
-(defun %cli-timeout-seconds ()
-  (max 5 (or (ignore-errors (model-policy-cli-timeout-seconds)) 90)))
-
-(defun %read-process-stream-text (stream)
-  (if stream
-      (with-output-to-string (s)
-        (loop for line = (read-line stream nil nil)
-              while line
-              do (write-line line s)))
-      ""))
-
-(defun %process-running-p (proc)
-  (string= (string (sb-ext:process-status proc)) "RUNNING"))
-
 (defun %run-cli-model (model prompt)
-  (let* ((cli (%cli-model-id model))
-         (command (cond
-                    ((string= cli "claude-code") "claude")
-                    ((string= cli "codex") "codex")
-                    (t cli)))
-         (args (cond
-                 ((string= cli "claude-code")
-                  (list "--dangerously-skip-permissions" "-p" (or prompt "")))
-                 ((string= cli "codex")
-                  (list "exec" "--full-auto" (or prompt ""))
-                 )
-                 (t (list (or prompt "")))))
-         (timeout-seconds (%cli-timeout-seconds))
-         (started-at (get-internal-real-time))
-         (proc (sb-ext:run-program command args
-                                   :output :stream
-                                   :error :output
-                                   :search t
-                                   :wait nil)))
-    (loop while (%process-running-p proc) do
-      (let ((elapsed (/ (- (get-internal-real-time) started-at)
-                        internal-time-units-per-second)))
-        (when (>= elapsed timeout-seconds)
-          (ignore-errors (sb-ext:process-kill proc 15))
-          (sleep 0.2)
-          (when (%process-running-p proc)
-            (ignore-errors (sb-ext:process-kill proc 9)))
-          (ignore-errors (model-policy-mark-cli-cooloff cli))
-          (error "cli model ~A timed out after ~Ds" cli timeout-seconds)))
-      (sleep 0.1))
-    (let* ((stream (sb-ext:process-output proc))
-           (output (%read-process-stream-text stream))
-           (exit-code (sb-ext:process-exit-code proc)))
-      (ignore-errors (when stream (close stream)))
-      (unless (and exit-code (zerop exit-code))
-        (ignore-errors (model-policy-mark-cli-cooloff cli))
-        (error "cli model ~A failed: ~A" cli (%clip-text output 400)))
-      (let ((trimmed (string-trim '(#\Space #\Newline #\Tab) output)))
-        (unless (> (length trimmed) 0)
-          (ignore-errors (model-policy-mark-cli-cooloff cli))
-          (error "cli model ~A returned empty output" cli))
-        trimmed))))
+  "Run a CLI model via non-blocking tmux actor. Returns :deferred.
+   The actor's result is delivered later by %tick-actor-deliver."
+  (%swarm-spawn-cli-actor model prompt *current-originating-signal*
+                          (list :chain nil :prepared-prompt prompt))
+  :deferred)
 
 (defun %run-model-direct (model prompt)
   (if (%cli-model-p model)
@@ -865,8 +814,20 @@
       (let ((response-text (if (eq sys-result :system-exit) "exit" sys-result)))
         (ignore-errors
           (when (stringp response-text)
-            (memory-put :system response-text :tags '(:system-command))))
+            (memory-put :system response-text :tags '(:system-command))
+            (%presentation-record-response (%syscmd-extract-text input)
+                                           response-text
+                                           :visible-response (%presentation-sanitize-visible-text response-text)
+                                           :origin :system
+                                           :runtime *runtime*)))
         (return-from orchestrate-once response-text))))
+  (ignore-errors
+    (let ((feedback-text (etypecase input
+                           (harmonia-signal (or (harmonia-signal-payload input) ""))
+                           (string input))))
+      (%presentation-maybe-record-feedback feedback-text
+                                           :source :implicit
+                                           :runtime *runtime*)))
   (etypecase input
     (harmonia-signal (orchestrate-signal input))
     (string (orchestrate-prompt input))))
@@ -897,8 +858,8 @@
   (let* ((safe-prompt (%sanitize-prompt-for-memory prompt))
          (llm-prompt (dna-compose-llm-prompt prompt :mode :orchestrate))
          (recall-block (let ((raw (memory-semantic-recall-block prompt
-                               :limit (truncate (if (fboundp 'harmony-policy-number)
-                                                    (harmony-policy-number "memory/recall-limit" 5)
+                               :limit (truncate (if (fboundp 'signalograd-memory-recall-limit)
+                                                    (signalograd-memory-recall-limit *runtime*)
                                                     5))
                                :max-chars (truncate (if (fboundp 'harmony-policy-number)
                                                         (harmony-policy-number "memory/recall-max-chars" 1500)
@@ -974,7 +935,13 @@
                           (parallel-solve prepared-prompt
                                           :return-structured t
                                           :preferred-models chain
-                                          :max-subagents (parallel-get-subagent-count)))
+                                          :max-subagents (parallel-get-subagent-count)
+                                          :originating-signal *current-originating-signal*
+                                          :orchestration-context
+                                          (list :chain chain :prepared-prompt prepared-prompt)))
+                        ;; Non-blocking actor path: return :deferred
+                        (when (eq swarm-response :deferred)
+                          (return-from %orchestrate-inner :deferred))
                         (unless (and swarm-response
                                      (> (length (string-trim '(#\Space #\Newline #\Tab #\Return)
                                                               (princ-to-string swarm-response)))
@@ -1016,7 +983,9 @@
           (setf llm-calls (max 1 (or (getf next-meta :llm-calls) 1)))
           (setf datasource-count (max 1 (or (getf next-meta :datasource-count) 1)))
           (setf intermediate-tokens (or (getf next-meta :intermediate-tokens) intermediate-tokens)))))
-    (let* ((elapsed-ms (round (* 1000
+    (let* ((raw-response (if (stringp response) response (princ-to-string response)))
+           (visible-response (%presentation-sanitize-visible-text raw-response))
+           (elapsed-ms (round (* 1000
                                  (/ (- (get-internal-real-time) started-at)
                                    internal-time-units-per-second))))
            (harmony
@@ -1025,16 +994,16 @@
                    :tool-calls tool-calls
                    :datasource-count datasource-count
                    :intermediate-tokens intermediate-tokens))
-           (score (harmonic-score prompt response :context harmony))
+           (score (harmonic-score prompt visible-response :context harmony))
            (llm-ran (> llm-calls 0))
            (tokens-in (if llm-ran (%token-estimate model-input-prompt) 0))
-           (tokens-out (if llm-ran (%token-estimate (princ-to-string response)) 0))
+           (tokens-out (if llm-ran (%token-estimate visible-response) 0))
            (estimated-cost (if llm-ran
                                (if (and swarm-recorded-p (> swarm-best-cost 0.0))
                                    swarm-best-cost
-                                   (model-policy-estimate-cost-usd model model-input-prompt (princ-to-string response)))
+                                   (model-policy-estimate-cost-usd model model-input-prompt visible-response))
                                0.0))
-           (memory-id (memory-record-orchestration safe-prompt response used-tool score elapsed-ms :harmony harmony)))
+           (memory-id (memory-record-orchestration safe-prompt visible-response used-tool score elapsed-ms :harmony harmony)))
       (when (and *runtime* llm-ran)
         (setf (runtime-state-active-model *runtime*) model))
       (memory-record-tool-usage used-tool :latency-ms elapsed-ms :success t)
@@ -1066,13 +1035,16 @@
       (ignore-errors
         (harmonic-matrix-observe-route used-tool "memory" t 1))
       (ignore-errors
-        (harmonic-matrix-log-event used-tool "output" "response" (%clip-text (princ-to-string response)) t ""))
-      (push (list :prompt safe-prompt
-                  :response response
-                  :model model
-                  :score score
-                  :harmony harmony
-                  :memory-id memory-id)
-            (runtime-state-responses *runtime*))
+        (harmonic-matrix-log-event used-tool "output" "response" (%clip-text visible-response) t ""))
+      (ignore-errors
+        (%presentation-record-response safe-prompt
+                                       raw-response
+                                       :visible-response visible-response
+                                       :origin :orchestration
+                                       :model model
+                                       :score score
+                                       :harmony harmony
+                                       :memory-id memory-id
+                                       :runtime *runtime*))
       (runtime-log *runtime* :orchestrated (list :model model :score score :harmony harmony :memory-id memory-id))
-      response)))
+      visible-response)))

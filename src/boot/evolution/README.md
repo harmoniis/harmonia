@@ -14,6 +14,7 @@ This directory is the runtime-adjacent memory of:
 - `latest/` — mutable current evolution snapshot (actively updated).
 - `versions/vN/` — immutable historical snapshots.
 - `version.sexp` — current numeric version read at boot.
+- `signalograd.sexp` may appear in `latest/` and `versions/vN/` as the compact adaptive model checkpoint artifact.
 
 ## Reading Order (Latest)
 
@@ -25,6 +26,4 @@ This directory is the runtime-adjacent memory of:
 ## Snapshot Rule
 
 Every successful evolution step snapshots `latest/` into `versions/vN` and bumps `version.sexp`.
-On next boot, runtime loads the latest tracked version and keeps past versions available for reflection.
-
-Current baseline in this repository: `versions/v4/` with `version.sexp = 4`.
+On next boot, runtime loads the tracked version metadata, restores the matching `signalograd` checkpoint when present, and keeps past versions available for reflection.

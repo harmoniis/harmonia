@@ -1,23 +1,117 @@
 use harmonia_vault::{get_secret_for_component, init_from_env};
+use serde_json::{json, Value};
 
 use crate::model::json_escape;
 
 const COMPONENT: &str = "parallel-agents-core";
+const GROK_TRUTH_MODEL: &str = "x-ai/grok-4.1-fast";
 
-fn extract_content_from_response(payload: &str) -> Option<String> {
-    let key = "\"content\":\"";
-    let start = payload.find(key)?;
-    let rest = &payload[start + key.len()..];
-    let end = rest.find('"')?;
-    Some(rest[..end].to_string())
+fn extract_content_from_response(payload: &[u8]) -> Option<String> {
+    let parsed: Value = serde_json::from_slice(payload).ok()?;
+    harmonia_provider_protocol::extract_openai_like_content(&parsed)
 }
 
-fn extract_error_message(payload: &str) -> Option<String> {
-    let key = "\"message\":\"";
-    let start = payload.find(key)?;
-    let rest = &payload[start + key.len()..];
-    let end = rest.find('"')?;
-    Some(rest[..end].to_string())
+fn extract_error_message(payload: &[u8]) -> Option<String> {
+    let parsed: Value = serde_json::from_slice(payload).ok()?;
+    parsed
+        .get("error")
+        .and_then(|e| e.get("message"))
+        .and_then(|v| v.as_str())
+        .map(|s| s.to_string())
+        .or_else(|| {
+            parsed
+                .get("message")
+                .and_then(|v| v.as_str())
+                .map(|s| s.to_string())
+        })
+}
+
+fn grok_truth_model(model: &str) -> bool {
+    let lower = model.trim().to_ascii_lowercase();
+    lower == GROK_TRUTH_MODEL || lower == "xai/grok-4.1-fast"
+}
+
+fn truth_seeking_prompt(prompt: &str) -> bool {
+    let lower = prompt.to_ascii_lowercase();
+    [
+        "truth",
+        "reality",
+        "accurate",
+        "accuracy",
+        "fact check",
+        "fact-check",
+        "verify",
+        "verification",
+        "debunk",
+        "controvers",
+        "what actually",
+        "what is really",
+        "real-time",
+        "realtime",
+        "current event",
+        "harmonic truth",
+    ]
+    .iter()
+    .any(|needle| lower.contains(needle))
+}
+
+fn openrouter_payload(prompt: &str, model: &str) -> Value {
+    let mut payload = json!({
+        "model": model,
+        "messages": [{"role": "user", "content": prompt}],
+    });
+    if grok_truth_model(model) {
+        payload["reasoning"] = json!({
+            "enabled": true,
+            "effort": "high",
+            "exclude": true
+        });
+        payload["plugins"] = json!([{ "id": "web", "engine": "native" }]);
+        payload["web_search_options"] = json!({ "search_context_size": "high" });
+    }
+    payload
+}
+
+fn clip_text(text: &str, limit: usize) -> String {
+    let mut clipped = String::new();
+    for ch in text.chars().take(limit) {
+        clipped.push(ch);
+    }
+    clipped
+}
+
+fn openrouter_api_key() -> Result<Option<String>, String> {
+    match get_secret_for_component("openrouter-backend", "openrouter-api-key") {
+        Ok(Some(key)) => Ok(Some(key)),
+        Ok(None) => get_secret_for_component("openrouter-backend", "openrouter")
+            .map_err(|e| format!("vault policy error: {e}")),
+        Err(e) => Err(format!("vault policy error: {e}")),
+    }
+}
+
+fn make_grok_verify_prompt(prompt: &str, response: &str) -> String {
+    format!(
+        "You are the truth-seeking verification subagent. Use live web and X search when useful. Prioritize factual accuracy over style.\n\nOriginal user prompt:\n{prompt}\n\nCandidate answer:\n{response}\n\nReply exactly in this format:\nVERIFY: yes|no|uncertain\nSOURCE: web|x|web+x|unknown\nNOTES: one concise sentence"
+    )
+}
+
+fn grok_verify_result(report: &str) -> (bool, String, String) {
+    let lower = report.to_ascii_lowercase();
+    let ok =
+        lower.lines().any(|line| line.trim() == "verify: yes") || lower.contains("verify: yes");
+    (ok, "grok-live".to_string(), clip_text(report.trim(), 240))
+}
+
+fn verify_with_grok(prompt: &str, response: &str) -> Result<(bool, String, String), String> {
+    let key = openrouter_api_key()?.ok_or_else(|| {
+        "missing secret: openrouter-api-key (vault component: openrouter-backend)".to_string()
+    })?;
+    let report = request_openrouter(
+        &make_grok_verify_prompt(prompt, response),
+        GROK_TRUTH_MODEL,
+        &key,
+    )?;
+    Ok(grok_verify_result(&report))
 }
 
 pub(super) fn request_openrouter(
@@ -25,11 +119,7 @@ pub(super) fn request_openrouter(
     model: &str,
     api_key: &str,
 ) -> Result<String, String> {
-    let payload = format!(
-        "{{\"model\":\"{}\",\"messages\":[{{\"role\":\"user\",\"content\":\"{}\"}}]}}",
-        json_escape(model),
-        json_escape(prompt)
-    );
+    let payload = openrouter_payload(prompt, model).to_string();
 
     let out = std::process::Command::new("curl")
         .arg("-sS")
@@ -76,12 +166,15 @@ pub(super) fn request_openrouter(
             String::from_utf8_lossy(&out.stderr)
         ));
     }
-    let stdout = String::from_utf8_lossy(&out.stdout).to_string();
-    if let Some(e) = extract_error_message(&stdout) {
+    if let Some(e) = extract_error_message(&out.stdout) {
         return Err(e);
     }
-    extract_content_from_response(&stdout)
-        .ok_or_else(|| format!("missing content in response: {stdout}"))
+    extract_content_from_response(&out.stdout).ok_or_else(|| {
+        format!(
+            "missing content in response: {}",
+            String::from_utf8_lossy(&out.stdout)
+        )
+    })
 }
 
 fn request_exa(query: &str, api_key: &str) -> Result<String, String> {
@@ -147,6 +240,65 @@ pub(super) fn verify_with_search(prompt: &str, response: &str) -> (bool, String,
     if response.trim().is_empty() {
         return (false, "none".to_string(), "empty-response".to_string());
     }
+    if truth_seeking_prompt(prompt) {
+        match verify_with_grok(prompt, response) {
+            Ok(result) => return result,
+            Err(e) => {
+                if let Ok(Some(exa)) =
+                    get_secret_for_component("parallel-agents-core", "exa_api_key")
+                {
+                    let q = make_verify_query(prompt, response);
+                    match request_exa(&q, &exa) {
+                        Ok(payload) => {
+                            let ok = payload.contains("\"results\"");
+                            return (
+                                ok,
+                                "exa".to_string(),
+                                if ok {
+                                    "exa-results-found".to_string()
+                                } else {
+                                    format!("exa-no-results; grok={e}")
+                                },
+                            );
+                        }
+                        Err(exa_err) => {
+                            if let Ok(Some(brave)) =
+                                get_secret_for_component("parallel-agents-core", "brave_api_key")
+                            {
+                                match request_brave(&q, &brave) {
+                                    Ok(payload) => {
+                                        let ok = payload.contains("\"web\"")
+                                            || payload.contains("\"results\"");
+                                        return (
+                                            ok,
+                                            "brave".to_string(),
+                                            if ok {
+                                                "brave-results-found".to_string()
+                                            } else {
+                                                format!("brave-no-results; grok={e}")
+                                            },
+                                        );
+                                    }
+                                    Err(brave_err) => {
+                                        return (
+                                            false,
+                                            "none".to_string(),
+                                            format!("grok={e}; exa={exa_err}; brave={brave_err}"),
+                                        );
+                                    }
+                                }
+                            }
+                            return (
+                                false,
+                                "none".to_string(),
+                                format!("grok={e}; exa={exa_err}; brave=missing-key"),
+                            );
+                        }
+                    }
+                }
+            }
+        }
+    }
     let q = make_verify_query(prompt, response);
 
     if let Ok(Some(exa)) = get_secret_for_component("parallel-agents-core", "exa_api_key") {
@@ -180,16 +332,28 @@ pub(super) fn verify_with_search(prompt: &str, response: &str) -> (bool, String,
                                 },
                             );
                         }
-                        Err(e2) => {
-                            return (false, "none".to_string(), format!("exa={e}; brave={e2}"));
-                        }
+                        Err(e2) => match verify_with_grok(prompt, response) {
+                            Ok(result) => return result,
+                            Err(grok_err) => {
+                                return (
+                                    false,
+                                    "none".to_string(),
+                                    format!("exa={e}; brave={e2}; grok={grok_err}"),
+                                );
+                            }
+                        },
                     }
                 }
-                return (
-                    false,
-                    "none".to_string(),
-                    format!("exa={e}; brave=missing-key"),
-                );
+                match verify_with_grok(prompt, response) {
+                    Ok(result) => return result,
+                    Err(grok_err) => {
+                        return (
+                            false,
+                            "none".to_string(),
+                            format!("exa={e}; brave=missing-key; grok={grok_err}"),
+                        );
+                    }
+                }
             }
         }
     }
@@ -208,9 +372,74 @@ pub(super) fn verify_with_search(prompt: &str, response: &str) -> (bool, String,
                     },
                 );
             }
-            Err(e) => return (false, "none".to_string(), format!("brave={e}")),
+            Err(e) => match verify_with_grok(prompt, response) {
+                Ok(result) => return result,
+                Err(grok_err) => {
+                    return (
+                        false,
+                        "none".to_string(),
+                        format!("brave={e}; grok={grok_err}"),
+                    );
+                }
+            },
         }
     }
 
-    (false, "none".to_string(), "missing-search-keys".to_string())
+    match verify_with_grok(prompt, response) {
+        Ok(result) => result,
+        Err(e) => (
+            false,
+            "none".to_string(),
+            format!("missing-search-keys; grok={e}"),
+        ),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use serde_json::json;
+
+    use super::{
+        extract_content_from_response, grok_truth_model, grok_verify_result, openrouter_payload,
+        truth_seeking_prompt, GROK_TRUTH_MODEL,
+    };
+
+    #[test]
+    fn extract_content_handles_openai_like_json() {
+        let payload = json!({"choices":[{"message":{"content":"hello"}}]}).to_string();
+        assert_eq!(
+            extract_content_from_response(payload.as_bytes()).as_deref(),
+            Some("hello")
+        );
+    }
+
+    #[test]
+    fn grok_truth_payload_enables_reasoning_and_search() {
+        let payload = openrouter_payload("verify this", GROK_TRUTH_MODEL);
+        assert!(grok_truth_model(GROK_TRUTH_MODEL));
+        assert_eq!(payload["reasoning"]["enabled"], json!(true));
+        assert_eq!(payload["plugins"][0]["id"], json!("web"));
+        assert_eq!(payload["plugins"][0]["engine"], json!("native"));
+        assert_eq!(
+            payload["web_search_options"]["search_context_size"],
+            json!("high")
+        );
+    }
+
+    #[test]
+    fn truth_prompt_detection_catches_accuracy_requests() {
+        assert!(truth_seeking_prompt(
+            "Find the harmonic truth and verify this claim."
+        ));
+        assert!(!truth_seeking_prompt("Write a small Rust refactor."));
+    }
+
+    #[test]
+    fn grok_verify_result_reads_yes_verdict() {
+        let (ok, source, detail) =
+            grok_verify_result("VERIFY: yes\nSOURCE: web+x\nNOTES: matched.");
+        assert!(ok);
+        assert_eq!(source, "grok-live");
+        assert!(detail.contains("VERIFY: yes"));
+    }
 }

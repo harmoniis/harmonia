@@ -50,7 +50,8 @@
 (defparameter *system-commands*
   '("/help" "/exit" "/status"
     "/backends" "/frontends" "/tools"
-    "/chronicle" "/metrics" "/security" "/identity")
+    "/chronicle" "/metrics" "/security" "/identity"
+    "/feedback")
   "Known system command prefixes.")
 
 (defun %syscmd-known-p (cmd-word)
@@ -96,6 +97,7 @@
             ((string= cmd-word "/metrics")    (%syscmd-metrics))
             ((string= cmd-word "/security")   (%syscmd-security args-str))
             ((string= cmd-word "/identity")   (%syscmd-identity))
+            ((string= cmd-word "/feedback")   (%syscmd-feedback args-str))
             (t nil))
         (error (e)
           (format nil "[system] Error executing ~A: ~A" cmd-word e))))))
@@ -124,7 +126,8 @@
            (%syscmd-kv "/security" "Security audit overview")
            (%syscmd-kv "/security posture" "Current posture details")
            (%syscmd-kv "/security errors" "Recent errors from error ring")
-           (%syscmd-kv "/identity" "Vault symbol listing and key status"))))
+           (%syscmd-kv "/identity" "Vault symbol listing and key status")
+           (%syscmd-kv "/feedback <note>" "Record human feedback for visible reply style"))))
 
 ;;; ─── /exit ─────────────────────────────────────────────────────────────
 
@@ -133,6 +136,23 @@
     (return-from %syscmd-exit
       "[system] /exit is only available from the TUI."))
   :system-exit)
+
+;;; ─── /feedback ────────────────────────────────────────────────────────
+
+(defun %syscmd-feedback (args)
+  (let ((note (string-trim '(#\Space #\Tab #\Newline) (or args ""))))
+    (when (zerop (length note))
+      (return-from %syscmd-feedback
+        "[system] Usage: /feedback <note about what to improve or preserve>."))
+    (let ((event (%presentation-maybe-record-feedback note
+                                                      :source :explicit
+                                                      :explicit-p t
+                                                      :runtime *runtime*)))
+      (if event
+          (format nil "[system] Feedback recorded for ~A (~{~A~^, ~})."
+                  (or (getf event :response-id) "latest response")
+                  (or (getf event :tags) '(:presentation)))
+          "[system] Feedback recorded."))))
 
 ;;; ─── /status ───────────────────────────────────────────────────────────
 
@@ -154,6 +174,11 @@
       (add (%syscmd-kv "Security posture:" (or (ignore-errors *security-posture*) "?")))
       (add (%syscmd-kv "Total tick errors:" (or (ignore-errors *tick-error-count*) "?")))
       (add (%syscmd-kv "Consecutive errors:" (or (ignore-errors *consecutive-tick-errors*) "?")))
+      ;; Signalograd
+      (let ((signalograd (ignore-errors (and (fboundp 'signalograd-status) (signalograd-status)))))
+        (when (and signalograd (listp signalograd))
+          (add (%syscmd-kv "Signalograd cycle:" (or (getf signalograd :cycle) "?")))
+          (add (%syscmd-kv "Signalograd conf:" (format nil "~,3f" (or (getf signalograd :confidence) 0.0))))))
       ;; Router
       (add (%syscmd-kv "Router alive:" (if (ignore-errors (router-healthcheck)) "yes" "no")))
       ;; Frontends summary

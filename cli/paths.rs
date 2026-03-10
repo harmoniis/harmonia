@@ -139,7 +139,10 @@ fn platform_lib_dir() -> PathBuf {
     if let Ok(local) = std::env::var("LOCALAPPDATA") {
         PathBuf::from(local).join("Harmonia").join("lib")
     } else if let Some(home) = dirs::home_dir() {
-        home.join("AppData").join("Local").join("Harmonia").join("lib")
+        home.join("AppData")
+            .join("Local")
+            .join("Harmonia")
+            .join("lib")
     } else {
         PathBuf::from("C:\\ProgramData\\Harmonia\\lib")
     }
@@ -150,13 +153,21 @@ fn platform_share_dir() -> PathBuf {
     if let Ok(local) = std::env::var("LOCALAPPDATA") {
         PathBuf::from(local).join("Harmonia").join("share")
     } else if let Some(home) = dirs::home_dir() {
-        home.join("AppData").join("Local").join("Harmonia").join("share")
+        home.join("AppData")
+            .join("Local")
+            .join("Harmonia")
+            .join("share")
     } else {
         PathBuf::from("C:\\ProgramData\\Harmonia\\share")
     }
 }
 
-#[cfg(not(any(target_os = "macos", target_os = "linux", target_os = "freebsd", target_os = "windows")))]
+#[cfg(not(any(
+    target_os = "macos",
+    target_os = "linux",
+    target_os = "freebsd",
+    target_os = "windows"
+)))]
 fn platform_lib_dir() -> PathBuf {
     if let Some(home) = dirs::home_dir() {
         home.join(".local").join("lib").join("harmonia")
@@ -165,7 +176,12 @@ fn platform_lib_dir() -> PathBuf {
     }
 }
 
-#[cfg(not(any(target_os = "macos", target_os = "linux", target_os = "freebsd", target_os = "windows")))]
+#[cfg(not(any(
+    target_os = "macos",
+    target_os = "linux",
+    target_os = "freebsd",
+    target_os = "windows"
+)))]
 fn platform_share_dir() -> PathBuf {
     if let Some(home) = dirs::home_dir() {
         home.join(".local").join("share").join("harmonia")
@@ -238,7 +254,10 @@ fn platform_run_dir() -> PathBuf {
     if let Ok(local) = std::env::var("LOCALAPPDATA") {
         PathBuf::from(local).join("Harmonia").join("run")
     } else if let Some(home) = dirs::home_dir() {
-        home.join("AppData").join("Local").join("Harmonia").join("run")
+        home.join("AppData")
+            .join("Local")
+            .join("Harmonia")
+            .join("run")
     } else {
         PathBuf::from("C:\\ProgramData\\Harmonia\\run")
     }
@@ -249,19 +268,32 @@ fn platform_log_dir() -> PathBuf {
     if let Ok(local) = std::env::var("LOCALAPPDATA") {
         PathBuf::from(local).join("Harmonia").join("Logs")
     } else if let Some(home) = dirs::home_dir() {
-        home.join("AppData").join("Local").join("Harmonia").join("Logs")
+        home.join("AppData")
+            .join("Local")
+            .join("Harmonia")
+            .join("Logs")
     } else {
         PathBuf::from("C:\\ProgramData\\Harmonia\\Logs")
     }
 }
 
 // Catch-all for other platforms
-#[cfg(not(any(target_os = "macos", target_os = "linux", target_os = "freebsd", target_os = "windows")))]
+#[cfg(not(any(
+    target_os = "macos",
+    target_os = "linux",
+    target_os = "freebsd",
+    target_os = "windows"
+)))]
 fn platform_run_dir() -> PathBuf {
     PathBuf::from("/tmp/harmonia")
 }
 
-#[cfg(not(any(target_os = "macos", target_os = "linux", target_os = "freebsd", target_os = "windows")))]
+#[cfg(not(any(
+    target_os = "macos",
+    target_os = "linux",
+    target_os = "freebsd",
+    target_os = "windows"
+)))]
 fn platform_log_dir() -> PathBuf {
     if let Some(home) = dirs::home_dir() {
         home.join(".local").join("state").join("harmonia")

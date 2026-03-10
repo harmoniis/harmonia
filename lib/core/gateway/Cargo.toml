@@ -19,4 +19,5 @@ log = "0.4"
 parking_lot = "0.12"
 harmonia-baseband-channel-protocol = { version = "0.1.7", path = "../baseband-channel-protocol" }
 harmonia-signal-integrity = { version = "0.1.7", path = "../signal-integrity" }
+harmonia-actor-protocol = { version = "0.1.7", path = "../actor-protocol" }
 serde_json = "1"

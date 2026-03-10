@@ -51,6 +51,7 @@ filegroup(
         "//lib/core/config-store:config-store-so",
         "//lib/core/tailnet:tailnet-so",
         "//lib/core/gateway:gateway-so",
+        "//lib/core/signalograd:signalograd-so",
 
         # Backends — providers and adapters
         "//lib/backends/http:http-so",

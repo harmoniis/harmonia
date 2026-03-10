@@ -92,7 +92,8 @@ fn build_generic_envelope(
     payload: &str,
     metadata: Option<String>,
 ) -> ChannelEnvelope {
-    let fingerprint_valid = metadata_bool_value(metadata.as_deref(), "fingerprint-valid").unwrap_or(true);
+    let fingerprint_valid =
+        metadata_bool_value(metadata.as_deref(), "fingerprint-valid").unwrap_or(true);
     let origin_fp = metadata_string_value(metadata.as_deref(), "origin-fp");
     let peer_id = metadata_string_value(metadata.as_deref(), "device-id")
         .or_else(|| origin_fp.clone())
@@ -161,14 +162,13 @@ fn build_mqtt_envelope(
             let fingerprint_valid =
                 metadata_bool_value(metadata.as_deref(), "fingerprint-valid").unwrap_or(true);
             let mut peer = PeerRef::new(
-                metadata_string_value(metadata.as_deref(), "device-id")
-                    .unwrap_or_else(|| {
-                        if envelope.client_fp.is_empty() {
-                            topic.to_string()
-                        } else {
-                            envelope.client_fp.clone()
-                        }
-                    }),
+                metadata_string_value(metadata.as_deref(), "device-id").unwrap_or_else(|| {
+                    if envelope.client_fp.is_empty() {
+                        topic.to_string()
+                    } else {
+                        envelope.client_fp.clone()
+                    }
+                }),
             );
             peer.origin_fp = if envelope.client_fp.is_empty() {
                 metadata_string_value(metadata.as_deref(), "origin-fp")
@@ -245,7 +245,14 @@ fn parse_frontend_envelopes(
         let envelope = if driver_name == "mqtt" {
             build_mqtt_envelope(security, capabilities, &address, &payload, metadata)
         } else {
-            build_generic_envelope(driver_name, security, capabilities, &address, &payload, metadata)
+            build_generic_envelope(
+                driver_name,
+                security,
+                capabilities,
+                &address,
+                &payload,
+                metadata,
+            )
         };
         envelopes.push(envelope);
     }
@@ -266,6 +273,27 @@ pub fn poll_baseband(registry: &Registry) -> ChannelBatch {
             log::warn!("gateway: poll {} failed: {}", name, e);
         }
     });
+
+    // Post each envelope as InboundSignal to the unified actor mailbox
+    let gw_actor_id = crate::state::actor_id();
+    if gw_actor_id > 0 && !all_envelopes.is_empty() {
+        if harmonia_actor_protocol::client::is_available() {
+            for env in &all_envelopes {
+                let envelope_sexp = env.to_sexp();
+                let _ = harmonia_actor_protocol::client::post(
+                    gw_actor_id,
+                    0,
+                    &format!(
+                        "(:inbound-signal :envelope \"{}\")",
+                        harmonia_actor_protocol::sexp_escape(&envelope_sexp)
+                    ),
+                );
+            }
+            // Heartbeat with envelope count
+            let _ =
+                harmonia_actor_protocol::client::heartbeat(gw_actor_id, all_envelopes.len() as u64);
+        }
+    }
 
     ChannelBatch {
         envelopes: all_envelopes,

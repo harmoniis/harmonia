@@ -210,7 +210,7 @@ cargo fmt --check
 
 ## Configuration
 
-After running `harmonia setup`, the system workspace lives at `~/.harmoniis/harmonia/`:
+After running `harmonia setup`, the system workspace lives at `~/.harmoniis/harmonia/` and holds user data only:
 
 ```
 ~/.harmoniis/harmonia/
@@ -221,8 +221,14 @@ After running `harmonia setup`, the system workspace lives at `~/.harmoniis/harm
 │   ├── workspace.sexp
 │   └── gateway-frontends.sexp
 ├── genesis/          # Agent evolution knowledge
-└── frontends/        # Compiled frontend libraries
+├── state/            # Runtime state, sockets, caches
+└── frontends/        # Frontend state and attachments
 ```
+
+Installed application assets live outside the workspace:
+
+- macOS / Linux / FreeBSD: `~/.local/bin/harmonia`, `~/.local/lib/harmonia/`, `~/.local/share/harmonia/`
+- Windows: `%LOCALAPPDATA%\Harmonia\bin\`, `%LOCALAPPDATA%\Harmonia\lib\`, `%LOCALAPPDATA%\Harmonia\share\`
 
 All non-secret configuration (URLs, timeouts, paths, modes, feature flags) is managed by `config-store` with component-scoped access policies. All secrets (API keys, tokens, passwords) are stored in `vault`. No raw environment variables are used at runtime except for bootstrap paths (`HARMONIA_STATE_ROOT`, `HARMONIA_LIB_DIR`).
 

@@ -278,9 +278,16 @@ fn default_seed_models_for_provider(provider_id: &str) -> Vec<&'static str> {
         "anthropic" => vec!["anthropic/claude-sonnet-4.6", "anthropic/claude-opus-4.6"],
         "xai" => vec!["x-ai/grok-4-fast:online"],
         "google-ai-studio" | "google-vertex" => {
-            vec!["google/gemini-3.1-flash-lite-preview", "google/gemini-2.5-pro"]
+            vec![
+                "google/gemini-3.1-flash-lite-preview",
+                "google/gemini-2.5-pro",
+            ]
         }
-        "bedrock" => vec!["amazon/nova-micro-v1", "amazon/nova-lite-v1", "amazon/nova-pro-v1"],
+        "bedrock" => vec![
+            "amazon/nova-micro-v1",
+            "amazon/nova-lite-v1",
+            "amazon/nova-pro-v1",
+        ],
         "groq" => vec!["qwen/qwen3-coder:free"],
         "alibaba" => vec!["qwen/qwen3-coder:free"],
         _ => vec![],
@@ -297,7 +304,10 @@ fn all_provider_seed_defaults() -> Vec<(&'static str, Vec<&'static str>)> {
             "google-ai-studio",
             default_seed_models_for_provider("google-ai-studio"),
         ),
-        ("google-vertex", default_seed_models_for_provider("google-vertex")),
+        (
+            "google-vertex",
+            default_seed_models_for_provider("google-vertex"),
+        ),
         ("bedrock", default_seed_models_for_provider("bedrock")),
         ("groq", default_seed_models_for_provider("groq")),
         ("alibaba", default_seed_models_for_provider("alibaba")),
@@ -483,18 +493,20 @@ fn seed_provider_ids(configured_provider_ids: &[String]) -> Vec<String> {
 
 fn stored_seed_models_for_provider(provider_id: &str) -> Option<String> {
     let provider_key = format!("seed-models-{}", provider_id);
-    let provider_seed_csv = harmonia_config_store::get_config("harmonia-cli", "model-policy", &provider_key)
-        .ok()
-        .flatten()
-        .map(|raw| normalize_model_csv(&raw))
-        .filter(|csv| !csv.is_empty());
+    let provider_seed_csv =
+        harmonia_config_store::get_config("harmonia-cli", "model-policy", &provider_key)
+            .ok()
+            .flatten()
+            .map(|raw| normalize_model_csv(&raw))
+            .filter(|csv| !csv.is_empty());
     if provider_seed_csv.is_some() {
         return provider_seed_csv;
     }
 
-    let active_provider = harmonia_config_store::get_config("harmonia-cli", "model-policy", "provider")
-        .ok()
-        .flatten();
+    let active_provider =
+        harmonia_config_store::get_config("harmonia-cli", "model-policy", "provider")
+            .ok()
+            .flatten();
     if active_provider.as_deref() != Some(provider_id) {
         return None;
     }
@@ -715,14 +727,8 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
         style("[1/4]").bold().dim(),
         style(system_dir.display()).green()
     );
-    println!(
-        "       Libraries:   {}",
-        style(lib_dir.display()).green()
-    );
-    println!(
-        "       App data:    {}",
-        style(share_dir.display()).green()
-    );
+    println!("       Libraries:   {}", style(lib_dir.display()).green());
+    println!("       App data:    {}", style(share_dir.display()).green());
     fs::create_dir_all(&system_dir)?;
     fs::create_dir_all(system_dir.join("config"))?;
     fs::create_dir_all(system_dir.join("frontends"))?;
@@ -1019,7 +1025,11 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
             );
 
             // Install binary
-            let bin_name = if cfg!(target_os = "windows") { "harmonia.exe" } else { "harmonia" };
+            let bin_name = if cfg!(target_os = "windows") {
+                "harmonia.exe"
+            } else {
+                "harmonia"
+            };
             let built_bin = target_release.join(bin_name);
             if built_bin.exists() {
                 let dest_bin = home.join(".local").join("bin").join(bin_name);
@@ -1047,14 +1057,8 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
         "  User data:        {}",
         style(system_dir.display()).green()
     );
-    println!(
-        "  Libraries:        {}",
-        style(lib_dir.display()).green()
-    );
-    println!(
-        "  App data:         {}",
-        style(share_dir.display()).green()
-    );
+    println!("  Libraries:        {}", style(lib_dir.display()).green());
+    println!("  App data:         {}", style(share_dir.display()).green());
     println!(
         "  User workspace:   {}",
         style(workspace_path.display()).green()
@@ -1335,7 +1339,11 @@ fn install_cdylibs(target_dir: &Path, lib_dir: &Path) -> Result<(), Box<dyn std:
     } else {
         "so"
     };
-    let prefix = if cfg!(target_os = "windows") { "" } else { "lib" };
+    let prefix = if cfg!(target_os = "windows") {
+        ""
+    } else {
+        "lib"
+    };
     fs::create_dir_all(lib_dir)?;
     for entry in fs::read_dir(target_dir)? {
         let entry = entry?;
@@ -1379,7 +1387,10 @@ where
         )
         .into());
     }
-    let public_key = parse_hrmw_output_field(&String::from_utf8_lossy(&vault_new.stdout), "Vault public key:")?;
+    let public_key = parse_hrmw_output_field(
+        &String::from_utf8_lossy(&vault_new.stdout),
+        "Vault public key:",
+    )?;
 
     let key_path = mqtt_dir.join("broker.key.pem");
     let export = Command::new("hrmw")
@@ -1516,7 +1527,11 @@ where
     set_config("mqtt-broker", "ca-cert", &ca_path.to_string_lossy())?;
     set_config("mqtt-broker", "server-cert", &chain_path.to_string_lossy())?;
     set_config("mqtt-broker", "server-key", &key_path.to_string_lossy())?;
-    set_config("mqtt-broker", "remote-config-url", "https://harmoniis.com/api/agent")?;
+    set_config(
+        "mqtt-broker",
+        "remote-config-url",
+        "https://harmoniis.com/api/agent",
+    )?;
     set_config("mqtt-broker", "remote-config-identity-label", label)?;
     set_config("mqtt-broker", "remote-config-refresh-seconds", "60")?;
     set_config("mqtt-broker", "identity-public-key", &public_key)?;
@@ -1526,13 +1541,20 @@ where
     set_config("mqtt-frontend", "ca-cert", &ca_path.to_string_lossy())?;
     set_config("mqtt-frontend", "client-cert", &cert_path.to_string_lossy())?;
     set_config("mqtt-frontend", "client-key", &key_path.to_string_lossy())?;
-    set_config("mqtt-frontend", "push-webhook-url", "https://harmoniis.com/api/webhooks/push")?;
+    set_config(
+        "mqtt-frontend",
+        "push-webhook-url",
+        "https://harmoniis.com/api/webhooks/push",
+    )?;
     set_config("mqtt-frontend", "trusted-client-fingerprints-json", "[]")?;
     set_config("mqtt-frontend", "trusted-device-registry-json", "[]")?;
     Ok(())
 }
 
-fn parse_hrmw_output_field(output: &str, prefix: &str) -> Result<String, Box<dyn std::error::Error>> {
+fn parse_hrmw_output_field(
+    output: &str,
+    prefix: &str,
+) -> Result<String, Box<dyn std::error::Error>> {
     for line in output.lines() {
         if let Some(rest) = line.strip_prefix(prefix) {
             return Ok(rest.trim().to_string());
@@ -1592,7 +1614,7 @@ fn generate_gateway_config(enabled: &[&str]) -> String {
             "signal",
             "target/release/libharmonia_signal",
             ":authenticated",
-            "(:signal-account :signal-rpc-url)",
+            "nil",
         ),
         (
             "tailscale",
@@ -1621,9 +1643,20 @@ fn generate_gateway_config(enabled: &[&str]) -> String {
     ];
 
     for (name, path, label, keys) in &all_frontends {
-        let auto_load = if enabled.contains(name) { "t" } else { "nil" };
+        let auto_load = if *name == "signal" && enabled.contains(name) {
+            ":if-ready"
+        } else if enabled.contains(name) {
+            "t"
+        } else {
+            "nil"
+        };
+        let extra = if *name == "signal" {
+            "\n    :config-keys ((\"signal-frontend\" \"account\"))"
+        } else {
+            ""
+        };
         entries.push(format!(
-            "   (:name \"{name}\"\n    :so-path \"{path}.{so_ext}\"\n    :security-label {label}\n    :auto-load {auto_load}\n    :vault-keys {keys})",
+            "   (:name \"{name}\"\n    :so-path \"{path}.{so_ext}\"\n    :security-label {label}\n    :auto-load {auto_load}{extra}\n    :vault-keys {keys})",
         ));
     }
 

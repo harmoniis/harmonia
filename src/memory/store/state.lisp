@@ -250,9 +250,7 @@ If DIVE is true, raw :daily depth-0 memories are appended."
   "Assemble full bootstrap block. Returns empty string for :planner mode."
   (when (eq mode :planner)
     (return-from memory-bootstrap-context ""))
-  (let* ((skill-limit (truncate (if (fboundp 'harmony-policy-number)
-                                    (harmony-policy-number "memory/bootstrap-skill-limit" 3)
-                                    3)))
+  (let* ((skill-limit (signalograd-memory-bootstrap-skill-limit *runtime*))
          (skill-chars (truncate (if (fboundp 'harmony-policy-number)
                                     (harmony-policy-number "memory/bootstrap-skill-chars" 1200)
                                     1200)))

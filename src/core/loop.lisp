@@ -23,15 +23,6 @@
   (setf (runtime-state-prompt-queue runtime)
         (cons prompt (runtime-state-prompt-queue runtime))))
 
-;;; ─── Supervision counters ──────────────────────────────────────────────
-
-(defparameter *tick-error-count* 0
-  "Total errors caught by the supervisor across all ticks.")
-(defparameter *consecutive-tick-errors* 0
-  "Consecutive ticks that had at least one error. Reset on clean tick.")
-(defparameter *max-consecutive-errors-before-cooldown* 10
-  "After this many consecutive error ticks, enter cooldown (longer sleep).")
-
 ;;; ─── Helpers ───────────────────────────────────────────────────────────
 
 (defun %prompt-for-log (prompt)
@@ -190,8 +181,189 @@
                     (nconc (runtime-state-prompt-queue runtime)
                            (list signal-struct))))))))))
 
+(defun %tick-actor-supervisor (runtime)
+  "Drain unified actor mailbox and update actor records. Detect stalls.
+   Dispatches by :kind field — handles :cli-agent, :llm-task, :gateway,
+   :tailnet, :chronicle actor messages through the unified mailbox.
+   Runs BEFORE process-prompt so newly completed actors are visible immediately.
+   Returns T on success, NIL on error."
+  (%supervised-action "actor-supervisor"
+    (lambda ()
+      (let* ((registry (runtime-state-actor-registry runtime))
+             (messages (ignore-errors (actor-drain-mailbox)))
+             (seen-ids (make-hash-table :test 'eql))
+             (stall-threshold (%swarm-actor-stall-threshold)))
+        ;; Process messages from unified actor mailbox
+        (when (listp messages)
+          (dolist (msg messages)
+            (when (listp msg)
+              (let* ((actor-id (getf msg :actor-id))
+                     (actor-kind (getf msg :kind))
+                     (raw-payload (getf msg :payload))
+                     (payload-kind (and (listp raw-payload) (car raw-payload)))
+                     ;; Strip type tag — raw-payload is (:completed :output "x" ...)
+                     ;; so the plist properties start at (cdr raw-payload)
+                     (payload (if (listp raw-payload) (cdr raw-payload) raw-payload)))
+                ;; Dispatch by actor kind
+                (cond
+                  ;; CLI Agent / LLM Task messages — update Lisp actor registry
+                  ((or (eq actor-kind :cli-agent) (eq actor-kind :llm-task))
+                   (let ((record (gethash actor-id registry)))
+                     (when record
+                       (setf (gethash actor-id seen-ids) t)
+                       (cond
+                         ((eq payload-kind :progress-heartbeat)
+                          (setf (actor-record-stall-ticks record) 0)
+                          (setf (actor-record-last-heartbeat record) (get-universal-time)))
+                         ((eq payload-kind :state-changed)
+                          (let ((to (getf payload :to)))
+                            (when (keywordp to)
+                              (setf (actor-record-state record) to))))
+                         ((eq payload-kind :completed)
+                          (setf (actor-record-state record) :completed)
+                          (setf (actor-record-result record) (or (getf payload :output) ""))
+                          (setf (actor-record-duration-ms record) (or (getf payload :duration-ms) 0)))
+                         ((eq payload-kind :failed)
+                          (setf (actor-record-state record) :failed)
+                          (setf (actor-record-error-text record) (or (getf payload :error) "unknown"))
+                          (setf (actor-record-duration-ms record) (or (getf payload :duration-ms) 0)))))))
+                  ;; Gateway inbound signals — already handled by %tick-gateway-poll
+                  ;; (dual-path during transition, gateway messages are informational here)
+                  ((eq actor-kind :gateway) nil)
+                  ;; Tailnet mesh inbound — enqueue as internal signals
+                  ((eq actor-kind :tailnet)
+                   (when (eq payload-kind :mesh-inbound)
+                     (ignore-errors
+                       (%log :info "tailnet" "Mesh inbound from ~A: ~A"
+                             (getf payload :from-node)
+                             (getf payload :msg-type)))))
+                  ;; Signalograd proposal — adaptive overlay for next cycle
+                  ((eq actor-kind :signalograd)
+                   (when (eq payload-kind :state-changed)
+                     (let ((proposal (getf payload :to)))
+                       (when (and (listp proposal)
+                                  (eq (first proposal) :signalograd-proposal))
+                         (ignore-errors
+                           (signalograd-apply-proposal proposal :runtime runtime))))))
+                  ;; Chronicle ack — informational
+                  ((eq actor-kind :chronicle) nil))))))
+        ;; Increment stall-ticks for actors that received NO messages this tick
+        (maphash (lambda (id record)
+                   (unless (gethash id seen-ids)
+                     (when (eq (actor-record-state record) :running)
+                       (incf (actor-record-stall-ticks record))
+                       ;; Kill stalled actors
+                       (when (>= (actor-record-stall-ticks record) stall-threshold)
+                         (ignore-errors (tmux-kill id))
+                         (setf (actor-record-state record) :failed)
+                         (setf (actor-record-error-text record)
+                               (format nil "actor stalled: ~D ticks with no output"
+                                       (actor-record-stall-ticks record)))
+                         (%log :warn "actor-supervisor"
+                               "Killed stalled actor ~D (~A) after ~D ticks"
+                               id (actor-record-model record)
+                               (actor-record-stall-ticks record))))))
+                 registry))
+      t)))
+
+(defun %tick-actor-deliver (runtime)
+  "Deliver completed actor results to outbound queue and record outcomes.
+   Runs AFTER process-prompt.
+   Returns T on success, NIL on error."
+  (%supervised-action "actor-deliver"
+    (lambda ()
+      (let ((registry (runtime-state-actor-registry runtime))
+            (remaining '()))
+        (dolist (actor-id (runtime-state-actor-pending runtime))
+          (let ((record (gethash actor-id registry)))
+            (cond
+              ;; Completed: score, record, deliver
+              ((and record (eq (actor-record-state record) :completed))
+               (let* ((prompt (actor-record-prompt record))
+                      (result (or (actor-record-result record) ""))
+                      (trimmed (string-trim '(#\Space #\Newline #\Tab) result))
+                      (visible (if (> (length trimmed) 0)
+                                   (%presentation-sanitize-visible-text trimmed)
+                                   "[actor completed with empty output]"))
+                      (model (actor-record-model record))
+                      (duration (or (actor-record-duration-ms record) 0))
+                      (score (if (> (length trimmed) 0)
+                                 (ignore-errors (harmonic-score prompt visible))
+                                 0.0))
+                      (cost (or (actor-record-cost-usd record) 0.0)))
+                 ;; Record outcome
+                 (ignore-errors
+                   (model-policy-record-outcome
+                    :model model :success t :latency-ms duration
+                    :harmony-score (or score 0.0) :cost-usd cost))
+                 ;; Record chronicle delegation
+                 (ignore-errors
+                   (chronicle-record-delegation
+                    :task-hint "actor" :model model :backend "tmux-actor"
+                    :reason "non-blocking CLI actor" :escalated nil
+                    :cost-usd cost :latency-ms duration :success t
+                    :tokens-in 0 :tokens-out 0))
+                 (ignore-errors
+                   (%presentation-record-response prompt
+                                                  trimmed
+                                                  :visible-response visible
+                                                  :origin :actor
+                                                  :model model
+                                                  :score score
+                                                  :harmony (list :mode :actor
+                                                                 :llm-calls 1
+                                                                 :tool-calls 0
+                                                                 :datasource-count 1
+                                                                 :intermediate-tokens 0)
+                                                  :runtime runtime))
+                 ;; Deliver to gateway if originating signal exists
+                 (let ((signal (actor-record-originating-signal record)))
+                   (when (harmonia-signal-p signal)
+                     (push (list :frontend (harmonia-signal-frontend signal)
+                                 :channel (harmonia-signal-sub-channel signal)
+                                 :payload visible)
+                           *gateway-outbound-queue*))))
+               ;; Remove from registry
+               (remhash actor-id registry))
+
+              ;; Failed: log and remove
+              ((and record (eq (actor-record-state record) :failed))
+               (let ((model (actor-record-model record))
+                     (error-text (or (actor-record-error-text record) "unknown"))
+                     (prompt (actor-record-prompt record)))
+                 (ignore-errors
+                   (model-policy-record-outcome
+                    :model model :success nil :latency-ms 0
+                    :harmony-score 0.0 :cost-usd 0.0))
+                 (ignore-errors (model-policy-mark-cli-cooloff (%swarm-cli-id model)))
+                 (ignore-errors
+                   (%presentation-record-response prompt
+                                                  (format nil "[actor failed: ~A]" error-text)
+                                                  :visible-response (format nil "[actor failed: ~A]"
+                                                                            (%presentation-sanitize-visible-text error-text))
+                                                  :origin :actor
+                                                  :model model
+                                                  :score 0.0
+                                                  :harmony (list :mode :actor-failure)
+                                                  :runtime runtime))
+                 ;; Deliver error to gateway if originating signal exists
+                 (let ((signal (actor-record-originating-signal record)))
+                   (when (harmonia-signal-p signal)
+                     (push (list :frontend (harmonia-signal-frontend signal)
+                                 :channel (harmonia-signal-sub-channel signal)
+                                 :payload (format nil "[actor failed: ~A]"
+                                                  (%presentation-sanitize-visible-text error-text)))
+                           *gateway-outbound-queue*))))
+               (remhash actor-id registry))
+
+              ;; Still running — keep in pending list
+              (t (push actor-id remaining)))))
+        (setf (runtime-state-actor-pending runtime) (nreverse remaining)))
+      t)))
+
 (defun %tick-process-prompt (runtime)
   "Pop one prompt and process it. Routes responses back to originating frontend.
+   Handles :deferred responses from non-blocking actor spawns.
    Always sends a response for external signals — even on error — so frontends
    never hang waiting for a reply that will never come.
    Returns T on success or idle (no prompt), NIL only on actual error."
@@ -201,18 +373,71 @@
         (%supervised-action "process-prompt"
           (lambda ()
             (let ((response (%process-prompt-safe runtime prompt)))
-              (when (harmonia-signal-p prompt)
-                (push (list :frontend (harmonia-signal-frontend prompt)
-                            :channel (harmonia-signal-sub-channel prompt)
-                            :payload (if response
+              (cond
+                ;; Deferred: actor spawned, result delivered later by %tick-actor-deliver
+                ((eq response :deferred)
+                 nil)
+                ;; Normal response for external signals
+                ((harmonia-signal-p prompt)
+                 (let* ((raw-payload (if response
                                          (if (stringp response) response
                                              (princ-to-string response))
                                          "[internal error — please try again]"))
-                      *gateway-outbound-queue*)))
+                        (visible-payload (%presentation-sanitize-visible-text raw-payload)))
+                   (when (null response)
+                     (ignore-errors
+                       (%presentation-record-response (harmonia-signal-payload prompt)
+                                                      raw-payload
+                                                      :visible-response visible-payload
+                                                      :origin :system
+                                                      :runtime runtime)))
+                   (push (list :frontend (harmonia-signal-frontend prompt)
+                               :channel (harmonia-signal-sub-channel prompt)
+                               :payload visible-payload)
+                         *gateway-outbound-queue*)))))
             t)))))
+
+(defun %tick-tailnet-poll (runtime)
+  "Poll tailnet for mesh inbound messages (via unified actor mailbox).
+   Mesh messages arrive through the unified drain in %tick-actor-supervisor.
+   This phase is a placeholder for any tailnet-specific polling beyond the mailbox."
+  (declare (ignore runtime))
+  (%supervised-action "tailnet-poll" (lambda () t)))
+
+(defun %tick-tailnet-flush (runtime)
+  "Flush queued outbound tailnet mesh messages.
+   Currently a no-op placeholder — outbound mesh messages are sent inline."
+  (declare (ignore runtime))
+  (%supervised-action "tailnet-flush" (lambda () t)))
+
+(defun %tick-chronicle-flush (runtime)
+  "Flush batched chronicle recording requests in one operation.
+   Collects all pending chronicle records accumulated during the tick and
+   writes them in a single batch to reduce SQLite contention."
+  (%supervised-action "chronicle-flush"
+    (lambda ()
+      (let ((pending (runtime-state-chronicle-pending runtime)))
+        (when pending
+          (setf (runtime-state-chronicle-pending runtime) '())
+          (dolist (record pending)
+            (handler-case
+                (let ((type (getf record :type)))
+                  (cond
+                    ((string-equal type "harmonic")
+                     (chronicle-record-harmonic (getf record :ctx)))
+                    ((string-equal type "delegation")
+                     (apply #'chronicle-record-delegation (getf record :args)))
+                    ((string-equal type "memory")
+                     (apply #'chronicle-record-memory-event (getf record :args)))))
+              (error (e)
+                (declare (ignore e))
+                nil))))
+        t))))
 
 (defun %tick-gateway-flush ()
   "Drain outbound queue — send responses back through gateway.
+   Processes both the Lisp-side outbound queue AND any OutboundSignal messages
+   from the unified actor mailbox (posted by actors directly).
    Atomic swap: grab queue, clear it, iterate. No copy-list, no quadratic remove.
    Returns T on success or idle (empty queue), NIL only on actual error."
   (if (null *gateway-outbound-queue*)
@@ -223,7 +448,9 @@
             (setf *gateway-outbound-queue* '())
             (dolist (msg batch)
               (handler-case
-                  (gateway-send (getf msg :frontend) (getf msg :channel) (getf msg :payload))
+                  (gateway-send (getf msg :frontend)
+                                (getf msg :channel)
+                                (%presentation-sanitize-visible-text (getf msg :payload)))
                 (error (e)
                   (%log :warn "gateway-flush"
                         "Send to ~A/~A failed: ~A"
@@ -244,13 +471,18 @@
 
   ;; Run actions directly in order — no planner list, no dispatch overhead
   (let ((ok1 (%tick-gateway-poll runtime))
+        (ok1a (%tick-tailnet-poll runtime))
+        (ok1b (%tick-actor-supervisor runtime))
         (ok2 (%tick-process-prompt runtime))
+        (ok2b (%tick-actor-deliver runtime))
         (ok3 (%supervised-action "memory-heartbeat"
                (lambda () (memory-heartbeat :runtime runtime))))
         (ok4 (%supervised-action "harmonic-step"
                (lambda () (harmonic-state-step :runtime runtime))))
-        (ok5 (%tick-gateway-flush)))
-    (if (and ok1 ok2 ok3 ok4 ok5)
+        (ok4b (%tick-chronicle-flush runtime))
+        (ok5 (%tick-gateway-flush))
+        (ok5b (%tick-tailnet-flush runtime)))
+    (if (and ok1 ok1a ok1b ok2 ok2b ok3 ok4 ok4b ok5 ok5b)
         (setf *consecutive-tick-errors* 0)
         (incf *consecutive-tick-errors*)))
 

@@ -148,20 +148,30 @@ impl Handler for TrustedClientAuthHandler {
         };
 
         let Some(username) = connect_info.username() else {
-            return (false, Some(HookResult::AuthResult(AuthResult::NotAuthorized)));
+            return (
+                false,
+                Some(HookResult::AuthResult(AuthResult::NotAuthorized)),
+            );
         };
         let presented = normalize_fingerprint(username.as_ref());
         let allowed = broker_trust_state()
             .read()
             .map(|state| {
-                state.owner_fingerprint == presented || state.trusted_fingerprints.contains(&presented)
+                state.owner_fingerprint == presented
+                    || state.trusted_fingerprints.contains(&presented)
             })
             .unwrap_or(false);
 
         if allowed {
-            (false, Some(HookResult::AuthResult(AuthResult::Allow(false, None))))
+            (
+                false,
+                Some(HookResult::AuthResult(AuthResult::Allow(false, None))),
+            )
         } else {
-            (false, Some(HookResult::AuthResult(AuthResult::NotAuthorized)))
+            (
+                false,
+                Some(HookResult::AuthResult(AuthResult::NotAuthorized)),
+            )
         }
     }
 }
@@ -212,7 +222,11 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
 
         let listener = build_listener()?;
         println!("{} MQTT broker listening", style("→").cyan().bold());
-        MqttServer::new(scx).listener(listener).build().run().await?;
+        MqttServer::new(scx)
+            .listener(listener)
+            .build()
+            .run()
+            .await?;
         Ok::<(), Box<dyn std::error::Error>>(())
     })
 }
@@ -374,9 +388,9 @@ fn refresh_trust_state_from_local_config() {
         FRONTEND_SCOPE,
         "trusted-client-fingerprints-json",
     )
-        .ok()
-        .flatten()
-        .unwrap_or_else(|| "[]".to_string());
+    .ok()
+    .flatten()
+    .unwrap_or_else(|| "[]".to_string());
     let trusted = serde_json::from_str::<Vec<String>>(&trusted)
         .unwrap_or_default()
         .into_iter()
@@ -427,7 +441,11 @@ fn resolve_hrmw_bin() -> String {
     std::env::var("HARMONIA_HRMW_BIN")
         .ok()
         .filter(|value| !value.trim().is_empty())
-        .or_else(|| std::env::var("HRMW_BIN").ok().filter(|value| !value.trim().is_empty()))
+        .or_else(|| {
+            std::env::var("HRMW_BIN")
+                .ok()
+                .filter(|value| !value.trim().is_empty())
+        })
         .unwrap_or_else(|| "hrmw".to_string())
 }
 

@@ -22,7 +22,8 @@ Boot sequence:
    - vault, store, harmony-policy, model-policy,
    - router, lineage, matrix,
    - tool-runtime, baseband frontends,
-   - swarm, evolution, chronicle.
+   - swarm, evolution, chronicle, signalograd.
+7. Restore the evolution-matched `signalograd` checkpoint if present, otherwise continue from live working state.
 
 ## Deterministic Tick Model
 
@@ -30,11 +31,16 @@ Main control loop: `src/core/loop.lisp`.
 
 Per-tick actions (inline, zero allocation):
 
-1. `%tick-gateway-poll` — poll gateway for inbound signals
-2. `%tick-process-prompt` — pop and process one prompt (if queue non-empty)
-3. `memory-heartbeat` — memory pipeline maintenance
-4. `harmonic-step` — harmonic state machine advancement
-5. `%tick-gateway-flush` — drain outbound response queue
+1. `%tick-gateway-poll`
+2. `%tick-tailnet-poll`
+3. `%tick-actor-supervisor`
+4. `%tick-process-prompt`
+5. `%tick-actor-deliver`
+6. `memory-heartbeat`
+7. `harmonic-step`
+8. `%tick-chronicle-flush`
+9. `%tick-gateway-flush`
+10. `%tick-tailnet-flush`
 
 Each action is wrapped in `%supervised-action` (Erlang-style). Errors are caught, recorded to the error ring buffer, and the tick continues. The loop never crashes.
 
@@ -89,6 +95,17 @@ Execution path (split dispatch):
 Rewrite readiness requires convergence and policy thresholds (`rewrite-plan/*`).
 
 On `:stabilize`, the harmonic machine records a full snapshot (vitruvian scores, chaos dynamics, lorenz attractor, lambdoma convergence, security posture) and a decomposed concept graph into the chronicle knowledge base. This enables SQL-queryable time-travel over the agent's entire harmonic evolution — the agent can recall any past state, traverse concept graph history, and analyze delegation patterns via complex SQL.
+
+`signalograd` is coupled to this phase:
+
+1. chronicle records the finished cycle
+2. Lisp sends `signalograd` feedback for the previous applied projection
+3. Lisp sends a new telemetry observation
+4. Rust advances the chaotic reservoir / attractor memory state
+5. Rust posts a bounded proposal through the unified actor mailbox
+6. Lisp applies that proposal only on the next cycle after policy clamps
+
+This makes the adaptive layer causal, auditable, and actor-model aligned.
 
 ## Error Discipline And Self-Repair
 

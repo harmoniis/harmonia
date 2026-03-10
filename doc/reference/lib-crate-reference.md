@@ -31,6 +31,7 @@ This inventory follows the current Cargo workspace members in `../../Cargo.toml`
 | `lib/core/signal-integrity` | shared injection detection, dissonance scoring, and boundary wrapping for external data |
 | `lib/core/admin-intent` | Ed25519 signature verification for privileged admin mutations |
 | `lib/core/chronicle` | Graph-native knowledge base with time-series observability, concept graph SQL traversal, and pressure-aware GC |
+| `lib/core/signalograd` | tiny chaos-computing advisory kernel with Lorenz-style reservoir dynamics, Hopfield-like attractor memory, local online learning, and evolution checkpoint persistence |
 
 ## Backends (`lib/backends`)
 

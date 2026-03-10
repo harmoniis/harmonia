@@ -16,7 +16,14 @@ pub fn record(
         "INSERT INTO phoenix_events
             (event_type, exit_code, attempt, max_attempts, recovery_ms, detail)
          VALUES (?1,?2,?3,?4,?5,?6)",
-        params![event_type, exit_code, attempt, max_attempts, recovery_ms, detail],
+        params![
+            event_type,
+            exit_code,
+            attempt,
+            max_attempts,
+            recovery_ms,
+            detail
+        ],
     )
     .map_err(|e| e.to_string())?;
     Ok(())

@@ -30,32 +30,33 @@ Do not edit manually.
   - L15: `## Runtime Readiness Signals`
   - L29: `## Model/Swarm Policy State`
   - L61: `## Memory Evolution State`
-  - L72: `## Gateway Signal Protocol State`
-  - L87: `## Matrix Enforcement State`
-  - L96: `## Security Kernel State`
-  - L100: `### Typed Signal Dispatch`
-  - L106: `### Policy Gate`
-  - L117: `### Taint Propagation`
-  - L121: `### Safe Parsers`
-  - L127: `### Vault Security`
-  - L134: `### Invariant Guards`
-  - L142: `### Security Posture Tracking`
-  - L151: `### Adaptive Shell State`
-  - L158: `### Security Config`
-  - L166: `## Erlang-Style Fault Tolerance (v7)`
-  - L170: `### Supervision Architecture`
-  - L178: `### Gateway FFI Hardening`
-  - L184: `### Runtime Self-Knowledge`
-  - L197: `### Platform Path Structure`
-  - L210: `### Evolution Portability`
-  - L219: `## Chronicle Knowledge Base (v8)`
-  - L223: `### Database`
-  - L227: `### Tables (9)`
-  - L241: `### Concept Graph Traversal`
-  - L251: `### Arbitrary SQL Query`
-  - L261: `### Pressure-Aware GC`
-  - L273: `### Integration Points`
-  - L282: `### A2UI Dashboard`
+  - L72: `## Signalograd State`
+  - L97: `## Gateway Signal Protocol State`
+  - L112: `## Matrix Enforcement State`
+  - L121: `## Security Kernel State`
+  - L125: `### Typed Signal Dispatch`
+  - L131: `### Policy Gate`
+  - L142: `### Taint Propagation`
+  - L146: `### Safe Parsers`
+  - L152: `### Vault Security`
+  - L159: `### Invariant Guards`
+  - L167: `### Security Posture Tracking`
+  - L176: `### Adaptive Shell State`
+  - L183: `### Security Config`
+  - L191: `## Erlang-Style Fault Tolerance (v7)`
+  - L195: `### Supervision Architecture`
+  - L203: `### Gateway FFI Hardening`
+  - L209: `### Runtime Self-Knowledge`
+  - L222: `### Platform Path Structure`
+  - L235: `### Evolution Portability`
+  - L244: `## Chronicle Knowledge Base (v8)`
+  - L248: `### Database`
+  - L252: `### Tables (9)`
+  - L266: `### Concept Graph Traversal`
+  - L276: `### Arbitrary SQL Query`
+  - L286: `### Pressure-Aware GC`
+  - L298: `### Integration Points`
+  - L307: `### A2UI Dashboard`
 
 ## `../../src/boot/evolution/latest/rewrite-roadmap.md`
 - Migration map targets: `evolution-reference.md`, `operations-runbook.md`
@@ -114,31 +115,31 @@ Do not edit manually.
   - L8: `## Gateway Responsibilities`
   - L17: `## Frontend Contract`
   - L32: `## Frontend Capabilities`
-  - L50: `## Signal Structure`
-  - L69: `## Poll Format`
-  - L79: `## Auto-Load Policy`
-  - L89: `## Inbound Signal Adaptation`
-  - L101: `## A2UI Component Catalog`
-  - L107: `## Push Integration`
-  - L111: `## Outbound Flow`
-  - L118: `## Signal Security`
+  - L50: `## Baseband Channel Envelope`
+  - L76: `## Poll Format`
+  - L86: `## Auto-Load Policy`
+  - L96: `## Inbound Signal Adaptation`
+  - L108: `## A2UI Component Catalog`
+  - L114: `## Push Integration`
+  - L118: `## Outbound Flow`
+  - L125: `## Signal Security`
 
 ## `../../src/boot/genesis/ports-and-ffi.md`
 - Migration map targets: `src-runtime-reference.md`, `lib-crate-reference.md`, `system-map.md`
 - Headings:
   - L6: `## Port Map`
-  - L23: `## Shared Port Infrastructure`
-  - L32: `## Core Contract Rule`
+  - L24: `## Shared Port Infrastructure`
+  - L33: `## Core Contract Rule`
 
 ## `../../src/boot/genesis/runtime-architecture.md`
 - Migration map targets: `system-map.md`, `src-runtime-reference.md`, `lib-crate-reference.md`, `policy-and-state-reference.md`
 - Headings:
   - L3: `## Runtime Topology`
   - L10: `## Boot Flow`
-  - L27: `## Deterministic Tick Model`
-  - L43: `## Gateway Signal Processing`
-  - L54: `## Orchestration Flow`
-  - L76: `## Harmonic State Machine`
-  - L94: `## Error Discipline And Self-Repair`
-  - L117: `## Security Architecture`
+  - L28: `## Deterministic Tick Model`
+  - L49: `## Gateway Signal Processing`
+  - L59: `## Orchestration Flow`
+  - L81: `## Harmonic State Machine`
+  - L110: `## Error Discipline And Self-Repair`
+  - L133: `## Security Architecture`
 

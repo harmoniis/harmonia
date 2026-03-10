@@ -3,16 +3,24 @@ use serde_json::json;
 
 const COMPONENT: &str = "xai-backend";
 const DEFAULT_URL: &str = "https://api.x.ai/v1/chat/completions";
+const GROK_TRUTH_MODEL: &str = "x-ai/grok-4.1-fast";
 
 pub(crate) static OFFERINGS: &[ModelOffering] = &[
     ModelOffering {
-        id: "x-ai/grok-4-fast:online",
+        id: GROK_TRUTH_MODEL,
         tier: "fast-smart",
         usd_in_1k: 0.0002,
         usd_out_1k: 0.0005,
         quality: 7,
         speed: 8,
-        tags: &["fast", "reasoning", "orchestration"],
+        tags: &[
+            "fast",
+            "reasoning",
+            "truth-seeking",
+            "web-search",
+            "x-search",
+            "realtime",
+        ],
     },
     ModelOffering {
         id: "x-ai/grok-4",
@@ -41,7 +49,7 @@ fn model_features(native_model: &str) -> Vec<&'static str> {
     if lower.starts_with("grok") {
         features.push("reasoning");
     }
-    if lower.contains(":online") {
+    if native_model.eq_ignore_ascii_case("grok-4.1-fast") {
         features.push("web-search");
         features.push("x-search");
     }
@@ -59,16 +67,20 @@ fn request(prompt: &str, model: &str, api_key: &str) -> Result<String, String> {
     });
 
     if features.contains(&"reasoning") {
-        payload
-            .as_object_mut()
-            .unwrap()
-            .insert("reasoning".to_string(), json!({"effort": "high"}));
+        payload.as_object_mut().unwrap().insert(
+            "reasoning".to_string(),
+            json!({"enabled": true, "effort": "high", "exclude": true}),
+        );
     }
     if features.contains(&"web-search") {
-        payload
-            .as_object_mut()
-            .unwrap()
-            .insert("plugins".to_string(), json!([{"id": "web-search"}]));
+        payload.as_object_mut().unwrap().insert(
+            "plugins".to_string(),
+            json!([{"id": "web", "engine": "native"}]),
+        );
+        payload.as_object_mut().unwrap().insert(
+            "web_search_options".to_string(),
+            json!({"search_context_size": "high"}),
+        );
     }
 
     let headers = vec![format!("Authorization: Bearer {api_key}")];

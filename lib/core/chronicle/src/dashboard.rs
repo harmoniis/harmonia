@@ -45,8 +45,15 @@ pub fn dashboard_json() -> Result<String, String> {
     // 2. Harmonic Phase Progress
     let phase_progress = {
         let phases = [
-            "observe", "evaluate-global", "evaluate-local", "logistic-balance",
-            "lambdoma-project", "attractor-sync", "rewrite-plan", "security-audit", "stabilize",
+            "observe",
+            "evaluate-global",
+            "evaluate-local",
+            "logistic-balance",
+            "lambdoma-project",
+            "attractor-sync",
+            "rewrite-plan",
+            "security-audit",
+            "stabilize",
         ];
         let current: String = lock
             .query_row(

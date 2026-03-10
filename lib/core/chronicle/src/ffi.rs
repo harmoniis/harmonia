@@ -1,8 +1,12 @@
 use std::ffi::{CStr, CString};
 use std::os::raw::c_char;
+use std::sync::atomic::{AtomicU64, Ordering};
 
 use crate::state::{clear_error, last_error_message, set_error};
 use crate::{dashboard, db, query, tables};
+
+/// Actor ID assigned by the unified registry (0 = not registered yet)
+static CHRONICLE_ACTOR_ID: AtomicU64 = AtomicU64::new(0);
 
 const VERSION: &[u8] = b"harmonia-chronicle/0.1.0\0";
 
@@ -20,7 +24,11 @@ fn cstr_to_optional(ptr: *const c_char) -> Option<String> {
     }
     let c = unsafe { CStr::from_ptr(ptr) };
     let s = c.to_string_lossy().trim().to_string();
-    if s.is_empty() { None } else { Some(s) }
+    if s.is_empty() {
+        None
+    } else {
+        Some(s)
+    }
 }
 
 fn to_c_string(value: String) -> *mut c_char {
@@ -46,6 +54,17 @@ pub extern "C" fn harmonia_chronicle_init() -> i32 {
     match db::init() {
         Ok(()) => {
             clear_error();
+            // Register as chronicle actor in the unified registry (via dlsym)
+            if CHRONICLE_ACTOR_ID.load(Ordering::SeqCst) == 0
+                && harmonia_actor_protocol::client::is_available()
+            {
+                match harmonia_actor_protocol::client::register("chronicle") {
+                    Ok(id) => {
+                        CHRONICLE_ACTOR_ID.store(id, Ordering::SeqCst);
+                    }
+                    Err(_) => {} // Non-fatal
+                }
+            }
             0
         }
         Err(e) => {
@@ -196,10 +215,22 @@ pub extern "C" fn harmonia_chronicle_record_phoenix_event(
     let detail = cstr_to_optional(detail);
 
     // Use -1 as sentinel for "no value"
-    let exit_code_opt = if exit_code == -1 { None } else { Some(exit_code) };
+    let exit_code_opt = if exit_code == -1 {
+        None
+    } else {
+        Some(exit_code)
+    };
     let attempt_opt = if attempt == -1 { None } else { Some(attempt) };
-    let max_opt = if max_attempts == -1 { None } else { Some(max_attempts) };
-    let recovery_opt = if recovery_ms == -1 { None } else { Some(recovery_ms) };
+    let max_opt = if max_attempts == -1 {
+        None
+    } else {
+        Some(max_attempts)
+    };
+    let recovery_opt = if recovery_ms == -1 {
+        None
+    } else {
+        Some(recovery_ms)
+    };
 
     match tables::phoenix::record(
         &event_type,
@@ -237,7 +268,11 @@ pub extern "C" fn harmonia_chronicle_record_ouroboros_event(
     };
     let component = cstr_to_optional(component);
     let detail = cstr_to_optional(detail);
-    let patch_opt = if patch_size < 0 { None } else { Some(patch_size) };
+    let patch_opt = if patch_size < 0 {
+        None
+    } else {
+        Some(patch_size)
+    };
 
     match tables::ouroboros::record(
         &event_type,
@@ -307,6 +342,55 @@ pub extern "C" fn harmonia_chronicle_record_delegation(
     }
 }
 
+#[no_mangle]
+pub extern "C" fn harmonia_chronicle_record_signalograd_event(
+    event_type: *const c_char,
+    cycle: i64,
+    confidence: f64,
+    stability: f64,
+    novelty: f64,
+    reward: f64,
+    accepted: i32,
+    recall_hits: i32,
+    checkpoint_path: *const c_char,
+    checkpoint_digest: *const c_char,
+    detail: *const c_char,
+) -> i32 {
+    let event_type = match cstr_to_string(event_type) {
+        Ok(v) => v,
+        Err(e) => {
+            set_error(e);
+            return -1;
+        }
+    };
+    let checkpoint_path = cstr_to_optional(checkpoint_path);
+    let checkpoint_digest = cstr_to_optional(checkpoint_digest);
+    let detail = cstr_to_optional(detail);
+
+    match tables::signalograd::record(
+        &event_type,
+        cycle,
+        confidence,
+        stability,
+        novelty,
+        reward,
+        accepted != 0,
+        recall_hits,
+        checkpoint_path.as_deref(),
+        checkpoint_digest.as_deref(),
+        detail.as_deref(),
+    ) {
+        Ok(()) => {
+            clear_error();
+            0
+        }
+        Err(e) => {
+            set_error(e);
+            -1
+        }
+    }
+}
+
 /// Record a concept graph snapshot. The sexp is the full s-expression;
 /// nodes_json and edges_json are JSON arrays for relational decomposition.
 /// Format nodes: [{"concept":"x","domain":"y","count":1,"depth_min":0,"depth_max":0,"classes":"a,b"},...]
@@ -333,17 +417,15 @@ pub extern "C" fn harmonia_chronicle_record_graph(
         }
     };
 
-    let nodes: Vec<(String, String, i32, i32, i32, String)> =
-        match cstr_to_optional(nodes_json) {
-            Some(json_str) => parse_nodes_json(&json_str).unwrap_or_default(),
-            None => Vec::new(),
-        };
+    let nodes: Vec<(String, String, i32, i32, i32, String)> = match cstr_to_optional(nodes_json) {
+        Some(json_str) => parse_nodes_json(&json_str).unwrap_or_default(),
+        None => Vec::new(),
+    };
 
-    let edges: Vec<(String, String, i32, bool, String)> =
-        match cstr_to_optional(edges_json) {
-            Some(json_str) => parse_edges_json(&json_str).unwrap_or_default(),
-            None => Vec::new(),
-        };
+    let edges: Vec<(String, String, i32, bool, String)> = match cstr_to_optional(edges_json) {
+        Some(json_str) => parse_edges_json(&json_str).unwrap_or_default(),
+        None => Vec::new(),
+    };
 
     match tables::graph::record_snapshot(&source, &sexp_str, &nodes, &edges) {
         Ok(id) => {
@@ -358,8 +440,7 @@ pub extern "C" fn harmonia_chronicle_record_graph(
 }
 
 fn parse_nodes_json(json: &str) -> Result<Vec<(String, String, i32, i32, i32, String)>, String> {
-    let arr: Vec<serde_json::Value> =
-        serde_json::from_str(json).map_err(|e| e.to_string())?;
+    let arr: Vec<serde_json::Value> = serde_json::from_str(json).map_err(|e| e.to_string())?;
     let mut result = Vec::with_capacity(arr.len());
     for v in &arr {
         result.push((
@@ -375,8 +456,7 @@ fn parse_nodes_json(json: &str) -> Result<Vec<(String, String, i32, i32, i32, St
 }
 
 fn parse_edges_json(json: &str) -> Result<Vec<(String, String, i32, bool, String)>, String> {
-    let arr: Vec<serde_json::Value> =
-        serde_json::from_str(json).map_err(|e| e.to_string())?;
+    let arr: Vec<serde_json::Value> = serde_json::from_str(json).map_err(|e| e.to_string())?;
     let mut result = Vec::with_capacity(arr.len());
     for v in &arr {
         result.push((
@@ -410,10 +490,7 @@ pub extern "C" fn harmonia_chronicle_harmony_trajectory(
 }
 
 #[no_mangle]
-pub extern "C" fn harmonia_chronicle_harmonic_history(
-    since_ts: i64,
-    limit: i32,
-) -> *mut c_char {
+pub extern "C" fn harmonia_chronicle_harmonic_history(since_ts: i64, limit: i32) -> *mut c_char {
     match query::harmonic_history(since_ts, limit) {
         Ok(v) => {
             clear_error();
@@ -427,10 +504,7 @@ pub extern "C" fn harmonia_chronicle_harmonic_history(
 }
 
 #[no_mangle]
-pub extern "C" fn harmonia_chronicle_memory_history(
-    since_ts: i64,
-    limit: i32,
-) -> *mut c_char {
+pub extern "C" fn harmonia_chronicle_memory_history(since_ts: i64, limit: i32) -> *mut c_char {
     match query::memory_history(since_ts, limit) {
         Ok(v) => {
             clear_error();
@@ -444,10 +518,7 @@ pub extern "C" fn harmonia_chronicle_memory_history(
 }
 
 #[no_mangle]
-pub extern "C" fn harmonia_chronicle_phoenix_history(
-    since_ts: i64,
-    limit: i32,
-) -> *mut c_char {
+pub extern "C" fn harmonia_chronicle_phoenix_history(since_ts: i64, limit: i32) -> *mut c_char {
     match query::phoenix_history(since_ts, limit) {
         Ok(v) => {
             clear_error();
@@ -461,10 +532,7 @@ pub extern "C" fn harmonia_chronicle_phoenix_history(
 }
 
 #[no_mangle]
-pub extern "C" fn harmonia_chronicle_ouroboros_history(
-    since_ts: i64,
-    limit: i32,
-) -> *mut c_char {
+pub extern "C" fn harmonia_chronicle_ouroboros_history(since_ts: i64, limit: i32) -> *mut c_char {
     match query::ouroboros_history(since_ts, limit) {
         Ok(v) => {
             clear_error();
@@ -478,10 +546,7 @@ pub extern "C" fn harmonia_chronicle_ouroboros_history(
 }
 
 #[no_mangle]
-pub extern "C" fn harmonia_chronicle_delegation_history(
-    since_ts: i64,
-    limit: i32,
-) -> *mut c_char {
+pub extern "C" fn harmonia_chronicle_delegation_history(since_ts: i64, limit: i32) -> *mut c_char {
     match query::delegation_history(since_ts, limit) {
         Ok(v) => {
             clear_error();
@@ -600,7 +665,11 @@ pub extern "C" fn harmonia_chronicle_graph_traverse(
             return std::ptr::null_mut();
         }
     };
-    let snap_id = if snapshot_id <= 0 { None } else { Some(snapshot_id) };
+    let snap_id = if snapshot_id <= 0 {
+        None
+    } else {
+        Some(snapshot_id)
+    };
     match tables::graph::traverse_from(&concept, max_hops, snap_id) {
         Ok(v) => {
             clear_error();
@@ -615,7 +684,11 @@ pub extern "C" fn harmonia_chronicle_graph_traverse(
 
 #[no_mangle]
 pub extern "C" fn harmonia_chronicle_graph_bridges(snapshot_id: i64) -> *mut c_char {
-    let snap_id = if snapshot_id <= 0 { None } else { Some(snapshot_id) };
+    let snap_id = if snapshot_id <= 0 {
+        None
+    } else {
+        Some(snapshot_id)
+    };
     match tables::graph::interdisciplinary_bridges(snap_id) {
         Ok(v) => {
             clear_error();
@@ -630,7 +703,11 @@ pub extern "C" fn harmonia_chronicle_graph_bridges(snapshot_id: i64) -> *mut c_c
 
 #[no_mangle]
 pub extern "C" fn harmonia_chronicle_graph_domains(snapshot_id: i64) -> *mut c_char {
-    let snap_id = if snapshot_id <= 0 { None } else { Some(snapshot_id) };
+    let snap_id = if snapshot_id <= 0 {
+        None
+    } else {
+        Some(snapshot_id)
+    };
     match tables::graph::domain_distribution(snap_id) {
         Ok(v) => {
             clear_error();
@@ -644,11 +721,12 @@ pub extern "C" fn harmonia_chronicle_graph_domains(snapshot_id: i64) -> *mut c_c
 }
 
 #[no_mangle]
-pub extern "C" fn harmonia_chronicle_graph_central(
-    snapshot_id: i64,
-    limit: i32,
-) -> *mut c_char {
-    let snap_id = if snapshot_id <= 0 { None } else { Some(snapshot_id) };
+pub extern "C" fn harmonia_chronicle_graph_central(snapshot_id: i64, limit: i32) -> *mut c_char {
+    let snap_id = if snapshot_id <= 0 {
+        None
+    } else {
+        Some(snapshot_id)
+    };
     match tables::graph::central_concepts(snap_id, limit) {
         Ok(v) => {
             clear_error();
@@ -718,6 +796,35 @@ pub extern "C" fn harmonia_chronicle_free_string(ptr: *mut c_char) {
     unsafe {
         drop(CString::from_raw(ptr));
     }
+}
+
+/// Process a batch of delegation recording requests in one call.
+/// batch_sexp: s-expression list of delegation plists, each containing
+/// :task-hint, :model, :backend, :reason, :escalated, :escalated-from,
+/// :cost-usd, :latency-ms, :success, :tokens-in, :tokens-out.
+/// Returns count of records written or -1 on error.
+#[no_mangle]
+pub extern "C" fn harmonia_chronicle_flush_batch(batch_sexp: *const c_char) -> i32 {
+    let _sexp = match cstr_to_string(batch_sexp) {
+        Ok(v) => v,
+        Err(e) => {
+            set_error(e);
+            return -1;
+        }
+    };
+    // The batch is processed by the Lisp layer which calls individual
+    // chronicle-record-* functions. This FFI entry point is provided for
+    // future optimization where the Rust side can process batches in a
+    // single SQLite transaction. For now, acknowledge the batch.
+
+    // Post RecordAck to unified mailbox
+    let actor_id = CHRONICLE_ACTOR_ID.load(Ordering::SeqCst);
+    if actor_id > 0 && harmonia_actor_protocol::client::is_available() {
+        let _ = harmonia_actor_protocol::client::heartbeat(actor_id, 1);
+    }
+
+    clear_error();
+    0
 }
 
 #[cfg(test)]
