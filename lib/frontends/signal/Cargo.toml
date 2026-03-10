@@ -14,7 +14,7 @@ categories = ["api-bindings"]
 crate-type = ["cdylib", "rlib"]
 
 [dependencies]
-harmonia-config-store = { version = "0.1.6", path = "../../core/config-store" }
-harmonia-vault = { version = "0.1.6", path = "../../core/vault" }
+harmonia-config-store = { version = "0.1.7", path = "../../core/config-store" }
+harmonia-vault = { version = "0.1.7", path = "../../core/vault" }
 serde_json = "1"
 ureq = { version = "2", features = ["json"] }

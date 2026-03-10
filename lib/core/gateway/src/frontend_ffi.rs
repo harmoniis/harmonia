@@ -1,11 +1,25 @@
 use libloading::{Library, Symbol};
 use std::ffi::{CStr, CString};
 use std::os::raw::c_char;
+use std::panic::{self, AssertUnwindSafe};
+
+/// Extract a human-readable message from a `catch_unwind` panic payload.
+fn panic_message(payload: Box<dyn std::any::Any + Send>) -> String {
+    if let Some(s) = payload.downcast_ref::<&str>() {
+        s.to_string()
+    } else if let Some(s) = payload.downcast_ref::<String>() {
+        s.clone()
+    } else {
+        "unknown panic in frontend cdylib".to_string()
+    }
+}
 
 #[allow(dead_code)]
 pub struct FrontendVtable {
     _lib: Library, // keep loaded
     pub name: String,
+    so_path: String,
+    config: String,
     // Function pointers resolved from the .so
     fn_version: unsafe extern "C" fn() -> *const c_char,
     fn_healthcheck: unsafe extern "C" fn() -> i32,
@@ -69,6 +83,8 @@ impl FrontendVtable {
             fn_channel_label: fn_channel_label.map(|s| *s),
             _lib: lib,
             name: name.to_string(),
+            so_path: so_path.to_string(),
+            config: String::new(),
         })
     }
 
@@ -82,13 +98,20 @@ impl FrontendVtable {
         }
     }
 
-    pub fn healthcheck(&self) -> bool {
-        unsafe { (self.fn_healthcheck)() == 1 }
+    pub fn healthcheck(&self) -> Result<bool, String> {
+        let f = self.fn_healthcheck;
+        panic::catch_unwind(AssertUnwindSafe(|| unsafe { f() }))
+            .map(|rc| rc == 1)
+            .map_err(panic_message)
     }
 
-    pub fn init(&self, config: &str) -> Result<(), String> {
+    pub fn init(&mut self, config: &str) -> Result<(), String> {
+        self.config = config.to_string();
         let c_config = CString::new(config).map_err(|e| format!("invalid config: {e}"))?;
-        let rc = unsafe { (self.fn_init)(c_config.as_ptr()) };
+        let f = self.fn_init;
+        let ptr = c_config.as_ptr();
+        let rc = panic::catch_unwind(AssertUnwindSafe(|| unsafe { f(ptr) }))
+            .map_err(panic_message)?;
         if rc == 0 {
             Ok(())
         } else {
@@ -99,7 +122,11 @@ impl FrontendVtable {
     /// Poll for pending inbound signals. Returns raw sexp string from frontend.
     pub fn poll(&self) -> Result<Option<String>, String> {
         let mut buf = vec![0u8; 65536]; // 64KB buffer
-        let rc = unsafe { (self.fn_poll)(buf.as_mut_ptr() as *mut c_char, buf.len()) };
+        let f = self.fn_poll;
+        let buf_ptr = buf.as_mut_ptr() as *mut c_char;
+        let buf_len = buf.len();
+        let rc = panic::catch_unwind(AssertUnwindSafe(|| unsafe { f(buf_ptr, buf_len) }))
+            .map_err(panic_message)?;
         if rc < 0 {
             return Err(self.get_last_error());
         }
@@ -118,7 +145,11 @@ impl FrontendVtable {
     pub fn send(&self, channel: &str, payload: &str) -> Result<(), String> {
         let c_channel = CString::new(channel).map_err(|e| format!("invalid channel: {e}"))?;
         let c_payload = CString::new(payload).map_err(|e| format!("invalid payload: {e}"))?;
-        let rc = unsafe { (self.fn_send)(c_channel.as_ptr(), c_payload.as_ptr()) };
+        let f = self.fn_send;
+        let ch_ptr = c_channel.as_ptr();
+        let pl_ptr = c_payload.as_ptr();
+        let rc = panic::catch_unwind(AssertUnwindSafe(|| unsafe { f(ch_ptr, pl_ptr) }))
+            .map_err(panic_message)?;
         if rc == 0 {
             Ok(())
         } else {
@@ -127,12 +158,39 @@ impl FrontendVtable {
     }
 
     pub fn shutdown(&self) -> Result<(), String> {
-        let rc = unsafe { (self.fn_shutdown)() };
+        let f = self.fn_shutdown;
+        let rc = panic::catch_unwind(AssertUnwindSafe(|| unsafe { f() }))
+            .map_err(panic_message)?;
         if rc == 0 {
             Ok(())
         } else {
             Err(self.get_last_error())
         }
+    }
+
+    /// Reload the frontend library: shutdown, drop, reload from disk, re-init.
+    pub fn reload(&mut self) -> Result<(), String> {
+        // 1. Shutdown the current frontend (best-effort, ignore errors)
+        let _ = self.shutdown();
+
+        // 2. Capture fields needed for reload before we move _lib
+        let so_path = self.so_path.clone();
+        let name = self.name.clone();
+        let config = self.config.clone();
+
+        // 3. Load a fresh library (this also drops the old one when we reassign)
+        let mut fresh = unsafe { Self::load(&name, &so_path)? };
+
+        // 4. Init with stored config
+        fresh.config = config.clone();
+        if !config.is_empty() {
+            fresh.init(&config)?;
+        }
+
+        // 5. Swap self with the fresh vtable
+        *self = fresh;
+
+        Ok(())
     }
 
     pub fn list_channels(&self) -> Option<String> {

@@ -330,6 +330,9 @@
        (runtime-log runtime :harmonic-stabilized
                     (list :phase :stabilize
                           :rewrite-count (runtime-state-rewrite-count runtime)))
+       ;; Chronicle: record full harmonic state + concept graph snapshot
+       (ignore-errors (chronicle-record-harmonic ctx))
+       (ignore-errors (chronicle-record-graph-snapshot))
        (setf (runtime-state-harmonic-phase runtime) :observe))
       (t
        (setf (runtime-state-harmonic-phase runtime) :observe)))

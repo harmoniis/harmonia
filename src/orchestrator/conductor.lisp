@@ -208,6 +208,104 @@
         s
         (subseq s 0 limit))))
 
+(defun %cli-model-p (model)
+  (%starts-with-p (or model "") "cli:"))
+
+(defun %cli-model-id (model)
+  (if (%cli-model-p model) (subseq model 4) model))
+
+(defun %token-estimate (text)
+  (max 1 (round (/ (float (length (or text ""))) 4.0))))
+
+(defun %cli-timeout-seconds ()
+  (max 5 (or (ignore-errors (model-policy-cli-timeout-seconds)) 90)))
+
+(defun %read-process-stream-text (stream)
+  (if stream
+      (with-output-to-string (s)
+        (loop for line = (read-line stream nil nil)
+              while line
+              do (write-line line s)))
+      ""))
+
+(defun %process-running-p (proc)
+  (string= (string (sb-ext:process-status proc)) "RUNNING"))
+
+(defun %run-cli-model (model prompt)
+  (let* ((cli (%cli-model-id model))
+         (command (cond
+                    ((string= cli "claude-code") "claude")
+                    ((string= cli "codex") "codex")
+                    (t cli)))
+         (args (cond
+                 ((string= cli "claude-code")
+                  (list "--dangerously-skip-permissions" "-p" (or prompt "")))
+                 ((string= cli "codex")
+                  (list "exec" "--full-auto" (or prompt ""))
+                 )
+                 (t (list (or prompt "")))))
+         (timeout-seconds (%cli-timeout-seconds))
+         (started-at (get-internal-real-time))
+         (proc (sb-ext:run-program command args
+                                   :output :stream
+                                   :error :output
+                                   :search t
+                                   :wait nil)))
+    (loop while (%process-running-p proc) do
+      (let ((elapsed (/ (- (get-internal-real-time) started-at)
+                        internal-time-units-per-second)))
+        (when (>= elapsed timeout-seconds)
+          (ignore-errors (sb-ext:process-kill proc 15))
+          (sleep 0.2)
+          (when (%process-running-p proc)
+            (ignore-errors (sb-ext:process-kill proc 9)))
+          (ignore-errors (model-policy-mark-cli-cooloff cli))
+          (error "cli model ~A timed out after ~Ds" cli timeout-seconds)))
+      (sleep 0.1))
+    (let* ((stream (sb-ext:process-output proc))
+           (output (%read-process-stream-text stream))
+           (exit-code (sb-ext:process-exit-code proc)))
+      (ignore-errors (when stream (close stream)))
+      (unless (and exit-code (zerop exit-code))
+        (ignore-errors (model-policy-mark-cli-cooloff cli))
+        (error "cli model ~A failed: ~A" cli (%clip-text output 400)))
+      (let ((trimmed (string-trim '(#\Space #\Newline #\Tab) output)))
+        (unless (> (length trimmed) 0)
+          (ignore-errors (model-policy-mark-cli-cooloff cli))
+          (error "cli model ~A returned empty output" cli))
+        trimmed))))
+
+(defun %run-model-direct (model prompt)
+  (if (%cli-model-p model)
+      (%run-cli-model model prompt)
+      (progn
+        (%route-or-error "orchestrator" "openrouter")
+        (backend-complete prompt model))))
+
+(defun %swarm-context-summary-prompt (llm-prompt)
+  (format nil
+          "Compress the context for a coordinator agent.~%Return concise plain text with sections: GOAL, CONSTRAINTS, CODEBASE FACTS, ACTION INPUTS.~%Do not add speculation.~%~%CONTEXT START~%~A~%CONTEXT END"
+          (or llm-prompt "")))
+
+(defun %maybe-prepare-swarm-prompt (llm-prompt)
+  (let* ((threshold (model-policy-context-summarizer-threshold-chars))
+         (text (or llm-prompt "")))
+    (if (<= (length text) threshold)
+        (values text nil)
+        (let ((summary-model (model-policy-context-summarizer-model)))
+          (handler-case
+              (let* ((summary (%run-model-direct summary-model
+                                                 (%swarm-context-summary-prompt text)))
+                     (clean (string-trim '(#\Space #\Newline #\Tab #\Return) (or summary ""))))
+                (if (> (length clean) 0)
+                    (values (format nil "~A~%~%[CONDENSED_CONTEXT model=~A]~%~A"
+                                    text summary-model clean)
+                            summary-model)
+                    (values text nil)))
+            (error (_)
+              (declare (ignore _))
+              (values text nil)))))))
+
 (defun %state-root ()
   (or (config-get-for "conductor" "state-root" "global")
       (let ((base (or (sb-ext:posix-getenv "TMPDIR")
@@ -726,7 +824,16 @@
     (%orchestrate-inner prompt)))
 
 (defun orchestrate-once (input)
-  "Dispatch to signal or prompt orchestration based on input type."
+  "Dispatch to signal or prompt orchestration based on input type.
+   System slash commands are intercepted first, before LLM dispatch."
+  (let ((sys-result (%maybe-dispatch-system-command input)))
+    (when sys-result
+      ;; System command handled -- queue response and return
+      (let ((response-text (if (eq sys-result :system-exit) "exit" sys-result)))
+        (ignore-errors
+          (when (stringp response-text)
+            (memory-put :system response-text :tags '(:system-command))))
+        (return-from orchestrate-once response-text))))
   (etypecase input
     (harmonia-signal (orchestrate-signal input))
     (string (orchestrate-prompt input))))
@@ -776,10 +883,12 @@
                          (let ((metadata (or (%extract-tag-value prompt "metadata") "device"))
                                (components (%a2ui-component-names)))
                            (concatenate 'string llm-prompt
-                                        (format nil "~%[A2UI DEVICE: ~A — respond with A2UI render commands via gateway-send. Available components: ~A. Use the render topic format from a2ui-catalog.]"
+                         (format nil "~%[A2UI DEVICE: ~A — respond with A2UI render commands via gateway-send. Available components: ~A. Use the render topic format from a2ui-catalog.]"
                                                 metadata components)))
                          llm-prompt))
          (model (%select-model prompt))
+         (model-input-prompt llm-prompt)
+         (selection-trace "")
          (started-at (get-internal-real-time))
          (response nil)
          (used-tool "openrouter")
@@ -787,7 +896,9 @@
          (tool-calls 0)
          (datasource-count 1)
          (intermediate-tokens 0)
-         (mode :llm))
+         (mode :llm)
+         (swarm-recorded-p nil)
+         (swarm-best-cost 0.0))
     (setf response
           (handler-case
               (multiple-value-bind (tool-res tool-id tool-meta)
@@ -812,26 +923,44 @@
                         (setf mode :codemode))
                       tool-res)
                     (progn
-                      (%route-or-error "orchestrator" "openrouter")
-                      (let ((chain (model-escalation-chain prompt model))
-                          (result nil)
-                          (ok nil))
-                        (dolist (m chain)
-                          (unless ok
-                            (handler-case
-                                  (progn
-                                  (incf llm-calls)
-                                  (setf result (backend-complete llm-prompt m))
-                                  (setf model m)
-                                  (setf ok t))
-                              (error (_)
-                                (declare (ignore _))))))
-                        (if ok
-                            (progn
-                              (setf tool-calls 1)
-                              (setf datasource-count 1)
-                              result)
-                            (error "all model attempts failed"))))))
+                      (let* ((chain (model-escalation-chain prompt model))
+                             (prepared-prompt llm-prompt)
+                             (summary-model nil)
+                             (swarm-response nil)
+                             (swarm-report nil)
+                             (best-entry nil)
+                             (swarm-results '()))
+                        (unless (model-policy-orchestrator-delegate-swarm-p)
+                          (error "orchestrator delegation disabled by policy"))
+                        (setf selection-trace
+                              (or (ignore-errors (model-policy-selection-trace prompt model chain)) ""))
+                        (multiple-value-setq (prepared-prompt summary-model)
+                          (%maybe-prepare-swarm-prompt llm-prompt))
+                        (setf model-input-prompt prepared-prompt)
+                        (%route-or-error "orchestrator" "parallel-agents")
+                        (multiple-value-setq (swarm-response swarm-report best-entry swarm-results)
+                          (parallel-solve prepared-prompt
+                                          :return-structured t
+                                          :preferred-models chain
+                                          :max-subagents (parallel-get-subagent-count)))
+                        (unless (and swarm-response
+                                     (> (length (string-trim '(#\Space #\Newline #\Tab #\Return)
+                                                              (princ-to-string swarm-response)))
+                                        0))
+                          (error "swarm delegation produced empty response"))
+                        (setf used-tool "parallel-agents")
+                        (setf model (or (and best-entry (getf best-entry :model)) model))
+                        (setf llm-calls (max 1 (length swarm-results)))
+                        (setf tool-calls 1)
+                        (setf datasource-count (max 1 (length swarm-results)))
+                        (setf swarm-best-cost (or (and best-entry (getf best-entry :cost-usd)) 0.0))
+                        (setf swarm-recorded-p t)
+                        (setf selection-trace
+                              (format nil "~A delegated=swarm summary-model=~A report=~A"
+                                      selection-trace
+                                      (or summary-model "none")
+                                      (%clip-text (or swarm-report "") 240)))
+                        swarm-response))))
                     (error (e)
                       (ignore-errors
                         (harmonic-matrix-log-event "orchestrator" "error" used-tool
@@ -865,10 +994,41 @@
                    :datasource-count datasource-count
                    :intermediate-tokens intermediate-tokens))
            (score (harmonic-score prompt response :context harmony))
+           (llm-ran (> llm-calls 0))
+           (tokens-in (if llm-ran (%token-estimate model-input-prompt) 0))
+           (tokens-out (if llm-ran (%token-estimate (princ-to-string response)) 0))
+           (estimated-cost (if llm-ran
+                               (if (and swarm-recorded-p (> swarm-best-cost 0.0))
+                                   swarm-best-cost
+                                   (model-policy-estimate-cost-usd model model-input-prompt (princ-to-string response)))
+                               0.0))
            (memory-id (memory-record-orchestration safe-prompt response used-tool score elapsed-ms :harmony harmony)))
+      (when (and *runtime* llm-ran)
+        (setf (runtime-state-active-model *runtime*) model))
       (memory-record-tool-usage used-tool :latency-ms elapsed-ms :success t)
+      (when (and llm-ran (not swarm-recorded-p))
+        (ignore-errors
+          (model-policy-record-outcome
+           :model model
+           :success t
+           :latency-ms elapsed-ms
+           :harmony-score score
+           :cost-usd estimated-cost)))
+      (when llm-ran
+        (ignore-errors
+          (chronicle-record-delegation
+           :task-hint (string-downcase (symbol-name mode))
+           :model model
+           :backend used-tool
+           :reason selection-trace
+           :escalated nil
+           :cost-usd estimated-cost
+           :latency-ms elapsed-ms
+           :success t
+           :tokens-in tokens-in
+           :tokens-out tokens-out)))
       (ignore-errors
-        (harmonic-matrix-observe-route "orchestrator" used-tool t elapsed-ms))
+        (harmonic-matrix-observe-route "orchestrator" used-tool t elapsed-ms estimated-cost))
       (ignore-errors
         (%route-or-error used-tool "memory"))
       (ignore-errors

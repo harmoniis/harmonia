@@ -126,6 +126,7 @@ pub extern "C" fn harmonia_ouroboros_record_crash(
         }
     };
     let kind = format!("ouroboros/{}", component);
+    let _ = harmonia_chronicle::ouroboros::record("crash", Some(&component), Some(&detail), None, false);
     match append_recovery(&kind, &detail) {
         Ok(()) => {
             clear_error();
@@ -211,10 +212,13 @@ pub extern "C" fn harmonia_ouroboros_write_patch(
     }
     let filename = format!("{}-{}.patch", component.replace('/', "_"), now_secs());
     let path = patch_dir.join(filename);
-    if let Err(e) = fs::write(&path, patch) {
+    if let Err(e) = fs::write(&path, &patch) {
         set_error(format!("patch write failed: {e}"));
         return -1;
     }
+    let _ = harmonia_chronicle::ouroboros::record(
+        "patch_write", Some(&component), None, Some(patch.len() as i64), true,
+    );
     clear_error();
     0
 }

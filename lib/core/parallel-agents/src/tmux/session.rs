@@ -95,11 +95,13 @@ pub(crate) fn capture_pane(name: &str, history_lines: u32) -> Result<String, Str
 }
 
 /// Capture only the visible pane (no scrollback).
+#[allow(dead_code)]
 pub(crate) fn capture_visible(name: &str) -> Result<String, String> {
     run(&["capture-pane", "-t", name, "-p"])
 }
 
 /// List all tmux sessions whose names start with a given prefix.
+#[allow(dead_code)]
 pub(crate) fn list_sessions_with_prefix(prefix: &str) -> Result<Vec<String>, String> {
     let output = match run(&["list-sessions", "-F", "#{session_name}"]) {
         Ok(v) => v,
@@ -121,12 +123,6 @@ pub(crate) fn list_sessions_with_prefix(prefix: &str) -> Result<Vec<String>, Str
 /// Send Ctrl+C (interrupt) to a session.
 pub(crate) fn send_interrupt(name: &str) -> Result<(), String> {
     run(&["send-keys", "-t", name, "C-c"])?;
-    Ok(())
-}
-
-/// Send Ctrl+D (EOF) to a session.
-pub(crate) fn send_eof(name: &str) -> Result<(), String> {
-    run(&["send-keys", "-t", name, "C-d"])?;
     Ok(())
 }
 

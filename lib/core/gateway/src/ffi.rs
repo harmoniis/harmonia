@@ -190,7 +190,7 @@ pub extern "C" fn harmonia_gateway_frontend_status(name: *const c_char) -> *mut 
     let gw = gateway();
     match gw.registry.with_frontend(&name, |handle| {
         let version = handle.vtable.version();
-        let healthy = handle.vtable.healthcheck();
+        let healthy = handle.vtable.healthcheck().unwrap_or(false);
         let caps = handle.capabilities_sexp();
         format!(
             "(:name \"{}\" :version \"{}\" :healthy {} :security \"{}\" :capabilities {})",
@@ -235,6 +235,47 @@ pub extern "C" fn harmonia_gateway_list_channels(name: *const c_char) -> *mut c_
         Err(e) => {
             set_error(e);
             std::ptr::null_mut()
+        }
+    }
+}
+
+#[no_mangle]
+pub extern "C" fn harmonia_gateway_reload(name: *const c_char) -> i32 {
+    let name = match cstr_to_string(name) {
+        Ok(v) => v,
+        Err(e) => {
+            set_error(e);
+            return -1;
+        }
+    };
+    let gw = gateway();
+    match gw.registry.reload(&name) {
+        Ok(()) => {
+            clear_error();
+            0
+        }
+        Err(e) => {
+            set_error(e);
+            -1
+        }
+    }
+}
+
+#[no_mangle]
+pub extern "C" fn harmonia_gateway_crash_count(name: *const c_char) -> i32 {
+    let name = match cstr_to_string(name) {
+        Ok(v) => v,
+        Err(e) => {
+            set_error(e);
+            return -1;
+        }
+    };
+    let gw = gateway();
+    match gw.registry.crash_count(&name) {
+        Ok(count) => count as i32,
+        Err(e) => {
+            set_error(e);
+            -1
         }
     }
 }

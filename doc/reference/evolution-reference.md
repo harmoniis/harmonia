@@ -28,6 +28,7 @@ Primary conceptual source: `../../../doc/agent/evolution/latest/GENOMIC_MODEL.md
 | `lib/core/ouroboros` | crash history and patch artifact APIs |
 | `lib/core/phoenix` | supervisor-level restart/rollout control |
 | `lib/core/recovery` | canonical crash/restart ledger substrate |
+| `src/core/introspection.lisp` | runtime self-knowledge, self-compilation, hot-reload, error ring |
 
 ## Versioned Evolution State
 
@@ -50,6 +51,7 @@ Evolution decisions must remain bounded by:
 3. rewrite validation rules from swarm/self-rewrite policy,
 4. recovery and rollback path availability,
 5. production readiness checks.
+6. evolution portability gates (git push status, distributed propagation).
 
 Primary sources:
 
@@ -57,6 +59,12 @@ Primary sources:
 - `../../../doc/agent/evolution/latest/RECOVERY.md`
 - `../../../doc/agent/evolution/latest/PROD_READINESS.md`
 - `../../../doc/agent/evolution/latest/TOKEN_HARMONY.md`
+
+## Evolution Portability
+
+- `harmonia uninstall evolution-export [-o path.tar.gz]` — portable archive.
+- `harmonia uninstall evolution-import <archive> [--merge]` — restore/merge.
+- Safety gates: checks git push + distributed propagation before allowing uninstall.
 
 ## Evolution Topic Coverage Map
 

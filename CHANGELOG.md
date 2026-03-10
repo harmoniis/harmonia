@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.7] — 2026-03-10
+
+### Fixed
+- Boot crash: `CONFIG-GET-FOR is undefined` — harmony-policy and model-policy used config-store at load time before store.lisp was loaded; replaced with lazy resolvers using `fboundp` guards
+- Boot crash: `(PROBE-FILE NIL)` — state path resolvers now have TMPDIR/homedir fallbacks that always produce a valid string
+- Masked API key input: replaced `dialoguer::Password` (showed `[hidden]` with no typing feedback) with custom `read_masked()` showing `*` per character with backspace support
+
 ## [0.1.6] — 2026-03-10
 
 ### Added

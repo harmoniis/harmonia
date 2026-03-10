@@ -4,7 +4,19 @@ This roadmap defines high-leverage evolution targets while preserving genesis al
 
 ## Priority 1: Stability And Observability
 
-- Extend matrix time-series usage in runtime decisions.
+- [DONE v7] Erlang-style supervision: every tick action wrapped in `%supervised-action`, never crashes.
+- [DONE v7] Error ring buffer (64 entries) for self-diagnosis via `introspect-recent-errors`.
+- [DONE v7] Library crash tracking with per-library crash counts, status, timestamps.
+- [DONE v7] `catch_unwind` on all gateway FFI calls — panicking cdylibs cannot crash the process.
+- [DONE v7] Adaptive cooldown: 5x sleep after 10 consecutive error ticks.
+- [DONE v7] Runtime self-knowledge injected into DNA system prompt for autonomous debugging.
+- [DONE v8] Chronicle knowledge base: graph-native SQLite store with 9 tables for harmonic, memory, delegation, recovery, and concept graph data.
+- [DONE v8] Arbitrary SQL query (`chronicle-query sql`) returning s-expression results for agent self-reasoning.
+- [DONE v8] Concept graph decomposition into relational tables with recursive CTE traversal.
+- [DONE v8] Pressure-aware GC: size-based pruning preserving high-signal inflection points.
+- [DONE v8] Harmony trajectory: permanently downsampled 5-minute buckets, never pruned.
+- [DONE v8] A2UI dashboard: 8-panel Composite for harmony, delegation, memory, lifecycle visualization.
+- Extend matrix time-series usage in runtime decisions (chronicle data available for this).
 - Improve structured error taxonomy and recovery summaries.
 - Keep boot-to-ready path deterministic under partial frontend availability.
 
@@ -22,6 +34,10 @@ This roadmap defines high-leverage evolution targets while preserving genesis al
 
 ## Priority 4: Evolution Safety
 
+- [DONE v7] Evolution export/import: `harmonia uninstall evolution-export` / `evolution-import --merge`.
+- [DONE v7] Uninstall safety gate: checks git push status and distributed propagation before allowing removal.
+- [DONE v7] Hot-reload: `%hot-reload-frontend` rebuilds crate, copies dylib, re-registers via gateway.
+- [DONE v7] Self-compilation: `%cargo-build-component` builds individual crates from within the agent.
 - Standardize rewrite preflight checks.
 - Require explicit rollback plans in automated patch proposals.
 - Tie rewrite acceptance to measurable score delta, not only successful execution.
@@ -55,6 +71,16 @@ This roadmap defines high-leverage evolution targets while preserving genesis al
 - Behavioral baseline + anomaly detection (rolling per-frontend statistics).
 - Daily security digest generation alongside memory journaling.
 - Frontend capability negotiation for dynamic security label upgrade.
+
+## Priority 7: Platform Maturity
+
+- [DONE v7] Platform-correct path structure: user data separate from system artifacts.
+- [DONE v7] XDG-style paths: `~/.local/lib/harmonia/`, `~/.local/share/harmonia/`, `~/.local/bin/`.
+- [DONE v7] Platform-specific runtime dirs: macOS `$TMPDIR`, Linux `$XDG_RUNTIME_DIR`.
+- [DONE v7] Platform-specific log dirs: macOS `~/Library/Logs/Harmonia/`, Linux `~/.local/state/harmonia/`.
+- [DONE v7] Library path fallback chain with env override support.
+- Windows support testing (paths defined but untested).
+- FreeBSD service file (rc.d script template exists but untested).
 
 ## Scope Exclusions
 

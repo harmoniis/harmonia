@@ -119,20 +119,195 @@
 (defun parallel-get-subagent-count ()
   *parallel-subagent-count*)
 
-(defun parallel-solve (prompt)
+(defun %swarm-starts-with-p (text prefix)
+  (let ((s (or text ""))
+        (p (or prefix "")))
+    (and (>= (length s) (length p))
+         (string-equal p s :end2 (length p)))))
+
+(defun %swarm-cli-model-p (model)
+  (%swarm-starts-with-p model "cli:"))
+
+(defun %swarm-cli-id (model)
+  (if (%swarm-cli-model-p model) (subseq model 4) model))
+
+(defun %swarm-cli-timeout-seconds ()
+  (max 5 (or (ignore-errors (model-policy-cli-timeout-seconds)) 90)))
+
+(defun %swarm-read-stream-text (stream)
+  (if stream
+      (with-output-to-string (s)
+        (loop for line = (read-line stream nil nil)
+              while line
+              do (write-line line s)))
+      ""))
+
+(defun %swarm-process-running-p (proc)
+  (string= (string (sb-ext:process-status proc)) "RUNNING"))
+
+(defun %swarm-run-cli-subagent (model prompt)
+  (let* ((cli (%swarm-cli-id model))
+         (command (cond
+                    ((string= cli "claude-code") "claude")
+                    ((string= cli "codex") "codex")
+                    (t cli)))
+         (args (cond
+                 ((string= cli "claude-code")
+                  (list "--dangerously-skip-permissions" "-p" (or prompt "")))
+                 ((string= cli "codex")
+                  (list "exec" "--full-auto" (or prompt "")))
+                 (t (list (or prompt "")))))
+         (timeout-seconds (%swarm-cli-timeout-seconds))
+         (started-at (get-internal-real-time))
+         (proc (sb-ext:run-program command args
+                                   :output :stream
+                                   :error :output
+                                   :search t
+                                   :wait nil)))
+    (loop while (%swarm-process-running-p proc) do
+      (let ((elapsed (/ (- (get-internal-real-time) started-at)
+                        internal-time-units-per-second)))
+        (when (>= elapsed timeout-seconds)
+          (ignore-errors (sb-ext:process-kill proc 15))
+          (sleep 0.2)
+          (when (%swarm-process-running-p proc)
+            (ignore-errors (sb-ext:process-kill proc 9)))
+          (error "cli subagent ~A timed out after ~Ds" cli timeout-seconds)))
+      (sleep 0.1))
+    (let* ((stream (sb-ext:process-output proc))
+           (output (%swarm-read-stream-text stream))
+           (exit-code (sb-ext:process-exit-code proc)))
+      (ignore-errors (when stream (close stream)))
+      (unless (and exit-code (zerop exit-code))
+        (error "cli subagent ~A failed: ~A" cli output))
+      (let ((trimmed (string-trim '(#\Space #\Newline #\Tab) output)))
+        (unless (> (length trimmed) 0)
+          (error "cli subagent ~A returned empty output" cli))
+        trimmed))))
+
+(defun %swarm-clean-text (text)
+  (string-trim '(#\Space #\Newline #\Tab #\Return) (or text "")))
+
+(defun %swarm-parse-task-result (raw &optional fallback-model)
+  (let ((trimmed (%swarm-clean-text raw)))
+    (handler-case
+        (let* ((*read-eval* nil)
+               (sexp (read-from-string trimmed nil nil)))
+          (if (and (listp sexp) (getf sexp :model))
+              (let* ((model (or (getf sexp :model) fallback-model))
+                     (success (not (null (getf sexp :success))))
+                     (response (%swarm-clean-text (or (getf sexp :response) "")))
+                     (latency (or (getf sexp :latency-ms) 0))
+                     (cost (or (getf sexp :cost-usd) 0.0))
+                     (error-text (%swarm-clean-text (or (getf sexp :error) ""))))
+                (list :model model
+                      :text response
+                      :success success
+                      :latency-ms latency
+                      :cost-usd cost
+                      :error error-text))
+              (list :model fallback-model
+                    :text trimmed
+                    :success (> (length trimmed) 0)
+                    :latency-ms 0
+                    :cost-usd 0.0
+                    :error "")))
+      (error (_)
+        (declare (ignore _))
+        (list :model fallback-model
+              :text trimmed
+              :success (> (length trimmed) 0)
+              :latency-ms 0
+              :cost-usd 0.0
+              :error "")))))
+
+(defun parallel-solve (prompt &key return-structured preferred-models max-subagents)
   "Spawn N subagents with different model/cost profiles, then return best + report."
-  (harmonic-matrix-route-or-error "orchestrator" "parallel-agents")
-  (let* ((n (parallel-get-subagent-count))
-         (chain (model-escalation-chain prompt (%pick-heuristic-model prompt)))
-         (models (subseq chain 0 (min n (length chain))))
-         (ids (mapcar (lambda (m)
-                        (parallel-submit (format nil "[subagent model=~A] ~A" m prompt) m))
-                      models)))
-    (parallel-run-pending n)
-    (let* ((results (mapcar #'parallel-task-result ids))
-           (best (car (sort (copy-seq results) #'>
-                            :key (lambda (r) (harmonic-score prompt r)))))
-           (rep (parallel-report)))
-      (harmonic-matrix-observe-route "orchestrator" "parallel-agents" t 1)
-      (harmonic-matrix-observe-route "parallel-agents" "memory" t 1)
-      (format nil "PARALLEL_BEST=~A~%PARALLEL_REPORT=~A" best rep))))
+  (let* ((n (max 1 (or max-subagents (parallel-get-subagent-count))))
+         (chain (or preferred-models
+                    (model-escalation-chain prompt (choose-model prompt))))
+         (queue (copy-list chain))
+         (jobs '())
+         (results '())
+         (scheduled 0)
+         (used-parallel nil)
+         (parallel-routed nil))
+    (loop while (and queue (< scheduled n)) do
+      (let ((m (pop queue)))
+        (if (%swarm-cli-model-p m)
+            (handler-case
+                (progn
+                  (push (list :model m
+                              :text (%swarm-run-cli-subagent m prompt)
+                              :success t
+                              :latency-ms 0
+                              :cost-usd 0.0
+                              :error "")
+                        results)
+                  (incf scheduled))
+              (error (e)
+                (let ((msg (princ-to-string e)))
+                  (ignore-errors (model-policy-mark-cli-cooloff (%swarm-cli-id m)))
+                  (when (model-policy-cli-quota-exceeded-p msg)
+                    (ignore-errors (model-policy-mark-cli-cooloff (%swarm-cli-id m))))
+                  (ignore-errors
+                    (model-policy-record-outcome
+                     :model m
+                     :success nil
+                     :latency-ms 0
+                     :harmony-score 0.0
+                     :cost-usd 0.0)))))
+            (progn
+              (unless parallel-routed
+                (harmonic-matrix-route-or-error "orchestrator" "parallel-agents")
+                (setf parallel-routed t))
+              (push (cons (parallel-submit (format nil "[subagent model=~A] ~A" m prompt) m) m) jobs)
+              (setf used-parallel t)
+              (incf scheduled)))))
+    (when jobs
+      (parallel-run-pending (length jobs))
+      (dolist (job jobs)
+        (push (%swarm-parse-task-result (parallel-task-result (car job)) (cdr job)) results)))
+    (setf results (nreverse results))
+    (unless results
+      (error "parallel solve failed: no model produced output"))
+    (let ((usable-results '()))
+      (dolist (entry results)
+        (let* ((model (or (getf entry :model) "unknown"))
+               (text (%swarm-clean-text (getf entry :text)))
+               (success (and (getf entry :success) (> (length text) 0)))
+               (latency (or (getf entry :latency-ms) 0))
+               (base-cost (or (getf entry :cost-usd) 0.0))
+               (cost (if (> base-cost 0.0)
+                         base-cost
+                         (model-policy-estimate-cost-usd model prompt text)))
+               (score (if success (harmonic-score prompt text) 0.0)))
+          (setf (getf entry :model) model)
+          (setf (getf entry :text) text)
+          (setf (getf entry :success) success)
+          (setf (getf entry :latency-ms) latency)
+          (setf (getf entry :cost-usd) cost)
+          (setf (getf entry :score) score)
+          (ignore-errors
+            (model-policy-record-outcome
+             :model model
+             :success success
+             :latency-ms latency
+             :harmony-score score
+             :cost-usd cost))
+          (when success
+            (push entry usable-results))))
+      (setf usable-results (nreverse usable-results))
+      (unless usable-results
+        (error "parallel solve failed: all model attempts failed"))
+      (let* ((best-entry (car (sort (copy-list usable-results) #'> :key (lambda (e) (getf e :score)))))
+             (best (getf best-entry :text))
+             (rep (if used-parallel
+                      (or (ignore-errors (parallel-report)) "parallel-report-unavailable")
+                      "direct-cli")))
+        (when used-parallel
+          (harmonic-matrix-observe-route "orchestrator" "parallel-agents" t 1)
+          (harmonic-matrix-observe-route "parallel-agents" "memory" t 1))
+        (if return-structured
+            (values best rep best-entry usable-results)
+            (format nil "PARALLEL_BEST=~A~%PARALLEL_REPORT=~A" best rep))))))

@@ -89,6 +89,17 @@ Complementing the hard security kernel, the adaptive shell provides defense-in-d
 
 The kernel stops exploits structurally. The shell detects and attenuates anomalies adaptively.
 
+## Chronicle As Institutional Memory
+
+The chronicle knowledge base (`lib/core/chronicle`) is the agent's durable, queryable memory of its own evolution:
+
+- Harmonic snapshots decompose every cycle's vitruvian scores, chaos dynamics, and attractor state into SQL-queryable rows.
+- Concept graphs from `memory-map-sexp` are decomposed into relational `graph_nodes` and `graph_edges` tables, enabling recursive CTE traversal, domain distribution analysis, and interdisciplinary bridge detection — all through standard SQL.
+- Delegation decisions capture which model was chosen, why, at what cost, and whether it succeeded — enabling the agent to learn from its own routing history.
+- Pressure-aware GC preserves high-signal data (inflection points, failures, recoveries) while thinning noise, ensuring the knowledge base stays fast and relevant.
+
+The key insight: the agent doesn't just log — it builds a queryable knowledge graph that it can reason over to inform its next evolution.
+
 ## Evolution With Rollback
 
 Every meaningful rewrite path must preserve rollback viability.

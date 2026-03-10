@@ -29,6 +29,7 @@ This inventory follows the current Cargo workspace members in `../../Cargo.toml`
 | `lib/core/gateway` | signal baseband + frontend registry with capabilities parsing, metadata enrichment, A2UI-aware signal emission, and inline dissonance scoring |
 | `lib/core/signal-integrity` | shared injection detection, dissonance scoring, and boundary wrapping for external data |
 | `lib/core/admin-intent` | Ed25519 signature verification for privileged admin mutations |
+| `lib/core/chronicle` | Graph-native knowledge base with time-series observability, concept graph SQL traversal, and pressure-aware GC |
 
 ## Backends (`lib/backends`)
 

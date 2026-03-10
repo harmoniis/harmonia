@@ -138,7 +138,15 @@
       (t
        (let ((groups (make-hash-table :test 'equal))
              (created 0)
-             (crystallized (%crystallize-before-compression)))
+             (crystallized (progn
+                         (let ((n (%crystallize-before-compression)))
+                           (when (> n 0)
+                             (ignore-errors
+                               (chronicle-record-memory-event "crystallise"
+                                 :entries-created n
+                                 :node-count (hash-table-count *memory-concept-nodes*)
+                                 :edge-count (hash-table-count *memory-concept-edges*))))
+                           n))))
          (dolist (entry (%daily-uncompressed-entries))
            (when (and (>= (%daily-signal-score entry) *noise-score-threshold*)
                       (not (member :crystal (memory-entry-tags entry))))
@@ -174,6 +182,13 @@
          (when runtime
            (runtime-log runtime :memory-compressed
                         (list :created created :hour hour :idle-for idle-for)))
+         (when (> created 0)
+           (ignore-errors
+             (chronicle-record-memory-event "compress"
+               :entries-created created
+               :node-count (hash-table-count *memory-concept-nodes*)
+               :edge-count (hash-table-count *memory-concept-edges*)
+               :detail (format nil "hour=~D idle=~Ds" hour idle-for))))
          created)))))
 
 (defun memory-heartbeat (&key (runtime *runtime*))

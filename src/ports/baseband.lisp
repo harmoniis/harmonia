@@ -25,6 +25,10 @@
 (cffi:defcfun ("harmonia_gateway_list_channels" %gateway-list-channels) :string
   (name :string))
 (cffi:defcfun ("harmonia_gateway_shutdown" %gateway-shutdown) :int)
+(cffi:defcfun ("harmonia_gateway_reload" %gateway-reload) :int
+  (name :string))
+(cffi:defcfun ("harmonia_gateway_crash_count" %gateway-crash-count) :int
+  (name :string))
 (cffi:defcfun ("harmonia_gateway_free_string" %gateway-free-string) :void
   (ptr :pointer))
 
@@ -46,6 +50,7 @@
   (let ((rc (%gateway-register name so-path config-sexp security-label)))
     (unless (zerop rc)
       (error "gateway-register failed for ~A (rc=~D)" name rc))
+    (ignore-errors (%register-loaded-lib name so-path))
     t))
 
 (defun gateway-unregister (name)
@@ -53,6 +58,22 @@
     (unless (zerop rc)
       (error "gateway-unregister failed for ~A (rc=~D)" name rc))
     t))
+
+(defun gateway-reload (name)
+  "Hot-reload a frontend by name. The gateway unloads, re-dlopen, and re-init."
+  (let ((rc (%gateway-reload name)))
+    (if (zerop rc)
+        (progn
+          (ignore-errors (%mark-lib-recovered name))
+          (%log :info "gateway" "Reloaded frontend ~A" name)
+          t)
+        (progn
+          (%log :error "gateway" "Reload failed for ~A (rc=~D)" name rc)
+          nil))))
+
+(defun gateway-crash-count (name)
+  "Return the crash count for a frontend from the gateway's tracking."
+  (%gateway-crash-count name))
 
 (defun gateway-poll ()
   (%gateway-poll))
@@ -151,6 +172,4 @@
                     (format nil "~S" fe)
                     (string-downcase (symbol-name (getf fe :security-label))))
                 (error (e)
-                  (format *error-output*
-                          "[gateway] warning: failed to register frontend ~A: ~A~%"
-                          name e))))))))))
+                  (%log :warn "gateway" (format nil "Failed to register frontend ~A: ~A" name e)))))))))))

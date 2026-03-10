@@ -1,6 +1,6 @@
 [package]
 name = "harmonia-recovery"
-version = "0.1.6"
+version = "0.1.7"
 edition.workspace = true
 license.workspace = true
 repository.workspace = true
@@ -14,4 +14,4 @@ categories = ["development-tools::debugging"]
 crate-type = ["cdylib", "rlib"]
 
 [dependencies]
-harmonia-config-store = { version = "0.1.6", path = "../config-store" }
+harmonia-config-store = { version = "0.1.7", path = "../config-store" }

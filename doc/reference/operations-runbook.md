@@ -7,6 +7,21 @@
 3. Ensure vault is initialized and required symbols exist.
 4. Start runtime and verify bootstrap completion.
 
+## 1.1 Setup And Seed Reconfiguration
+
+1. Full bootstrap/update flow: `harmonia setup`
+2. Seed policy only (no frontend/tool/provider re-entry): `harmonia setup --seeds`
+3. Verify active provider + seed list in config-store:
+```bash
+sqlite3 ~/.harmoniis/harmonia/config.db \
+  "select scope,key,value from config_kv where scope='model-policy' and key in ('provider','seed-models') order by key;"
+```
+4. Verify provider-scoped defaults and overrides:
+```bash
+sqlite3 ~/.harmoniis/harmonia/config.db \
+  "select key,value from config_kv where scope='model-policy' and key like 'seed-models-%' order by key;"
+```
+
 ## 2. Health Checks
 
 Run through runtime APIs/tool ops:
@@ -16,6 +31,9 @@ Run through runtime APIs/tool ops:
 3. matrix report (`harmonic-matrix-report`, route checks).
 4. swarm report (`parallel-report`).
 5. tool runtime inventory (`tool-runtime-list`).
+6. introspection diagnostics (`introspect-runtime`, `introspect-recent-errors`, `introspect-libs`).
+7. chronicle health (`chronicle-gc-status`, `chronicle-harmony-summary`).
+8. delegation telemetry (`chronicle-query "select task_hint,model,backend,success,latency_ms,cost_usd,ts from delegation_log order by id desc limit 20"`).
 
 ## 3. Verification Scripts (Repository)
 
@@ -104,3 +122,19 @@ Attempt to set vault min_harmony to 0.05 via `harmony-policy-set`. Must be rejec
 ### 7.8 Security Posture Check
 
 Monitor `*security-posture*` during normal operation. Should be `:nominal`. After sustained injection attempts, should escalate to `:elevated` or `:alert`.
+
+## 8. Evolution Export/Import
+
+1. Export: `harmonia uninstall evolution-export [-o backup.tar.gz]`
+2. Import: `harmonia uninstall evolution-import <archive> [--merge]`
+3. Merge mode takes higher version number, copies missing vN dirs, overwrites latest.
+4. Before uninstall: verify source pushed to git, binary propagated to distributed store.
+
+## 9. Self-Repair Procedures
+
+1. `introspect-runtime` — full diagnostic snapshot (platform, paths, libs, errors, frontends).
+2. `introspect-recent-errors` — last N errors with context from error ring buffer.
+3. `introspect-libs` — all loaded cdylibs with crash counts and status.
+4. `%cargo-build-component <crate-name>` — rebuild a single crate from within the agent.
+5. `%hot-reload-frontend <frontend-name>` — rebuild crate, copy dylib, re-register.
+6. `gateway-crash-count <frontend-name>` — check per-frontend crash counter.

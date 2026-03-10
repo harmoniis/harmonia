@@ -13,9 +13,10 @@ Each port encapsulates one capability contract and binds to one or more Rust cra
 | Lineage | `src/ports/lineage.lisp` | `lib/core/git-ops` | Commit/push operations |
 | Matrix | `src/ports/matrix.lisp` | `lib/core/harmonic-matrix` | Route constraints + telemetry |
 | Tool Runtime | `src/ports/tool-runtime.lisp` | `lib/tools/search-*`, `lib/tools/whisper`, `lib/tools/elevenlabs` | Search + voice tools |
-| Baseband | `src/ports/baseband.lisp` | `lib/core/gateway` + frontend cdylibs | Frontend registration with capabilities, signal poll (metadata + capabilities enrichment), send with A2UI fallback |
+| Baseband | `src/ports/baseband.lisp` | `lib/core/gateway` + frontend cdylibs | Frontend registration with capabilities, signal poll (metadata + capabilities enrichment), send with A2UI fallback, `gateway-reload` and `gateway-crash-count` FFI exports |
 | Swarm | `src/ports/swarm.lisp` | `lib/core/parallel-agents` | Parallel and tmux subagents |
 | Evolution | `src/ports/evolution.lisp` | `lib/core/ouroboros` (+ phoenix process) | Rewrite prep/execute/rollback |
+| Chronicle | `src/ports/chronicle.lisp` | `lib/core/chronicle` | Graph-native knowledge base, time-series observability, concept graph SQL traversal |
 | Signal Integrity | (used by gateway + conductor) | `lib/core/signal-integrity` | Shared injection detection + dissonance scoring |
 | Admin Intent | (used by conductor policy gate) | `lib/core/admin-intent` | Ed25519 admin intent signature verification |
 
@@ -25,6 +26,7 @@ Defined in `src/ports/vault.lisp` and reused by all ports:
 
 - `ensure-cffi`: one-time CFFI bootstrap.
 - `%release-lib-path`: resolve release dylib paths.
+- `%release-lib-root`: resolve the library root directory via fallback chain: `HARMONIA_LIB_DIR` env var → `~/.local/lib/harmonia/` → `target/release/`.
 - `%split-lines`: decode newline-returned ffi outputs.
 
 ## Core Contract Rule

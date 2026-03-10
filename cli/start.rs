@@ -2,7 +2,8 @@ use console::style;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
-pub fn run(env: &str) -> Result<(), Box<dyn std::error::Error>> {
+pub fn run(env: &str, foreground: bool) -> Result<(), Box<dyn std::error::Error>> {
+    let log_level = std::env::var("HARMONIA_LOG_LEVEL").unwrap_or_else(|_| "info".to_string());
     // Validate environment
     match env {
         "test" | "dev" | "prod" => {}
@@ -11,7 +12,7 @@ pub fn run(env: &str) -> Result<(), Box<dyn std::error::Error>> {
 
     // Check system workspace exists
     let home = dirs::home_dir().ok_or("cannot determine home directory")?;
-    let system_dir = home.join(".harmoniis").join("harmonia");
+    let system_dir = crate::paths::data_dir()?;
     if !system_dir.join("vault.db").exists() {
         println!(
             "{} Harmonia is not set up yet. Run:",
@@ -19,6 +20,34 @@ pub fn run(env: &str) -> Result<(), Box<dyn std::error::Error>> {
         );
         println!("  {}", style("harmonia setup").cyan().bold());
         return Err("run `harmonia setup` first".into());
+    }
+
+    // Check if already running
+    let pid_path = crate::paths::pid_path()?;
+    if pid_path.exists() {
+        if let Ok(pid_str) = std::fs::read_to_string(&pid_path) {
+            if let Ok(pid) = pid_str.trim().parse::<i32>() {
+                #[cfg(unix)]
+                {
+                    let alive = unsafe { libc::kill(pid, 0) } == 0;
+                    if alive {
+                        eprintln!(
+                            "{} Harmonia is already running (PID {}). Use:",
+                            style("!").yellow().bold(),
+                            pid
+                        );
+                        eprintln!("  {}  to connect", style("harmonia").cyan().bold());
+                        eprintln!(
+                            "  {}  to restart",
+                            style("harmonia stop && harmonia start").cyan().bold()
+                        );
+                        return Ok(());
+                    }
+                }
+            }
+        }
+        // Stale PID file
+        let _ = std::fs::remove_file(&pid_path);
     }
 
     // Bootstrap: set STATE_ROOT so config-store/vault can find their DBs
@@ -74,6 +103,14 @@ pub fn run(env: &str) -> Result<(), Box<dyn std::error::Error>> {
         "system-dir",
         &system_dir.to_string_lossy(),
     );
+    if let Ok(share) = crate::paths::share_dir() {
+        let _ = harmonia_config_store::set_config(
+            "harmonia-cli",
+            "global",
+            "share-dir",
+            &share.to_string_lossy(),
+        );
+    }
     let _ = harmonia_config_store::set_config("harmonia-cli", "global", "env", env);
 
     println!(
@@ -89,28 +126,77 @@ pub fn run(env: &str) -> Result<(), Box<dyn std::error::Error>> {
     println!("  workspace: {}", system_dir.display());
     println!();
 
-    // Launch SBCL — only pass the minimum bootstrap env vars that the
-    // Lisp/Rust layers need before config-store is initialized.
-    let status = Command::new("sbcl")
-        .arg("--load")
-        .arg(&boot_file)
-        .arg("--eval")
-        .arg("(harmonia:start)")
-        // Bootstrap: config-store/vault need these to find their DB files
-        .env("HARMONIA_STATE_ROOT", system_dir.to_string_lossy().as_ref())
-        .env("HARMONIA_VAULT_DB", vault_path.to_string_lossy().as_ref())
-        .env(
-            "HARMONIA_VAULT_WALLET_DB",
-            wallet_db_path.to_string_lossy().as_ref(),
-        )
-        // Bootstrap: Lisp needs LIB_DIR to locate .dylib/.so files before
-        // config-store is loaded (vault.lisp loads first)
-        .env("HARMONIA_LIB_DIR", lib_dir.to_string_lossy().as_ref())
-        .current_dir(&source_dir)
-        .status()?;
+    if foreground {
+        // Foreground mode — block until SBCL exits (old behavior)
+        let status = Command::new("sbcl")
+            .arg("--noinform")
+            .arg("--load")
+            .arg(&boot_file)
+            .arg("--eval")
+            .arg("(harmonia:start)")
+            .env("HARMONIA_STATE_ROOT", system_dir.to_string_lossy().as_ref())
+            .env("HARMONIA_VAULT_DB", vault_path.to_string_lossy().as_ref())
+            .env(
+                "HARMONIA_VAULT_WALLET_DB",
+                wallet_db_path.to_string_lossy().as_ref(),
+            )
+            .env("HARMONIA_LIB_DIR", lib_dir.to_string_lossy().as_ref())
+            .env("HARMONIA_LOG_LEVEL", &log_level)
+            .current_dir(&source_dir)
+            .status()?;
 
-    if !status.success() {
-        return Err("SBCL exited with error".into());
+        if !status.success() {
+            return Err("SBCL exited with error".into());
+        }
+    } else {
+        // Daemon mode — spawn SBCL in background, redirect to log, write PID
+        let log_path = crate::paths::log_path()?;
+        let log_file = std::fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(&log_path)?;
+        let err_file = log_file.try_clone()?;
+
+        let child = Command::new("sbcl")
+            .arg("--noinform")
+            .arg("--disable-debugger")
+            .arg("--load")
+            .arg(&boot_file)
+            .arg("--eval")
+            .arg("(harmonia:start)")
+            .env("HARMONIA_STATE_ROOT", system_dir.to_string_lossy().as_ref())
+            .env("HARMONIA_VAULT_DB", vault_path.to_string_lossy().as_ref())
+            .env(
+                "HARMONIA_VAULT_WALLET_DB",
+                wallet_db_path.to_string_lossy().as_ref(),
+            )
+            .env("HARMONIA_LIB_DIR", lib_dir.to_string_lossy().as_ref())
+            .env("HARMONIA_LOG_LEVEL", &log_level)
+            .current_dir(&source_dir)
+            .stdin(std::process::Stdio::null())
+            .stdout(std::process::Stdio::from(log_file))
+            .stderr(std::process::Stdio::from(err_file))
+            .spawn()?;
+
+        let pid = child.id();
+        std::fs::write(&pid_path, pid.to_string())?;
+
+        println!(
+            "{} Harmonia started (PID {})",
+            style("✓").green().bold(),
+            pid
+        );
+        println!("  log: {}", log_path.display());
+        println!("  pid: {}", pid_path.display());
+        println!();
+        println!("  {}   to chat", style("harmonia").cyan().bold());
+        println!("  {}   to stop", style("harmonia stop").cyan().bold());
+        println!(
+            "  {} to view logs",
+            style(format!("tail -f {}", log_path.display()))
+                .cyan()
+                .bold()
+        );
     }
 
     Ok(())
@@ -179,6 +265,7 @@ fn required_runtime_libraries() -> Vec<String> {
         "libharmonia_elevenlabs",
         "libharmonia_parallel_agents",
         "libharmonia_ouroboros",
+        "libharmonia_chronicle",
         "libharmonia_tui",
     ]
     .iter()
@@ -195,20 +282,16 @@ fn resolve_lib_dir(source_dir: &Path) -> PathBuf {
             return p;
         }
     }
+    // Platform-standard lib dir (~/.local/lib/harmonia/)
+    if let Ok(platform_lib) = crate::paths::lib_dir() {
+        if platform_lib.exists() && platform_lib.read_dir().map_or(false, |mut d| d.next().is_some()) {
+            return platform_lib;
+        }
+    }
+    // Dev mode: target/release/ in source tree
     let candidate_target = source_dir.join("target").join("release");
     if candidate_target.exists() {
         return candidate_target;
-    }
-    let candidate_lib = source_dir.join("lib");
-    if candidate_lib.exists() {
-        return candidate_lib;
-    }
-    let parent_lib = source_dir
-        .parent()
-        .map(|p| p.join("lib"))
-        .unwrap_or_else(|| source_dir.join("lib"));
-    if parent_lib.exists() {
-        return parent_lib;
     }
     candidate_target
 }
@@ -285,16 +368,19 @@ fn resolve_source_dir(system_dir: &Path) -> Result<PathBuf, Box<dyn std::error::
         return Ok(cwd);
     }
 
-    // Priority 3: Standard install location (~/.harmoniis/harmonia)
+    // Priority 3: Platform-standard share dir (~/.local/share/harmonia/)
+    if let Ok(share) = crate::paths::share_dir() {
+        if is_runtime_root(&share) {
+            return Ok(share);
+        }
+    }
+
+    // Priority 4: Legacy install location (~/.harmoniis/harmonia) — migration compat
     if is_runtime_root(system_dir) {
         return Ok(system_dir.to_path_buf());
     }
-    let installed_src = system_dir.join("src");
-    if is_runtime_root(&installed_src) {
-        return Ok(installed_src);
-    }
 
-    // Priority 4: Walk up from binary location
+    // Priority 5: Walk up from binary location
     let exe = std::env::current_exe()?;
     let mut dir = exe.parent().unwrap().to_path_buf();
 

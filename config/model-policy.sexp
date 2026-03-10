@@ -13,6 +13,12 @@
   (:id "qwen/qwen3-coder:free" :tier :free :cost 1 :latency 3 :quality 4 :completion 3
    :usd-in-1k 0.0 :usd-out-1k 0.0
    :tags (:coding :cheap :token-efficient :codemode))
+  (:id "inception/mercury-2" :tier :lite :cost 1 :latency 2 :quality 5 :completion 5
+   :usd-in-1k 0.00012 :usd-out-1k 0.00048
+   :tags (:cheap :fast :reasoning :token-efficient :planning :software-dev))
+  (:id "qwen/qwen3.5-flash-02-23" :tier :lite :cost 1 :latency 2 :quality 4 :completion 4
+   :usd-in-1k 0.00010 :usd-out-1k 0.00040
+   :tags (:cheap :fast :token-efficient :memory-ops :reasoning))
   (:id "deepseek/deepseek-chat-v3.1:free" :tier :free :cost 1 :latency 3 :quality 4 :completion 3
    :usd-in-1k 0.0 :usd-out-1k 0.0
    :tags (:reasoning :cheap :token-efficient))
@@ -49,7 +55,42 @@
                            "openai/gpt-5" "moonshotai/kimi-k2.5" "google/gemini-2.5-pro")
                   :cli-preference ("claude-code" "codex")
                   :openrouter-fallback t)
-  :memory-ops (:models ("google/gemini-3.1-flash-lite-preview" "minimax/minimax-m2.5"
-                         "deepseek/deepseek-chat-v3.1:free" "amazon/nova-micro-v1"))
-  :casual (:models ("amazon/nova-lite-v1" "qwen/qwen3-coder:free"
-                     "deepseek/deepseek-chat-v3.1:free"))))
+  :memory-ops (:models ("qwen/qwen3.5-flash-02-23" "inception/mercury-2"
+                         "minimax/minimax-m2.5" "google/gemini-3.1-flash-lite-preview"
+                         "amazon/nova-micro-v1"))
+  :casual (:models ("inception/mercury-2" "qwen/qwen3.5-flash-02-23"
+                     "google/gemini-3.1-flash-lite-preview" "amazon/nova-lite-v1"
+                     "qwen/qwen3-coder:free")))
+ :evolution
+ (:seed-models ()
+  :active-provider "openrouter"
+  :seed-provider-models
+  (:openrouter ("inception/mercury-2"
+                "qwen/qwen3.5-flash-02-23"
+                "minimax/minimax-m2.5"
+                "google/gemini-3.1-flash-lite-preview")
+   :openai ("openai/gpt-5")
+   :anthropic ("anthropic/claude-sonnet-4.6" "anthropic/claude-opus-4.6")
+   :xai ("x-ai/grok-4-fast:online")
+   :google-ai-studio ("google/gemini-3.1-flash-lite-preview" "google/gemini-2.5-pro")
+   :google-vertex ("google/gemini-3.1-flash-lite-preview" "google/gemini-2.5-pro")
+   :bedrock ("amazon/nova-micro-v1" "amazon/nova-lite-v1" "amazon/nova-pro-v1")
+   :groq ("qwen/qwen3-coder:free")
+   :alibaba ("qwen/qwen3-coder:free"))
+  :seed-weights (:price 0.35 :speed 0.20 :success 0.20 :reasoning 0.15 :vitruvian 0.10)
+  :seed-min-samples 3
+  :last-resort-models ("google/gemini-2.5-pro"
+                       "openai/gpt-5"
+                       "anthropic/claude-sonnet-4.6")
+  :rewrite-capable-models ("anthropic/claude-opus-4.6"
+                           "openai/gpt-5"
+                           "anthropic/claude-sonnet-4.6")
+  :cli-preference ("claude-code" "codex")
+  :cli-task-kinds (:software-dev :coding :critical-reasoning)
+  :cli-timeout-seconds 90
+  :cli-cooloff-seconds 3600
+  :cli-quota-patterns ("quota" "rate limit" "cooldown" "usage cap" "too many requests")
+  :vitruvian-signal-min 0.62
+  :context-summarizer-model "qwen/qwen3.5-flash-02-23"
+  :context-summarizer-threshold-chars 12000
+  :orchestrator-delegate-swarm t))

@@ -2,6 +2,7 @@ use crate::frontend_ffi::FrontendVtable;
 use crate::model::SecurityLabel;
 use parking_lot::RwLock;
 use std::collections::HashMap;
+use std::sync::atomic::{AtomicU32, Ordering};
 
 /// A capability declared by a frontend in its baseband config.
 /// Capabilities are key-value pairs parsed from `:capabilities` in the config sexp.
@@ -16,7 +17,9 @@ pub struct FrontendHandle {
     pub vtable: FrontendVtable,
     pub security_label: SecurityLabel,
     pub config_sexp: String,
+    pub so_path: String,
     pub capabilities: Vec<Capability>,
+    pub crash_count: AtomicU32,
 }
 
 impl FrontendHandle {
@@ -116,14 +119,16 @@ impl Registry {
         config_sexp: &str,
         security_label: SecurityLabel,
     ) -> Result<(), String> {
-        let vtable = unsafe { FrontendVtable::load(name, so_path)? };
+        let mut vtable = unsafe { FrontendVtable::load(name, so_path)? };
         vtable.init(config_sexp)?;
         let capabilities = parse_capabilities(config_sexp);
         let handle = FrontendHandle {
             vtable,
             security_label,
             config_sexp: config_sexp.to_string(),
+            so_path: so_path.to_string(),
             capabilities,
+            crash_count: AtomicU32::new(0),
         };
         self.frontends.write().insert(name.to_string(), handle);
         Ok(())
@@ -171,6 +176,42 @@ impl Registry {
     pub fn frontend_capabilities_sexp(&self, name: &str) -> Option<String> {
         let map = self.frontends.read();
         map.get(name).map(|h| h.capabilities_sexp())
+    }
+
+    pub fn reload(&self, name: &str) -> Result<(), String> {
+        let mut map = self.frontends.write();
+        let old_handle = map
+            .remove(name)
+            .ok_or_else(|| format!("frontend not registered: {name}"))?;
+
+        let _ = old_handle.vtable.shutdown();
+
+        let so_path = old_handle.so_path.clone();
+        let config_sexp = old_handle.config_sexp.clone();
+        let security_label = old_handle.security_label.clone();
+        let prev_crash_count = old_handle.crash_count.load(Ordering::Relaxed);
+
+        let mut vtable = unsafe { FrontendVtable::load(name, &so_path)? };
+        vtable.init(&config_sexp)?;
+
+        let capabilities = parse_capabilities(&config_sexp);
+        let handle = FrontendHandle {
+            vtable,
+            security_label,
+            config_sexp,
+            so_path,
+            capabilities,
+            crash_count: AtomicU32::new(prev_crash_count),
+        };
+        map.insert(name.to_string(), handle);
+        Ok(())
+    }
+
+    pub fn crash_count(&self, name: &str) -> Result<u32, String> {
+        let map = self.frontends.read();
+        map.get(name)
+            .map(|h| h.crash_count.load(Ordering::Relaxed))
+            .ok_or_else(|| format!("frontend not registered: {name}"))
     }
 
     pub fn shutdown_all(&self) {

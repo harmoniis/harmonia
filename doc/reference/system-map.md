@@ -10,10 +10,12 @@ Harmonia is layered as a constrained orchestration system:
 
 2. `Lisp Runtime Layer` (`src/`)
 - `core/`: boot, loop, policy, harmony machine, evolution versioning
+  - `introspection`: runtime self-knowledge, self-compilation, hot-reload, error ring, library tracking
 - `dna/`: constitutional prompt and identity guardrails
-- `orchestrator/`: prompt assembly + conductor dispatch
+- `orchestrator/`: prompt assembly + conductor planning/coordination (swarm-first execution)
 - `memory/`: state, concept map, compression
 - `ports/`: capability boundaries to Rust C-ABI
+- Supervision: Erlang-style `%supervised-action` wrapping every tick action, error ring, adaptive cooldown, gateway FFI catch_unwind
 
 3. `Rust Capability Layer` (`lib/`)
 - `core/`: vault, gateway, matrix, recovery, forge, etc.
@@ -35,6 +37,7 @@ Harmonia is layered as a constrained orchestration system:
 
 6. `Experience Layer`
 - Runtime logs, memory entries, matrix telemetry, recovery logs, and evolution snapshots feed future behavior.
+- Chronicle knowledge base (`lib/core/chronicle`) durably records harmonic snapshots, memory evolution, delegation decisions, and concept graph decompositions in SQLite — queryable with complex SQL returning s-expressions. Pressure-aware GC preserves high-signal data (inflection points, failures, recoveries) while thinning noise.
 
 ## Core Runtime Flows
 
@@ -44,10 +47,11 @@ Harmonia is layered as a constrained orchestration system:
 2. Conductor assembles DNA + memory context (`src/orchestrator/prompt-assembly.lisp`).
 3. Dispatch by type:
 - `harmonia-signal` → `orchestrate-signal` (boundary-wrap, LLM interpretation, policy-gated tool proposals), or
-- `string` → `orchestrate-prompt` (internal, direct tool dispatch or router completion).
-4. Policy gate checks taint and security label before privileged tool execution.
-5. Result is scored and persisted to memory.
-6. Matrix route/event telemetry is updated.
+- `string` → `orchestrate-prompt` (internal, direct tool dispatch if explicit tool op is present).
+4. For non-tool execution, conductor delegates to swarm (`parallel-solve`) using model escalation chain and optional context summarization handoff.
+5. Policy gate checks taint and security label before privileged tool execution.
+6. Result is scored and persisted to memory and chronicle delegation log.
+7. Matrix route/event telemetry is updated.
 
 ## Gateway/Baseband Signal Flow
 
@@ -81,6 +85,7 @@ Harmonia is layered as a constrained orchestration system:
 | Swarm/model policy | `../../../doc/agent/evolution/latest/SWARM_POLICY.md` |
 | Recovery role split | `../../../doc/agent/evolution/latest/RECOVERY.md` |
 | Evolution/versioning process | `../../../doc/agent/evolution/EVOLUTION.md` |
+| Chronicle knowledge base | `lib/core/chronicle/` — graph-native observability, SQL-traversable concept graphs |
 
 ## Architectural Guardrails
 

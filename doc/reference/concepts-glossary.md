@@ -36,6 +36,17 @@
 - `Rollback`: explicit recovery path after failed or harmful mutation.
 - `Snapshot Versioning`: immutable `versions/vN` plus mutable `latest` model.
 
+## Chronicle And Observability
+
+- `Chronicle`: graph-native knowledge base (`lib/core/chronicle`) storing harmonic snapshots, memory events, delegation decisions, and concept graph decompositions in SQLite. Queryable via complex SQL returning s-expressions.
+- `Harmonic Snapshot`: full vitruvian triad + chaos dynamics + lorenz attractor + lambdoma convergence + security posture captured per harmonic cycle.
+- `Graph Snapshot`: concept graph from `memory-map-sexp` decomposed into relational `graph_nodes` and `graph_edges` tables for SQL traversal.
+- `Graph Traversal`: recursive CTE queries over `graph_edges` enabling N-hop reachability, interdisciplinary bridge detection, and domain distribution analysis.
+- `Delegation Log`: record of each model selection decision with task hint, model chosen, backend, cost, latency, token counts, escalation status, and success.
+- `Harmony Trajectory`: permanently downsampled 5-minute buckets of harmonic signal evolution — never pruned, negligible storage.
+- `Pressure-Aware GC`: intelligent garbage collection that measures DB size and applies proportional pruning — preserving inflection points (high chaos, rewrites, failures) while thinning boring data.
+- `Chronicle Query`: `(chronicle-query sql)` — run arbitrary SELECT/WITH SQL against the knowledge base, returning parsed s-expression results. Enables the agent to reason over its own history.
+
 ## Channels And UI
 
 - `Frontend`: pluggable communication channel loaded through baseband.

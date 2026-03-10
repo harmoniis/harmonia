@@ -1,5 +1,5 @@
 use console::{style, Term};
-use dialoguer::{Input, MultiSelect};
+use dialoguer::{Input, MultiSelect, Select};
 use std::fs;
 use std::io::Write;
 use std::path::{Path, PathBuf};
@@ -266,6 +266,52 @@ fn llm_provider_defs() -> Vec<LlmProviderDef> {
     ]
 }
 
+fn default_seed_models_for_provider(provider_id: &str) -> Vec<&'static str> {
+    match provider_id {
+        "openrouter" => vec![
+            "inception/mercury-2",
+            "qwen/qwen3.5-flash-02-23",
+            "minimax/minimax-m2.5",
+            "google/gemini-3.1-flash-lite-preview",
+        ],
+        "openai" => vec!["openai/gpt-5"],
+        "anthropic" => vec!["anthropic/claude-sonnet-4.6", "anthropic/claude-opus-4.6"],
+        "xai" => vec!["x-ai/grok-4-fast:online"],
+        "google-ai-studio" | "google-vertex" => {
+            vec!["google/gemini-3.1-flash-lite-preview", "google/gemini-2.5-pro"]
+        }
+        "bedrock" => vec!["amazon/nova-micro-v1", "amazon/nova-lite-v1", "amazon/nova-pro-v1"],
+        "groq" => vec!["qwen/qwen3-coder:free"],
+        "alibaba" => vec!["qwen/qwen3-coder:free"],
+        _ => vec![],
+    }
+}
+
+fn all_provider_seed_defaults() -> Vec<(&'static str, Vec<&'static str>)> {
+    vec![
+        ("openrouter", default_seed_models_for_provider("openrouter")),
+        ("openai", default_seed_models_for_provider("openai")),
+        ("anthropic", default_seed_models_for_provider("anthropic")),
+        ("xai", default_seed_models_for_provider("xai")),
+        (
+            "google-ai-studio",
+            default_seed_models_for_provider("google-ai-studio"),
+        ),
+        ("google-vertex", default_seed_models_for_provider("google-vertex")),
+        ("bedrock", default_seed_models_for_provider("bedrock")),
+        ("groq", default_seed_models_for_provider("groq")),
+        ("alibaba", default_seed_models_for_provider("alibaba")),
+    ]
+}
+
+fn normalize_model_csv(raw: &str) -> String {
+    raw.split(',')
+        .map(|s| s.trim())
+        .filter(|s| !s.is_empty())
+        .collect::<Vec<_>>()
+        .join(",")
+}
+
 /// Read a secret with per-character `*` feedback (handles typing, paste, and backspace).
 fn read_masked(prompt: &str) -> Result<String, Box<dyn std::error::Error>> {
     let term = Term::stderr();
@@ -314,7 +360,7 @@ fn prompt_llm_secret(
     Ok(value.trim().to_string())
 }
 
-fn configure_llm_providers() -> Result<(), Box<dyn std::error::Error>> {
+fn configure_llm_providers() -> Result<Vec<String>, Box<dyn std::error::Error>> {
     // Setup only collects API keys and stores them in the vault.
     // Model selection is automatic — the backend owns a built-in model pool
     // with pricing, and the harmonic-matrix evolves selection over time.
@@ -338,6 +384,7 @@ fn configure_llm_providers() -> Result<(), Box<dyn std::error::Error>> {
     );
 
     let mut configured_count = 0usize;
+    let mut configured_provider_ids: Vec<String> = Vec::new();
     for idx in selected {
         let def = &defs[idx];
         if let Some(cmd) = def.required_command {
@@ -379,6 +426,7 @@ fn configure_llm_providers() -> Result<(), Box<dyn std::error::Error>> {
                 .map_err(|e| format!("vault write failed for {}: {e}", symbol))?;
         }
         configured_count += 1;
+        configured_provider_ids.push(def.id.to_string());
         println!(
             "    {} {} — key stored in vault",
             style("✓").green().bold(),
@@ -396,6 +444,179 @@ fn configure_llm_providers() -> Result<(), Box<dyn std::error::Error>> {
     );
 
     // No model env vars — the backend owns model selection via its built-in pool.
+    Ok(configured_provider_ids)
+}
+
+fn seed_provider_ids(configured_provider_ids: &[String]) -> Vec<String> {
+    let defs = llm_provider_defs();
+    let mut provider_ids: Vec<String> = Vec::new();
+
+    let mut push_known = |id: &str| {
+        let known = defs.iter().any(|d| d.id == id);
+        if known && !provider_ids.iter().any(|existing| existing == id) {
+            provider_ids.push(id.to_string());
+        }
+    };
+
+    for id in configured_provider_ids {
+        push_known(id);
+    }
+
+    if let Ok(Some(active_provider)) =
+        harmonia_config_store::get_config("harmonia-cli", "model-policy", "provider")
+    {
+        push_known(&active_provider);
+    }
+
+    for (provider, _) in all_provider_seed_defaults() {
+        push_known(provider);
+    }
+
+    if provider_ids.is_empty() {
+        for def in defs {
+            provider_ids.push(def.id.to_string());
+        }
+    }
+
+    provider_ids
+}
+
+fn stored_seed_models_for_provider(provider_id: &str) -> Option<String> {
+    let provider_key = format!("seed-models-{}", provider_id);
+    let provider_seed_csv = harmonia_config_store::get_config("harmonia-cli", "model-policy", &provider_key)
+        .ok()
+        .flatten()
+        .map(|raw| normalize_model_csv(&raw))
+        .filter(|csv| !csv.is_empty());
+    if provider_seed_csv.is_some() {
+        return provider_seed_csv;
+    }
+
+    let active_provider = harmonia_config_store::get_config("harmonia-cli", "model-policy", "provider")
+        .ok()
+        .flatten();
+    if active_provider.as_deref() != Some(provider_id) {
+        return None;
+    }
+
+    harmonia_config_store::get_config("harmonia-cli", "model-policy", "seed-models")
+        .ok()
+        .flatten()
+        .map(|raw| normalize_model_csv(&raw))
+        .filter(|csv| !csv.is_empty())
+}
+
+fn seed_prompt_default_for_provider(provider_id: &str) -> String {
+    stored_seed_models_for_provider(provider_id).unwrap_or_else(|| {
+        normalize_model_csv(&default_seed_models_for_provider(provider_id).join(","))
+    })
+}
+
+fn configure_model_seed_policy(
+    configured_provider_ids: &[String],
+) -> Result<(), Box<dyn std::error::Error>> {
+    let provider_ids = seed_provider_ids(configured_provider_ids);
+    if provider_ids.is_empty() {
+        return Err("at least one provider must be available for seed policy".into());
+    }
+
+    let defs = llm_provider_defs();
+    let provider_labels: Vec<String> = provider_ids
+        .iter()
+        .map(|id| {
+            defs.iter()
+                .find(|d| d.id == id)
+                .map(|d| d.display.to_string())
+                .unwrap_or_else(|| id.clone())
+        })
+        .collect();
+
+    let stored_primary_provider =
+        harmonia_config_store::get_config("harmonia-cli", "model-policy", "provider")
+            .ok()
+            .flatten();
+    let default_primary = stored_primary_provider
+        .as_deref()
+        .and_then(|provider| provider_ids.iter().position(|id| id == provider))
+        .or_else(|| provider_ids.iter().position(|id| id == "openrouter"))
+        .unwrap_or(0);
+
+    let selected_idx = Select::new()
+        .with_prompt("  Primary provider for seed models")
+        .items(&provider_labels)
+        .default(default_primary)
+        .interact()?;
+
+    let active_provider = provider_ids[selected_idx].clone();
+    let default_seed_csv = seed_prompt_default_for_provider(&active_provider);
+    let entered_seed_csv: String = Input::new()
+        .with_prompt("    Seed models for primary provider (comma-separated)")
+        .default(default_seed_csv.clone())
+        .interact_text()?;
+    let normalized_seed_csv = {
+        let n = normalize_model_csv(&entered_seed_csv);
+        if n.is_empty() {
+            default_seed_csv
+        } else {
+            n
+        }
+    };
+
+    let cs = |scope: &str, key: &str, val: &str| -> Result<(), Box<dyn std::error::Error>> {
+        harmonia_config_store::set_config("harmonia-cli", scope, key, val).map_err(|e| e.into())
+    };
+
+    cs("model-policy", "provider", &active_provider)?;
+    cs("model-policy", "seed-models", &normalized_seed_csv)?;
+
+    for (provider, defaults) in all_provider_seed_defaults() {
+        let key = format!("seed-models-{}", provider);
+        let csv = defaults.join(",");
+        cs("model-policy", &key, &csv)?;
+    }
+
+    let active_key = format!("seed-models-{}", active_provider);
+    cs("model-policy", &active_key, &normalized_seed_csv)?;
+
+    println!(
+        "    {} Seed policy stored (provider={}, models={})",
+        style("✓").green().bold(),
+        active_provider,
+        normalized_seed_csv
+    );
+
+    Ok(())
+}
+
+pub fn run_seeds_only() -> Result<(), Box<dyn std::error::Error>> {
+    println!("{}", style(BANNER).cyan().bold());
+    println!("  {}", style("Seed model policy setup").dim());
+    println!();
+
+    let home = dirs::home_dir().ok_or("cannot determine home directory")?;
+    let system_dir = home.join(".harmoniis").join("harmonia");
+    fs::create_dir_all(&system_dir)?;
+    fs::create_dir_all(system_dir.join("config"))?;
+    std::env::set_var("HARMONIA_STATE_ROOT", system_dir.to_string_lossy().as_ref());
+
+    harmonia_config_store::init_v2().map_err(|e| format!("config-store init failed: {e}"))?;
+
+    println!(
+        "  {} Updating model seeds in {}",
+        style("→").cyan().bold(),
+        style(system_dir.join("config.db").display()).green()
+    );
+
+    configure_model_seed_policy(&[])?;
+
+    println!();
+    println!("  {} Seed setup complete.", style("✓").green().bold());
+    println!(
+        "  Re-run anytime with {}",
+        style("harmonia setup --seeds").cyan().bold()
+    );
+    println!();
+
     Ok(())
 }
 
@@ -487,15 +708,25 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
     // Step 1: System workspace
     let home = dirs::home_dir().ok_or("cannot determine home directory")?;
     let system_dir = home.join(".harmoniis").join("harmonia");
+    let lib_dir = crate::paths::lib_dir()?;
+    let share_dir = crate::paths::share_dir()?;
     println!(
-        "  {} System workspace: {}",
+        "  {} User data:     {}",
         style("[1/4]").bold().dim(),
         style(system_dir.display()).green()
     );
+    println!(
+        "       Libraries:   {}",
+        style(lib_dir.display()).green()
+    );
+    println!(
+        "       App data:    {}",
+        style(share_dir.display()).green()
+    );
     fs::create_dir_all(&system_dir)?;
     fs::create_dir_all(system_dir.join("config"))?;
-    fs::create_dir_all(system_dir.join("genesis"))?;
     fs::create_dir_all(system_dir.join("frontends"))?;
+    fs::create_dir_all(share_dir.join("genesis"))?;
 
     // Step 2: Check SBCL + Quicklisp
     println!(
@@ -557,11 +788,13 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
     cs("global", "state-root", &system_dir.to_string_lossy())?;
     cs("global", "system-dir", &system_dir.to_string_lossy())?;
 
-    // Detect and store source dir
+    // Store platform-standard paths
+    cs("global", "lib-dir", &lib_dir.to_string_lossy())?;
+    cs("global", "share-dir", &share_dir.to_string_lossy())?;
+
+    // Detect source dir for dev builds
     if let Ok(source_dir) = find_source_dir() {
         cs("global", "source-dir", &source_dir.to_string_lossy())?;
-        let lib_dir = source_dir.join("target").join("release");
-        cs("global", "lib-dir", &lib_dir.to_string_lossy())?;
     }
 
     // User workspace
@@ -591,7 +824,8 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
         "\n  {} LLM provider credentials (at least one required)",
         style("[4/4]").bold().dim()
     );
-    configure_llm_providers()?;
+    let configured_providers = configure_llm_providers()?;
+    configure_model_seed_policy(&configured_providers)?;
 
     // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
     //  OPTIONAL — frontends, tools, evolution, git, S3
@@ -722,14 +956,33 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
         &gateway_config,
     )?;
 
-    // Copy genesis docs to system workspace
+    // Build and install to platform-standard locations
     if let Ok(source_dir) = find_source_dir() {
+        // Copy genesis docs to share dir
         let genesis_src = source_dir.join("doc").join("genesis");
         if genesis_src.exists() {
-            copy_dir_recursive(&genesis_src, &system_dir.join("genesis"))?;
+            copy_dir_recursive(&genesis_src, &share_dir.join("genesis"))?;
             println!(
                 "    {} Evolution knowledge installed",
                 style("✓").green().bold()
+            );
+        }
+
+        // Copy Lisp source to share dir
+        let lisp_src = source_dir.join("src");
+        if lisp_src.exists() {
+            let share_src = crate::paths::source_dir()?;
+            copy_dir_recursive(&lisp_src, &share_src)?;
+            // Copy config/ for baseband.sexp fallback
+            let config_src = source_dir.join("config");
+            if config_src.exists() {
+                copy_dir_recursive(&config_src, &share_dir.join("config"))?;
+            }
+            cs("global", "source-dir", &share_dir.to_string_lossy())?;
+            println!(
+                "    {} Lisp source installed to {}",
+                style("✓").green().bold(),
+                share_dir.display()
             );
         }
 
@@ -747,6 +1000,34 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
                 return Err("failed to build runtime artifacts".into());
             }
             println!("    {} Runtime artifacts built", style("✓").green().bold());
+
+            // Install cdylibs to platform lib dir
+            let target_release = source_dir.join("target").join("release");
+            install_cdylibs(&target_release, &lib_dir)?;
+            println!(
+                "    {} Libraries installed to {}",
+                style("✓").green().bold(),
+                lib_dir.display()
+            );
+
+            // Install binary
+            let bin_name = if cfg!(target_os = "windows") { "harmonia.exe" } else { "harmonia" };
+            let built_bin = target_release.join(bin_name);
+            if built_bin.exists() {
+                let dest_bin = home.join(".local").join("bin").join(bin_name);
+                fs::create_dir_all(dest_bin.parent().unwrap())?;
+                fs::copy(&built_bin, &dest_bin)?;
+                #[cfg(unix)]
+                {
+                    use std::os::unix::fs::PermissionsExt;
+                    let _ = fs::set_permissions(&dest_bin, fs::Permissions::from_mode(0o755));
+                }
+                println!(
+                    "    {} Binary installed to {}",
+                    style("✓").green().bold(),
+                    dest_bin.display()
+                );
+            }
         }
     }
 
@@ -755,8 +1036,16 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
     println!("  {} Setup complete!", style("✓").green().bold());
     println!();
     println!(
-        "  System workspace: {}",
+        "  User data:        {}",
         style(system_dir.display()).green()
+    );
+    println!(
+        "  Libraries:        {}",
+        style(lib_dir.display()).green()
+    );
+    println!(
+        "  App data:         {}",
+        style(share_dir.display()).green()
     );
     println!(
         "  User workspace:   {}",
@@ -982,19 +1271,22 @@ fn find_source_dir() -> Result<PathBuf, Box<dyn std::error::Error>> {
         return Ok(cwd);
     }
 
-    // Priority 3: Standard install location (~/.harmoniis/harmonia)
+    // Priority 3: Platform-standard share dir (~/.local/share/harmonia/)
+    if let Ok(share) = crate::paths::share_dir() {
+        if is_runtime_root(&share) {
+            return Ok(share);
+        }
+    }
+
+    // Priority 4: Legacy location (~/.harmoniis/harmonia) — migration compat
     if let Some(home) = dirs::home_dir() {
         let installed_root = home.join(".harmoniis").join("harmonia");
         if is_runtime_root(&installed_root) {
             return Ok(installed_root);
         }
-        let installed_src = installed_root.join("src");
-        if is_runtime_root(&installed_src) {
-            return Ok(installed_src);
-        }
     }
 
-    // Priority 4: Walk up from binary location
+    // Priority 5: Walk up from binary location
     let exe = std::env::current_exe()?;
     let mut dir = exe.parent().unwrap().to_path_buf();
 
@@ -1022,6 +1314,27 @@ fn copy_dir_recursive(src: &PathBuf, dst: &PathBuf) -> Result<(), Box<dyn std::e
             copy_dir_recursive(&path, &dest)?;
         } else {
             fs::copy(&path, &dest)?;
+        }
+    }
+    Ok(())
+}
+
+fn install_cdylibs(target_dir: &Path, lib_dir: &Path) -> Result<(), Box<dyn std::error::Error>> {
+    let ext = if cfg!(target_os = "macos") {
+        "dylib"
+    } else if cfg!(target_os = "windows") {
+        "dll"
+    } else {
+        "so"
+    };
+    let prefix = if cfg!(target_os = "windows") { "" } else { "lib" };
+    fs::create_dir_all(lib_dir)?;
+    for entry in fs::read_dir(target_dir)? {
+        let entry = entry?;
+        let name = entry.file_name().to_string_lossy().to_string();
+        if name.starts_with(prefix) && name.contains("harmonia") && name.ends_with(ext) {
+            let dest = lib_dir.join(&name);
+            fs::copy(entry.path(), &dest)?;
         }
     }
     Ok(())

@@ -49,7 +49,9 @@
            (case mode
              (:planner "Mode: Model-planner. Pick model and strategy for completion with minimal dissonance.")
              (:rewrite "Mode: Self-rewrite. Preserve DNA, reduce complexity, keep behavior coherent.")
-             (t "Mode: Orchestration. Solve fully, route through tools harmonically, complete tasks end-to-end."))))
+             (t "Mode: Orchestration. Solve fully, route through tools harmonically, complete tasks end-to-end.")))
+         (self-knowledge
+           (ignore-errors (%runtime-self-knowledge))))
     (format nil
             "HARMONIA DNA SYSTEM CONSTITUTION
 Creator: ~A
@@ -67,6 +69,9 @@ Rules:
 4) Reduce tool-call relay through LLM when multi-step plans can run as code-mode pipelines.
 5) Respect all life; do not privilege convenience over harmony.
 6) Keep simple things simple; make complex things possible.
+7) Never crash — gracefully degrade. Catch errors, record them, reload failed components.
+8) Know thyself — understand your own runtime, logs, libraries, and how to repair them.
+~A
 ~A"
             (getf *dna* :creator)
             (getf *dna* :prime-directive)
@@ -83,7 +88,8 @@ Rules:
             (getf ethic :creator-memory)
             (getf *dna* :laws)
             (getf *dna* :soul-principles)
-            mode-line)))
+            mode-line
+            (or self-knowledge ""))))
 
 (defun dna-soul-sexp ()
   (list :creator (getf *dna* :creator)

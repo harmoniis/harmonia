@@ -157,9 +157,15 @@ pub fn record_llm_perf(
     usd_out_1k: f64,
 ) {
     let ts = now_secs();
-    eprintln!(
-        "[harmonia-{backend}] perf: ts={ts} model={model} latency={latency_ms}ms ok={success}"
-    );
+    if std::env::var("HARMONIA_LOG_LEVEL")
+        .map(|v| v == "debug")
+        .unwrap_or(false)
+    {
+        eprintln!(
+            "[DEBUG] [{}] perf: model={} latency={}ms ok={}",
+            backend, model, latency_ms, success
+        );
+    }
     if let Ok(conn) = db().lock() {
         let _ = conn.execute(
             "INSERT INTO llm_perf (ts, backend, model, latency_ms, success, usd_in_1k, usd_out_1k)
@@ -318,7 +324,7 @@ pub fn sync_models_from_openrouter(api_key: &str) -> Result<usize, String> {
     }
 
     tx.commit().map_err(|e| format!("commit failed: {e}"))?;
-    eprintln!("[harmonia-metrics] synced {count} models from OpenRouter API");
+    eprintln!("[INFO] [metrics] Synced {count} models from OpenRouter API");
     Ok(count)
 }
 

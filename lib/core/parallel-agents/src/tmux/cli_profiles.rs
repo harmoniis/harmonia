@@ -12,6 +12,7 @@ use crate::model::CliType;
 
 #[derive(Clone, Debug)]
 pub(crate) struct CliProfile {
+    #[allow(dead_code)]
     pub(crate) name: &'static str,
 
     /// Patterns indicating the CLI is waiting for free-text user input.

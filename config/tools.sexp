@@ -17,6 +17,7 @@
   ("config-store" . "lib/core/config-store")
   ("gateway" . "lib/core/gateway")
   ("tailnet" . "lib/core/tailnet")
+  ("chronicle" . "lib/core/chronicle")
 
   ;; Backends — LLM providers
   ("openrouter-backend" . "lib/backends/llms/openrouter")

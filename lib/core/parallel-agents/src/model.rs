@@ -18,6 +18,7 @@ pub(crate) struct Task {
     pub(crate) verified: bool,
     pub(crate) verification_source: String,
     pub(crate) verification_detail: String,
+    #[allow(dead_code)]
     pub(crate) created_at: u64,
 }
 
@@ -180,6 +181,7 @@ impl CliState {
         }
     }
 
+    #[allow(dead_code)]
     pub(crate) fn needs_input(&self) -> bool {
         matches!(
             self,
@@ -197,6 +199,7 @@ pub(crate) struct TmuxAgent {
     pub(crate) cli_type: CliType,
     pub(crate) session_name: String,
     pub(crate) workdir: String,
+    #[allow(dead_code)]
     pub(crate) initial_prompt: String,
     pub(crate) state: CliState,
     pub(crate) created_at: u64,

@@ -22,21 +22,23 @@ Boot sequence:
    - vault, store, harmony-policy, model-policy,
    - router, lineage, matrix,
    - tool-runtime, baseband frontends,
-   - swarm, evolution.
+   - swarm, evolution, chronicle.
 
 ## Deterministic Tick Model
 
 Main control loop: `src/core/loop.lisp`.
 
-Per-tick planned actions:
+Per-tick actions (inline, zero allocation):
 
-1. `:gateway-poll`
-2. `:process-prompt` (if queue non-empty)
-3. `:memory-heartbeat`
-4. `:harmonic-step`
-5. `:gateway-flush`
+1. `%tick-gateway-poll` — poll gateway for inbound signals
+2. `%tick-process-prompt` — pop and process one prompt (if queue non-empty)
+3. `memory-heartbeat` — memory pipeline maintenance
+4. `harmonic-step` — harmonic state machine advancement
+5. `%tick-gateway-flush` — drain outbound response queue
 
-This separates planning (`%reduce-tick-actions`) from effects (`%run-tick-action`).
+Each action is wrapped in `%supervised-action` (Erlang-style). Errors are caught, recorded to the error ring buffer, and the tick continues. The loop never crashes.
+
+Adaptive cooldown: after 10 consecutive error ticks, sleep interval increases 5x to prevent error storms. Outer `handler-case` in `run-loop` catches even tick-level failures.
 
 ## Gateway Signal Processing
 
@@ -87,7 +89,9 @@ Execution path (split dispatch):
 
 Rewrite readiness requires convergence and policy thresholds (`rewrite-plan/*`).
 
-## Error Discipline
+On `:stabilize`, the harmonic machine records a full snapshot (vitruvian scores, chaos dynamics, lorenz attractor, lambdoma convergence, security posture) and a decomposed concept graph into the chronicle knowledge base. This enables SQL-queryable time-travel over the agent's entire harmonic evolution — the agent can recall any past state, traverse concept graph history, and analyze delegation patterns via complex SQL.
+
+## Error Discipline And Self-Repair
 
 Runtime errors are classified and recorded via `src/core/conditions.lisp`:
 
@@ -96,6 +100,19 @@ Runtime errors are classified and recorded via `src/core/conditions.lisp`:
 - evolution.
 
 Errors are persisted into memory and matrix event logs instead of silently disappearing.
+
+The supervision layer (`%supervised-action`) catches all `serious-condition` errors, records them to a 64-entry circular error ring (`*error-ring*`), and increments counters. Library crashes are tracked per-library in `*loaded-libs*` with crash counts and status.
+
+Runtime self-knowledge (`src/core/introspection.lisp`) provides:
+
+- Platform and path introspection for autonomous debugging.
+- `introspect-runtime` — full diagnostic snapshot.
+- `introspect-recent-errors` — last N errors with context.
+- `introspect-libs` — all loaded cdylibs with crash counts.
+- `%cargo-build-component` — self-compilation of individual crates.
+- `%hot-reload-frontend` — rebuild, copy, and re-register a frontend cdylib.
+
+This knowledge is injected into the DNA system prompt via `%runtime-self-knowledge`.
 
 ## Security Architecture
 

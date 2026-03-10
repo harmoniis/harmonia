@@ -1,0 +1,25 @@
+load("@rules_rust//rust:defs.bzl", "rust_library", "rust_shared_library")
+
+package(default_visibility = ["//visibility:public"])
+
+rust_library(
+    name = "chronicle",
+    srcs = glob(["src/**/*.rs"]),
+    edition = "2021",
+    deps = [
+        "//lib/core/config-store",
+        "@crate_index//:rusqlite",
+        "@crate_index//:serde_json",
+    ],
+)
+
+rust_shared_library(
+    name = "chronicle-so",
+    srcs = glob(["src/**/*.rs"]),
+    edition = "2021",
+    deps = [
+        "//lib/core/config-store",
+        "@crate_index//:rusqlite",
+        "@crate_index//:serde_json",
+    ],
+)

@@ -1,0 +1,16 @@
+[Unit]
+Description=Harmonia — self-improving agent
+After=network.target
+
+[Service]
+Type=simple
+ExecStart=__HARMONIA_BIN__ start --foreground
+Restart=on-failure
+RestartSec=5
+Environment=HARMONIA_STATE_ROOT=__HOME__/.harmoniis/harmonia
+WorkingDirectory=__HOME__/.harmoniis/harmonia
+StandardOutput=append:__HOME__/.local/state/harmonia/harmonia.log
+StandardError=append:__HOME__/.local/state/harmonia/harmonia.log
+
+[Install]
+WantedBy=default.target

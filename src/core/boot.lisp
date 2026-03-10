@@ -80,6 +80,23 @@
            :harmonic-matrix-report
            :whisper-transcribe
            :elevenlabs-tts-to-file
+           :chronicle-query
+           :chronicle-harmony-summary
+           :chronicle-delegation-report
+           :chronicle-cost-report
+           :chronicle-full-digest
+           :chronicle-harmonic-history
+           :chronicle-memory-history
+           :chronicle-delegation-history
+           :chronicle-dashboard-json
+           :chronicle-graph-traverse
+           :chronicle-graph-bridges
+           :chronicle-graph-domains
+           :chronicle-graph-central
+           :chronicle-graph-evolution
+           :chronicle-record-graph-snapshot
+           :chronicle-gc
+           :chronicle-gc-status
            :evolution-mode
            :evolution-set-mode
            :evolution-prepare
@@ -97,6 +114,35 @@
 (defparameter *runtime* nil)
 (defparameter *boot-file* *load-truename*)
 
+;;; ─── Logging ──────────────────────────────────────────────────────────
+
+(defparameter *log-level*
+  (let ((env (or (sb-ext:posix-getenv "HARMONIA_LOG_LEVEL") "info")))
+    (cond
+      ((string-equal env "debug") :debug)
+      ((string-equal env "warn")  :warn)
+      ((string-equal env "error") :error)
+      (t :info)))
+  "Log verbosity: :debug, :info, :warn, :error")
+
+(defun %log-level-rank (level)
+  (case level (:debug 0) (:info 1) (:warn 2) (:error 3) (t 1)))
+
+(defun %log (level tag message &rest args)
+  "Structured log output: [LEVEL] [tag] message"
+  (when (>= (%log-level-rank level) (%log-level-rank *log-level*))
+    (let ((prefix (case level
+                    (:debug "DEBUG")
+                    (:info  "INFO")
+                    (:warn  "WARN")
+                    (:error "ERROR")
+                    (t      "INFO")))
+          (msg (if args (apply #'format nil message args) message)))
+      (format *error-output* "[~A] [~A] ~A~%" prefix tag msg)
+      (force-output *error-output*))))
+
+;;; ─── Helpers ──────────────────────────────────────────────────────────
+
 (defun %core-path (name)
   (merge-pathnames name (make-pathname :name nil :type nil :defaults *boot-file*)))
 
@@ -110,38 +156,65 @@
         (error "Production genesis is blocked. Set HARMONIA_ALLOW_PROD_GENESIS=1 explicitly to override.")))))
 
 (defun %ensure-ffi-deps ()
-  (load #P"~/quicklisp/setup.lisp")
-  (let* ((ql-package (find-package :ql))
-         (quickload (and ql-package (find-symbol "QUICKLOAD" ql-package))))
-    (unless quickload
-      (error "Quicklisp did not provide QL:QUICKLOAD"))
-    (funcall quickload :cffi)))
+  (%log :debug "boot" "Loading Quicklisp CFFI...")
+  (let* ((sink (make-broadcast-stream))
+         (*standard-output* sink)
+         (*trace-output* sink)
+         (*debug-io* (make-two-way-stream (make-concatenated-stream) sink))
+         (asdf-pkg (find-package :asdf)))
+    ;; Suppress ASDF "To load ..." messages
+    (when asdf-pkg
+      (let ((sym (find-symbol "*VERBOSE-OUT*" asdf-pkg)))
+        (when (and sym (boundp sym))
+          (setf (symbol-value sym) sink))))
+    (handler-bind ((style-warning #'muffle-warning))
+      (load #P"~/quicklisp/setup.lisp"))
+    (let* ((ql-package (find-package :ql))
+           (quickload (and ql-package (find-symbol "QUICKLOAD" ql-package))))
+      (unless quickload
+        (error "Quicklisp did not provide QL:QUICKLOAD"))
+      (handler-bind ((style-warning #'muffle-warning))
+        (funcall quickload :cffi :silent t)))))
 
-(load (%core-path "state.lisp"))
-(load (%core-path "tools.lisp"))
-(load (%core-path "../dna/dna.lisp"))
-(load (%core-path "../memory/store.lisp"))
-(load (%core-path "conditions.lisp"))
-(load (%core-path "../harmony/scorer.lisp"))
-(load (%core-path "harmony-policy.lisp"))
-(load (%core-path "../orchestrator/prompt-assembly.lisp"))
-(load (%core-path "model-policy.lisp"))
-(load (%core-path "harmonic-machine.lisp"))
-(load (%core-path "evolution-versioning.lisp"))
+;;; ─── Module loading (style-warnings suppressed) ───────────────────────
+
+(defun %load-module (path &optional label)
+  "Load a Lisp file with style-warnings muffled."
+  (let ((name (or label (pathname-name (pathname path)))))
+    (%log :debug "boot" "Loading ~A..." name)
+    (handler-bind ((style-warning #'muffle-warning))
+      (load path))))
+
+(%load-module (%core-path "state.lisp"))
+(%load-module (%core-path "tools.lisp"))
+(%load-module (%core-path "../dna/dna.lisp") "dna")
+(%load-module (%core-path "../memory/store.lisp") "memory")
+(%load-module (%core-path "conditions.lisp"))
+(%load-module (%core-path "introspection.lisp"))
+(%load-module (%core-path "../harmony/scorer.lisp") "harmony-scorer")
+(%load-module (%core-path "harmony-policy.lisp"))
+(%load-module (%core-path "../orchestrator/prompt-assembly.lisp") "prompt-assembly")
+(%load-module (%core-path "model-policy.lisp"))
+(%load-module (%core-path "harmonic-machine.lisp"))
+(%load-module (%core-path "evolution-versioning.lisp"))
 (%ensure-ffi-deps)
-  (load (%core-path "../ports/vault.lisp"))
-  (load (%core-path "../ports/store.lisp"))
-  (load (%core-path "../ports/router.lisp"))
-  (load (%core-path "../ports/lineage.lisp"))
-  (load (%core-path "../ports/matrix.lisp"))
-  (load (%core-path "../ports/admin-intent.lisp"))
-  (load (%core-path "../ports/tool-runtime.lisp"))
-(load (%core-path "../ports/baseband.lisp"))
-(load (%core-path "../ports/swarm.lisp"))
-(load (%core-path "../ports/evolution.lisp"))
-(load (%core-path "../orchestrator/conductor.lisp"))
-(load (%core-path "rewrite.lisp"))
-(load (%core-path "loop.lisp"))
+(%load-module (%core-path "../ports/vault.lisp") "port/vault")
+(%load-module (%core-path "../ports/store.lisp") "port/store")
+(%load-module (%core-path "../ports/router.lisp") "port/router")
+(%load-module (%core-path "../ports/lineage.lisp") "port/lineage")
+(%load-module (%core-path "../ports/matrix.lisp") "port/matrix")
+(%load-module (%core-path "../ports/admin-intent.lisp") "port/admin-intent")
+(%load-module (%core-path "../ports/tool-runtime.lisp") "port/tool-runtime")
+(%load-module (%core-path "../ports/baseband.lisp") "port/baseband")
+(%load-module (%core-path "../ports/swarm.lisp") "port/swarm")
+(%load-module (%core-path "../ports/evolution.lisp") "port/evolution")
+(%load-module (%core-path "../ports/chronicle.lisp") "port/chronicle")
+(%load-module (%core-path "system-commands.lisp") "system-commands")
+(%load-module (%core-path "../orchestrator/conductor.lisp") "conductor")
+(%load-module (%core-path "rewrite.lisp"))
+(%load-module (%core-path "loop.lisp"))
+
+(%log :info "boot" "All modules loaded.")
 
 (defun reset-test-genesis ()
   (let ((env (string-downcase (%environment))))
@@ -177,25 +250,36 @@
   (setf *runtime* (make-runtime-state))
   (setf (runtime-state-environment *runtime*) (%environment))
   (unless (dna-valid-p)
+    (%log :error "boot" "DNA validation failed; refusing to start.")
     (error "DNA validation failed; refusing to start."))
+  (%log :info "boot" "Registering tools...")
   (register-default-tools *runtime*)
   (memory-seed-soul-from-dna)
+  (%log :info "boot" "Initializing subsystems...")
   (init-evolution-versioning)
   (init-vault-port)
+  (%log :info "vault" "Initialized.")
   (init-admin-intent-port)
   (init-store-port)
+  (%log :info "config-store" "Initialized.")
   (harmony-policy-load)
   (model-policy-load)
   (init-router-port)
+  (%log :info "router" "Initialized.")
   (init-lineage-port)
   (bootstrap-harmonic-matrix)
+  (%log :info "matrix" "Initialized.")
   (init-tool-runtime-port)
   (init-baseband-port)
+  (%log :info "gateway" "Initialized.")
   (register-configured-frontends)
   (init-swarm-port)
   (init-evolution-port)
-  (format t "[harmonia] bootstrap complete (~D tools registered).~%"
-          (hash-table-count (runtime-state-tools *runtime*)))
+  (init-chronicle-port)
+  (%log :info "chronicle" "Initialized.")
+  (%log :info "boot" "Bootstrap complete (~D tools registered)."
+        (hash-table-count (runtime-state-tools *runtime*)))
   (when run-loop
+    (%log :info "boot" "Entering main loop (env=~A)." (%environment))
     (run-loop :runtime *runtime* :max-cycles max-cycles :sleep-seconds sleep-seconds))
   *runtime*)

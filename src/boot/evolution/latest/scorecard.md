@@ -20,6 +20,17 @@ This scorecard tracks the quality dimensions that matter for Harmonia rewrites.
 - Recovery signals (ouroboros/recovery logs)
 - Security posture state (`*security-posture*`, injection counts, policy gate denials)
 - Per-frontend dissonance scores and anomaly rates
+- Supervision health: `*tick-error-count*`, `*consecutive-tick-errors*` (error storm detection)
+- Library health: `introspect-libs` crash counts and status per loaded cdylib
+- Error ring: `introspect-recent-errors` for last N errors with context
+- Full diagnostic: `introspect-runtime` snapshot (platform, paths, libs, errors, frontends)
+- Chronicle harmonic snapshots: full vitruvian + chaos + lorenz + lambdoma per cycle (`chronicle-query`)
+- Chronicle harmony trajectory: 5-minute downsampled signal evolution (never pruned)
+- Chronicle delegation log: model, cost, latency, tokens, success per LLM call
+- Chronicle memory events: crystallisation/compression with sizes and ratios
+- Chronicle concept graph: decomposed nodes/edges with recursive CTE traversal
+- Chronicle lifecycle: phoenix supervisor + ouroboros self-repair events
+- Chronicle pressure: DB size and GC tier via `chronicle-gc-status`
 
 ## Scoring Intent
 
@@ -39,4 +50,8 @@ A candidate rewrite should pass:
 - no increase in unresolved runtime errors,
 - stable or improved harmonic signal/noise profile.
 - no security regression (policy gate coverage, taint propagation integrity),
-- no weakening of invariant guards or privileged edge thresholds.
+- no weakening of invariant guards or privileged edge thresholds,
+- no supervision regression (tick actions must remain individually wrapped),
+- no library crash count increase (steady-state should be zero crashes).
+- no chronicle recording regression (harmonic snapshots, delegation, memory events must continue recording).
+- chronicle DB size within pressure tier expectations (soft < 50MB normal operation).

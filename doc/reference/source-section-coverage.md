@@ -17,8 +17,11 @@ Do not edit manually.
   - L28: `## v4 — 2026-03-05`
   - L34: `## v5 — 2026-03-06`
   - L53: `## v6 — 2026-03-07`
-  - L84: `## Next Entry Template`
-  - L89: `## vN — YYYY-MM-DD`
+  - L84: `## v7 — 2026-03-10`
+  - L144: `## v8 — 2026-03-10`
+  - L189: `## v9 — 2026-03-10`
+  - L220: `## Next Entry Template`
+  - L225: `## vN — YYYY-MM-DD`
 
 ## `../../src/boot/evolution/latest/current-state.md`
 - Migration map targets: `evolution-reference.md`, `policy-and-state-reference.md`
@@ -26,38 +29,53 @@ Do not edit manually.
   - L5: `## Active Evolution Mode`
   - L15: `## Runtime Readiness Signals`
   - L29: `## Model/Swarm Policy State`
-  - L39: `## Memory Evolution State`
-  - L50: `## Gateway Signal Protocol State`
-  - L65: `## Matrix Enforcement State`
-  - L74: `## Security Kernel State`
-  - L78: `### Typed Signal Dispatch`
-  - L84: `### Policy Gate`
-  - L95: `### Taint Propagation`
-  - L99: `### Safe Parsers`
-  - L105: `### Vault Security`
-  - L112: `### Invariant Guards`
-  - L120: `### Security Posture Tracking`
-  - L129: `### Adaptive Shell State`
-  - L136: `### Security Config`
+  - L61: `## Memory Evolution State`
+  - L72: `## Gateway Signal Protocol State`
+  - L87: `## Matrix Enforcement State`
+  - L96: `## Security Kernel State`
+  - L100: `### Typed Signal Dispatch`
+  - L106: `### Policy Gate`
+  - L117: `### Taint Propagation`
+  - L121: `### Safe Parsers`
+  - L127: `### Vault Security`
+  - L134: `### Invariant Guards`
+  - L142: `### Security Posture Tracking`
+  - L151: `### Adaptive Shell State`
+  - L158: `### Security Config`
+  - L166: `## Erlang-Style Fault Tolerance (v7)`
+  - L170: `### Supervision Architecture`
+  - L178: `### Gateway FFI Hardening`
+  - L184: `### Runtime Self-Knowledge`
+  - L197: `### Platform Path Structure`
+  - L210: `### Evolution Portability`
+  - L219: `## Chronicle Knowledge Base (v8)`
+  - L223: `### Database`
+  - L227: `### Tables (9)`
+  - L241: `### Concept Graph Traversal`
+  - L251: `### Arbitrary SQL Query`
+  - L261: `### Pressure-Aware GC`
+  - L273: `### Integration Points`
+  - L282: `### A2UI Dashboard`
 
 ## `../../src/boot/evolution/latest/rewrite-roadmap.md`
 - Migration map targets: `evolution-reference.md`, `operations-runbook.md`
 - Headings:
   - L5: `## Priority 1: Stability And Observability`
-  - L11: `## Priority 2: Token And Tool Efficiency`
-  - L17: `## Priority 3: Memory Quality`
-  - L23: `## Priority 4: Evolution Safety`
-  - L29: `## Priority 5: Signal And Channel Maturity`
-  - L40: `## Priority 6: Security Hardening`
-  - L59: `## Scope Exclusions`
+  - L23: `## Priority 2: Token And Tool Efficiency`
+  - L29: `## Priority 3: Memory Quality`
+  - L35: `## Priority 4: Evolution Safety`
+  - L45: `## Priority 5: Signal And Channel Maturity`
+  - L56: `## Priority 6: Security Hardening`
+  - L75: `## Priority 7: Platform Maturity`
+  - L85: `## Scope Exclusions`
 
 ## `../../src/boot/evolution/latest/scorecard.md`
 - Migration map targets: `evolution-reference.md`, `concepts-glossary.md`
 - Headings:
   - L5: `## Primary Dimensions`
   - L15: `## Observed Runtime Metrics`
-  - L24: `## Scoring Intent`
-  - L33: `## Minimal Acceptance Gate`
+  - L35: `## Scoring Intent`
+  - L44: `## Minimal Acceptance Gate`
 
 ## `../../src/boot/genesis/README.md`
 - Migration map targets: `README.md`, `system-map.md`, this file
@@ -78,7 +96,8 @@ Do not edit manually.
   - L61: `## Signal Enrichment`
   - L70: `## Security Kernel`
   - L81: `## Adaptive Security Shell`
-  - L92: `## Evolution With Rollback`
+  - L92: `## Chronicle As Institutional Memory`
+  - L103: `## Evolution With Rollback`
 
 ## `../../src/boot/genesis/constitution.md`
 - Migration map targets: `system-map.md`, `operations-runbook.md`
@@ -108,8 +127,8 @@ Do not edit manually.
 - Migration map targets: `src-runtime-reference.md`, `lib-crate-reference.md`, `system-map.md`
 - Headings:
   - L6: `## Port Map`
-  - L22: `## Shared Port Infrastructure`
-  - L30: `## Core Contract Rule`
+  - L23: `## Shared Port Infrastructure`
+  - L32: `## Core Contract Rule`
 
 ## `../../src/boot/genesis/runtime-architecture.md`
 - Migration map targets: `system-map.md`, `src-runtime-reference.md`, `lib-crate-reference.md`, `policy-and-state-reference.md`
@@ -117,9 +136,9 @@ Do not edit manually.
   - L3: `## Runtime Topology`
   - L10: `## Boot Flow`
   - L27: `## Deterministic Tick Model`
-  - L41: `## Gateway Signal Processing`
-  - L52: `## Orchestration Flow`
-  - L74: `## Harmonic State Machine`
-  - L90: `## Error Discipline`
-  - L100: `## Security Architecture`
+  - L43: `## Gateway Signal Processing`
+  - L54: `## Orchestration Flow`
+  - L76: `## Harmonic State Machine`
+  - L94: `## Error Discipline And Self-Repair`
+  - L117: `## Security Architecture`
 

@@ -5,7 +5,7 @@
 | File | Role |
 |---|---|
 | `config/tools.sexp` | known crate/tool registry map |
-| `config/model-policy.sexp` | model profiles, weights, task-routing |
+| `config/model-policy.sexp` | model profiles, task-routing, provider-scoped seed defaults, CLI preference/timeout/cooloff, summarizer + delegation policy |
 | `config/harmony-policy.sexp` | harmonic numeric thresholds/weights |
 | `config/matrix-topology.sexp` | allowed nodes/edges/tool toggles |
 | `config/swarm.sexp` | swarm width, tmux policy, rewrite gates |
@@ -22,9 +22,10 @@
 | `harmony-policy.sexp` | `src/core/harmony-policy.lisp` | mutable harmony policy state |
 | `matrix-topology.sexp` | `src/ports/matrix.lisp` | mutable matrix topology |
 | `swarm.sexp` | `src/ports/swarm.lisp` | mutable swarm fan-out state |
-| `swarm_model_scores.sexp` | `src/core/model-policy.lisp` | experience score history |
+| `swarm_model_scores.sexp` | `src/core/model-policy.lisp` | per-model success/latency/cost/vitruvian score history used for seed evolution |
 | `recovery.log` | recovery/ouroboros/phoenix flows | crash/restart ledger |
 | `vault.db` | vault crate | encrypted secret store |
+| `chronicle.db` | chronicle crate | SQL-queryable knowledge base (harmonic snapshots, delegation, graph) |
 
 ## Evolution Snapshot State (`src/boot/evolution/`)
 
@@ -49,6 +50,20 @@
 | `HARMONIA_ROUTE_NOISE_DEFAULT` | default matrix route noise |
 | `HARMONIA_MODEL_PLANNER` | enable/disable planner model selection |
 | `HARMONIA_MODEL_PLANNER_MODEL` | explicit planner model id |
+| `HARMONIA_LIB_DIR` | override platform library directory |
+| `HARMONIA_SOURCE_DIR` | override source directory (share dir) |
+
+## Config-Store Seed Keys (`scope = model-policy`)
+
+These keys are populated by setup and consumed by `src/core/model-policy.lisp`:
+
+| Key | Purpose |
+|---|---|
+| `provider` | active provider id used for provider-scoped seed lookup |
+| `seed-models` | active provider seed list (CSV, user-editable) |
+| `seed-models-<provider>` | provider-specific default/override seed list (CSV) |
+
+Operational note: `harmonia setup --seeds` updates these keys without re-running full setup.
 
 ## Policy Boundaries
 
