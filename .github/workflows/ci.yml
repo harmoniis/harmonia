@@ -30,6 +30,16 @@ jobs:
         if: runner.os == 'Windows'
         uses: ilammy/msvc-dev-cmd@v1
 
+      - name: Force MSVC compiler tools
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          "CC=cl.exe" >> $env:GITHUB_ENV
+          "CXX=cl.exe" >> $env:GITHUB_ENV
+          "AR=lib.exe" >> $env:GITHUB_ENV
+          "CC_x86_64_pc_windows_msvc=cl.exe" >> $env:GITHUB_ENV
+          "CXX_x86_64_pc_windows_msvc=cl.exe" >> $env:GITHUB_ENV
+
       - uses: actions/cache@v4
         with:
           path: |
@@ -98,6 +108,16 @@ jobs:
       - name: Set up MSVC environment
         if: runner.os == 'Windows'
         uses: ilammy/msvc-dev-cmd@v1
+
+      - name: Force MSVC compiler tools
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          "CC=cl.exe" >> $env:GITHUB_ENV
+          "CXX=cl.exe" >> $env:GITHUB_ENV
+          "AR=lib.exe" >> $env:GITHUB_ENV
+          "CC_x86_64_pc_windows_msvc=cl.exe" >> $env:GITHUB_ENV
+          "CXX_x86_64_pc_windows_msvc=cl.exe" >> $env:GITHUB_ENV
 
       - uses: actions/cache@v4
         with:
