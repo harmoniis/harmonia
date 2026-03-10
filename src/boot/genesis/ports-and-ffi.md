@@ -9,11 +9,11 @@ Each port encapsulates one capability contract and binds to one or more Rust cra
 |---|---|---|---|
 | Vault | `src/ports/vault.lisp` | `lib/core/vault` | Secret storage and lookup |
 | Store | `src/ports/store.lisp` | `lib/core/config-store` | Mutable non-secret runtime config |
-| Router | `src/ports/router.lisp` | `lib/backends/llms/openrouter` | LLM completion router (OpenRouter + native provider adapters) |
+| Router | `src/ports/router.lisp` | `lib/backends/llms/provider-router` | Generic LLM provider router over provider adapters |
 | Lineage | `src/ports/lineage.lisp` | `lib/core/git-ops` | Commit/push operations |
 | Matrix | `src/ports/matrix.lisp` | `lib/core/harmonic-matrix` | Route constraints + telemetry |
 | Tool Runtime | `src/ports/tool-runtime.lisp` | `lib/tools/search-*`, `lib/tools/whisper`, `lib/tools/elevenlabs` | Search + voice tools |
-| Baseband | `src/ports/baseband.lisp` | `lib/core/gateway` + frontend cdylibs | Frontend registration with capabilities, signal poll (metadata + capabilities enrichment), send with A2UI fallback, `gateway-reload` and `gateway-crash-count` FFI exports |
+| Baseband | `src/ports/baseband.lisp` | `lib/core/gateway` + `lib/core/baseband-channel-protocol` + frontend cdylibs | Typed Baseband Channel Protocol envelopes, channel send/status, plus gateway admin lifecycle for ops |
 | Swarm | `src/ports/swarm.lisp` | `lib/core/parallel-agents` | Parallel and tmux subagents |
 | Evolution | `src/ports/evolution.lisp` | `lib/core/ouroboros` (+ phoenix process) | Rewrite prep/execute/rollback |
 | Chronicle | `src/ports/chronicle.lisp` | `lib/core/chronicle` | Graph-native knowledge base, time-series observability, concept graph SQL traversal |

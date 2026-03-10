@@ -32,6 +32,13 @@
 (cffi:defcfun ("harmonia_gateway_free_string" %gateway-free-string) :void
   (ptr :pointer))
 
+(defun %parse-gateway-sexp (raw)
+  (cond
+    ((or (null raw) (zerop (length raw)) (string= raw "nil")) nil)
+    (t
+     (let ((*read-eval* nil))
+       (read-from-string raw)))))
+
 (defun init-baseband-port ()
   (ensure-cffi)
   (setf *gateway-lib*
@@ -44,7 +51,7 @@
   (%gateway-version))
 
 (defun gateway-healthcheck ()
-  (zerop (%gateway-healthcheck)))
+  (= (%gateway-healthcheck) 1))
 
 (defun gateway-register (name so-path config-sexp security-label)
   (let ((rc (%gateway-register name so-path config-sexp security-label)))
@@ -76,7 +83,10 @@
   (%gateway-crash-count name))
 
 (defun gateway-poll ()
-  (%gateway-poll))
+  (%parse-gateway-sexp (%gateway-poll)))
+
+(defun baseband-poll ()
+  (gateway-poll))
 
 (defun gateway-send (frontend-name sub-channel payload)
   (let ((rc (%gateway-send frontend-name sub-channel payload)))
@@ -84,14 +94,23 @@
       (error "gateway-send failed for ~A/~A (rc=~D)" frontend-name sub-channel rc))
     t))
 
+(defun baseband-send (channel-kind channel-address payload)
+  (gateway-send channel-kind channel-address payload))
+
 (defun gateway-list-frontends ()
-  (%gateway-list-frontends))
+  (%parse-gateway-sexp (%gateway-list-frontends)))
 
 (defun gateway-frontend-status (name)
-  (%gateway-frontend-status name))
+  (%parse-gateway-sexp (%gateway-frontend-status name)))
+
+(defun baseband-channel-status (channel-kind)
+  (gateway-frontend-status channel-kind))
 
 (defun gateway-list-channels (name)
-  (%gateway-list-channels name))
+  (%parse-gateway-sexp (%gateway-list-channels name)))
+
+(defun baseband-list-channels (name)
+  (gateway-list-channels name))
 
 (defun gateway-shutdown ()
   (let ((rc (%gateway-shutdown)))

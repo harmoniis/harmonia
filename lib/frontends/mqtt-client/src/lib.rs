@@ -1,4 +1,5 @@
 use chrono::Utc;
+use harmonia_baseband_channel_protocol::CanonicalMobileEnvelope;
 use rumqttc::{Client, Event, Incoming, MqttOptions, Outgoing, QoS, TlsConfiguration, Transport};
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, VecDeque};
@@ -14,18 +15,7 @@ const VERSION: &[u8] = b"harmonia-mqtt-client/0.3.0\0";
 const COMPONENT: &str = "mqtt-frontend";
 static LAST_ERROR: OnceLock<RwLock<String>> = OnceLock::new();
 
-#[derive(Debug, Serialize, Deserialize)]
-struct MessageEnvelope {
-    v: u8,
-    kind: String,
-    #[serde(rename = "type")]
-    type_name: String,
-    id: String,
-    ts: String,
-    agent_fp: String,
-    client_fp: String,
-    body: serde_json::Value,
-}
+type MessageEnvelope = CanonicalMobileEnvelope;
 
 // ─── Device Registry ────────────────────────────────────────────────
 
@@ -283,25 +273,12 @@ fn validate_agent_fingerprint(envelope: &MessageEnvelope) -> bool {
     true
 }
 
-fn extract_envelope_payload_text(env: &MessageEnvelope) -> String {
-    if let Some(text) = env.body.get("text").and_then(|v| v.as_str()) {
-        return text.to_string();
-    }
-    if let Some(payload) = env.body.get("payload").and_then(|v| v.as_str()) {
-        return payload.to_string();
-    }
-    env.body.to_string()
-}
-
 fn build_envelope_metadata(env: &MessageEnvelope, fp_valid: bool) -> String {
-    let security = if fp_valid {
-        "authenticated"
-    } else {
-        "untrusted"
-    };
     format!(
-        "(:origin-fp \"{}\" :agent-fp \"{}\" :security \"{}\")",
-        env.client_fp, env.agent_fp, security
+        "(:origin-fp \"{}\" :agent-fp \"{}\" :fingerprint-valid {})",
+        env.client_fp,
+        env.agent_fp,
+        if fp_valid { "t" } else { "nil" }
     )
 }
 
@@ -789,7 +766,7 @@ pub extern "C" fn harmonia_frontend_init(config: *const c_char) -> i32 {
                                 Ok(env) => {
                                     let fp_valid = validate_agent_fingerprint(&env);
                                     let meta = build_envelope_metadata(&env, fp_valid);
-                                    (extract_envelope_payload_text(&env), Some(meta))
+                                    (payload.clone(), Some(meta))
                                 }
                                 Err(_) => (payload, None),
                             };

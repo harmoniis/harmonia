@@ -17,4 +17,6 @@ crate-type = ["cdylib", "rlib"]
 libloading = "0.8"
 log = "0.4"
 parking_lot = "0.12"
+harmonia-baseband-channel-protocol = { version = "0.1.7", path = "../baseband-channel-protocol" }
 harmonia-signal-integrity = { version = "0.1.7", path = "../signal-integrity" }
+serde_json = "1"

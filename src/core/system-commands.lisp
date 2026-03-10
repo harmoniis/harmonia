@@ -177,41 +177,29 @@
 
 (defun %syscmd-backends-list ()
   (let ((lines '())
-        (backends '("anthropic" "openrouter")))
+        (backends (ignore-errors (backend-list-backends))))
     (flet ((add (text) (push text lines)))
       (add "Configured LLM Backends")
       (add (make-string 40 :initial-element #\-))
-      (dolist (name backends)
-        (let ((has-key (ignore-errors
-                         (vault-has-secret
-                          (if (string-equal name "anthropic")
-                              "ANTHROPIC_API_KEY"
-                              "OPENROUTER_API_KEY")))))
-          (add (format nil "  ~A~30T~A"
-                       name
-                       (if has-key "[key present]" "[key missing]"))))))
+      (if (and backends (listp backends))
+          (dolist (backend backends)
+            (add (format nil "  ~A~30T~A"
+                         (or (getf backend :id) "unknown")
+                         (if (getf backend :healthy) "[healthy]" "[unhealthy]"))))
+          (add "  No provider backends registered.")))
     (format nil "~{~A~%~}" (nreverse lines))))
 
 (defun %syscmd-backend-detail (name)
   (let ((lines '())
-        (name-trimmed (string-trim '(#\Space #\Tab) name)))
+        (name-trimmed (string-trim '(#\Space #\Tab) name))
+        (status (ignore-errors (backend-backend-status (string-trim '(#\Space #\Tab) name)))))
     (flet ((add (text) (push text lines)))
       (add (format nil "Backend: ~A" name-trimmed))
       (add (make-string 40 :initial-element #\-))
-      (let* ((key-symbol (cond
-                           ((string-equal name-trimmed "anthropic") "ANTHROPIC_API_KEY")
-                           ((string-equal name-trimmed "openrouter") "OPENROUTER_API_KEY")
-                           (t (format nil "~A_API_KEY" (string-upcase name-trimmed)))))
-             (has-key (ignore-errors (vault-has-secret key-symbol))))
-        (add (%syscmd-kv "API key:" (if has-key "present" "missing"))))
-      ;; Config dump for this backend
-      (let ((config (ignore-errors (config-dump name-trimmed))))
-        (if config
-            (progn
-              (add "  Configuration:")
-              (dolist (line (if (listp config) config (list config)))
-                (add (format nil "    ~A" line))))
-            (add "  No additional configuration."))))
+      (if (and status (listp status))
+          (loop for (k v) on status by #'cddr
+                do (add (%syscmd-kv (format nil "~A:" k) (format nil "~A" v))))
+          (add "  No provider status available.")))
     (format nil "~{~A~%~}" (nreverse lines))))
 
 ;;; ─── /frontends ────────────────────────────────────────────────────────

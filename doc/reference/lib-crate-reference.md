@@ -26,6 +26,7 @@ This inventory follows the current Cargo workspace members in `../../Cargo.toml`
 | `lib/core/harmonic-matrix` | route constraint + telemetry engine with security-aware routing (`route_allowed_with_context`) |
 | `lib/core/config-store` | SQLite-backed scoped configuration store with in-memory cache, component access policies, and env var fallback chain |
 | `lib/core/tailnet` | tailscale mesh transport layer with HMAC-SHA256 authentication and replay protection |
+| `lib/core/baseband-channel-protocol` | shared Baseband Channel Protocol envelope types for gateway/frontend boundaries |
 | `lib/core/gateway` | signal baseband + frontend registry with capabilities parsing, metadata enrichment, A2UI-aware signal emission, and inline dissonance scoring |
 | `lib/core/signal-integrity` | shared injection detection, dissonance scoring, and boundary wrapping for external data |
 | `lib/core/admin-intent` | Ed25519 signature verification for privileged admin mutations |
@@ -36,6 +37,7 @@ This inventory follows the current Cargo workspace members in `../../Cargo.toml`
 | Path | Purpose |
 |---|---|
 | `lib/backends/llms/provider-protocol` | Shared model pool protocol, metrics DB, FFI helpers for all LLM backends |
+| `lib/backends/llms/provider-router` | Generic provider router surface consumed by Lisp; currently serves OpenRouter-backed dispatch |
 | `lib/backends/llms/openrouter` | Universal LLM gateway via OpenRouter with background model catalogue sync |
 | `lib/backends/llms/openai` | OpenAI native backend |
 | `lib/backends/llms/anthropic` | Anthropic Messages API backend |

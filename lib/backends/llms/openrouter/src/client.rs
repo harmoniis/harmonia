@@ -13,7 +13,7 @@ const COMPONENT: &str = "openrouter-backend";
 
 /// OpenRouter's full model catalogue available via the gateway.
 /// Prices are OpenRouter passthrough prices (may include markup).
-pub(crate) static OFFERINGS: &[ModelOffering] = &[
+pub static OFFERINGS: &[ModelOffering] = &[
     ModelOffering {
         id: "google/gemini-3.1-flash-lite-preview",
         tier: "micro",
@@ -189,7 +189,7 @@ fn request_openrouter(prompt: &str, model: &str, key: &str) -> Result<String, St
     })
 }
 
-pub(crate) fn init_backend() -> Result<(), String> {
+pub fn init_backend() -> Result<(), String> {
     harmonia_provider_protocol::harmonia_vault::init_from_env()?;
     // Register hardcoded offerings in the metrics catalogue
     harmonia_provider_protocol::upsert_hardcoded_offerings(OFFERINGS, "openrouter");
@@ -202,7 +202,7 @@ pub(crate) fn init_backend() -> Result<(), String> {
     Ok(())
 }
 
-pub(crate) fn complete(prompt: &str, model: &str) -> Result<String, String> {
+pub fn complete(prompt: &str, model: &str) -> Result<String, String> {
     let _ = init_backend();
     let key = api_key()?;
     let selected = if model.trim().is_empty() {
@@ -259,7 +259,7 @@ pub(crate) fn complete(prompt: &str, model: &str) -> Result<String, String> {
     }
 }
 
-pub(crate) fn complete_for_task(prompt: &str, task_hint: &str) -> Result<String, String> {
+pub fn complete_for_task(prompt: &str, task_hint: &str) -> Result<String, String> {
     let _ = init_backend();
     let key = api_key()?;
     let selected = select_from_pool(OFFERINGS, task_hint);
@@ -312,11 +312,11 @@ pub(crate) fn complete_for_task(prompt: &str, task_hint: &str) -> Result<String,
     }
 }
 
-pub(crate) fn list_offerings() -> String {
+pub fn list_offerings() -> String {
     offerings_to_json(OFFERINGS)
 }
 
-pub(crate) fn select_model_for_task(task_hint: &str) -> String {
+pub fn select_model_for_task(task_hint: &str) -> String {
     select_from_pool(OFFERINGS, task_hint)
 }
 

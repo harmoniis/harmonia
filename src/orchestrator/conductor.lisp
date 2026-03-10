@@ -279,7 +279,7 @@
   (if (%cli-model-p model)
       (%run-cli-model model prompt)
       (progn
-        (%route-or-error "orchestrator" "openrouter")
+        (%route-or-error "orchestrator" "provider-router")
         (backend-complete prompt model))))
 
 (defun %swarm-context-summary-prompt (llm-prompt)
@@ -318,12 +318,46 @@
       (config-get-for "conductor" cfg-key "global")
       default))
 
-(defun %signal-has-capability-p (prompt capability)
-  "Check if a gateway-inbound prompt carries a specific capability.
-   Capabilities are serialized as capabilities=(:a2ui \"1.0\" :push \"t\") in the prompt."
-  (let ((caps-raw (%extract-tag-value prompt "capabilities")))
-    (when caps-raw
-      (search capability caps-raw :test #'char-equal))))
+(defun %capability-value (capabilities capability)
+  (let ((probe (intern (string-upcase capability) :keyword)))
+    (or (and (listp capabilities) (getf capabilities probe))
+        (and (listp capabilities) (getf capabilities capability)))))
+
+(defun %signal-has-capability-p (signal capability)
+  (not (null (%capability-value (and signal (harmonia-signal-capabilities signal))
+                                 capability))))
+
+(defun %signal-capabilities-summary (signal)
+  (let ((caps (harmonia-signal-capabilities signal)))
+    (if (and (listp caps) caps)
+        (with-output-to-string (s)
+          (loop for (k v) on caps by #'cddr
+                for first = t then nil
+                do (format s "~:[, ~;~]~A=~A"
+                           first
+                           (if (symbolp k)
+                               (string-downcase (symbol-name k))
+                               (string-downcase (princ-to-string k)))
+                           v)))
+        "none")))
+
+(defun %signal-peer-summary (signal)
+  (let ((peer (harmonia-signal-peer signal)))
+    (with-output-to-string (s)
+      (format s "id=~A" (or (and peer (harmonia-peer-id peer)) "unknown"))
+      (when (and peer (harmonia-peer-device-id peer))
+        (format s " device=~A" (harmonia-peer-device-id peer)))
+      (when (and peer (harmonia-peer-platform peer))
+        (format s " platform=~A" (harmonia-peer-platform peer)))
+      (when (and peer (harmonia-peer-a2ui-version peer))
+        (format s " a2ui=~A" (harmonia-peer-a2ui-version peer))))))
+
+(defun %signal-metadata-summary (signal)
+  (let ((transport (harmonia-signal-transport signal)))
+    (with-output-to-string (s)
+      (format s "peer(~A)" (%signal-peer-summary signal))
+      (when (and transport (harmonia-transport-raw-address transport))
+        (format s " route=~A" (harmonia-transport-raw-address transport))))))
 
 (defvar *a2ui-catalog-cache* nil
   "Cached A2UI component catalog, loaded lazily from config/a2ui-catalog.sexp.")
@@ -503,20 +537,23 @@
       (cond
         ((string-equal op "gateway-send")
          (%route-or-error "orchestrator" "gateway")
-         (let* ((frontend (or (%extract-tag-value prompt "frontend") ""))
-                (channel (or (%extract-tag-value prompt "channel") "default"))
+         (let* ((frontend (or (%extract-tag-value prompt "channel-kind")
+                              (%extract-tag-value prompt "frontend")
+                              ""))
+                (channel (or (%extract-tag-value prompt "address")
+                             (%extract-tag-value prompt "channel")
+                             "default"))
                 (payload (or (%extract-tag-value prompt "payload")
                              (%extract-tag-value prompt "text") ""))
-                ;; Check if the target frontend has A2UI capability via gateway-status
-                (status (ignore-errors (gateway-frontend-status frontend)))
-                (has-a2ui (and status (search ":a2ui" status :test #'char-equal))))
+                (status (ignore-errors (baseband-channel-status frontend)))
+                (has-a2ui (%capability-value (and (listp status) (getf status :capabilities))
+                                             "a2ui")))
            (unless (> (length frontend) 0)
-             (error "gateway-send requires frontend=<name>"))
-           ;; Degrade A2UI payload for text-only frontends
+             (error "gateway-send requires channel-kind=<name>"))
            (when (and (not has-a2ui) (search "\"component\"" payload))
              (setf payload (%a2ui-extract-text payload)))
-           (gateway-send frontend channel payload)
-           (values (format nil "GATEWAY_SEND_OK frontend=~A channel=~A a2ui=~A"
+           (baseband-send frontend channel payload)
+           (values (format nil "BASEBAND_SEND_OK channel-kind=~A address=~A a2ui=~A"
                            frontend channel (if has-a2ui "t" "nil"))
                    "gateway")))
         ((string-equal op "gateway-list")
@@ -525,7 +562,7 @@
         ((string-equal op "gateway-status")
          (%route-or-error "orchestrator" "gateway")
          (let ((name (or (%extract-tag-value prompt "name") "")))
-           (values (gateway-frontend-status name) "gateway")))
+           (values (baseband-channel-status name) "gateway")))
         ((string-equal op "search")
          (%route-or-error "orchestrator" "search-exa")
          (values (search-web (or (%extract-tag-value prompt "q") ""))
@@ -598,19 +635,19 @@
                                      (%safe-parse-number out-price))
            (values "PARALLEL_PRICE_SET" "parallel-agents")))
         ((string-equal op "model-policy-get")
-         (values (with-output-to-string (s) (prin1 (model-policy-get) s)) "openrouter"))
+         (values (with-output-to-string (s) (prin1 (model-policy-get) s)) "provider-router"))
         ((string-equal op "model-policy-save")
-         (values (model-policy-save) "openrouter"))
+         (values (model-policy-save) "provider-router"))
         ((string-equal op "model-policy-load")
          (model-policy-load)
-         (values "MODEL_POLICY_LOADED" "openrouter"))
+         (values "MODEL_POLICY_LOADED" "provider-router"))
         ((string-equal op "model-policy-set-weight")
          (let ((metric (%extract-tag-value prompt "metric"))
                (value (%extract-tag-value prompt "value")))
            (unless (and metric value)
              (error "model-policy-set-weight requires metric=<completion|correctness|speed|price|token-efficiency|orchestration-efficiency> value=<float>"))
            (model-policy-set-weight (intern (string-upcase metric) :keyword) (%safe-parse-number value))
-           (values "MODEL_POLICY_WEIGHT_SET" "openrouter")))
+           (values "MODEL_POLICY_WEIGHT_SET" "provider-router")))
         ((string-equal op "model-policy-upsert")
          (let ((id (%extract-tag-value prompt "id"))
                (tier (%extract-tag-value prompt "tier"))
@@ -630,7 +667,7 @@
             :completion (and completion (%safe-parse-number completion))
             :tags (and tags (mapcar (lambda (x) (intern (string-upcase x) :keyword))
                                     (%split-by-comma tags))))
-           (values "MODEL_POLICY_PROFILE_SET" "openrouter")))
+           (values "MODEL_POLICY_PROFILE_SET" "provider-router")))
         ((string-equal op "harmony-policy-get")
          (values (with-output-to-string (s) (prin1 (harmony-policy-get) s)) "harmonic-matrix"))
         ((string-equal op "harmony-policy-save")
@@ -793,21 +830,17 @@
 ;;; --- Wave 1.4: Split conductor into struct vs string dispatch ---
 
 (defun %signal-to-prompt-text (signal)
-  "Convert a harmonia-signal struct to a prompt string for backward compatibility.
-   The payload is boundary-wrapped."
-  (format nil "gateway-inbound frontend=~A channel=~A security=~A dissonance=~,3F~A~A~A ~A"
-          (harmonia-signal-frontend signal)
-          (harmonia-signal-sub-channel signal)
+  "Render a typed baseband channel envelope into clean LLM context."
+  (format nil "[BASEBAND CHANNEL]~%type: ~A~%channel-kind: ~A~%channel-address: ~A~%security: ~A~%dissonance: ~,3F~%capabilities: ~A~%metadata: ~A~%~A"
+          (harmonia-signal-type-name signal)
+          (harmonia-signal-channel-kind signal)
+          (harmonia-signal-channel-address signal)
           (harmonia-signal-security-label signal)
           (or (harmonia-signal-dissonance signal) 0.0)
-          (let ((origin-fp (harmonia-signal-origin-fp signal)))
-            (if origin-fp (format nil " origin-fp=~A" origin-fp) ""))
-          (let ((caps (harmonia-signal-capabilities signal)))
-            (if caps (format nil " capabilities=~A" caps) ""))
-          (let ((meta (harmonia-signal-metadata signal)))
-            (if meta (format nil " metadata=~A" meta) ""))
+          (%signal-capabilities-summary signal)
+          (%signal-metadata-summary signal)
           (%boundary-wrap (harmonia-signal-payload signal)
-                          (harmonia-signal-frontend signal))))
+                          (harmonia-signal-channel-kind signal))))
 
 (defun orchestrate-signal (signal)
   "Orchestrate an external signal (harmonia-signal struct).
@@ -815,13 +848,13 @@
    *current-originating-signal* is bound so the policy gate knows the taint chain."
   (let* ((*current-originating-signal* signal)
          (prompt (%signal-to-prompt-text signal)))
-    (%orchestrate-inner prompt)))
+    (%orchestrate-inner prompt signal)))
 
 (defun orchestrate-prompt (prompt)
   "Orchestrate an internal/TUI prompt (string).
    *current-originating-signal* is nil → policy gate allows (owner trust)."
   (let ((*current-originating-signal* nil))
-    (%orchestrate-inner prompt)))
+    (%orchestrate-inner prompt nil)))
 
 (defun orchestrate-once (input)
   "Dispatch to signal or prompt orchestration based on input type.
@@ -857,7 +890,7 @@
                 (list :tool-calls 1 :llm-calls 1 :datasource-count 1)
                 t)))))
 
-(defun %orchestrate-inner (prompt)
+(defun %orchestrate-inner (prompt signal)
   "Core orchestration logic shared by signal and prompt paths."
   (memory-touch-activity)
   (ignore-errors (memory-maybe-journal-yesterday))
@@ -877,13 +910,12 @@
          (llm-prompt (if (> (length recall-block) 0)
                          (concatenate 'string llm-prompt recall-block)
                          llm-prompt))
-         ;; Inject A2UI context when the inbound signal carries A2UI capability
-         (llm-prompt (if (and (search "gateway-inbound" prompt :test #'char-equal)
-                              (%signal-has-capability-p prompt "a2ui"))
-                         (let ((metadata (or (%extract-tag-value prompt "metadata") "device"))
+         ;; Inject A2UI context from typed signal metadata.
+         (llm-prompt (if (and signal (%signal-has-capability-p signal "a2ui"))
+                         (let ((metadata (%signal-metadata-summary signal))
                                (components (%a2ui-component-names)))
                            (concatenate 'string llm-prompt
-                         (format nil "~%[A2UI DEVICE: ~A — respond with A2UI render commands via gateway-send. Available components: ~A. Use the render topic format from a2ui-catalog.]"
+                         (format nil "~%[A2UI DEVICE: ~A — respond with gateway-send using channel-kind/address for render responses. Available components: ~A. Use the render topic format from a2ui-catalog.]"
                                                 metadata components)))
                          llm-prompt))
          (model (%select-model prompt))
@@ -891,7 +923,7 @@
          (selection-trace "")
          (started-at (get-internal-real-time))
          (response nil)
-         (used-tool "openrouter")
+         (used-tool "provider-router")
          (llm-calls 0)
          (tool-calls 0)
          (datasource-count 1)

@@ -32,14 +32,20 @@
            :gateway-unregister
            :gateway-poll
            :gateway-send
+           :baseband-poll
+           :baseband-send
            :gateway-list-frontends
            :gateway-frontend-status
            :gateway-list-channels
+           :baseband-channel-status
+           :baseband-list-channels
            :gateway-shutdown
            :register-configured-frontends
            :search-web
            :tool-runtime-list
            :router-healthcheck
+           :backend-list-backends
+           :backend-backend-status
            :parallel-set-model-price
            :parallel-submit
            :parallel-run-pending

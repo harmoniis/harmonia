@@ -1,2 +1,2 @@
-mod client;
-mod ffi;
+pub mod client;
+pub mod ffi;

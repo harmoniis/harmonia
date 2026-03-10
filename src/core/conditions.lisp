@@ -29,6 +29,7 @@
            (%string-contains-ci msg "compile"))
        :compiler)
       ((or (%string-contains-ci msg "openrouter")
+           (%string-contains-ci msg "provider-router")
            (%string-contains-ci msg "backend")
            (%string-contains-ci msg "provider"))
        :backend)

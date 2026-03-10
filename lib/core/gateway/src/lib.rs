@@ -6,5 +6,8 @@ mod registry;
 mod state;
 
 pub use baseband::{poll_baseband, send_signal};
-pub use model::{BasebandBatch, ChannelId, SecurityLabel, Signal, SignalDirection};
-pub use registry::{Capability, Registry};
+pub use model::{
+    AuditContext, CanonicalMobileEnvelope, Capability, ChannelBatch, ChannelBody, ChannelEnvelope,
+    ChannelRef, ConversationRef, PeerRef, SecurityContext, SecurityLabel, TransportContext,
+};
+pub use registry::Registry;

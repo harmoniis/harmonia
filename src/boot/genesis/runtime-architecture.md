@@ -42,14 +42,13 @@ Adaptive cooldown: after 10 consecutive error ticks, sleep interval increases 5x
 
 ## Gateway Signal Processing
 
-During `:gateway-poll`, the loop reads signal s-expressions and properly navigates the nested structure:
+During `:gateway-poll`, the loop reads **Baseband Channel Protocol** envelopes.
 
-- `:channel` contains `:frontend` and `:sub-channel` (nested plist).
-- `:security`, `:capabilities`, `:metadata` are top-level signal fields.
+- Each envelope carries typed `:channel`, `:peer`, `:body`, `:capabilities`, `:security`, `:audit`, and `:transport` sections.
+- Frontend-driver details stay gateway-private operational data; Lisp reasons over channel semantics, peer identity, capabilities, and security context.
+- MQTT preserves the canonical mobile envelope through the gateway boundary instead of flattening it to payload + metadata strings.
 
-The loop serializes all of these into the `gateway-inbound` prompt string, giving the conductor full signal context including device capabilities and metadata.
-
-Signals also carry a `dissonance` score (0.0-1.0) computed by inline injection scanning at parse time. High dissonance signals are attenuated in security-aware routing.
+Signals still carry a `dissonance` score (0.0-1.0) computed at parse time. High dissonance signals are attenuated in security-aware routing.
 
 ## Orchestration Flow
 
@@ -65,10 +64,10 @@ Execution path (split dispatch):
    - DNA constitution,
    - bootstrap memory block (boundary-wrapped recalls),
    - semantic recall block (boundary-wrapped).
-4. If signal has A2UI capability, A2UI component catalog is injected.
+4. If the typed signal carries A2UI capability, A2UI component catalog is injected.
 5. Conductor checks direct tool commands first (`tool op=...`).
 6. **Policy gate**: Before executing any privileged tool op, `%policy-gate` checks the originating signal's taint and security label. Tainted origins are denied for privileged operations.
-7. If no direct tool command, model is selected by policy and backend completion runs.
+7. If no direct tool command, model is selected by policy and backend completion runs through the provider-router port.
 8. For external-origin chains, LLM output is inspected for proposed `tool op=...`; only policy-permitted operations execute (privileged proposals degrade safely).
 9. Response is scored (`harmonic-score`) and persisted in memory.
 10. Matrix route observations and events are recorded.

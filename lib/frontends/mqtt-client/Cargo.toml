@@ -20,6 +20,7 @@ serde_json = "1"
 uuid = { version = "1", features = ["v4"] }
 chrono = { version = "0.4", features = ["clock"] }
 harmonia-push = { version = "0.1.7", path = "../push" }
+harmonia-baseband-channel-protocol = { version = "0.1.7", path = "../../core/baseband-channel-protocol" }
 harmonia-vault = { version = "0.1.7", path = "../../core/vault" }
 harmonia-config-store = { version = "0.1.7", path = "../../core/config-store" }
 log = "0.4"

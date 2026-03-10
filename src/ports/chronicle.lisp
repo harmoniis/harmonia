@@ -232,7 +232,7 @@
     (%chronicle-record-delegation
      (or task-hint "")
      (or model "unknown")
-     (or backend "openrouter")
+     (or backend "provider-router")
      (or reason "")
      (if escalated 1 0)
      (or escalated-from "")

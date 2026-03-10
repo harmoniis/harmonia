@@ -47,16 +47,6 @@
   (let ((s (or text "")))
     (if (<= (length s) limit) s (subseq s 0 limit))))
 
-(defun %metadata-string-value (metadata key)
-  "Extract KEY from metadata s-expression string as :key \"value\"."
-  (let* ((meta (or metadata ""))
-         (needle (format nil ":~A \"" key))
-         (start (search needle meta :test #'char-equal)))
-    (when start
-      (let* ((from (+ start (length needle)))
-             (to (position #\" meta :start from)))
-        (and to (subseq meta from to))))))
-
 (defun %security-keyword-from-string (security)
   (cond
     ((string-equal security "owner") :owner)
@@ -68,6 +58,59 @@
   (if (and (numberp dissonance) (> dissonance 0.0))
       (max 1 (round (/ (float dissonance) 0.15)))
       0))
+
+(defun %make-harmonia-signal-from-envelope (envelope)
+  (let* ((channel (getf envelope :channel))
+         (peer (getf envelope :peer))
+         (body (getf envelope :body))
+         (security (getf envelope :security))
+         (audit (getf envelope :audit)))
+    (make-harmonia-signal
+     :id (or (getf envelope :id) 0)
+     :version (or (getf envelope :version) 1)
+     :kind (or (getf envelope :kind) "external")
+     :type-name (or (getf envelope :type-name) "message.text")
+     :channel (make-harmonia-channel
+               :kind (or (getf channel :kind) "unknown")
+               :address (or (getf channel :address) "default")
+               :label (or (getf channel :label)
+                          (format nil "~A:~A"
+                                  (or (getf channel :kind) "unknown")
+                                  (or (getf channel :address) "default"))))
+     :peer (make-harmonia-peer
+            :id (or (getf peer :id)
+                    (or (getf channel :label) "unknown"))
+            :origin-fp (getf peer :origin-fp)
+            :agent-fp (getf peer :agent-fp)
+            :device-id (getf peer :device-id)
+            :platform (getf peer :platform)
+            :device-model (getf peer :device-model)
+            :app-version (getf peer :app-version)
+            :a2ui-version (getf peer :a2ui-version))
+     :conversation-id (or (getf (getf envelope :conversation) :id)
+                          (getf channel :label)
+                          "default")
+     :body (make-harmonia-body
+            :format (or (getf body :format) "text")
+            :text (or (getf body :text) "")
+            :raw (or (getf body :raw) (or (getf body :text) "")))
+     :capabilities (or (getf envelope :capabilities) '())
+     :security (make-harmonia-security
+                :label (%security-keyword-from-string
+                        (or (getf security :label) "untrusted"))
+                :source (or (getf security :source) "gateway")
+                :fingerprint-valid-p (not (null (getf security :fingerprint-valid))))
+     :audit (make-harmonia-audit
+             :timestamp-ms (or (getf audit :timestamp-ms) (get-universal-time))
+             :dissonance (float (or (getf audit :dissonance) 0.0d0)))
+     :attachments (or (getf envelope :attachments) '())
+     :transport (make-harmonia-transport
+                 :kind (or (getf (getf envelope :transport) :kind)
+                           (or (getf channel :kind) "unknown"))
+                 :raw-address (or (getf (getf envelope :transport) :raw-address)
+                                  (or (getf channel :address) "default"))
+                 :raw-metadata (getf (getf envelope :transport) :raw-metadata))
+     :taint :external)))
 
 ;;; ─── Supervised action wrapper ─────────────────────────────────────────
 
@@ -133,48 +176,19 @@
    Returns T on success (including idle polls with no signals)."
   (%supervised-action "gateway-poll"
     (lambda ()
-      (let ((raw (gateway-poll)))
-        (when (and raw (> (length raw) 0) (not (string= raw "nil")))
-          (let* ((*read-eval* nil)
-                 (signals (ignore-errors (read-from-string raw))))
-            (when (listp signals)
-              (dolist (sig signals)
-                (let* ((payload (getf sig :payload))
-                       (channel (getf sig :channel))
-                       (frontend (getf channel :frontend))
-                       (sub-channel (getf channel :sub-channel))
-                       (security (getf sig :security))
-                       (capabilities (getf sig :capabilities))
-                       (metadata (getf sig :metadata))
-                       (metadata-str (if metadata (princ-to-string metadata) nil))
-                       (security-override (%metadata-string-value metadata-str "security"))
-                       (origin-fp (%metadata-string-value metadata-str "origin-fp"))
-                       (effective-security (or security-override security))
-                       (security-kw (%security-keyword-from-string effective-security))
-                       (dissonance (or (getf sig :dissonance) 0.0d0)))
-                  (when payload
-                    (let ((signal-struct
-                            (make-harmonia-signal
-                             :id (or (getf sig :id) 0)
-                             :frontend (or frontend "unknown")
-                             :sub-channel (or sub-channel "default")
-                             :security-label security-kw
-                             :payload payload
-                             :capabilities (if capabilities (princ-to-string capabilities) nil)
-                             :metadata metadata-str
-                             :timestamp-ms (or (getf sig :timestamp) (get-universal-time))
-                             :taint :external
-                             :dissonance (float dissonance)
-                             :origin-fp origin-fp)))
-                      (when (and (numberp dissonance) (> dissonance 0.0))
-                        (ignore-errors
-                          (security-note-event
-                           :frontend (or frontend "unknown")
-                           :injection-count (%dissonance->injection-count dissonance))))
-                      ;; nconc avoids copying the entire queue on append
-                      (setf (runtime-state-prompt-queue runtime)
-                            (nconc (runtime-state-prompt-queue runtime)
-                                   (list signal-struct))))))))))))))
+      (let ((envelopes (gateway-poll)))
+        (when (listp envelopes)
+          (dolist (envelope envelopes)
+            (let* ((signal-struct (%make-harmonia-signal-from-envelope envelope))
+                   (dissonance (harmonia-signal-dissonance signal-struct)))
+              (when (and (numberp dissonance) (> dissonance 0.0))
+                (ignore-errors
+                  (security-note-event
+                   :frontend (or (harmonia-signal-channel-kind signal-struct) "unknown")
+                   :injection-count (%dissonance->injection-count dissonance))))
+              (setf (runtime-state-prompt-queue runtime)
+                    (nconc (runtime-state-prompt-queue runtime)
+                           (list signal-struct))))))))))
 
 (defun %tick-process-prompt (runtime)
   "Pop one prompt and process it. Routes responses back to originating frontend.

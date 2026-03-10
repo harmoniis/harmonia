@@ -16,12 +16,14 @@ members = [
     "lib/core/config-store",
     "lib/core/tailnet",
     "lib/core/gateway",
+    "lib/core/baseband-channel-protocol",
     "lib/core/signal-integrity",
     "lib/core/admin-intent",
     "lib/core/chronicle",
 
     # Backends — provider protocol + LLM providers + storage + HTTP
     "lib/backends/llms/provider-protocol",
+    "lib/backends/llms/provider-router",
     "lib/backends/llms/openrouter",
     "lib/backends/llms/openai",
     "lib/backends/llms/anthropic",

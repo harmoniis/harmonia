@@ -859,6 +859,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "harmonia-baseband-channel-protocol"
+version = "0.1.7"
+dependencies = [
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "harmonia-browser"
 version = "2.0.0"
 dependencies = [
@@ -929,10 +937,12 @@ dependencies = [
 name = "harmonia-gateway"
 version = "0.1.7"
 dependencies = [
+ "harmonia-baseband-channel-protocol",
  "harmonia-signal-integrity",
  "libloading",
  "log",
  "parking_lot",
+ "serde_json",
 ]
 
 [[package]]
@@ -1009,6 +1019,7 @@ name = "harmonia-mqtt-client"
 version = "0.1.7"
 dependencies = [
  "chrono",
+ "harmonia-baseband-channel-protocol",
  "harmonia-config-store",
  "harmonia-push",
  "harmonia-vault",
@@ -1079,6 +1090,14 @@ dependencies = [
  "harmonia-vault",
  "rusqlite",
  "serde_json",
+]
+
+[[package]]
+name = "harmonia-provider-router"
+version = "0.1.7"
+dependencies = [
+ "harmonia-openrouter",
+ "harmonia-provider-protocol",
 ]
 
 [[package]]

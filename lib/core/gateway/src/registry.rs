@@ -1,17 +1,8 @@
 use crate::frontend_ffi::FrontendVtable;
-use crate::model::SecurityLabel;
+use crate::model::{capabilities_to_sexp, Capability, SecurityLabel};
 use parking_lot::RwLock;
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicU32, Ordering};
-
-/// A capability declared by a frontend in its baseband config.
-/// Capabilities are key-value pairs parsed from `:capabilities` in the config sexp.
-/// Example: `(:a2ui "1.0" :push t)` → `[("a2ui", "1.0"), ("push", "t")]`
-#[derive(Debug, Clone)]
-pub struct Capability {
-    pub name: String,
-    pub value: String,
-}
 
 pub struct FrontendHandle {
     pub vtable: FrontendVtable,
@@ -39,15 +30,7 @@ impl FrontendHandle {
     /// Render capabilities as an s-expression string.
     /// Returns `nil` if no capabilities are declared.
     pub fn capabilities_sexp(&self) -> String {
-        if self.capabilities.is_empty() {
-            return "nil".to_string();
-        }
-        let pairs: Vec<String> = self
-            .capabilities
-            .iter()
-            .map(|c| format!(":{}  \"{}\"", c.name, c.value))
-            .collect();
-        format!("({})", pairs.join(" "))
+        capabilities_to_sexp(&self.capabilities)
     }
 }
 
@@ -92,7 +75,7 @@ fn parse_capabilities(config_sexp: &str) -> Vec<Capability> {
                 v
             };
             if !name.is_empty() {
-                caps.push(Capability { name, value });
+                caps.push(Capability::new(name, value));
             }
         } else {
             chars.next();
