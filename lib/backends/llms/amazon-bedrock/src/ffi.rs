@@ -7,43 +7,114 @@ use harmonia_provider_protocol::{clear_error, last_error_message, set_error};
 const VERSION: &[u8] = b"harmonia-amazon-bedrock/0.2.0\0";
 
 fn cstr_to_string(ptr: *const c_char) -> Result<String, String> {
-    if ptr.is_null() { return Err("null pointer".to_string()); }
-    Ok(unsafe { CStr::from_ptr(ptr) }.to_string_lossy().into_owned())
+    if ptr.is_null() {
+        return Err("null pointer".to_string());
+    }
+    Ok(unsafe { CStr::from_ptr(ptr) }
+        .to_string_lossy()
+        .into_owned())
 }
 
 fn to_c(value: String) -> *mut c_char {
-    CString::new(value).map(|c| c.into_raw()).unwrap_or(std::ptr::null_mut())
+    CString::new(value)
+        .map(|c| c.into_raw())
+        .unwrap_or(std::ptr::null_mut())
 }
 
-#[no_mangle] pub extern "C" fn harmonia_amazon_bedrock_version() -> *const c_char { VERSION.as_ptr().cast() }
-#[no_mangle] pub extern "C" fn harmonia_amazon_bedrock_healthcheck() -> i32 { 1 }
+#[no_mangle]
+pub extern "C" fn harmonia_amazon_bedrock_version() -> *const c_char {
+    VERSION.as_ptr().cast()
+}
+#[no_mangle]
+pub extern "C" fn harmonia_amazon_bedrock_healthcheck() -> i32 {
+    1
+}
 
 #[no_mangle]
 pub extern "C" fn harmonia_amazon_bedrock_init() -> i32 {
-    match backend::init() { Ok(()) => { clear_error(); 0 } Err(e) => { set_error(e); -1 } }
+    match backend::init() {
+        Ok(()) => {
+            clear_error();
+            0
+        }
+        Err(e) => {
+            set_error(e);
+            -1
+        }
+    }
 }
 
 #[no_mangle]
-pub extern "C" fn harmonia_amazon_bedrock_complete(prompt: *const c_char, model: *const c_char) -> *mut c_char {
-    let prompt = match cstr_to_string(prompt) { Ok(v) => v, Err(e) => { set_error(e); return std::ptr::null_mut(); } };
+pub extern "C" fn harmonia_amazon_bedrock_complete(
+    prompt: *const c_char,
+    model: *const c_char,
+) -> *mut c_char {
+    let prompt = match cstr_to_string(prompt) {
+        Ok(v) => v,
+        Err(e) => {
+            set_error(e);
+            return std::ptr::null_mut();
+        }
+    };
     let model = cstr_to_string(model).unwrap_or_default();
-    match backend::complete(&prompt, &model) { Ok(t) => { clear_error(); to_c(t) } Err(e) => { set_error(e); std::ptr::null_mut() } }
+    match backend::complete(&prompt, &model) {
+        Ok(t) => {
+            clear_error();
+            to_c(t)
+        }
+        Err(e) => {
+            set_error(e);
+            std::ptr::null_mut()
+        }
+    }
 }
 
 #[no_mangle]
-pub extern "C" fn harmonia_amazon_bedrock_list_models() -> *mut c_char { to_c(backend::list_offerings()) }
+pub extern "C" fn harmonia_amazon_bedrock_list_models() -> *mut c_char {
+    to_c(backend::list_offerings())
+}
 
 #[no_mangle]
 pub extern "C" fn harmonia_amazon_bedrock_select_model(hint: *const c_char) -> *mut c_char {
-    to_c(backend::select_model(&cstr_to_string(hint).unwrap_or_default()))
+    to_c(backend::select_model(
+        &cstr_to_string(hint).unwrap_or_default(),
+    ))
 }
 
 #[no_mangle]
-pub extern "C" fn harmonia_amazon_bedrock_complete_for_task(prompt: *const c_char, hint: *const c_char) -> *mut c_char {
-    let prompt = match cstr_to_string(prompt) { Ok(v) => v, Err(e) => { set_error(e); return std::ptr::null_mut(); } };
+pub extern "C" fn harmonia_amazon_bedrock_complete_for_task(
+    prompt: *const c_char,
+    hint: *const c_char,
+) -> *mut c_char {
+    let prompt = match cstr_to_string(prompt) {
+        Ok(v) => v,
+        Err(e) => {
+            set_error(e);
+            return std::ptr::null_mut();
+        }
+    };
     let hint = cstr_to_string(hint).unwrap_or_default();
-    match backend::complete_for_task(&prompt, &hint) { Ok(t) => { clear_error(); to_c(t) } Err(e) => { set_error(e); std::ptr::null_mut() } }
+    match backend::complete_for_task(&prompt, &hint) {
+        Ok(t) => {
+            clear_error();
+            to_c(t)
+        }
+        Err(e) => {
+            set_error(e);
+            std::ptr::null_mut()
+        }
+    }
 }
 
-#[no_mangle] pub extern "C" fn harmonia_amazon_bedrock_last_error() -> *mut c_char { to_c(last_error_message()) }
-#[no_mangle] pub extern "C" fn harmonia_amazon_bedrock_free_string(ptr: *mut c_char) { if !ptr.is_null() { unsafe { drop(CString::from_raw(ptr)); } } }
+#[no_mangle]
+pub extern "C" fn harmonia_amazon_bedrock_last_error() -> *mut c_char {
+    to_c(last_error_message())
+}
+#[no_mangle]
+pub extern "C" fn harmonia_amazon_bedrock_free_string(ptr: *mut c_char) {
+    if !ptr.is_null() {
+        unsafe {
+            drop(CString::from_raw(ptr));
+        }
+    }
+}

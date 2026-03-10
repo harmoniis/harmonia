@@ -1,5 +1,4 @@
 /// Component-based access control for config-store, mirroring vault's api.rs pattern.
-
 use std::collections::HashMap;
 use std::env;
 use std::sync::OnceLock;
@@ -21,11 +20,7 @@ fn is_admin(component: &str) -> bool {
 
 fn default_extra_read_scopes(component: &str) -> &'static [&'static str] {
     match component {
-        "parallel-agents-core" => &[
-            "openrouter-backend",
-            "search-exa-tool",
-            "search-brave-tool",
-        ],
+        "parallel-agents-core" => &["openrouter-backend", "search-exa-tool", "search-brave-tool"],
         "phoenix-core" | "ouroboros-core" | "recovery" => &["evolution"],
         "evolution" => &["s3-storage"],
         _ => &[],

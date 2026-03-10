@@ -74,12 +74,7 @@ pub fn run(env: &str) -> Result<(), Box<dyn std::error::Error>> {
         "system-dir",
         &system_dir.to_string_lossy(),
     );
-    let _ = harmonia_config_store::set_config(
-        "harmonia-cli",
-        "global",
-        "env",
-        env,
-    );
+    let _ = harmonia_config_store::set_config("harmonia-cli", "global", "env", env);
 
     println!(
         "{} Starting Harmonia (env={})",
@@ -193,8 +188,7 @@ fn required_runtime_libraries() -> Vec<String> {
 
 fn resolve_lib_dir(source_dir: &Path) -> PathBuf {
     // Check config-store first
-    if let Ok(Some(stored)) =
-        harmonia_config_store::get_config("harmonia-cli", "global", "lib-dir")
+    if let Ok(Some(stored)) = harmonia_config_store::get_config("harmonia-cli", "global", "lib-dir")
     {
         let p = PathBuf::from(&stored);
         if p.exists() {

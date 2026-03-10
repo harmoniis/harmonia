@@ -7,8 +7,7 @@ use std::thread;
 use harmonia_vault::{get_secret_for_component, init_from_env};
 
 use crate::model::{
-    append_metric_line, clear_error, json_escape, now_unix, set_error, state,
-    ModelPrice, Task,
+    append_metric_line, clear_error, json_escape, now_unix, set_error, state, ModelPrice, Task,
 };
 
 use self::clients::{request_openrouter, verify_with_search};

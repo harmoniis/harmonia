@@ -122,8 +122,8 @@ fn to_c_string(value: String) -> *mut c_char {
 }
 
 fn parse_broker() -> Result<(String, u16), String> {
-    let raw =
-        harmonia_config_store::get_own_or(COMPONENT, "broker", "test.mosquitto.org:1883").unwrap_or_else(|_| "test.mosquitto.org:1883".to_string());
+    let raw = harmonia_config_store::get_own_or(COMPONENT, "broker", "test.mosquitto.org:1883")
+        .unwrap_or_else(|_| "test.mosquitto.org:1883".to_string());
     let (host, port_raw) = raw
         .split_once(':')
         .ok_or_else(|| format!("invalid HARMONIA_MQTT_BROKER: {raw}"))?;
@@ -181,8 +181,12 @@ fn connect(prefix: &str) -> Result<(Client, rumqttc::Connection), String> {
         }
 
         let client_auth = match (
-            harmonia_config_store::get_own(COMPONENT, "client-cert").ok().flatten(),
-            harmonia_config_store::get_own(COMPONENT, "client-key").ok().flatten(),
+            harmonia_config_store::get_own(COMPONENT, "client-cert")
+                .ok()
+                .flatten(),
+            harmonia_config_store::get_own(COMPONENT, "client-key")
+                .ok()
+                .flatten(),
         ) {
             (Some(cert_path), Some(key_path)) => {
                 let cert =

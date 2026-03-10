@@ -1,5 +1,4 @@
 /// First-run environment variable seeding into config DB.
-
 use std::env;
 use std::time::{SystemTime, UNIX_EPOCH};
 

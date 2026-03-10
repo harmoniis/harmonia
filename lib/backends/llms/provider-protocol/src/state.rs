@@ -21,8 +21,5 @@ pub fn clear_error() {
 }
 
 pub fn last_error_message() -> String {
-    error_slot()
-        .read()
-        .map(|r| r.clone())
-        .unwrap_or_default()
+    error_slot().read().map(|r| r.clone()).unwrap_or_default()
 }

@@ -64,7 +64,11 @@ fn frontend_defs() -> Vec<FrontendDef> {
             vault_keys: vec![
                 ("signal-account", "Signal account/number", false),
                 ("signal-rpc-url", "Signal bridge URL", false),
-                ("signal-auth-token", "Signal bridge auth token (optional)", true),
+                (
+                    "signal-auth-token",
+                    "Signal bridge auth token (optional)",
+                    true,
+                ),
             ],
         },
         FrontendDef {
@@ -366,9 +370,7 @@ fn configure_llm_providers() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
-fn configure_evolution_profile(
-    home: &Path,
-) -> Result<(), Box<dyn std::error::Error>> {
+fn configure_evolution_profile(home: &Path) -> Result<(), Box<dyn std::error::Error>> {
     println!();
     let options = vec![
         "Binary-only evolution (artifact rollout, no source rewrite)",
@@ -467,7 +469,10 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
     fs::create_dir_all(system_dir.join("frontends"))?;
 
     // Step 2: Check SBCL + Quicklisp
-    println!("  {} Checking runtime dependencies...", style("[2/4]").bold().dim());
+    println!(
+        "  {} Checking runtime dependencies...",
+        style("[2/4]").bold().dim()
+    );
     if !check_command("sbcl") {
         println!(
             "    {} SBCL not found. Install it:",
@@ -516,8 +521,7 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
     harmonia_config_store::init_v2().map_err(|e| format!("config-store init failed: {e}"))?;
 
     let cs = |scope: &str, key: &str, val: &str| -> Result<(), Box<dyn std::error::Error>> {
-        harmonia_config_store::set_config("harmonia-cli", scope, key, val)
-            .map_err(|e| e.into())
+        harmonia_config_store::set_config("harmonia-cli", scope, key, val).map_err(|e| e.into())
     };
 
     // Write system paths to config-store
@@ -688,10 +692,7 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
     //  Finalize
     // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-    println!(
-        "\n  {} Finalizing...",
-        style("→").cyan().bold()
-    );
+    println!("\n  {} Finalizing...", style("→").cyan().bold());
 
     // Write baseband frontend config (system overlay).
     let gateway_config = generate_gateway_config(&enabled_frontends);

@@ -164,7 +164,15 @@ pub fn record_llm_perf(
         let _ = conn.execute(
             "INSERT INTO llm_perf (ts, backend, model, latency_ms, success, usd_in_1k, usd_out_1k)
              VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
-            params![ts, backend, model, latency_ms as i64, success as i32, usd_in_1k, usd_out_1k],
+            params![
+                ts,
+                backend,
+                model,
+                latency_ms as i64,
+                success as i32,
+                usd_in_1k,
+                usd_out_1k
+            ],
         );
     }
 }
@@ -267,10 +275,7 @@ pub fn sync_models_from_openrouter(api_key: &str) -> Result<usize, String> {
             Some(v) => v,
             None => continue,
         };
-        let name = model
-            .get("name")
-            .and_then(|v| v.as_str())
-            .unwrap_or("");
+        let name = model.get("name").and_then(|v| v.as_str()).unwrap_or("");
         let ctx = model
             .get("context_length")
             .and_then(|v| v.as_i64())
@@ -537,11 +542,23 @@ pub fn query_performance_report() -> String {
         .unwrap_or((0, 0, 0.0, 0.0));
 
     let verified: i64 = conn
-        .query_row("SELECT COALESCE(SUM(verified),0) FROM parallel_tasks", [], |row| row.get(0))
+        .query_row(
+            "SELECT COALESCE(SUM(verified),0) FROM parallel_tasks",
+            [],
+            |row| row.get(0),
+        )
         .unwrap_or(0);
 
-    let sr = if total > 0 { successes as f64 / total as f64 } else { 0.0 };
-    let vr = if total > 0 { verified as f64 / total as f64 } else { 0.0 };
+    let sr = if total > 0 {
+        successes as f64 / total as f64
+    } else {
+        0.0
+    };
+    let vr = if total > 0 {
+        verified as f64 / total as f64
+    } else {
+        0.0
+    };
 
     let mut stmt = match conn.prepare(
         "SELECT model, COUNT(*), SUM(success), SUM(verified), SUM(cost_usd), AVG(latency_ms)

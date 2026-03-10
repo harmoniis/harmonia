@@ -35,14 +35,25 @@ pub(super) fn request_openrouter(
         .arg("-sS")
         .arg("--connect-timeout")
         .arg(
-            harmonia_config_store::get_config(COMPONENT, "openrouter-backend", "connect-timeout-secs")
-                .ok()
-                .flatten()
-                .unwrap_or_else(|| "10".to_string()),
+            harmonia_config_store::get_config(
+                COMPONENT,
+                "openrouter-backend",
+                "connect-timeout-secs",
+            )
+            .ok()
+            .flatten()
+            .unwrap_or_else(|| "10".to_string()),
         )
         .arg("--max-time")
-        .arg(harmonia_config_store::get_config_or(COMPONENT, "openrouter-backend", "max-time-secs", "45")
-            .unwrap_or_else(|_| "45".to_string()))
+        .arg(
+            harmonia_config_store::get_config_or(
+                COMPONENT,
+                "openrouter-backend",
+                "max-time-secs",
+                "45",
+            )
+            .unwrap_or_else(|_| "45".to_string()),
+        )
         .arg("-X")
         .arg("POST")
         .arg("https://openrouter.ai/api/v1/chat/completions")

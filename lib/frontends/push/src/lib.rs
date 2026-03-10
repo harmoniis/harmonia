@@ -74,8 +74,10 @@ fn log_push(payload: &PushPayload) -> Result<(), String> {
                 .to_string_lossy()
                 .to_string()
         });
-    let log_path =
-        harmonia_config_store::get_own(COMPONENT, "log").ok().flatten().unwrap_or_else(|| format!("{state_root}/push.log"));
+    let log_path = harmonia_config_store::get_own(COMPONENT, "log")
+        .ok()
+        .flatten()
+        .unwrap_or_else(|| format!("{state_root}/push.log"));
 
     if let Some(parent) = std::path::Path::new(&log_path).parent() {
         fs::create_dir_all(parent).map_err(|e| format!("push log dir create failed: {e}"))?;
@@ -133,7 +135,12 @@ mod tests {
         let log_path = dir.join("push.log");
 
         let _ = harmonia_config_store::set_config(COMPONENT, "push-frontend", "mode", "log");
-        let _ = harmonia_config_store::set_config(COMPONENT, "push-frontend", "log", log_path.to_str().unwrap());
+        let _ = harmonia_config_store::set_config(
+            COMPONENT,
+            "push-frontend",
+            "log",
+            log_path.to_str().unwrap(),
+        );
 
         let config = PushConfig {
             webhook_url: String::new(),

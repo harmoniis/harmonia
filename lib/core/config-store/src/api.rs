@@ -1,5 +1,4 @@
 /// Policy-gated public API with env fallback chain.
-
 use std::env;
 
 use crate::legacy::{canonical_env_name, legacy_env_name};
@@ -18,11 +17,7 @@ pub fn init() -> Result<(), String> {
 /// 2. Legacy env var alias
 /// 3. Canonical env var `HARMONIA_{SCOPE}_{KEY}`
 /// 4. None
-pub fn get_config(
-    component: &str,
-    scope: &str,
-    key: &str,
-) -> Result<Option<String>, String> {
+pub fn get_config(component: &str, scope: &str, key: &str) -> Result<Option<String>, String> {
     let scope = store::norm_scope(scope);
     let key = store::norm_key(key);
     if !policy::can_read(component, &scope) {
@@ -83,12 +78,7 @@ pub fn get_own_or(component: &str, key: &str, default: &str) -> Result<String, S
 }
 
 /// Set a config value (policy-gated).
-pub fn set_config(
-    component: &str,
-    scope: &str,
-    key: &str,
-    value: &str,
-) -> Result<(), String> {
+pub fn set_config(component: &str, scope: &str, key: &str, value: &str) -> Result<(), String> {
     let scope = store::norm_scope(scope);
     if !policy::can_write(component, &scope) {
         return Err(format!(
@@ -100,11 +90,7 @@ pub fn set_config(
 }
 
 /// Delete a config value (admin-only).
-pub fn delete_config(
-    component: &str,
-    scope: &str,
-    key: &str,
-) -> Result<(), String> {
+pub fn delete_config(component: &str, scope: &str, key: &str) -> Result<(), String> {
     let scope = store::norm_scope(scope);
     if !policy::can_delete(component, &scope) {
         return Err(format!(

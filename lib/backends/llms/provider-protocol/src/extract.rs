@@ -35,7 +35,11 @@ pub fn extract_anthropic_content(v: &Value) -> Option<String> {
             out.push_str(s);
         }
     }
-    if out.is_empty() { None } else { Some(out) }
+    if out.is_empty() {
+        None
+    } else {
+        Some(out)
+    }
 }
 
 /// Extract content from a Google (AI Studio / Vertex) response.
@@ -52,7 +56,11 @@ pub fn extract_google_content(v: &Value) -> Option<String> {
             out.push_str(s);
         }
     }
-    if out.is_empty() { None } else { Some(out) }
+    if out.is_empty() {
+        None
+    } else {
+        Some(out)
+    }
 }
 
 /// Extract content from an Amazon Bedrock Converse response.
@@ -68,7 +76,11 @@ pub fn extract_bedrock_content(v: &Value) -> Option<String> {
             out.push_str(s);
         }
     }
-    if out.is_empty() { None } else { Some(out) }
+    if out.is_empty() {
+        None
+    } else {
+        Some(out)
+    }
 }
 
 #[cfg(test)]

@@ -476,10 +476,7 @@ pub extern "C" fn harmonia_metrics_model_stats(model: *const c_char) -> *mut c_c
 /// Query best-performing models for a backend, ranked by success rate and speed.
 /// Returns s-expression list of top candidates.
 #[no_mangle]
-pub extern "C" fn harmonia_metrics_best_models(
-    backend: *const c_char,
-    limit: i32,
-) -> *mut c_char {
+pub extern "C" fn harmonia_metrics_best_models(backend: *const c_char, limit: i32) -> *mut c_char {
     let backend = match cstr_to_string(backend) {
         Ok(v) => v,
         Err(e) => {

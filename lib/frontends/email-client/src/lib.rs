@@ -73,8 +73,9 @@ pub extern "C" fn harmonia_email_client_send(
             return -1;
         }
     };
-    let endpoint = harmonia_config_store::get_own_or(COMPONENT, "api-url", "https://api.resend.com/emails")
-        .unwrap_or_else(|_| "https://api.resend.com/emails".into());
+    let endpoint =
+        harmonia_config_store::get_own_or(COMPONENT, "api-url", "https://api.resend.com/emails")
+            .unwrap_or_else(|_| "https://api.resend.com/emails".into());
     let from = harmonia_config_store::get_own_or(COMPONENT, "from", "harmonia@local.invalid")
         .unwrap_or_else(|_| "harmonia@local.invalid".into());
     let payload = format!(
@@ -173,7 +174,8 @@ pub extern "C" fn harmonia_frontend_poll(buf: *mut c_char, buf_len: usize) -> i3
 #[no_mangle]
 pub extern "C" fn harmonia_frontend_send(channel: *const c_char, payload: *const c_char) -> i32 {
     let subject =
-        harmonia_config_store::get_own_or(COMPONENT, "default-subject", "Harmonia message").unwrap_or_else(|_| "Harmonia message".into());
+        harmonia_config_store::get_own_or(COMPONENT, "default-subject", "Harmonia message")
+            .unwrap_or_else(|_| "Harmonia message".into());
     let c_subject = match CString::new(subject) {
         Ok(v) => v,
         Err(_) => {
