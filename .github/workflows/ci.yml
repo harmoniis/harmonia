@@ -26,6 +26,10 @@ jobs:
           toolchain: "1.93.0"
           components: rustfmt, clippy
 
+      - name: Set up MSVC environment
+        if: runner.os == 'Windows'
+        uses: ilammy/msvc-dev-cmd@v1
+
       - uses: actions/cache@v4
         with:
           path: |
@@ -90,6 +94,10 @@ jobs:
         with:
           toolchain: "1.93.0"
           targets: ${{ !matrix.use_cross && matrix.target || '' }}
+
+      - name: Set up MSVC environment
+        if: runner.os == 'Windows'
+        uses: ilammy/msvc-dev-cmd@v1
 
       - uses: actions/cache@v4
         with:
