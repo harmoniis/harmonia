@@ -26,7 +26,7 @@ HARMONIA_WITH_SOURCE=1 curl -sSf https://harmoniis.com/harmonia/install | sh    
 
 | Dependency | Why | Install |
 |---|---|---|
-| Rust 1.75+ | Builds tool crates | rustup.rs |
+| Rust 1.89+ | Builds tool crates | rustup.rs |
 | SBCL | Agent runtime | `brew install sbcl` / `apt install sbcl` |
 | Quicklisp | Lisp packages | Auto-installed by `harmonia setup` |
 
