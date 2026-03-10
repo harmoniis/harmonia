@@ -1,5 +1,12 @@
 mod broker;
+#[cfg(unix)]
 mod chat;
+#[cfg(not(unix))]
+mod chat {
+    pub fn run() -> Result<(), Box<dyn std::error::Error>> {
+        Err("interactive local chat currently requires Unix domain sockets and is unavailable on this platform".into())
+    }
+}
 mod menus;
 mod paths;
 mod service;
