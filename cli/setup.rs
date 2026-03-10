@@ -848,11 +848,15 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
         .interact()?;
 
     let mut enabled_frontends: Vec<&str> = vec!["tui"];
+    let mut mqtt_selected = false;
     if !selected.is_empty() {
         println!("  Frontend credentials:");
         for &idx in &selected {
             let def = &defs[idx];
             enabled_frontends.push(def.name);
+            if def.name == "mqtt" {
+                mqtt_selected = true;
+            }
 
             for (symbol, prompt, is_password) in &def.vault_keys {
                 let value = if *is_password {
@@ -869,6 +873,10 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
                 }
             }
         }
+    }
+
+    if mqtt_selected {
+        configure_mqtt_defaults(&wallet_path, &cs)?;
     }
 
     // Optional tool API keys
@@ -1338,6 +1346,199 @@ fn install_cdylibs(target_dir: &Path, lib_dir: &Path) -> Result<(), Box<dyn std:
         }
     }
     Ok(())
+}
+
+fn configure_mqtt_defaults<F>(
+    wallet_path: &Path,
+    set_config: &F,
+) -> Result<(), Box<dyn std::error::Error>>
+where
+    F: Fn(&str, &str, &str) -> Result<(), Box<dyn std::error::Error>>,
+{
+    if !check_command("openssl") {
+        return Err("openssl is required to generate wallet-bound MQTT TLS certificates".into());
+    }
+
+    let mqtt_dir = crate::paths::data_dir()?.join("mqtt");
+    fs::create_dir_all(&mqtt_dir)?;
+    let label = "mqtt-client-alice";
+    let vault_new = Command::new("hrmw")
+        .args([
+            "key",
+            "vault-new",
+            "--wallet",
+            wallet_path.to_string_lossy().as_ref(),
+            "--label",
+            label,
+        ])
+        .output()?;
+    if !vault_new.status.success() {
+        return Err(format!(
+            "failed to create MQTT vault identity: {}",
+            String::from_utf8_lossy(&vault_new.stderr)
+        )
+        .into());
+    }
+    let public_key = parse_hrmw_output_field(&String::from_utf8_lossy(&vault_new.stdout), "Vault public key:")?;
+
+    let key_path = mqtt_dir.join("broker.key.pem");
+    let export = Command::new("hrmw")
+        .args([
+            "key",
+            "vault-export",
+            "--wallet",
+            wallet_path.to_string_lossy().as_ref(),
+            "--label",
+            label,
+            "--output",
+            key_path.to_string_lossy().as_ref(),
+        ])
+        .output()?;
+    if !export.status.success() {
+        return Err(format!(
+            "failed to export MQTT vault private key: {}",
+            String::from_utf8_lossy(&export.stderr)
+        )
+        .into());
+    }
+
+    let ca_key_path = mqtt_dir.join("broker-ca.key.pem");
+    let ca_path = mqtt_dir.join("broker-ca.crt");
+    let csr_path = mqtt_dir.join("broker.csr");
+    let cert_path = mqtt_dir.join("broker.crt");
+    let chain_path = mqtt_dir.join("broker.chain.crt");
+    let ext_path = mqtt_dir.join("broker.ext");
+    fs::write(
+        &ext_path,
+        "basicConstraints=critical,CA:FALSE\nkeyUsage=critical,digitalSignature\nextendedKeyUsage=serverAuth,clientAuth\nsubjectAltName=DNS:localhost,IP:127.0.0.1\n",
+    )?;
+
+    let ca_key_status = Command::new("openssl")
+        .args([
+            "genpkey",
+            "-algorithm",
+            "Ed25519",
+            "-out",
+            ca_key_path.to_string_lossy().as_ref(),
+        ])
+        .output()?;
+    if !ca_key_status.status.success() {
+        return Err(format!(
+            "failed to generate MQTT CA private key: {}",
+            String::from_utf8_lossy(&ca_key_status.stderr)
+        )
+        .into());
+    }
+
+    let ca_status = Command::new("openssl")
+        .args([
+            "req",
+            "-new",
+            "-x509",
+            "-key",
+            ca_key_path.to_string_lossy().as_ref(),
+            "-out",
+            ca_path.to_string_lossy().as_ref(),
+            "-days",
+            "365",
+            "-subj",
+            "/CN=harmonia-mqtt-ca",
+            "-addext",
+            "basicConstraints=critical,CA:TRUE",
+            "-addext",
+            "keyUsage=critical,digitalSignature,keyCertSign",
+        ])
+        .output()?;
+    if !ca_status.status.success() {
+        return Err(format!(
+            "failed to generate MQTT CA certificate: {}",
+            String::from_utf8_lossy(&ca_status.stderr)
+        )
+        .into());
+    }
+
+    let csr_status = Command::new("openssl")
+        .args([
+            "req",
+            "-new",
+            "-key",
+            key_path.to_string_lossy().as_ref(),
+            "-out",
+            csr_path.to_string_lossy().as_ref(),
+            "-subj",
+            &format!("/CN={public_key}"),
+        ])
+        .output()?;
+    if !csr_status.status.success() {
+        return Err(format!(
+            "failed to generate MQTT broker CSR: {}",
+            String::from_utf8_lossy(&csr_status.stderr)
+        )
+        .into());
+    }
+
+    let cert_status = Command::new("openssl")
+        .args([
+            "x509",
+            "-req",
+            "-in",
+            csr_path.to_string_lossy().as_ref(),
+            "-CA",
+            ca_path.to_string_lossy().as_ref(),
+            "-CAkey",
+            ca_key_path.to_string_lossy().as_ref(),
+            "-CAcreateserial",
+            "-out",
+            cert_path.to_string_lossy().as_ref(),
+            "-days",
+            "365",
+            "-extfile",
+            ext_path.to_string_lossy().as_ref(),
+        ])
+        .output()?;
+    if !cert_status.status.success() {
+        return Err(format!(
+            "failed to generate MQTT broker certificate: {}",
+            String::from_utf8_lossy(&cert_status.stderr)
+        )
+        .into());
+    }
+    let chain_pem = format!(
+        "{}\n{}",
+        fs::read_to_string(&cert_path)?,
+        fs::read_to_string(&ca_path)?
+    );
+    fs::write(&chain_path, chain_pem)?;
+
+    set_config("mqtt-broker", "mode", "embedded")?;
+    set_config("mqtt-broker", "bind", "127.0.0.1:8883")?;
+    set_config("mqtt-broker", "tls", "1")?;
+    set_config("mqtt-broker", "ca-cert", &ca_path.to_string_lossy())?;
+    set_config("mqtt-broker", "server-cert", &chain_path.to_string_lossy())?;
+    set_config("mqtt-broker", "server-key", &key_path.to_string_lossy())?;
+    set_config("mqtt-broker", "remote-config-url", "https://harmoniis.com/api/agent")?;
+    set_config("mqtt-broker", "remote-config-identity-label", label)?;
+    set_config("mqtt-broker", "remote-config-refresh-seconds", "60")?;
+    set_config("mqtt-broker", "identity-public-key", &public_key)?;
+
+    set_config("mqtt-frontend", "broker", "127.0.0.1:8883")?;
+    set_config("mqtt-frontend", "tls", "1")?;
+    set_config("mqtt-frontend", "ca-cert", &ca_path.to_string_lossy())?;
+    set_config("mqtt-frontend", "client-cert", &cert_path.to_string_lossy())?;
+    set_config("mqtt-frontend", "client-key", &key_path.to_string_lossy())?;
+    set_config("mqtt-frontend", "push-webhook-url", "https://harmoniis.com/api/webhooks/push")?;
+    set_config("mqtt-frontend", "trusted-client-fingerprints-json", "[]")?;
+    set_config("mqtt-frontend", "trusted-device-registry-json", "[]")?;
+    Ok(())
+}
+
+fn parse_hrmw_output_field(output: &str, prefix: &str) -> Result<String, Box<dyn std::error::Error>> {
+    for line in output.lines() {
+        if let Some(rest) = line.strip_prefix(prefix) {
+            return Ok(rest.trim().to_string());
+        }
+    }
+    Err(format!("missing hrmw output field: {prefix}").into())
 }
 
 fn generate_gateway_config(enabled: &[&str]) -> String {

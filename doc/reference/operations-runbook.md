@@ -11,12 +11,24 @@
 
 1. Full bootstrap/update flow: `harmonia setup`
 2. Seed policy only (no frontend/tool/provider re-entry): `harmonia setup --seeds`
-3. Verify active provider + seed list in config-store:
+3. MQTT setup now seeds an embedded broker by default when the MQTT frontend is selected:
+```bash
+sqlite3 ~/.harmoniis/harmonia/config.db \
+  "select scope,key,value from config_kv where scope in ('mqtt-broker','mqtt-frontend') order by scope,key;"
+```
+4. Verify wallet-bound broker assets exist:
+```bash
+ls ~/.harmoniis/harmonia/mqtt/
+```
+5. Default remote config endpoints seeded by setup:
+   - Remote config: `https://harmoniis.com/api/agent`
+   - Push webhook: `https://harmoniis.com/api/webhooks/push`
+6. Verify active provider + seed list in config-store:
 ```bash
 sqlite3 ~/.harmoniis/harmonia/config.db \
   "select scope,key,value from config_kv where scope='model-policy' and key in ('provider','seed-models') order by key;"
 ```
-4. Verify provider-scoped defaults and overrides:
+7. Verify provider-scoped defaults and overrides:
 ```bash
 sqlite3 ~/.harmoniis/harmonia/config.db \
   "select key,value from config_kv where scope='model-policy' and key like 'seed-models-%' order by key;"
@@ -34,6 +46,7 @@ Run through runtime APIs/tool ops:
 6. introspection diagnostics (`introspect-runtime`, `introspect-recent-errors`, `introspect-libs`).
 7. chronicle health (`chronicle-gc-status`, `chronicle-harmony-summary`).
 8. delegation telemetry (`chronicle-query "select task_hint,model,backend,success,latency_ms,cost_usd,ts from delegation_log order by id desc limit 20"`).
+9. embedded broker runtime (`harmonia status` should show `harmonia-mqtt-broker.log` when broker mode is `embedded`).
 
 ## 3. Verification Scripts (Repository)
 
@@ -43,10 +56,11 @@ From `scripts/`:
 2. `./scripts/test-ffi-live.sh` - core FFI live checks.
 3. `./scripts/test-frontends.sh` - communication/search/voice checks.
 4. `./scripts/test-mqtt-tls.sh` - MQTT TLS flow.
-5. `./scripts/test-genesis-loop.sh` - deterministic genesis loop.
-6. `./scripts/workload-local.sh` / `workload-cloud.sh` / `workload-full.sh` - workload paths.
-7. `./scripts/check-doc-reference-coverage.sh` - enforces canonical doc coverage mapping.
-8. `./scripts/generate-doc-section-coverage.sh` - regenerates heading-level matrix.
+5. `./scripts/test-mqtt-wallet-derived-tls.sh` - wallet-derived MQTT TLS identities + typed gateway ingress.
+6. `./scripts/test-genesis-loop.sh` - deterministic genesis loop.
+7. `./scripts/workload-local.sh` / `workload-cloud.sh` / `workload-full.sh` - workload paths.
+8. `./scripts/check-doc-reference-coverage.sh` - enforces canonical doc coverage mapping.
+9. `./scripts/generate-doc-section-coverage.sh` - regenerates heading-level matrix.
 
 ## 4. Recovery Procedure
 
@@ -118,6 +132,8 @@ Attempt to set vault min_harmony to 0.05 via `harmony-policy-set`. Must be rejec
 - **Tailnet**: Send a mesh message with invalid HMAC → must be rejected.
 - **Tailnet**: Send a mesh message with timestamp > 5 minutes old → must be rejected.
 - **MQTT**: Send a message with wrong `agent_fp` → must arrive as untrusted.
+- **MQTT**: Send a message from a client fingerprint not present in `mqtt-frontend/trusted-client-fingerprints-json` → must arrive as untrusted.
+- **MQTT**: Stop the agent while a device is offline, restart, reconnect the device, and verify the persisted offline queue flushes.
 
 ### 7.8 Security Posture Check
 

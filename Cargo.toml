@@ -95,9 +95,13 @@ serde_json = "1"
 ctrlc = "3.4"
 crossterm = "0.28"
 unicode-width = "0.2"
+ureq = { version = "2", features = ["json"] }
+rmqtt = { version = "0.18.1", features = ["tls"] }
 harmonia-vault = { version = "0.1.7", path = "lib/core/vault" }
 harmonia-config-store = { version = "0.1.7", path = "lib/core/config-store" }
 rusqlite = { version = "0.31", features = ["bundled"] }
+tokio = { version = "1.44", features = ["rt-multi-thread", "time"] }
+async-trait = "0.1"
 
 [target.'cfg(unix)'.dependencies]
 libc = "0.2"

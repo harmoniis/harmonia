@@ -65,6 +65,29 @@ These keys are populated by setup and consumed by `src/core/model-policy.lisp`:
 
 Operational note: `harmonia setup --seeds` updates these keys without re-running full setup.
 
+## MQTT Broker And Remote Config Keys
+
+These keys are populated by setup and refreshed by the embedded broker process:
+
+| Scope | Key | Purpose |
+|---|---|---|
+| `mqtt-broker` | `mode` | `embedded` or `external` |
+| `mqtt-broker` | `bind` | local listener address for the embedded broker |
+| `mqtt-broker` | `tls` | whether the broker requires TLS |
+| `mqtt-broker` | `ca-cert` | CA cert path used for mutual TLS client verification |
+| `mqtt-broker` | `server-cert` | broker certificate chain path used by `rmqtt` for server identity and client-cert trust roots |
+| `mqtt-broker` | `server-key` | broker private key path |
+| `mqtt-broker` | `remote-config-url` | signed remote API endpoint for agent config reads (`/api/agent`) |
+| `mqtt-broker` | `remote-config-identity-label` | vault-derived wallet label used for signing |
+| `mqtt-broker` | `remote-config-refresh-seconds` | refresh cadence for remote config sync |
+| `mqtt-frontend` | `broker` | MQTT broker host:port the frontend connects to |
+| `mqtt-frontend` | `trusted-client-fingerprints-json` | cached trusted MQTT client identity list |
+| `mqtt-frontend` | `trusted-device-registry-json` | cached push/device registry fetched from remote config |
+| `mqtt-frontend` | `push-webhook-url` | backend push webhook endpoint |
+| `mqtt-frontend` | `push-webhook-token` | optional push webhook bearer token |
+
+Operational note: the embedded broker uses `rmqtt` with `cert_cn_as_username`, so the wallet-derived certificate CN must be the normalized client fingerprint. Offline device messages are persisted in `mqtt-offline-queue.db` under `HARMONIA_STATE_ROOT`.
+
 ## Policy Boundaries
 
 1. Secrets are not config policy; they live behind vault APIs.

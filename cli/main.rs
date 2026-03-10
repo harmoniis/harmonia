@@ -1,3 +1,4 @@
+mod broker;
 mod chat;
 mod menus;
 mod paths;
@@ -46,6 +47,9 @@ enum Commands {
     },
     /// Stop the Harmonia daemon
     Stop,
+    /// Run the embedded MQTT broker/runtime helper
+    #[command(hide = true)]
+    Broker,
     /// Show daemon status
     Status,
     /// Install/uninstall system service for auto-start on boot
@@ -113,6 +117,12 @@ fn main() {
                 std::process::exit(1);
             }
         }
+        Some(Commands::Broker) => {
+            if let Err(e) = broker::run() {
+                eprintln!("Broker failed: {}", e);
+                std::process::exit(1);
+            }
+        }
         Some(Commands::Status) => {
             if let Err(e) = status() {
                 eprintln!("{}", e);
@@ -163,8 +173,10 @@ fn check_sbcl() -> bool {
 
 fn status() -> Result<(), Box<dyn std::error::Error>> {
     let pid_path = paths::pid_path()?;
+    let broker_pid_path = paths::broker_pid_path()?;
     let sock_path = paths::socket_path()?;
     let log_path = paths::log_path()?;
+    let broker_log_path = paths::broker_log_path()?;
 
     if !pid_path.exists() {
         println!("Harmonia is not running.");
@@ -183,6 +195,11 @@ fn status() -> Result<(), Box<dyn std::error::Error>> {
                 println!("  socket: {}", sock_path.display());
             }
             println!("  log:    {}", log_path.display());
+            if broker_pid_path.exists() {
+                if let Ok(pid_str) = std::fs::read_to_string(&broker_pid_path) {
+                    println!("  broker: {} (PID {})", broker_log_path.display(), pid_str.trim());
+                }
+            }
             println!();
             println!(
                 "  {}       to open TUI",

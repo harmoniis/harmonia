@@ -66,7 +66,7 @@ This inventory follows the current Cargo workspace members in `../../Cargo.toml`
 | Path | Purpose |
 |---|---|
 | `lib/frontends/push` | HTTP webhook push notification utility (rlib, consumed by mqtt-client — not a cdylib frontend) |
-| `lib/frontends/mqtt-client` | MQTT channel frontend with device registry, A2UI metadata emission, offline queue, push integration, and agent fingerprint validation |
+| `lib/frontends/mqtt-client` | MQTT channel frontend with device registry, persisted offline queue, remote trusted-device cache, push integration, and agent/client fingerprint validation |
 | `lib/frontends/whatsapp` | WhatsApp channel frontend |
 | `lib/frontends/telegram` | Telegram channel frontend |
 | `lib/frontends/slack` | Slack channel frontend |

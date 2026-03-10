@@ -58,12 +58,20 @@ pub fn pid_path() -> Result<PathBuf, Box<dyn std::error::Error>> {
     Ok(run_dir()?.join("harmonia.pid"))
 }
 
+pub fn broker_pid_path() -> Result<PathBuf, Box<dyn std::error::Error>> {
+    Ok(run_dir()?.join("harmonia-mqtt-broker.pid"))
+}
+
 pub fn socket_path() -> Result<PathBuf, Box<dyn std::error::Error>> {
     Ok(run_dir()?.join("harmonia.sock"))
 }
 
 pub fn log_path() -> Result<PathBuf, Box<dyn std::error::Error>> {
     Ok(log_dir()?.join("harmonia.log"))
+}
+
+pub fn broker_log_path() -> Result<PathBuf, Box<dyn std::error::Error>> {
+    Ok(log_dir()?.join("harmonia-mqtt-broker.log"))
 }
 
 // --- Platform-specific resolution ---

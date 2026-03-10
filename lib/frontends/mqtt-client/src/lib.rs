@@ -1,27 +1,76 @@
 use chrono::Utc;
 use harmonia_baseband_channel_protocol::CanonicalMobileEnvelope;
+use rusqlite::{params, Connection};
 use rumqttc::{Client, Event, Incoming, MqttOptions, Outgoing, QoS, TlsConfiguration, Transport};
 use serde::{Deserialize, Serialize};
-use std::collections::{HashMap, VecDeque};
+use sha2::{Digest, Sha256};
+use std::collections::{HashMap, HashSet, VecDeque};
 use std::ffi::{CStr, CString};
 use std::fs;
 use std::os::raw::c_char;
+use std::path::PathBuf;
 use std::process;
+use std::process::Command;
 use std::sync::{OnceLock, RwLock};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use uuid::Uuid;
 
 const VERSION: &[u8] = b"harmonia-mqtt-client/0.3.0\0";
 const COMPONENT: &str = "mqtt-frontend";
+const BROKER_SCOPE: &str = "mqtt-broker";
+const CONFIG_COMPONENT: &str = "harmonia-cli";
+const DEFAULT_REMOTE_LABEL: &str = "mqtt-client-alice";
 static LAST_ERROR: OnceLock<RwLock<String>> = OnceLock::new();
+const PUSH_WEBHOOK_MUTATION: &str = r#"
+mutation SendPush(
+  $agentFingerprint: String!,
+  $clientFingerprint: String!,
+  $deviceId: String!,
+  $publicKey: String!,
+  $signature: String!,
+  $title: String!,
+  $body: String!,
+  $data: String
+) {
+  send(
+    input: {
+      agentFingerprint: $agentFingerprint
+      clientFingerprint: $clientFingerprint
+      deviceId: $deviceId
+      publicKey: $publicKey
+      signature: $signature
+      title: $title
+      body: $body
+      data: $data
+    }
+  ) {
+    status
+  }
+}
+"#;
 
 type MessageEnvelope = CanonicalMobileEnvelope;
+
+#[derive(Debug, Clone, Deserialize)]
+struct RemoteDeviceRecord {
+    fingerprint: String,
+    #[serde(rename = "deviceId")]
+    device_id: String,
+    label: Option<String>,
+    platform: Option<String>,
+    #[serde(rename = "pushToken")]
+    push_token: Option<String>,
+    #[serde(rename = "mqttIdentityFingerprint")]
+    mqtt_identity_fingerprint: Option<String>,
+}
 
 // ─── Device Registry ────────────────────────────────────────────────
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 struct DeviceInfo {
     device_id: String,
+    #[serde(default)]
+    owner_fingerprint: String,
     platform: String,
     platform_version: String,
     app_version: String,
@@ -35,6 +84,8 @@ struct DeviceInfo {
     a2ui_version: String,
     #[serde(default)]
     push_token: Option<String>,
+    #[serde(default)]
+    mqtt_identity_fingerprint: Option<String>,
     #[serde(skip)]
     connected: bool,
     #[serde(skip)]
@@ -73,9 +124,125 @@ fn push_config() -> &'static RwLock<Option<harmonia_push::PushConfig>> {
     CFG.get_or_init(|| RwLock::new(None))
 }
 
-fn offline_queue() -> &'static RwLock<HashMap<String, VecDeque<(String, String)>>> {
-    static Q: OnceLock<RwLock<HashMap<String, VecDeque<(String, String)>>>> = OnceLock::new();
-    Q.get_or_init(|| RwLock::new(HashMap::new()))
+fn state_root() -> String {
+    harmonia_config_store::get_config(COMPONENT, "global", "state-root")
+        .ok()
+        .flatten()
+        .or_else(|| std::env::var("HARMONIA_STATE_ROOT").ok())
+        .unwrap_or_else(|| std::env::temp_dir().join("harmonia").to_string_lossy().to_string())
+}
+
+fn offline_queue_path() -> PathBuf {
+    PathBuf::from(state_root()).join("mqtt-offline-queue.db")
+}
+
+fn open_offline_queue_db() -> Result<Connection, String> {
+    let path = offline_queue_path();
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent).map_err(|e| format!("create offline queue dir failed: {e}"))?;
+    }
+    let conn = Connection::open(path).map_err(|e| format!("open offline queue db failed: {e}"))?;
+    conn.execute_batch(
+        "CREATE TABLE IF NOT EXISTS offline_messages (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            device_id TEXT NOT NULL,
+            topic TEXT NOT NULL,
+            payload TEXT NOT NULL,
+            created_at_ms INTEGER NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_offline_messages_device_id_id
+            ON offline_messages(device_id, id);",
+    )
+    .map_err(|e| format!("initialize offline queue db failed: {e}"))?;
+    Ok(conn)
+}
+
+fn load_offline_queue() {
+    let _ = open_offline_queue_db();
+}
+
+fn enqueue_offline_message(device_id: &str, topic: &str, payload: &str) -> Result<(), String> {
+    let conn = open_offline_queue_db()?;
+    conn.execute(
+        "INSERT INTO offline_messages (device_id, topic, payload, created_at_ms)
+         VALUES (?1, ?2, ?3, ?4)",
+        params![device_id, topic, payload, now_ms() as i64],
+    )
+    .map_err(|e| format!("enqueue offline message failed: {e}"))?;
+    Ok(())
+}
+
+fn take_offline_messages(device_id: &str) -> Result<Vec<(String, String)>, String> {
+    let mut conn = open_offline_queue_db()?;
+    let tx = conn
+        .transaction()
+        .map_err(|e| format!("open offline queue transaction failed: {e}"))?;
+    let mut stmt = tx
+        .prepare(
+            "SELECT topic, payload
+             FROM offline_messages
+             WHERE device_id = ?1
+             ORDER BY id ASC",
+        )
+        .map_err(|e| format!("prepare offline queue select failed: {e}"))?;
+    let messages = stmt
+        .query_map(params![device_id], |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?)))
+        .map_err(|e| format!("query offline queue failed: {e}"))?
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|e| format!("read offline queue rows failed: {e}"))?;
+    drop(stmt);
+    tx.execute(
+        "DELETE FROM offline_messages WHERE device_id = ?1",
+        params![device_id],
+    )
+    .map_err(|e| format!("delete offline queue rows failed: {e}"))?;
+    tx.commit()
+        .map_err(|e| format!("commit offline queue transaction failed: {e}"))?;
+    Ok(messages)
+}
+
+fn load_remote_device_registry() {
+    let raw = match harmonia_config_store::get_own(COMPONENT, "trusted-device-registry-json") {
+        Ok(Some(raw)) if !raw.trim().is_empty() => raw,
+        _ => return,
+    };
+    let Ok(devices) = serde_json::from_str::<Vec<RemoteDeviceRecord>>(&raw) else {
+        return;
+    };
+    if let Ok(mut reg) = device_registry().write() {
+        for remote in devices {
+            reg.entry(remote.device_id.clone()).or_insert(DeviceInfo {
+                device_id: remote.device_id.clone(),
+                owner_fingerprint: remote.fingerprint.clone(),
+                platform: remote.platform.unwrap_or_else(|| "unknown".to_string()),
+                platform_version: String::new(),
+                app_version: remote
+                    .label
+                    .clone()
+                    .unwrap_or_else(|| remote.fingerprint.clone()),
+                device_model: String::new(),
+                capabilities: vec![],
+                permissions_granted: vec![],
+                a2ui_version: String::new(),
+                push_token: remote.push_token,
+                mqtt_identity_fingerprint: remote.mqtt_identity_fingerprint,
+                connected: false,
+                last_seen_ms: 0,
+            });
+        }
+    }
+}
+
+fn trusted_origin_fingerprints() -> HashSet<String> {
+    let trusted_clients = harmonia_config_store::get_own(COMPONENT, "trusted-client-fingerprints-json")
+        .ok()
+        .flatten()
+        .unwrap_or_else(|| "[]".to_string());
+    serde_json::from_str::<Vec<String>>(&trusted_clients)
+        .unwrap_or_default()
+        .into_iter()
+        .map(|fp| fp.to_ascii_uppercase())
+        .collect()
 }
 
 // ─── Helpers ────────────────────────────────────────────────────────
@@ -273,12 +440,21 @@ fn validate_agent_fingerprint(envelope: &MessageEnvelope) -> bool {
     true
 }
 
-fn build_envelope_metadata(env: &MessageEnvelope, fp_valid: bool) -> String {
+fn origin_is_trusted(env: &MessageEnvelope) -> bool {
+    let trusted = trusted_origin_fingerprints();
+    if trusted.is_empty() {
+        return true;
+    }
+    trusted.contains(&env.client_fp.to_ascii_uppercase())
+}
+
+fn build_envelope_metadata(env: &MessageEnvelope, fp_valid: bool, origin_trusted: bool) -> String {
     format!(
-        "(:origin-fp \"{}\" :agent-fp \"{}\" :fingerprint-valid {})",
+        "(:origin-fp \"{}\" :agent-fp \"{}\" :fingerprint-valid {} :trusted-origin {})",
         env.client_fp,
         env.agent_fp,
-        if fp_valid { "t" } else { "nil" }
+        if fp_valid { "t" } else { "nil" },
+        if origin_trusted { "t" } else { "nil" }
     )
 }
 
@@ -310,6 +486,17 @@ fn handle_device_connect(payload: &str) {
     let device_id = device.device_id.clone();
 
     if let Ok(mut reg) = device_registry().write() {
+        if let Some(existing) = reg.get(&device_id) {
+            if device.owner_fingerprint.trim().is_empty() {
+                device.owner_fingerprint = existing.owner_fingerprint.clone();
+            }
+            if device.push_token.is_none() {
+                device.push_token = existing.push_token.clone();
+            }
+            if device.mqtt_identity_fingerprint.is_none() {
+                device.mqtt_identity_fingerprint = existing.mqtt_identity_fingerprint.clone();
+            }
+        }
         reg.insert(device_id.clone(), device);
     }
 
@@ -331,12 +518,9 @@ fn handle_device_disconnect(topic: &str) {
 
 /// Flush offline-queued messages for a device via MQTT publish.
 fn flush_offline_queue(device_id: &str) {
-    let messages: Vec<(String, String)> = if let Ok(mut q) = offline_queue().write() {
-        q.remove(device_id)
-            .map(|dq| dq.into_iter().collect())
-            .unwrap_or_default()
-    } else {
-        return;
+    let messages = match take_offline_messages(device_id) {
+        Ok(messages) => messages,
+        Err(_) => return,
     };
 
     if messages.is_empty() {
@@ -365,7 +549,7 @@ fn flush_offline_queue(device_id: &str) {
 
 /// Send a push notification for an offline device.
 fn send_offline_push(device: &DeviceInfo, payload: &str) {
-    let push_token = match &device.push_token {
+    let _push_token = match &device.push_token {
         Some(t) if !t.is_empty() => t.clone(),
         _ => return,
     };
@@ -380,16 +564,79 @@ fn send_offline_push(device: &DeviceInfo, payload: &str) {
         },
         Err(_) => return,
     };
-
-    let push_payload = harmonia_push::PushPayload {
-        device_token: push_token,
-        platform: device.platform.clone(),
-        title: "Harmonia".to_string(),
-        body: truncate_for_push(payload),
-        data: None,
+    if config.webhook_url.trim().is_empty() {
+        return;
+    }
+    let envelope: MessageEnvelope = match serde_json::from_str(payload) {
+        Ok(value) => value,
+        Err(_) => return,
     };
-
-    let _ = harmonia_push::send_push(&config, &push_payload);
+    let agent_fingerprint = envelope.agent_fp.trim().to_ascii_uppercase();
+    if agent_fingerprint.is_empty() {
+        return;
+    }
+    let client_fingerprint = if device.owner_fingerprint.trim().is_empty() {
+        envelope.client_fp.trim().to_ascii_uppercase()
+    } else {
+        device.owner_fingerprint.trim().to_ascii_uppercase()
+    };
+    if client_fingerprint.is_empty() {
+        return;
+    }
+    let body = truncate_for_push(&notification_body(&envelope));
+    let message_json = match serde_json::to_string(&serde_json::json!({
+        "title": "Harmonia",
+        "body": body,
+        "data": serde_json::Value::Null,
+    })) {
+        Ok(value) => value,
+        Err(_) => return,
+    };
+    let message = format!(
+        "harmonia:push:webhook:{}:{}:{}:{}",
+        agent_fingerprint,
+        client_fingerprint,
+        device.device_id,
+        sha256_hex(&message_json)
+    );
+    let identity_label = harmonia_config_store::get_config(
+        CONFIG_COMPONENT,
+        BROKER_SCOPE,
+        "remote-config-identity-label",
+    )
+    .ok()
+    .flatten()
+    .filter(|value| !value.trim().is_empty())
+    .unwrap_or_else(|| DEFAULT_REMOTE_LABEL.to_string());
+    let wallet_path = resolve_wallet_db_path();
+    let signed = match sign_with_vault(&wallet_path, &identity_label, &message) {
+        Ok(value) => value,
+        Err(_) => return,
+    };
+    let request = serde_json::json!({
+        "query": PUSH_WEBHOOK_MUTATION,
+        "variables": {
+            "agentFingerprint": agent_fingerprint,
+            "clientFingerprint": client_fingerprint,
+            "deviceId": device.device_id,
+            "publicKey": signed.public_key,
+            "signature": signed.signature,
+            "title": "Harmonia",
+            "body": body,
+            "data": serde_json::Value::Null,
+        }
+    });
+    let request_json = match serde_json::to_string(&request) {
+        Ok(value) => value,
+        Err(_) => return,
+    };
+    let mut req = ureq::post(&config.webhook_url)
+        .timeout(std::time::Duration::from_millis(config.timeout_ms))
+        .set("Content-Type", "application/json");
+    if let Some(token) = &config.auth_token {
+        req = req.set("Authorization", &format!("Bearer {token}"));
+    }
+    let _ = req.send_string(&request_json);
 }
 
 fn truncate_for_push(text: &str) -> String {
@@ -398,6 +645,79 @@ fn truncate_for_push(text: &str) -> String {
     } else {
         format!("{}...", &text[..253])
     }
+}
+
+fn notification_body(envelope: &MessageEnvelope) -> String {
+    envelope
+        .body
+        .get("text")
+        .and_then(|value| value.as_str())
+        .map(|value| value.to_string())
+        .unwrap_or_else(|| envelope.body.to_string())
+}
+
+fn sha256_hex(input: &str) -> String {
+    hex::encode(Sha256::digest(input.as_bytes()))
+}
+
+#[derive(Debug)]
+struct VaultSignResult {
+    public_key: String,
+    signature: String,
+}
+
+fn sign_with_vault(wallet: &PathBuf, label: &str, message: &str) -> Result<VaultSignResult, String> {
+    let output = Command::new(resolve_hrmw_bin())
+        .args([
+            "key",
+            "vault-sign",
+            "--wallet",
+            wallet.to_string_lossy().as_ref(),
+            "--label",
+            label,
+            "--message",
+            message,
+        ])
+        .output()
+        .map_err(|e| format!("failed to execute hrmw key vault-sign: {e}"))?;
+    if !output.status.success() {
+        return Err(format!(
+            "hrmw key vault-sign failed: {}",
+            String::from_utf8_lossy(&output.stderr)
+        ));
+    }
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    Ok(VaultSignResult {
+        public_key: parse_hrmw_output_field(&stdout, "Vault public key:")?,
+        signature: parse_hrmw_output_field(&stdout, "Signature:")?,
+    })
+}
+
+fn resolve_hrmw_bin() -> String {
+    std::env::var("HARMONIA_HRMW_BIN")
+        .ok()
+        .filter(|value| !value.trim().is_empty())
+        .or_else(|| std::env::var("HRMW_BIN").ok().filter(|value| !value.trim().is_empty()))
+        .unwrap_or_else(|| "hrmw".to_string())
+}
+
+fn parse_hrmw_output_field(output: &str, prefix: &str) -> Result<String, String> {
+    output
+        .lines()
+        .find_map(|line| line.strip_prefix(prefix))
+        .map(|value| value.trim().to_string())
+        .ok_or_else(|| format!("missing hrmw output field: {prefix}"))
+}
+
+fn resolve_wallet_db_path() -> PathBuf {
+    let home = std::env::var("HOME")
+        .map(PathBuf::from)
+        .unwrap_or_else(|_| PathBuf::from("."));
+    let primary = home.join(".harmoniis").join("master.db");
+    if primary.exists() {
+        return primary;
+    }
+    home.join(".harmoniis").join("rgb.db")
 }
 
 // ─── Config sexp parser ─────────────────────────────────────────────
@@ -697,6 +1017,9 @@ pub extern "C" fn harmonia_frontend_init(config: *const c_char) -> i32 {
         }
     };
 
+    load_offline_queue();
+    load_remote_device_registry();
+
     // Parse subscribed topics from config
     if let Some(topics_str) = extract_sexp_value(&config, "topics") {
         let topics: Vec<String> = topics_str
@@ -710,20 +1033,28 @@ pub extern "C" fn harmonia_frontend_init(config: *const c_char) -> i32 {
     }
 
     // Parse push webhook config
-    if let Some(url) = extract_sexp_value(&config, "push-webhook-url") {
+    let push_url = extract_sexp_value(&config, "push-webhook-url")
+        .or_else(|| harmonia_config_store::get_own(COMPONENT, "push-webhook-url").ok().flatten());
+    if let Some(url) = push_url {
         if !url.is_empty() {
-            let token = extract_sexp_value(&config, "push-webhook-token");
+            let token = extract_sexp_value(&config, "push-webhook-token").or_else(|| {
+                harmonia_config_store::get_own(COMPONENT, "push-webhook-token")
+                    .ok()
+                    .flatten()
+            });
             let timeout = extract_sexp_value(&config, "push-webhook-timeout-ms")
                 .and_then(|v| v.parse::<u64>().ok())
+                .or_else(|| {
+                    harmonia_config_store::get_own(COMPONENT, "push-webhook-timeout-ms")
+                        .ok()
+                        .flatten()
+                        .and_then(|v| v.parse::<u64>().ok())
+                })
                 .unwrap_or(5000);
             if let Ok(mut cfg) = push_config().write() {
                 *cfg = Some(harmonia_push::PushConfig {
                     webhook_url: url,
-                    auth_token: if token.as_deref() == Some("") {
-                        None
-                    } else {
-                        token
-                    },
+                    auth_token: token.filter(|value| !value.is_empty()),
                     timeout_ms: timeout,
                 });
             }
@@ -764,8 +1095,11 @@ pub extern "C" fn harmonia_frontend_init(config: *const c_char) -> i32 {
                         let (effective_payload, envelope_meta) =
                             match serde_json::from_str::<MessageEnvelope>(&payload) {
                                 Ok(env) => {
-                                    let fp_valid = validate_agent_fingerprint(&env);
-                                    let meta = build_envelope_metadata(&env, fp_valid);
+                                    let origin_trusted = origin_is_trusted(&env);
+                                    let fp_valid =
+                                        validate_agent_fingerprint(&env) && origin_trusted;
+                                    let meta =
+                                        build_envelope_metadata(&env, fp_valid, origin_trusted);
                                     (payload.clone(), Some(meta))
                                 }
                                 Err(_) => (payload, None),
@@ -833,6 +1167,7 @@ pub extern "C" fn harmonia_frontend_poll(buf: *mut c_char, buf_len: usize) -> i3
 
 #[no_mangle]
 pub extern "C" fn harmonia_frontend_send(channel: *const c_char, payload: *const c_char) -> i32 {
+    load_remote_device_registry();
     let topic = match cstr_to_string(channel) {
         Ok(v) => v,
         Err(e) => {
@@ -858,11 +1193,7 @@ pub extern "C" fn harmonia_frontend_send(channel: *const c_char, payload: *const
         if let Some(ref device) = device_info {
             if !device.connected {
                 // Device is offline: queue the message and send push notification
-                if let Ok(mut q) = offline_queue().write() {
-                    q.entry(device_id.clone())
-                        .or_default()
-                        .push_back((topic.clone(), payload_str.clone()));
-                }
+                let _ = enqueue_offline_message(&device_id, &topic, &payload_str);
                 send_offline_push(device, &payload_str);
                 clear_error();
                 return 0;
@@ -889,9 +1220,6 @@ pub extern "C" fn harmonia_frontend_shutdown() -> i32 {
     }
     if let Ok(mut reg) = device_registry().write() {
         reg.clear();
-    }
-    if let Ok(mut q) = offline_queue().write() {
-        q.clear();
     }
     if let Ok(mut cfg) = push_config().write() {
         *cfg = None;
@@ -941,6 +1269,7 @@ mod tests {
     fn device_info_metadata_sexp() {
         let d = DeviceInfo {
             device_id: "dev-1".into(),
+            owner_fingerprint: "client-1".into(),
             platform: "ios".into(),
             platform_version: "17.2".into(),
             app_version: "1.0.0".into(),
@@ -949,6 +1278,7 @@ mod tests {
             permissions_granted: vec![],
             a2ui_version: "1.0".into(),
             push_token: None,
+            mqtt_identity_fingerprint: Some("client-1".into()),
             connected: true,
             last_seen_ms: 0,
         };

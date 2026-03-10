@@ -1,6 +1,6 @@
 use console::style;
 use std::path::{Path, PathBuf};
-use std::process::Command;
+use std::process::{Child, Command, Stdio};
 
 pub fn run(env: &str, foreground: bool) -> Result<(), Box<dyn std::error::Error>> {
     let log_level = std::env::var("HARMONIA_LOG_LEVEL").unwrap_or_else(|_| "info".to_string());
@@ -126,6 +126,18 @@ pub fn run(env: &str, foreground: bool) -> Result<(), Box<dyn std::error::Error>
     println!("  workspace: {}", system_dir.display());
     println!();
 
+    let mut broker_child = if should_start_embedded_broker() {
+        Some(spawn_broker_process(
+            &source_dir,
+            &system_dir,
+            &vault_path,
+            &wallet_db_path,
+            &lib_dir,
+        )?)
+    } else {
+        None
+    };
+
     if foreground {
         // Foreground mode — block until SBCL exits (old behavior)
         let status = Command::new("sbcl")
@@ -144,6 +156,12 @@ pub fn run(env: &str, foreground: bool) -> Result<(), Box<dyn std::error::Error>
             .env("HARMONIA_LOG_LEVEL", &log_level)
             .current_dir(&source_dir)
             .status()?;
+
+        if let Some(child) = broker_child.as_mut() {
+            let _ = child.kill();
+            let _ = child.wait();
+            let _ = std::fs::remove_file(crate::paths::broker_pid_path()?);
+        }
 
         if !status.success() {
             return Err("SBCL exited with error".into());
@@ -197,6 +215,12 @@ pub fn run(env: &str, foreground: bool) -> Result<(), Box<dyn std::error::Error>
                 .cyan()
                 .bold()
         );
+        if should_start_embedded_broker() {
+            println!(
+                "  broker: {}",
+                crate::paths::broker_log_path()?.display()
+            );
+        }
     }
 
     Ok(())
@@ -220,6 +244,61 @@ fn resolve_wallet_db_path(home: &Path) -> PathBuf {
         return legacy;
     }
     master
+}
+
+fn should_start_embedded_broker() -> bool {
+    harmonia_config_store::get_config("harmonia-cli", "mqtt-broker", "mode")
+        .ok()
+        .flatten()
+        .map(|v| !v.trim().is_empty() && !v.eq_ignore_ascii_case("external"))
+        .unwrap_or(false)
+}
+
+fn spawn_broker_process(
+    source_dir: &Path,
+    system_dir: &Path,
+    vault_path: &Path,
+    wallet_db_path: &Path,
+    lib_dir: &Path,
+) -> Result<Child, Box<dyn std::error::Error>> {
+    let pid_path = crate::paths::broker_pid_path()?;
+    if pid_path.exists() {
+        if let Ok(pid_str) = std::fs::read_to_string(&pid_path) {
+            if let Ok(pid) = pid_str.trim().parse::<i32>() {
+                #[cfg(unix)]
+                if unsafe { libc::kill(pid, 0) } == 0 {
+                    return Err(format!("embedded MQTT broker already running (PID {pid})").into());
+                }
+            }
+        }
+        let _ = std::fs::remove_file(&pid_path);
+    }
+
+    let log_path = crate::paths::broker_log_path()?;
+    let log_file = std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(&log_path)?;
+    let err_file = log_file.try_clone()?;
+    let exe = std::env::current_exe()?;
+
+    let child = Command::new(exe)
+        .arg("broker")
+        .env("HARMONIA_STATE_ROOT", system_dir.to_string_lossy().as_ref())
+        .env("HARMONIA_VAULT_DB", vault_path.to_string_lossy().as_ref())
+        .env(
+            "HARMONIA_VAULT_WALLET_DB",
+            wallet_db_path.to_string_lossy().as_ref(),
+        )
+        .env("HARMONIA_LIB_DIR", lib_dir.to_string_lossy().as_ref())
+        .current_dir(source_dir)
+        .stdin(Stdio::null())
+        .stdout(Stdio::from(log_file))
+        .stderr(Stdio::from(err_file))
+        .spawn()?;
+
+    std::fs::write(&pid_path, child.id().to_string())?;
+    Ok(child)
 }
 
 fn is_runtime_root(path: &Path) -> bool {
