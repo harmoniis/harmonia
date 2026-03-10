@@ -21,5 +21,6 @@ uuid = { version = "1", features = ["v4"] }
 chrono = { version = "0.4", features = ["clock"] }
 harmonia-push = { version = "0.2.0", path = "../push" }
 harmonia-vault = { version = "0.1.5", path = "../../core/vault" }
+harmonia-config-store = { version = "0.2.0", path = "../../core/config-store" }
 log = "0.4"
 ureq = "2"

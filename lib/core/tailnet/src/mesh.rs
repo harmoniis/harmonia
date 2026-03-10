@@ -15,12 +15,12 @@ struct MeshState {
 static MESH: OnceLock<RwLock<MeshState>> = OnceLock::new();
 
 fn default_state() -> MeshState {
-    let port: u16 = std::env::var("HARMONIA_TAILNET_PORT")
+    let port: u16 = harmonia_config_store::get_own_or("tailnet-core", "port", "7483")
         .ok()
         .and_then(|v| v.parse().ok())
         .unwrap_or(7483);
 
-    let prefix = std::env::var("HARMONIA_TAILNET_HOSTNAME_PREFIX")
+    let prefix = harmonia_config_store::get_own_or("tailnet-core", "hostname-prefix", "harmonia-")
         .unwrap_or_else(|_| "harmonia-".to_string());
 
     let hostname = std::env::var("HOSTNAME")

@@ -3,6 +3,8 @@ use std::env;
 use std::fs::{self, OpenOptions};
 use std::io::Write;
 
+const COMPONENT: &str = "push-frontend";
+
 /// Push delivery configuration.
 pub struct PushConfig {
     pub webhook_url: String,
@@ -27,7 +29,9 @@ pub struct PushPayload {
 /// of making an HTTP request. Useful for testing and development.
 pub fn send_push(config: &PushConfig, payload: &PushPayload) -> Result<(), String> {
     // Test mode: write to file instead of HTTP
-    if env::var("HARMONIA_PUSH_MODE")
+    if harmonia_config_store::get_own(COMPONENT, "mode")
+        .ok()
+        .flatten()
         .map(|v| v.eq_ignore_ascii_case("log"))
         .unwrap_or(false)
     {
@@ -61,14 +65,17 @@ pub fn send_push(config: &PushConfig, payload: &PushPayload) -> Result<(), Strin
 }
 
 fn log_push(payload: &PushPayload) -> Result<(), String> {
-    let state_root = env::var("HARMONIA_STATE_ROOT").unwrap_or_else(|_| {
-        env::temp_dir()
-            .join("harmonia")
-            .to_string_lossy()
-            .to_string()
-    });
+    let state_root = harmonia_config_store::get_config(COMPONENT, "global", "state-root")
+        .ok()
+        .flatten()
+        .unwrap_or_else(|| {
+            env::temp_dir()
+                .join("harmonia")
+                .to_string_lossy()
+                .to_string()
+        });
     let log_path =
-        env::var("HARMONIA_PUSH_LOG").unwrap_or_else(|_| format!("{state_root}/push.log"));
+        harmonia_config_store::get_own(COMPONENT, "log").ok().flatten().unwrap_or_else(|| format!("{state_root}/push.log"));
 
     if let Some(parent) = std::path::Path::new(&log_path).parent() {
         fs::create_dir_all(parent).map_err(|e| format!("push log dir create failed: {e}"))?;
@@ -125,8 +132,8 @@ mod tests {
         fs::create_dir_all(&dir).unwrap();
         let log_path = dir.join("push.log");
 
-        env::set_var("HARMONIA_PUSH_MODE", "log");
-        env::set_var("HARMONIA_PUSH_LOG", log_path.to_str().unwrap());
+        let _ = harmonia_config_store::set_config(COMPONENT, "push-frontend", "mode", "log");
+        let _ = harmonia_config_store::set_config(COMPONENT, "push-frontend", "log", log_path.to_str().unwrap());
 
         let config = PushConfig {
             webhook_url: String::new(),
@@ -144,8 +151,9 @@ mod tests {
         let content = fs::read_to_string(&log_path).unwrap();
         assert!(content.contains("\"platform\":\"ios\""));
 
-        env::remove_var("HARMONIA_PUSH_MODE");
-        env::remove_var("HARMONIA_PUSH_LOG");
+        // Config-store delete requires admin; in tests we just overwrite with empty or skip cleanup.
+        let _ = harmonia_config_store::set_config(COMPONENT, "push-frontend", "mode", "");
+        let _ = harmonia_config_store::set_config(COMPONENT, "push-frontend", "log", "");
         let _ = fs::remove_dir_all(&dir);
     }
 }

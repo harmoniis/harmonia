@@ -9,6 +9,8 @@ cargo build --release \
   -p harmonia-whatsapp \
   -p harmonia-telegram \
   -p harmonia-slack \
+  -p harmonia-discord \
+  -p harmonia-signal \
   -p harmonia-mattermost \
   -p harmonia-nostr \
   -p harmonia-email-client \

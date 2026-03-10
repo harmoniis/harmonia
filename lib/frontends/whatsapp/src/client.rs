@@ -1,7 +1,10 @@
 use serde::Deserialize;
-use std::env;
 use std::sync::{OnceLock, RwLock};
 use std::time::{SystemTime, UNIX_EPOCH};
+
+const COMPONENT: &str = "whatsapp-frontend";
+const WHATSAPP_API_KEY_SYMBOLS: &[&str] = &["whatsapp-session", "whatsapp-api-key"];
+const WHATSAPP_API_URL_SYMBOLS: &[&str] = &["whatsapp-bridge-url", "whatsapp-api-url"];
 
 /// Incoming message from the WhatsApp bridge API.
 #[derive(Debug, Deserialize)]
@@ -58,6 +61,21 @@ fn sexp_value(config: &str, key: &str) -> Option<String> {
     }
 }
 
+fn read_vault_secret(symbols: &[&str]) -> Result<Option<String>, String> {
+    harmonia_vault::init_from_env()?;
+    for symbol in symbols {
+        let maybe = harmonia_vault::get_secret_for_component(COMPONENT, symbol)
+            .map_err(|e| format!("vault policy error: {e}"))?;
+        if let Some(value) = maybe {
+            let trimmed = value.trim();
+            if !trimmed.is_empty() {
+                return Ok(Some(trimmed.to_string()));
+            }
+        }
+    }
+    Ok(None)
+}
+
 // ---------------------------------------------------------------------------
 // Public API
 // ---------------------------------------------------------------------------
@@ -65,12 +83,35 @@ fn sexp_value(config: &str, key: &str) -> Option<String> {
 /// Initialise the WhatsApp client from an s-expression config string.
 ///
 /// Recognised keys: `:api-url`, `:api-key`.
-/// Falls back to env vars `HARMONIA_WHATSAPP_API_URL` / `HARMONIA_WHATSAPP_API_KEY`.
 pub fn init(config: &str) -> Result<(), String> {
     let mut s = state().write().map_err(|e| format!("lock: {e}"))?;
 
-    s.api_url = sexp_value(config, ":api-url")
-        .or_else(|| env::var("HARMONIA_WHATSAPP_API_URL").ok())
+    if let Some(api_url) = sexp_value(config, ":api-url") {
+        let trimmed = api_url.trim();
+        if !trimmed.is_empty() {
+            let _ = harmonia_config_store::set_config(COMPONENT, COMPONENT, "api-url", trimmed);
+        }
+    }
+    if let Some(api_key) = sexp_value(config, ":api-key") {
+        let trimmed = api_key.trim();
+        if !trimmed.is_empty() {
+            harmonia_vault::set_secret_for_symbol("whatsapp-session", trimmed)?;
+        }
+    }
+
+    s.api_url = harmonia_config_store::get_own(COMPONENT, "api-url")
+        .ok()
+        .flatten()
+        .or_else(|| {
+            read_vault_secret(WHATSAPP_API_URL_SYMBOLS)
+                .ok()
+                .flatten()
+                .and_then(|legacy| {
+                    let _ =
+                        harmonia_config_store::set_config(COMPONENT, COMPONENT, "api-url", &legacy);
+                    Some(legacy)
+                })
+        })
         .unwrap_or_else(|| "http://127.0.0.1:3000".into());
 
     // Strip trailing slash for consistency.
@@ -78,9 +119,7 @@ pub fn init(config: &str) -> Result<(), String> {
         s.api_url.pop();
     }
 
-    s.api_key = sexp_value(config, ":api-key")
-        .or_else(|| env::var("HARMONIA_WHATSAPP_API_KEY").ok())
-        .unwrap_or_default();
+    s.api_key = read_vault_secret(WHATSAPP_API_KEY_SYMBOLS)?.unwrap_or_default();
 
     s.last_poll_ms = now_ms();
     s.initialized = true;

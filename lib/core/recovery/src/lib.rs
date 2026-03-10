@@ -1,4 +1,3 @@
-use std::env;
 use std::ffi::{CStr, CString};
 use std::fs::{self, OpenOptions};
 use std::io::Write;
@@ -7,6 +6,7 @@ use std::sync::{OnceLock, RwLock};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 const VERSION: &[u8] = b"harmonia-recovery/0.2.0\0";
+const COMPONENT: &str = "phoenix-core";
 
 static LAST_ERROR: OnceLock<RwLock<String>> = OnceLock::new();
 
@@ -43,16 +43,21 @@ fn to_c_string(value: String) -> *mut c_char {
 }
 
 fn state_root() -> String {
-    env::var("HARMONIA_STATE_ROOT").unwrap_or_else(|_| {
-        env::temp_dir()
-            .join("harmonia")
-            .to_string_lossy()
-            .to_string()
-    })
+    let default = std::env::temp_dir()
+        .join("harmonia")
+        .to_string_lossy()
+        .to_string();
+    harmonia_config_store::get_config(COMPONENT, "global", "state-root")
+        .ok()
+        .flatten()
+        .unwrap_or(default)
 }
 
 fn log_path() -> String {
-    env::var("HARMONIA_RECOVERY_LOG").unwrap_or_else(|_| format!("{}/recovery.log", state_root()))
+    harmonia_config_store::get_own(COMPONENT, "recovery-log")
+        .ok()
+        .flatten()
+        .unwrap_or_else(|| format!("{}/recovery.log", state_root()))
 }
 
 #[no_mangle]

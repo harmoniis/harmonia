@@ -25,13 +25,13 @@ Telegram Bot API frontend. Connects to the Telegram Bot API to receive and send 
 
 ## Configuration
 
-Config S-expression or env vars:
+Config S-expression + vault:
 | Source | Key | Description |
 |--------|-----|-------------|
-| Config | `:bot-token` | Telegram bot token |
-| Env | `HARMONIA_TELEGRAM_BOT_TOKEN` | Fallback bot token |
+| Vault | `telegram-bot-token` | Telegram bot token (required) |
+| Config | `:bot-token` | Optional bootstrap value written into vault as `telegram-bot-token` |
 
-Vault symbol: `telegram_bot_token` (also checked)
+No direct secret env fallback is used by the frontend runtime.
 
 ## Self-Improvement Notes
 

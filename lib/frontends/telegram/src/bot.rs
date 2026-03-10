@@ -1,6 +1,8 @@
 use serde::Deserialize;
-use std::env;
 use std::sync::{OnceLock, RwLock};
+
+const COMPONENT: &str = "telegram-frontend";
+const TELEGRAM_BOT_TOKEN_SYMBOLS: &[&str] = &["telegram-bot-token", "telegram-bot-api-token"];
 
 // ---------------------------------------------------------------------------
 // Telegram Bot API response types
@@ -77,25 +79,41 @@ fn sexp_value(config: &str, key: &str) -> Option<String> {
     }
 }
 
+fn read_vault_secret(symbols: &[&str]) -> Result<Option<String>, String> {
+    harmonia_vault::init_from_env()?;
+    for symbol in symbols {
+        let maybe = harmonia_vault::get_secret_for_component(COMPONENT, symbol)
+            .map_err(|e| format!("vault policy error: {e}"))?;
+        if let Some(value) = maybe {
+            let trimmed = value.trim();
+            if !trimmed.is_empty() {
+                return Ok(Some(trimmed.to_string()));
+            }
+        }
+    }
+    Ok(None)
+}
+
 // ---------------------------------------------------------------------------
 // Public API
 // ---------------------------------------------------------------------------
 
 /// Initialise the Telegram bot from an s-expression config string.
 ///
-/// Recognised key: `:bot-token`.
-/// Falls back to env var `HARMONIA_TELEGRAM_BOT_TOKEN`.
+/// Recognised key: `:bot-token` (ingested into vault as `telegram-bot-token`).
 pub fn init(config: &str) -> Result<(), String> {
     let mut s = state().write().map_err(|e| format!("lock: {e}"))?;
 
-    s.bot_token = sexp_value(config, ":bot-token")
-        .or_else(|| env::var("HARMONIA_TELEGRAM_BOT_TOKEN").ok())
-        .unwrap_or_default();
+    if let Some(token) = sexp_value(config, ":bot-token") {
+        if !token.trim().is_empty() {
+            harmonia_vault::set_secret_for_symbol("telegram-bot-token", token.trim())?;
+        }
+    }
+
+    s.bot_token = read_vault_secret(TELEGRAM_BOT_TOKEN_SYMBOLS)?.unwrap_or_default();
 
     if s.bot_token.is_empty() {
-        return Err(
-            "no bot token provided (config :bot-token or HARMONIA_TELEGRAM_BOT_TOKEN)".into(),
-        );
+        return Err("no bot token provided in vault (symbol: telegram-bot-token)".into());
     }
 
     s.last_update_id = 0;

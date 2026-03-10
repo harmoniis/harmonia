@@ -46,8 +46,9 @@ pub(super) fn now_unix() -> u64 {
 }
 
 pub(super) fn history_limit() -> usize {
-    std::env::var("HARMONIA_MATRIX_HISTORY_LIMIT")
+    harmonia_config_store::get_own("harmonic-matrix", "history-limit")
         .ok()
+        .flatten()
         .and_then(|v| v.parse::<usize>().ok())
         .filter(|v| *v > 0)
         .unwrap_or(4096)

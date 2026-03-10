@@ -1,4 +1,3 @@
-use std::env;
 use std::ffi::{CStr, CString};
 use std::fs;
 use std::io::{BufRead, BufReader, Write};
@@ -8,6 +7,7 @@ use std::sync::{OnceLock, RwLock};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 const VERSION: &[u8] = b"harmonia-ouroboros/0.2.0\0";
+const COMPONENT: &str = "ouroboros-core";
 static LAST_ERROR: OnceLock<RwLock<String>> = OnceLock::new();
 
 fn last_error() -> &'static RwLock<String> {
@@ -50,16 +50,19 @@ fn to_c_string(value: String) -> *mut c_char {
 }
 
 fn state_root() -> String {
-    env::var("HARMONIA_STATE_ROOT").unwrap_or_else(|_| {
-        env::temp_dir()
-            .join("harmonia")
-            .to_string_lossy()
-            .to_string()
-    })
+    let default = std::env::temp_dir()
+        .join("harmonia")
+        .to_string_lossy()
+        .to_string();
+    harmonia_config_store::get_config_or(COMPONENT, "global", "state-root", &default)
+        .unwrap_or_else(|_| default)
 }
 
 fn recovery_log_path() -> String {
-    env::var("HARMONIA_RECOVERY_LOG").unwrap_or_else(|_| format!("{}/recovery.log", state_root()))
+    harmonia_config_store::get_config(COMPONENT, "global", "recovery-log")
+        .ok()
+        .flatten()
+        .unwrap_or_else(|| format!("{}/recovery.log", state_root()))
 }
 
 fn append_recovery(kind: &str, detail: &str) -> Result<(), String> {
@@ -197,9 +200,11 @@ pub extern "C" fn harmonia_ouroboros_write_patch(
         }
     };
 
-    let patch_dir = env::var("HARMONIA_OUROBOROS_PATCH_DIR")
+    let patch_dir = harmonia_config_store::get_own(COMPONENT, "patch-dir")
+        .ok()
+        .flatten()
         .map(PathBuf::from)
-        .unwrap_or_else(|_| env::temp_dir().join("harmonia-ouroboros/patches"));
+        .unwrap_or_else(|| std::env::temp_dir().join("harmonia-ouroboros/patches"));
     if let Err(e) = fs::create_dir_all(&patch_dir) {
         set_error(format!("patch dir create failed: {e}"));
         return -1;

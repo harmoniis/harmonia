@@ -53,6 +53,33 @@ fn default_component_patterns(component: &str) -> &'static [&'static str] {
         "email-frontend" => &["email-api-key"],
         "mattermost-frontend" => &["mattermost-bot-token"],
         "nostr-frontend" => &["nostr-private-key"],
+        "telegram-frontend" => &["telegram-bot-token", "telegram-bot-api-token"],
+        "slack-frontend" => &[
+            "slack-bot-token",
+            "slack-app-token",
+            "slack-bot-token-v2",
+            "slack-app-level-token",
+        ],
+        "discord-frontend" => &["discord-bot-token", "discord-token"],
+        "signal-frontend" => &[
+            "signal-auth-token",
+            "signal-auth-token-v2",
+            "signal-account",
+            "signal-rpc-url",
+            "signal-bridge-url",
+        ],
+        "whatsapp-frontend" => &[
+            "whatsapp-session",
+            "whatsapp-api-key",
+            "whatsapp-bridge-url",
+        ],
+        "imessage-frontend" => &[
+            "bluebubbles-password",
+            "imessage-password",
+            "bluebubbles-server-url",
+            "imessage-server-url",
+        ],
+        "tailscale-frontend" => &["tailscale-auth-key"],
         "mqtt-frontend" => &[
             "mqtt-agent-fp",
             "mqtt-tls-master-seed",

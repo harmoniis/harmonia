@@ -15,7 +15,7 @@
              (harmony-policy-number "rewrite-plan/noise-max" 0.38)))))
 
 (defun %source-rewrite-enabled-p ()
-  (let ((raw (sb-ext:posix-getenv "HARMONIA_SOURCE_REWRITE_ENABLED")))
+  (let ((raw (config-get-for "evolution" "source-rewrite-enabled")))
     (if raw
         (member (string-downcase raw) '("1" "true" "yes" "on") :test #'string=)
         t)))

@@ -1,6 +1,5 @@
 use console::style;
 use dialoguer::{Input, MultiSelect, Password};
-use std::collections::BTreeMap;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -30,8 +29,6 @@ struct LlmSecretDef {
 struct LlmProviderDef {
     id: &'static str,
     display: &'static str,
-    recommended_model: &'static str,
-    fallback_models: &'static [&'static str],
     required_command: Option<&'static str>,
     secrets: Vec<LlmSecretDef>,
 }
@@ -54,6 +51,20 @@ fn frontend_defs() -> Vec<FrontendDef> {
             vault_keys: vec![
                 ("slack-app-token", "Slack app token (xapp-...)", true),
                 ("slack-bot-token", "Slack bot token (xoxb-...)", true),
+            ],
+        },
+        FrontendDef {
+            name: "discord",
+            display: "Discord",
+            vault_keys: vec![("discord-bot-token", "Discord bot token", true)],
+        },
+        FrontendDef {
+            name: "signal",
+            display: "Signal (signal-cli bridge)",
+            vault_keys: vec![
+                ("signal-account", "Signal account/number", false),
+                ("signal-rpc-url", "Signal bridge URL", false),
+                ("signal-auth-token", "Signal bridge auth token (optional)", true),
             ],
         },
         FrontendDef {
@@ -96,18 +107,13 @@ fn frontend_defs() -> Vec<FrontendDef> {
 }
 
 fn llm_provider_defs() -> Vec<LlmProviderDef> {
+    // Model selection is NOT configured here — the backend owns its model pool
+    // with built-in pricing, and the harmonic-matrix evolves selection over time.
+    // Setup only collects API keys and stores them securely in the vault.
     vec![
         LlmProviderDef {
             id: "openrouter",
-            display: "OpenRouter (recommended universal gateway)",
-            recommended_model: "anthropic/claude-sonnet-4.6",
-            fallback_models: &[
-                "anthropic/claude-sonnet-4.6",
-                "openai/gpt-5",
-                "google/gemini-2.5-pro",
-                "x-ai/grok-4-fast:online",
-                "amazon/nova-pro-v1",
-            ],
+            display: "OpenRouter (recommended — routes to all providers)",
             required_command: None,
             secrets: vec![LlmSecretDef {
                 symbol: "openrouter-api-key",
@@ -119,9 +125,7 @@ fn llm_provider_defs() -> Vec<LlmProviderDef> {
         },
         LlmProviderDef {
             id: "openai",
-            display: "OpenAI",
-            recommended_model: "openai/gpt-5",
-            fallback_models: &["openai/gpt-5"],
+            display: "OpenAI (direct)",
             required_command: None,
             secrets: vec![LlmSecretDef {
                 symbol: "openai-api-key",
@@ -133,9 +137,7 @@ fn llm_provider_defs() -> Vec<LlmProviderDef> {
         },
         LlmProviderDef {
             id: "anthropic",
-            display: "Anthropic",
-            recommended_model: "anthropic/claude-sonnet-4.6",
-            fallback_models: &["anthropic/claude-sonnet-4.6", "anthropic/claude-opus-4.6"],
+            display: "Anthropic (direct)",
             required_command: None,
             secrets: vec![LlmSecretDef {
                 symbol: "anthropic-api-key",
@@ -147,9 +149,7 @@ fn llm_provider_defs() -> Vec<LlmProviderDef> {
         },
         LlmProviderDef {
             id: "xai",
-            display: "xAI",
-            recommended_model: "xai/grok-4-fast",
-            fallback_models: &["x-ai/grok-4-fast:online"],
+            display: "xAI (direct)",
             required_command: None,
             secrets: vec![LlmSecretDef {
                 symbol: "xai-api-key",
@@ -161,12 +161,7 @@ fn llm_provider_defs() -> Vec<LlmProviderDef> {
         },
         LlmProviderDef {
             id: "google-ai-studio",
-            display: "Google AI Studio",
-            recommended_model: "google/gemini-2.5-pro",
-            fallback_models: &[
-                "google/gemini-2.5-pro",
-                "google/gemini-3.1-flash-lite-preview",
-            ],
+            display: "Google AI Studio (direct)",
             required_command: None,
             secrets: vec![LlmSecretDef {
                 symbol: "google-ai-studio-api-key",
@@ -178,9 +173,7 @@ fn llm_provider_defs() -> Vec<LlmProviderDef> {
         },
         LlmProviderDef {
             id: "google-vertex",
-            display: "Google Vertex AI",
-            recommended_model: "vertex/gemini-2.5-pro",
-            fallback_models: &["vertex/gemini-2.5-pro", "vertex/gemini-2.5-flash"],
+            display: "Google Vertex AI (direct)",
             required_command: None,
             secrets: vec![
                 LlmSecretDef {
@@ -208,9 +201,7 @@ fn llm_provider_defs() -> Vec<LlmProviderDef> {
         },
         LlmProviderDef {
             id: "bedrock",
-            display: "Amazon Bedrock / Nova",
-            recommended_model: "amazon/nova-pro-v1",
-            fallback_models: &["amazon/nova-pro-v1", "amazon/nova-lite-v1"],
+            display: "Amazon Bedrock / Nova (direct)",
             required_command: Some("aws"),
             secrets: vec![
                 LlmSecretDef {
@@ -245,9 +236,7 @@ fn llm_provider_defs() -> Vec<LlmProviderDef> {
         },
         LlmProviderDef {
             id: "groq",
-            display: "Groq",
-            recommended_model: "groq/llama-3.3-70b-versatile",
-            fallback_models: &["groq/llama-3.3-70b-versatile"],
+            display: "Groq (direct)",
             required_command: None,
             secrets: vec![LlmSecretDef {
                 symbol: "groq-api-key",
@@ -259,9 +248,7 @@ fn llm_provider_defs() -> Vec<LlmProviderDef> {
         },
         LlmProviderDef {
             id: "alibaba",
-            display: "Alibaba Cloud (DashScope/Qwen)",
-            recommended_model: "qwen/qwen-plus",
-            fallback_models: &["qwen/qwen-plus", "qwen/qwen-max"],
+            display: "Alibaba / DashScope / Qwen (direct)",
             required_command: None,
             secrets: vec![LlmSecretDef {
                 symbol: "alibaba-api-key",
@@ -272,12 +259,6 @@ fn llm_provider_defs() -> Vec<LlmProviderDef> {
             }],
         },
     ]
-}
-
-fn push_unique(values: &mut Vec<String>, value: &str) {
-    if !values.iter().any(|v| v == value) {
-        values.push(value.to_string());
-    }
 }
 
 fn prompt_llm_secret(
@@ -300,13 +281,16 @@ fn prompt_llm_secret(
     Ok(value.trim().to_string())
 }
 
-fn configure_llm_providers() -> Result<BTreeMap<String, String>, Box<dyn std::error::Error>> {
+fn configure_llm_providers() -> Result<(), Box<dyn std::error::Error>> {
+    // Setup only collects API keys and stores them in the vault.
+    // Model selection is automatic — the backend owns a built-in model pool
+    // with pricing, and the harmonic-matrix evolves selection over time.
     let defs = llm_provider_defs();
     let display_names: Vec<&str> = defs.iter().map(|d| d.display).collect();
     let defaults: Vec<bool> = defs.iter().map(|d| d.id == "openrouter").collect();
 
     let selected = MultiSelect::new()
-        .with_prompt("  [5/10] Select LLM providers to configure (OpenRouter recommended)")
+        .with_prompt("  [5/10] Select LLM providers (keys stored in vault only)")
         .items(&display_names)
         .defaults(&defaults)
         .interact()?;
@@ -316,11 +300,11 @@ fn configure_llm_providers() -> Result<BTreeMap<String, String>, Box<dyn std::er
     }
 
     println!(
-        "    {} Configuring provider credentials...",
+        "    {} Storing provider credentials in vault...",
         style("→").cyan().bold()
     );
 
-    let mut configured: Vec<&LlmProviderDef> = Vec::new();
+    let mut configured_count = 0usize;
     for idx in selected {
         let def = &defs[idx];
         if let Some(cmd) = def.required_command {
@@ -361,58 +345,30 @@ fn configure_llm_providers() -> Result<BTreeMap<String, String>, Box<dyn std::er
             harmonia_vault::set_secret_for_symbol(symbol, &value)
                 .map_err(|e| format!("vault write failed for {}: {e}", symbol))?;
         }
-        configured.push(def);
+        configured_count += 1;
         println!(
-            "    {} {} configured",
+            "    {} {} — key stored in vault",
             style("✓").green().bold(),
             def.display
         );
     }
 
-    if configured.is_empty() {
+    if configured_count == 0 {
         return Err("no LLM provider was fully configured".into());
     }
 
-    let mut runtime_env = BTreeMap::new();
-    let mut fallback_models = Vec::new();
-    for def in &configured {
-        for model in def.fallback_models {
-            push_unique(&mut fallback_models, model);
-        }
-    }
-
-    let default_model = if configured.iter().any(|d| d.id == "openrouter") {
-        "anthropic/claude-sonnet-4.6".to_string()
-    } else {
-        configured[0].recommended_model.to_string()
-    };
-    runtime_env.insert(
-        "HARMONIA_LLM_DEFAULT_MODEL".to_string(),
-        default_model.clone(),
-    );
-    push_unique(&mut fallback_models, &default_model);
-    runtime_env.insert(
-        "HARMONIA_LLM_FALLBACK_MODELS".to_string(),
-        fallback_models.join(","),
-    );
-    if configured.iter().any(|d| d.id == "openrouter") {
-        runtime_env.insert(
-            "HARMONIA_LLM_DISABLE_OPENROUTER_FALLBACK".to_string(),
-            "false".to_string(),
-        );
-    }
-
     println!(
-        "    {} LLM default model: {}",
-        style("✓").green().bold(),
-        default_model
+        "    {} Model selection is automatic (pool-based harmonic scoring)",
+        style("✓").green().bold()
     );
-    Ok(runtime_env)
+
+    // No model env vars — the backend owns model selection via its built-in pool.
+    Ok(())
 }
 
 fn configure_evolution_profile(
     home: &Path,
-) -> Result<BTreeMap<String, String>, Box<dyn std::error::Error>> {
+) -> Result<(), Box<dyn std::error::Error>> {
     println!();
     let options = vec![
         "Binary-only evolution (artifact rollout, no source rewrite)",
@@ -421,120 +377,63 @@ fn configure_evolution_profile(
     ];
 
     let selection = dialoguer::Select::new()
-        .with_prompt("  [5b/10] Evolution profile")
+        .with_prompt("  Evolution profile")
         .items(&options)
         .default(0)
         .interact()?;
 
-    let mut updates = BTreeMap::new();
+    let cs = |scope: &str, key: &str, val: &str| {
+        harmonia_config_store::set_config("harmonia-cli", scope, key, val)
+    };
+
     match selection {
         0 => {
-            updates.insert(
-                "HARMONIA_EVOLUTION_MODE".to_string(),
-                "artifact-rollout".to_string(),
-            );
-            updates.insert(
-                "HARMONIA_SOURCE_REWRITE_ENABLED".to_string(),
-                "0".to_string(),
-            );
-            updates.insert("HARMONIA_SOURCE_DIR".to_string(), String::new());
-            updates.insert(
-                "HARMONIA_DISTRIBUTED_EVOLUTION_ENABLED".to_string(),
-                "0".to_string(),
-            );
-            updates.insert("HARMONIA_DISTRIBUTED_STORE_KIND".to_string(), String::new());
-            updates.insert(
-                "HARMONIA_DISTRIBUTED_STORE_BUCKET".to_string(),
-                String::new(),
-            );
-            updates.insert(
-                "HARMONIA_DISTRIBUTED_STORE_PREFIX".to_string(),
-                String::new(),
-            );
+            cs("evolution", "mode", "artifact-rollout")?;
+            cs("evolution", "source-rewrite-enabled", "0")?;
+            cs("evolution", "distributed-enabled", "0")?;
         }
         1 => {
-            updates.insert(
-                "HARMONIA_EVOLUTION_MODE".to_string(),
-                "source-rewrite".to_string(),
-            );
-            updates.insert(
-                "HARMONIA_SOURCE_REWRITE_ENABLED".to_string(),
-                "1".to_string(),
-            );
-            updates.insert(
-                "HARMONIA_DISTRIBUTED_EVOLUTION_ENABLED".to_string(),
-                "0".to_string(),
-            );
-            updates.insert("HARMONIA_DISTRIBUTED_STORE_KIND".to_string(), String::new());
-            updates.insert(
-                "HARMONIA_DISTRIBUTED_STORE_BUCKET".to_string(),
-                String::new(),
-            );
-            updates.insert(
-                "HARMONIA_DISTRIBUTED_STORE_PREFIX".to_string(),
-                String::new(),
-            );
+            cs("evolution", "mode", "source-rewrite")?;
+            cs("evolution", "source-rewrite-enabled", "1")?;
+            cs("evolution", "distributed-enabled", "0")?;
 
             if let Some(rewrite_root) = detect_source_rewrite_root(home) {
-                updates.insert(
-                    "HARMONIA_SOURCE_DIR".to_string(),
-                    rewrite_root.display().to_string(),
-                );
+                cs("global", "source-dir", &rewrite_root.to_string_lossy())?;
                 println!(
                     "    {} Source rewrite root: {}",
                     style("✓").green().bold(),
                     rewrite_root.display()
                 );
             } else {
-                updates.insert("HARMONIA_SOURCE_DIR".to_string(), String::new());
                 println!(
-                    "    {} Source rewrite git checkout not found. Install with HARMONIA_WITH_SOURCE=1 for git lineage/push workflows.",
+                    "    {} Source rewrite git checkout not found — can configure later with `harmonia setup`.",
                     style("!").yellow().bold()
                 );
             }
         }
         _ => {
-            updates.insert(
-                "HARMONIA_EVOLUTION_MODE".to_string(),
-                "artifact-rollout".to_string(),
-            );
-            updates.insert(
-                "HARMONIA_SOURCE_REWRITE_ENABLED".to_string(),
-                "0".to_string(),
-            );
-            updates.insert(
-                "HARMONIA_DISTRIBUTED_EVOLUTION_ENABLED".to_string(),
-                "1".to_string(),
-            );
-            updates.insert(
-                "HARMONIA_DISTRIBUTED_STORE_KIND".to_string(),
-                "s3".to_string(),
-            );
-            updates.insert("HARMONIA_SOURCE_DIR".to_string(), String::new());
+            cs("evolution", "mode", "artifact-rollout")?;
+            cs("evolution", "source-rewrite-enabled", "0")?;
+            cs("evolution", "distributed-enabled", "1")?;
+            cs("evolution", "distributed-store-kind", "s3")?;
 
             let bucket: String = Input::new()
                 .with_prompt("    Distributed evolution bucket")
                 .allow_empty(true)
                 .interact_text()?;
             if !bucket.trim().is_empty() {
-                updates.insert(
-                    "HARMONIA_DISTRIBUTED_STORE_BUCKET".to_string(),
-                    bucket.trim().to_string(),
-                );
+                cs("evolution", "distributed-store-bucket", bucket.trim())?;
             }
 
             let prefix: String = Input::new()
                 .with_prompt("    Distributed evolution prefix")
                 .default("harmonia/evolution".to_string())
                 .interact_text()?;
-            updates.insert(
-                "HARMONIA_DISTRIBUTED_STORE_PREFIX".to_string(),
-                prefix.trim().to_string(),
-            );
+            cs("evolution", "distributed-store-prefix", prefix.trim())?;
         }
     }
 
-    Ok(updates)
+    Ok(())
 }
 
 pub fn run() -> Result<(), Box<dyn std::error::Error>> {
@@ -545,12 +444,21 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
     );
     println!();
 
+    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    //  REQUIRED — system workspace, runtime deps, LLM provider
+    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+    println!(
+        "  {}",
+        style("─── Required ───────────────────────────────────────").dim()
+    );
+
     // Step 1: System workspace
     let home = dirs::home_dir().ok_or("cannot determine home directory")?;
     let system_dir = home.join(".harmoniis").join("harmonia");
     println!(
         "  {} System workspace: {}",
-        style("[1/10]").bold().dim(),
+        style("[1/4]").bold().dim(),
         style(system_dir.display()).green()
     );
     fs::create_dir_all(&system_dir)?;
@@ -558,31 +466,8 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
     fs::create_dir_all(system_dir.join("genesis"))?;
     fs::create_dir_all(system_dir.join("frontends"))?;
 
-    // Step 2: User workspace
-    let default_workspace = home.join("workspace");
-    let workspace: String = Input::new()
-        .with_prompt(format!(
-            "  {} User workspace directory",
-            style("[2/10]").bold().dim()
-        ))
-        .default(default_workspace.to_string_lossy().to_string())
-        .interact_text()?;
-    let workspace_path = PathBuf::from(&workspace);
-    fs::create_dir_all(&workspace_path)?;
-
-    // Write workspace path to config
-    let workspace_config = format!(
-        "(:workspace\n  (:system-dir \"{}\")\n  (:user-workspace \"{}\"))\n",
-        system_dir.display(),
-        workspace_path.display()
-    );
-    fs::write(
-        system_dir.join("config").join("workspace.sexp"),
-        &workspace_config,
-    )?;
-
-    // Step 3: Check SBCL
-    println!("\n  {} Checking SBCL...", style("[3/10]").bold().dim());
+    // Step 2: Check SBCL + Quicklisp
+    println!("  {} Checking runtime dependencies...", style("[2/4]").bold().dim());
     if !check_command("sbcl") {
         println!(
             "    {} SBCL not found. Install it:",
@@ -599,8 +484,6 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
     }
     println!("    {} SBCL found", style("✓").green().bold());
 
-    // Step 4: Check Quicklisp
-    println!("  {} Checking Quicklisp...", style("[4/10]").bold().dim());
     let quicklisp_path = home.join("quicklisp").join("setup.lisp");
     if !quicklisp_path.exists() {
         println!(
@@ -611,7 +494,7 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
     }
     println!("    {} Quicklisp found", style("✓").green().bold());
 
-    // Step 5: Wallet-rooted vault bootstrap + LLM provider setup
+    // Step 3: Wallet + vault + config-store bootstrap
     println!();
     let wallet_path = ensure_harmoniis_wallet()?;
     std::env::set_var(
@@ -624,54 +507,149 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
         wallet_path.display()
     );
 
-    println!(
-        "  {} LLM provider credentials",
-        style("[5/10]").bold().dim()
-    );
-
-    // Initialize vault and store provider keys
     let vault_path = system_dir.join("vault.db");
     std::env::set_var("HARMONIA_VAULT_DB", vault_path.to_string_lossy().as_ref());
+    std::env::set_var("HARMONIA_STATE_ROOT", system_dir.to_string_lossy().as_ref());
     harmonia_vault::init_from_env().map_err(|e| format!("vault init failed: {e}"))?;
-    let mut runtime_env_updates = configure_llm_providers()?;
-    for (k, v) in configure_evolution_profile(&home)? {
-        runtime_env_updates.insert(k, v);
+
+    // Initialize config-store and seed bootstrap values
+    harmonia_config_store::init_v2().map_err(|e| format!("config-store init failed: {e}"))?;
+
+    let cs = |scope: &str, key: &str, val: &str| -> Result<(), Box<dyn std::error::Error>> {
+        harmonia_config_store::set_config("harmonia-cli", scope, key, val)
+            .map_err(|e| e.into())
+    };
+
+    // Write system paths to config-store
+    cs("global", "state-root", &system_dir.to_string_lossy())?;
+    cs("global", "system-dir", &system_dir.to_string_lossy())?;
+
+    // Detect and store source dir
+    if let Ok(source_dir) = find_source_dir() {
+        cs("global", "source-dir", &source_dir.to_string_lossy())?;
+        let lib_dir = source_dir.join("target").join("release");
+        cs("global", "lib-dir", &lib_dir.to_string_lossy())?;
     }
 
-    // Step 6: Git fork URL + GitHub token
+    // User workspace
+    let default_workspace = home.join("workspace");
+    let workspace: String = Input::new()
+        .with_prompt(format!(
+            "  {} User workspace directory",
+            style("[3/4]").bold().dim()
+        ))
+        .default(default_workspace.to_string_lossy().to_string())
+        .interact_text()?;
+    let workspace_path = PathBuf::from(&workspace);
+    fs::create_dir_all(&workspace_path)?;
+
+    let workspace_config = format!(
+        "(:workspace\n  (:system-dir \"{}\")\n  (:user-workspace \"{}\"))\n",
+        system_dir.display(),
+        workspace_path.display()
+    );
+    fs::write(
+        system_dir.join("config").join("workspace.sexp"),
+        &workspace_config,
+    )?;
+
+    // Step 4: LLM provider (the only truly required config)
+    println!(
+        "\n  {} LLM provider credentials (at least one required)",
+        style("[4/4]").bold().dim()
+    );
+    configure_llm_providers()?;
+
+    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    //  OPTIONAL — frontends, tools, evolution, git, S3
+    //  All can be skipped now and configured later via `harmonia setup`
+    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+    println!();
+    println!(
+        "  {}",
+        style("─── Optional (Enter to skip, configure later with `harmonia setup`) ──").dim()
+    );
+
+    // Frontend selection
+    println!();
+    let defs = frontend_defs();
+    let display_names: Vec<&str> = defs.iter().map(|d| d.display).collect();
+    let selected = MultiSelect::new()
+        .with_prompt("  Select frontends to enable (TUI always on, Enter to skip all)")
+        .items(&display_names)
+        .interact()?;
+
+    let mut enabled_frontends: Vec<&str> = vec!["tui"];
+    if !selected.is_empty() {
+        println!("  Frontend credentials:");
+        for &idx in &selected {
+            let def = &defs[idx];
+            enabled_frontends.push(def.name);
+
+            for (symbol, prompt, is_password) in &def.vault_keys {
+                let value = if *is_password {
+                    Password::new()
+                        .with_prompt(format!("    {} {}", def.display, prompt))
+                        .allow_empty_password(true)
+                        .interact()?
+                } else {
+                    Input::<String>::new()
+                        .with_prompt(format!("    {} {}", def.display, prompt))
+                        .allow_empty(true)
+                        .interact_text()?
+                };
+                if !value.is_empty() {
+                    harmonia_vault::set_secret_for_symbol(symbol, &value)
+                        .map_err(|e| format!("vault write failed for {}: {e}", symbol))?;
+                }
+            }
+        }
+    }
+
+    // Optional tool API keys
+    println!("\n  Optional tool API keys (Enter to skip):");
+    let optional_keys = [
+        ("exa-api-key", "Exa search API key"),
+        ("brave-api-key", "Brave search API key"),
+        ("elevenlabs-api-key", "ElevenLabs API key"),
+    ];
+    for (symbol, prompt) in &optional_keys {
+        let value: String = Input::new()
+            .with_prompt(format!("    {}", prompt))
+            .allow_empty(true)
+            .interact_text()?;
+        if !value.is_empty() {
+            harmonia_vault::set_secret_for_symbol(symbol, &value)
+                .map_err(|e| format!("vault write failed for {}: {e}", symbol))?;
+        }
+    }
+
+    // Git fork + GitHub token (optional)
     println!();
     let default_fork = "https://github.com/harmoniis/harmonia.git".to_string();
     let fork_url: String = Input::new()
-        .with_prompt(format!("  {} Git fork URL", style("[6/10]").bold().dim()))
+        .with_prompt("  Git fork URL (Enter to skip)")
         .default(default_fork)
         .interact_text()?;
-    harmonia_vault::set_secret_for_symbol("github-fork-url", &fork_url)
-        .map_err(|e| format!("vault write failed for github-fork-url: {e}"))?;
+    if !fork_url.is_empty() {
+        harmonia_vault::set_secret_for_symbol("github-fork-url", &fork_url)
+            .map_err(|e| format!("vault write failed for github-fork-url: {e}"))?;
 
-    let github_token: String = Password::new()
-        .with_prompt(format!(
-            "    {} GitHub PAT (for git push to fork, Enter to skip)",
-            style("").dim()
-        ))
-        .allow_empty_password(true)
-        .interact()?;
-    if !github_token.is_empty() {
-        harmonia_vault::set_secret_for_symbol("github-token", &github_token)
-            .map_err(|e| format!("vault write failed for github-token: {e}"))?;
+        let github_token: String = Password::new()
+            .with_prompt("    GitHub PAT (for git push to fork, Enter to skip)")
+            .allow_empty_password(true)
+            .interact()?;
+        if !github_token.is_empty() {
+            harmonia_vault::set_secret_for_symbol("github-token", &github_token)
+                .map_err(|e| format!("vault write failed for github-token: {e}"))?;
+        }
     }
-    println!(
-        "    {} Git configuration stored in vault",
-        style("✓").green().bold()
-    );
 
-    // Step 7: S3 credentials (for binary distribution)
+    // S3 credentials (optional)
     println!();
-    println!(
-        "  {} S3 credentials for binary backups (Enter to skip all)",
-        style("[7/10]").bold().dim()
-    );
     let s3_bucket: String = Input::new()
-        .with_prompt("    S3 bucket name")
+        .with_prompt("  S3 bucket for binary backups (Enter to skip)")
         .allow_empty(true)
         .interact_text()?;
     if !s3_bucket.is_empty() {
@@ -701,75 +679,18 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
             "    {} S3 credentials stored in vault",
             style("✓").green().bold()
         );
-    } else {
-        println!("    {} S3 skipped (can configure later)", style("—").dim());
     }
 
-    // Step 8: Frontend selection
-    println!();
-    let defs = frontend_defs();
-    let display_names: Vec<&str> = defs.iter().map(|d| d.display).collect();
-    let selected = MultiSelect::new()
-        .with_prompt(format!(
-            "  {} Select frontends to enable (TUI always on)",
-            style("[8/10]").bold().dim()
-        ))
-        .items(&display_names)
-        .interact()?;
+    // Evolution profile (optional — defaults to artifact-rollout)
+    configure_evolution_profile(&home)?;
 
-    // Step 9: Per-frontend credentials
-    if !selected.is_empty() {
-        println!("\n  {} Frontend credentials", style("[9/10]").bold().dim());
-    }
-    let mut enabled_frontends: Vec<&str> = vec!["tui"];
-    for &idx in &selected {
-        let def = &defs[idx];
-        enabled_frontends.push(def.name);
+    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    //  Finalize
+    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-        for (symbol, prompt, is_password) in &def.vault_keys {
-            let value = if *is_password {
-                Password::new()
-                    .with_prompt(format!("    {} {}", def.display, prompt))
-                    .allow_empty_password(true)
-                    .interact()?
-            } else {
-                Input::<String>::new()
-                    .with_prompt(format!("    {} {}", def.display, prompt))
-                    .allow_empty(true)
-                    .interact_text()?
-            };
-            if !value.is_empty() {
-                harmonia_vault::set_secret_for_symbol(symbol, &value)
-                    .map_err(|e| format!("vault write failed for {}: {e}", symbol))?;
-            }
-        }
-    }
-
-    // Optional tool API keys
     println!(
-        "\n  {} Optional API keys (Enter to skip)",
-        style("[9b]").bold().dim()
-    );
-    let optional_keys = [
-        ("exa-api-key", "Exa search API key"),
-        ("brave-api-key", "Brave search API key"),
-        ("elevenlabs-api-key", "ElevenLabs API key"),
-    ];
-    for (symbol, prompt) in &optional_keys {
-        let value: String = Input::new()
-            .with_prompt(format!("    {}", prompt))
-            .allow_empty(true)
-            .interact_text()?;
-        if !value.is_empty() {
-            harmonia_vault::set_secret_for_symbol(symbol, &value)
-                .map_err(|e| format!("vault write failed for {}: {e}", symbol))?;
-        }
-    }
-
-    // Step 10: Write config + copy genesis docs
-    println!(
-        "\n  {} Writing configuration...",
-        style("[10/10]").bold().dim()
+        "\n  {} Finalizing...",
+        style("→").cyan().bold()
     );
 
     // Write baseband frontend config (system overlay).
@@ -778,44 +699,37 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
         system_dir.join("config").join("baseband.sexp"),
         &gateway_config,
     )?;
-    // Backward-compatible alias for older tooling.
     fs::write(
         system_dir.join("config").join("gateway-frontends.sexp"),
         &gateway_config,
     )?;
-    let runtime_env_path = system_dir.join("config").join("runtime.env");
-    write_runtime_env_file(&runtime_env_path, &runtime_env_updates)?;
 
     // Copy genesis docs to system workspace
-    let source_dir = find_source_dir()?;
-    let genesis_src = source_dir.join("doc").join("genesis");
-    if genesis_src.exists() {
-        copy_dir_recursive(&genesis_src, &system_dir.join("genesis"))?;
-        println!(
-            "    {} Evolution knowledge installed",
-            style("✓").green().bold()
-        );
-    }
-
-    // Build full runtime artifacts so start works immediately (source mode).
-    if source_dir.join("Cargo.toml").exists() {
-        println!(
-            "    {} Building runtime artifacts...",
-            style("→").cyan().bold()
-        );
-        let build_status = Command::new("cargo")
-            .args(["build", "--workspace", "--release"])
-            .current_dir(&source_dir)
-            .status()?;
-        if !build_status.success() {
-            return Err("failed to build runtime artifacts".into());
+    if let Ok(source_dir) = find_source_dir() {
+        let genesis_src = source_dir.join("doc").join("genesis");
+        if genesis_src.exists() {
+            copy_dir_recursive(&genesis_src, &system_dir.join("genesis"))?;
+            println!(
+                "    {} Evolution knowledge installed",
+                style("✓").green().bold()
+            );
         }
-        println!("    {} Runtime artifacts built", style("✓").green().bold());
-    } else {
-        println!(
-            "    {} Source tree not detected (binary install mode). Using prebuilt runtime artifacts.",
-            style("→").cyan().bold()
-        );
+
+        // Build full runtime artifacts so start works immediately.
+        if source_dir.join("Cargo.toml").exists() {
+            println!(
+                "    {} Building runtime artifacts...",
+                style("→").cyan().bold()
+            );
+            let build_status = Command::new("cargo")
+                .args(["build", "--workspace", "--release"])
+                .current_dir(&source_dir)
+                .status()?;
+            if !build_status.success() {
+                return Err("failed to build runtime artifacts".into());
+            }
+            println!("    {} Runtime artifacts built", style("✓").green().bold());
+        }
     }
 
     // Done
@@ -835,12 +749,17 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
         style(system_dir.join("vault.db").display()).green()
     );
     println!(
-        "  Runtime env:      {}",
-        style(runtime_env_path.display()).green()
+        "  Config DB:        {}",
+        style(system_dir.join("config.db").display()).green()
     );
     println!();
     println!("  Start the agent:");
     println!("    {}", style("harmonia start").cyan().bold());
+    println!();
+    println!(
+        "  {}",
+        style("  To add frontends/tools later: harmonia setup").dim()
+    );
     println!();
 
     Ok(())
@@ -991,48 +910,6 @@ fn parse_semver_tuple(input: &str) -> Option<(u64, u64, u64)> {
     Some((major, minor, patch))
 }
 
-fn read_runtime_env_file(path: &Path) -> BTreeMap<String, String> {
-    let mut out = BTreeMap::new();
-    let body = match fs::read_to_string(path) {
-        Ok(v) => v,
-        Err(_) => return out,
-    };
-    for line in body.lines() {
-        let line = line.trim();
-        if line.is_empty() || line.starts_with('#') {
-            continue;
-        }
-        if let Some((k, v)) = line.split_once('=') {
-            let key = k.trim();
-            let value = v.trim();
-            if !key.is_empty() {
-                out.insert(key.to_string(), value.to_string());
-            }
-        }
-    }
-    out
-}
-
-fn write_runtime_env_file(
-    path: &Path,
-    updates: &BTreeMap<String, String>,
-) -> Result<(), Box<dyn std::error::Error>> {
-    let mut merged = read_runtime_env_file(path);
-    for (k, v) in updates {
-        merged.insert(k.clone(), v.clone());
-    }
-    if let Some(parent) = path.parent() {
-        fs::create_dir_all(parent)?;
-    }
-    let mut lines = Vec::new();
-    lines.push("# Harmonia runtime environment (generated by `harmonia setup`)".to_string());
-    for (k, v) in merged {
-        lines.push(format!("{k}={v}"));
-    }
-    fs::write(path, format!("{}\n", lines.join("\n")))?;
-    Ok(())
-}
-
 fn install_quicklisp() -> Result<(), Box<dyn std::error::Error>> {
     // Download quicklisp.lisp
     let tmp = std::env::temp_dir().join("quicklisp.lisp");
@@ -1172,6 +1049,18 @@ fn generate_gateway_config(enabled: &[&str]) -> String {
             "target/release/libharmonia_slack",
             ":authenticated",
             "(:slack-app-token :slack-bot-token)",
+        ),
+        (
+            "discord",
+            "target/release/libharmonia_discord",
+            ":authenticated",
+            "(:discord-bot-token)",
+        ),
+        (
+            "signal",
+            "target/release/libharmonia_signal",
+            ":authenticated",
+            "(:signal-account :signal-rpc-url)",
         ),
         (
             "tailscale",

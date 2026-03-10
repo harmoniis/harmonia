@@ -1,8 +1,8 @@
-use std::env;
-
 use harmonia_vault::{get_secret_for_component, init_from_env};
 
 use crate::model::json_escape;
+
+const COMPONENT: &str = "parallel-agents-core";
 
 fn extract_content_from_response(payload: &str) -> Option<String> {
     let key = "\"content\":\"";
@@ -35,11 +35,14 @@ pub(super) fn request_openrouter(
         .arg("-sS")
         .arg("--connect-timeout")
         .arg(
-            env::var("HARMONIA_OPENROUTER_CONNECT_TIMEOUT_SECS")
-                .unwrap_or_else(|_| "10".to_string()),
+            harmonia_config_store::get_config(COMPONENT, "openrouter-backend", "connect-timeout-secs")
+                .ok()
+                .flatten()
+                .unwrap_or_else(|| "10".to_string()),
         )
         .arg("--max-time")
-        .arg(env::var("HARMONIA_OPENROUTER_MAX_TIME_SECS").unwrap_or_else(|_| "45".to_string()))
+        .arg(harmonia_config_store::get_config_or(COMPONENT, "openrouter-backend", "max-time-secs", "45")
+            .unwrap_or_else(|_| "45".to_string()))
         .arg("-X")
         .arg("POST")
         .arg("https://openrouter.ai/api/v1/chat/completions")
@@ -71,8 +74,10 @@ pub(super) fn request_openrouter(
 }
 
 fn request_exa(query: &str, api_key: &str) -> Result<String, String> {
-    let endpoint = env::var("HARMONIA_EXA_API_URL")
-        .unwrap_or_else(|_| "https://api.exa.ai/search".to_string());
+    let endpoint = harmonia_config_store::get_config(COMPONENT, "search-exa-tool", "api-url")
+        .ok()
+        .flatten()
+        .unwrap_or_else(|| "https://api.exa.ai/search".to_string());
     let payload = format!("{{\"query\":\"{}\",\"numResults\":5}}", json_escape(query));
     let out = std::process::Command::new("curl")
         .arg("-sS")
@@ -97,8 +102,10 @@ fn request_exa(query: &str, api_key: &str) -> Result<String, String> {
 }
 
 fn request_brave(query: &str, api_key: &str) -> Result<String, String> {
-    let endpoint = env::var("HARMONIA_BRAVE_API_URL")
-        .unwrap_or_else(|_| "https://api.search.brave.com/res/v1/web/search".to_string());
+    let endpoint = harmonia_config_store::get_config(COMPONENT, "search-brave-tool", "api-url")
+        .ok()
+        .flatten()
+        .unwrap_or_else(|| "https://api.search.brave.com/res/v1/web/search".to_string());
     let out = std::process::Command::new("curl")
         .arg("-sS")
         .arg("-G")

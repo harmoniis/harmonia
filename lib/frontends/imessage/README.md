@@ -25,13 +25,16 @@ iMessage frontend via BlueBubbles server. Polls for incoming messages and sends 
 
 ## Configuration
 
-Config S-expression or env vars:
+Config S-expression + vault/config-store:
 | Source | Key | Description |
 |--------|-----|-------------|
-| Config | `:server-url` | BlueBubbles server URL |
-| Env | `HARMONIA_IMESSAGE_SERVER_URL` | Fallback server URL |
-| Config | `:password` | BlueBubbles password |
-| Env | `HARMONIA_IMESSAGE_PASSWORD` | Fallback password |
+| Config-store | `imessage-frontend/server-url` | BlueBubbles server URL (required) |
+| Vault | `bluebubbles-password` | BlueBubbles password |
+| Config | `:server-url` | Optional bootstrap value written into config-store |
+| Config | `:password` | Optional bootstrap value written into vault as `bluebubbles-password` |
+
+Legacy env alias for `server-url` is resolved through config-store (`HARMONIA_IMESSAGE_SERVER_URL`).
+Legacy vault server URL symbol (`bluebubbles-server-url`) is migrated to config-store on init.
 
 ## Self-Improvement Notes
 

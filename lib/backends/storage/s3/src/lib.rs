@@ -12,6 +12,7 @@ use std::process;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 const VERSION: &[u8] = b"harmonia-s3/0.2.0\0";
+const COMPONENT: &str = "s3-storage";
 
 static LAST_ERROR: OnceLock<RwLock<String>> = OnceLock::new();
 
@@ -48,9 +49,11 @@ fn to_c_string(value: String) -> *mut c_char {
 }
 
 fn local_copy(src: &Path, bucket: &str, prefix: &str, key: &str) -> Result<PathBuf, String> {
-    let root = env::var("HARMONIA_S3_LOCAL_ROOT")
+    let root = harmonia_config_store::get_own(COMPONENT, "local-root")
+        .ok()
+        .flatten()
         .map(PathBuf::from)
-        .unwrap_or_else(|_| env::temp_dir().join("harmonia-s3-local"));
+        .unwrap_or_else(|| env::temp_dir().join("harmonia-s3-local"));
     let clean_prefix = prefix.trim_matches('/');
     let mut dest = root.join(bucket);
     if !clean_prefix.is_empty() {
@@ -109,7 +112,8 @@ pub extern "C" fn harmonia_s3_upload_file(
         return -1;
     }
 
-    let mode = env::var("HARMONIA_S3_MODE").unwrap_or_else(|_| "local".to_string());
+    let mode = harmonia_config_store::get_own_or(COMPONENT, "mode", "local")
+        .unwrap_or_else(|_| "local".to_string());
     if mode.eq_ignore_ascii_case("local") {
         match local_copy(&source, &bucket, &prefix, &key) {
             Ok(_) => {

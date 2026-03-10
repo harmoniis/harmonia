@@ -1,7 +1,10 @@
 use serde::Deserialize;
-use std::env;
 use std::sync::{OnceLock, RwLock};
 use std::time::{SystemTime, UNIX_EPOCH};
+
+const COMPONENT: &str = "imessage-frontend";
+const IMESSAGE_PASSWORD_SYMBOLS: &[&str] = &["bluebubbles-password", "imessage-password"];
+const IMESSAGE_SERVER_URL_SYMBOLS: &[&str] = &["bluebubbles-server-url", "imessage-server-url"];
 
 pub struct ImessageState {
     pub server_url: String,
@@ -46,6 +49,21 @@ fn extract_sexp_value(config: &str, key: &str) -> Option<String> {
     Some(after_quote[..end].to_string())
 }
 
+fn read_vault_secret(symbols: &[&str]) -> Result<Option<String>, String> {
+    harmonia_vault::init_from_env()?;
+    for symbol in symbols {
+        let maybe = harmonia_vault::get_secret_for_component(COMPONENT, symbol)
+            .map_err(|e| format!("vault policy error: {e}"))?;
+        if let Some(value) = maybe {
+            let trimmed = value.trim();
+            if !trimmed.is_empty() {
+                return Ok(Some(trimmed.to_string()));
+            }
+        }
+    }
+    Ok(None)
+}
+
 /// Initialize the iMessage client from a config s-expression.
 pub fn init(config: &str) -> Result<(), String> {
     let st = state();
@@ -55,17 +73,43 @@ pub fn init(config: &str) -> Result<(), String> {
         return Err("imessage already initialized".into());
     }
 
-    let server_url = extract_sexp_value(config, ":server-url")
-        .or_else(|| env::var("HARMONIA_IMESSAGE_SERVER_URL").ok())
+    if let Some(url) = extract_sexp_value(config, ":server-url") {
+        let trimmed = url.trim();
+        if !trimmed.is_empty() {
+            let _ = harmonia_config_store::set_config(COMPONENT, COMPONENT, "server-url", trimmed);
+        }
+    }
+    if let Some(password) = extract_sexp_value(config, ":password") {
+        let trimmed = password.trim();
+        if !trimmed.is_empty() {
+            harmonia_vault::set_secret_for_symbol("bluebubbles-password", trimmed)?;
+        }
+    }
+
+    let server_url = harmonia_config_store::get_own(COMPONENT, "server-url")
+        .ok()
+        .flatten()
+        .or_else(|| {
+            read_vault_secret(IMESSAGE_SERVER_URL_SYMBOLS)
+                .ok()
+                .flatten()
+                .and_then(|legacy| {
+                    let _ = harmonia_config_store::set_config(
+                        COMPONENT,
+                        COMPONENT,
+                        "server-url",
+                        &legacy,
+                    );
+                    Some(legacy)
+                })
+        })
         .unwrap_or_default();
 
-    let password = extract_sexp_value(config, ":password")
-        .or_else(|| env::var("HARMONIA_IMESSAGE_PASSWORD").ok())
-        .unwrap_or_default();
+    let password = read_vault_secret(IMESSAGE_PASSWORD_SYMBOLS)?.unwrap_or_default();
 
     if server_url.is_empty() {
         return Err(
-            "imessage: server-url is required (config or HARMONIA_IMESSAGE_SERVER_URL)".into(),
+            "imessage: server-url is required (config-store imessage-frontend/server-url)".into(),
         );
     }
 

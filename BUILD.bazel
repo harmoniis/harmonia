@@ -70,6 +70,8 @@ filegroup(
         "//lib/frontends/mqtt-client:mqtt-client",
         "//lib/frontends/telegram:tool-so",
         "//lib/frontends/slack:tool-so",
+        "//lib/frontends/discord:tool-so",
+        "//lib/frontends/signal:tool-so",
         "//lib/frontends/whatsapp:tool-so",
         "//lib/frontends/imessage:imessage-so",
         "//lib/frontends/mattermost:tool-so",

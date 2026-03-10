@@ -5,8 +5,8 @@
 (defparameter *harmony-policy-config-path*
   (merge-pathnames "../../config/harmony-policy.sexp" *boot-file*))
 (defparameter *harmony-policy-state-path*
-  (or (sb-ext:posix-getenv "HARMONIA_HARMONY_POLICY_PATH")
-      (let ((root (or (sb-ext:posix-getenv "HARMONIA_STATE_ROOT")
+  (or (config-get-for "harmony-policy" "path")
+      (let ((root (or (config-get-for "harmony-policy" "state-root" "global")
                       (let ((base (or (sb-ext:posix-getenv "TMPDIR")
                                       (namestring (user-homedir-pathname)))))
                         (concatenate 'string (string-right-trim "/" base) "/harmonia")))))

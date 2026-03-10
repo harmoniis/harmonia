@@ -98,6 +98,8 @@ pub(crate) fn spawn(
         total_inputs_sent: 0,
         permissions_approved: 0,
         permissions_denied: 0,
+        estimated_cost_usd: 0.0,
+        duration_ms: 0,
     };
 
     append_tmux_metric_line(&agent, "spawn");
@@ -158,6 +160,12 @@ pub(crate) fn poll(id: u64) -> Result<CliState, String> {
             agent.last_output = output;
             agent.last_poll_at = now_unix();
             agent.interaction_count += 1;
+
+            // Accumulate cost and duration tracking
+            agent.duration_ms = (now_unix() - agent.created_at) * 1000;
+            if matches!(detected, CliState::Processing) {
+                agent.estimated_cost_usd += agent.cli_type.estimated_cost_per_interaction();
+            }
 
             // Log state transitions
             if std::mem::discriminant(&prev_state) != std::mem::discriminant(&detected) {

@@ -1,6 +1,10 @@
 use serde::Deserialize;
 use std::sync::{OnceLock, RwLock};
 
+const COMPONENT: &str = "slack-frontend";
+const SLACK_BOT_TOKEN_SYMBOLS: &[&str] = &["slack-bot-token", "slack-bot-token-v2"];
+const SLACK_APP_TOKEN_SYMBOLS: &[&str] = &["slack-app-token", "slack-app-level-token"];
+
 // ---------------------------------------------------------------------------
 // State
 // ---------------------------------------------------------------------------
@@ -90,6 +94,29 @@ fn extract_sexp_string_list(sexp: &str, key: &str) -> Option<Vec<String>> {
     }
 }
 
+fn parse_channels_csv(raw: &str) -> Vec<String> {
+    raw.split(',')
+        .map(|c| c.trim())
+        .filter(|c| !c.is_empty())
+        .map(ToOwned::to_owned)
+        .collect()
+}
+
+fn read_vault_secret(symbols: &[&str]) -> Result<Option<String>, String> {
+    harmonia_vault::init_from_env()?;
+    for symbol in symbols {
+        let maybe = harmonia_vault::get_secret_for_component(COMPONENT, symbol)
+            .map_err(|e| format!("vault policy error: {e}"))?;
+        if let Some(value) = maybe {
+            let trimmed = value.trim();
+            if !trimmed.is_empty() {
+                return Ok(Some(trimmed.to_string()));
+            }
+        }
+    }
+    Ok(None)
+}
+
 // ---------------------------------------------------------------------------
 // Public API
 // ---------------------------------------------------------------------------
@@ -103,44 +130,46 @@ fn extract_sexp_string_list(sexp: &str, key: &str) -> Option<Vec<String>> {
 ///   (app-token "xapp-...")
 ///   (channels "C01ABC" "C02DEF"))
 /// ```
-///
-/// Environment variable fallbacks:
-///   HARMONIA_SLACK_BOT_TOKEN, HARMONIA_SLACK_APP_TOKEN, HARMONIA_SLACK_CHANNELS
 pub fn init(config: &str) -> Result<(), String> {
     let mut s = state().write().map_err(|e| format!("lock: {}", e))?;
     if s.initialized {
         return Err("slack already initialized".into());
     }
 
-    // Bot token: config -> env
-    s.bot_token = extract_sexp_string(config, "bot-token")
-        .or_else(|| std::env::var("HARMONIA_SLACK_BOT_TOKEN").ok())
-        .unwrap_or_default();
+    if let Some(token) = extract_sexp_string(config, "bot-token") {
+        if !token.trim().is_empty() {
+            harmonia_vault::set_secret_for_symbol("slack-bot-token", token.trim())?;
+        }
+    }
+    if let Some(token) = extract_sexp_string(config, "app-token") {
+        if !token.trim().is_empty() {
+            harmonia_vault::set_secret_for_symbol("slack-app-token", token.trim())?;
+        }
+    }
 
-    // App token: config -> env
-    s.app_token = extract_sexp_string(config, "app-token")
-        .or_else(|| std::env::var("HARMONIA_SLACK_APP_TOKEN").ok())
-        .unwrap_or_default();
+    s.bot_token = read_vault_secret(SLACK_BOT_TOKEN_SYMBOLS)?.unwrap_or_default();
+    s.app_token = read_vault_secret(SLACK_APP_TOKEN_SYMBOLS)?.unwrap_or_default();
 
-    // Channels: config -> env (comma-separated)
     s.channels = extract_sexp_string_list(config, "channels")
         .or_else(|| {
-            std::env::var("HARMONIA_SLACK_CHANNELS")
+            harmonia_config_store::get_own(COMPONENT, "channels")
                 .ok()
-                .map(|v| v.split(',').map(|c| c.trim().to_string()).collect())
+                .flatten()
+                .map(|v| parse_channels_csv(&v))
         })
         .unwrap_or_default();
 
     if s.bot_token.is_empty() {
-        return Err(
-            "missing bot token: set (bot-token ...) in config or HARMONIA_SLACK_BOT_TOKEN env"
-                .into(),
-        );
+        return Err("missing bot token in vault (symbol: slack-bot-token)".into());
+    }
+
+    if s.app_token.is_empty() {
+        return Err("missing app token in vault (symbol: slack-app-token)".into());
     }
 
     if s.channels.is_empty() {
         return Err(
-            "no channels configured: set (channels ...) in config or HARMONIA_SLACK_CHANNELS env"
+            "no channels configured: set (channels ...) or config-store slack-frontend/channels"
                 .into(),
         );
     }

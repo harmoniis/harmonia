@@ -10,15 +10,18 @@ Nostr protocol frontend for publishing text notes (kind 1 events) to Nostr relay
 - Sub-channel: `nostr:relay` (broadcast to configured relay)
 - Security label: `authenticated` (requires private key)
 
-## FFI Surface
+## FFI Contract (Frontend Standard)
 
 | Export | Signature | Description |
 |--------|-----------|-------------|
-| `harmonia_nostr_version` | `() -> *const c_char` | Version string |
-| `harmonia_nostr_healthcheck` | `() -> i32` | Returns 1 if alive |
-| `harmonia_nostr_publish_text` | `(text: *const c_char) -> i32` | Publish text note to Nostr |
-| `harmonia_nostr_last_error` | `() -> *mut c_char` | Last error message |
-| `harmonia_nostr_free_string` | `(ptr: *mut c_char)` | Free returned strings |
+| `harmonia_frontend_version` | `() -> *const c_char` | Version string |
+| `harmonia_frontend_healthcheck` | `() -> i32` | Returns 1 if alive |
+| `harmonia_frontend_init` | `(config: *const c_char) -> i32` | Initialize frontend |
+| `harmonia_frontend_poll` | `(buf: *mut c_char, buf_len: usize) -> i32` | Poll (currently no inbound implementation) |
+| `harmonia_frontend_send` | `(channel: *const c_char, payload: *const c_char) -> i32` | Publish payload as text note |
+| `harmonia_frontend_last_error` | `() -> *const c_char` | Last error message |
+| `harmonia_frontend_shutdown` | `() -> i32` | Graceful shutdown |
+| `harmonia_frontend_free_string` | `(ptr: *mut c_char)` | Free returned strings |
 
 ## Configuration
 
@@ -33,6 +36,7 @@ Nostr protocol frontend for publishing text notes (kind 1 events) to Nostr relay
 ## Self-Improvement Notes
 
 - Currently uses an HTTP API proxy; real Nostr uses WebSocket.
+- Currently send-focused; poll returns no inbound messages yet.
 - To add native Nostr: implement NIP-01 event signing and WebSocket relay communication.
 - To add reading: subscribe to events from followed pubkeys.
 - To add DMs: implement NIP-04 encrypted direct messages.

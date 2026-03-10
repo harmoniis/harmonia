@@ -1,8 +1,5 @@
 use std::collections::HashMap;
-use std::env;
 use std::ffi::{CStr, CString};
-use std::fs::{self, OpenOptions};
-use std::io::Write;
 use std::os::raw::c_char;
 use std::sync::{OnceLock, RwLock};
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -45,6 +42,14 @@ pub(crate) enum CliType {
 }
 
 impl CliType {
+    pub(crate) fn estimated_cost_per_interaction(&self) -> f64 {
+        match self {
+            CliType::ClaudeCode => 0.01,
+            CliType::Codex => 0.005,
+            CliType::Custom { .. } => 0.0,
+        }
+    }
+
     pub(crate) fn as_str(&self) -> &str {
         match self {
             CliType::ClaudeCode => "claude-code",
@@ -201,6 +206,8 @@ pub(crate) struct TmuxAgent {
     pub(crate) total_inputs_sent: u64,
     pub(crate) permissions_approved: u64,
     pub(crate) permissions_denied: u64,
+    pub(crate) estimated_cost_usd: f64,
+    pub(crate) duration_ms: u64,
 }
 
 impl TmuxAgent {
@@ -209,7 +216,8 @@ impl TmuxAgent {
             concat!(
                 "(:id {} :cli-type \"{}\" :session \"{}\" :workdir \"{}\"",
                 " :state {} :created-at {} :interactions {}",
-                " :inputs-sent {} :approved {} :denied {})"
+                " :inputs-sent {} :approved {} :denied {}",
+                " :cost-usd {:.6} :duration-ms {})"
             ),
             self.id,
             self.cli_type.as_str(),
@@ -221,6 +229,8 @@ impl TmuxAgent {
             self.total_inputs_sent,
             self.permissions_approved,
             self.permissions_denied,
+            self.estimated_cost_usd,
+            self.duration_ms,
         )
     }
 }
@@ -293,20 +303,6 @@ pub(crate) fn now_unix() -> u64 {
         .unwrap_or(0)
 }
 
-fn state_root() -> String {
-    env::var("HARMONIA_STATE_ROOT").unwrap_or_else(|_| {
-        env::temp_dir()
-            .join("harmonia")
-            .to_string_lossy()
-            .to_string()
-    })
-}
-
-pub(crate) fn metrics_log_path() -> String {
-    env::var("HARMONIA_PARALLEL_METRICS_LOG")
-        .unwrap_or_else(|_| format!("{}/parallel_agents_metrics.tsv", state_root()))
-}
-
 pub(crate) fn json_escape(input: &str) -> String {
     input
         .replace('\\', "\\\\")
@@ -315,50 +311,29 @@ pub(crate) fn json_escape(input: &str) -> String {
         .replace('\r', "\\r")
 }
 
-pub(crate) fn tmux_metrics_log_path() -> String {
-    env::var("HARMONIA_TMUX_METRICS_LOG")
-        .unwrap_or_else(|_| format!("{}/tmux_agents_metrics.tsv", state_root()))
-}
-
 pub(crate) fn append_tmux_metric_line(agent: &TmuxAgent, event: &str) {
-    let path = tmux_metrics_log_path();
-    if let Some(parent) = std::path::Path::new(&path).parent() {
-        let _ = fs::create_dir_all(parent);
-    }
-    if let Ok(mut f) = OpenOptions::new().create(true).append(true).open(path) {
-        let _ = writeln!(
-            f,
-            "{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}",
-            now_unix(),
-            agent.id,
-            agent.cli_type.as_str(),
-            agent.session_name,
-            json_escape(&agent.workdir),
-            event,
-            agent.interaction_count,
-            agent.total_inputs_sent,
-        );
-    }
+    harmonia_provider_protocol::record_tmux_event(
+        agent.id,
+        agent.cli_type.as_str(),
+        &agent.session_name,
+        &agent.workdir,
+        event,
+        agent.interaction_count,
+        agent.total_inputs_sent,
+        agent.estimated_cost_usd,
+        agent.duration_ms,
+    );
 }
 
 pub(crate) fn append_metric_line(task: &Task) {
-    let path = metrics_log_path();
-    if let Some(parent) = std::path::Path::new(&path).parent() {
-        let _ = fs::create_dir_all(parent);
-    }
-    if let Ok(mut f) = OpenOptions::new().create(true).append(true).open(path) {
-        let _ = writeln!(
-            f,
-            "{}\t{}\t{}\t{}\t{:.8}\t{}\t{}\t{}\t{}",
-            task.created_at,
-            task.id,
-            task.model,
-            task.latency_ms,
-            task.cost_usd,
-            if task.success { 1 } else { 0 },
-            if task.verified { 1 } else { 0 },
-            task.verification_source,
-            json_escape(&task.verification_detail)
-        );
-    }
+    harmonia_provider_protocol::record_parallel_task(
+        task.id,
+        &task.model,
+        task.latency_ms,
+        task.cost_usd,
+        task.success,
+        task.verified,
+        &task.verification_source,
+        &task.verification_detail,
+    );
 }

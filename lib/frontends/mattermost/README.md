@@ -10,15 +10,18 @@ Mattermost frontend for sending messages to Mattermost channels via the REST API
 - Sub-channel: `mattermost:<channel_id>` (Mattermost channel ID)
 - Security label: `authenticated` (requires bot token)
 
-## FFI Surface
+## FFI Contract (Frontend Standard)
 
 | Export | Signature | Description |
 |--------|-----------|-------------|
-| `harmonia_mattermost_version` | `() -> *const c_char` | Version string |
-| `harmonia_mattermost_healthcheck` | `() -> i32` | Returns 1 if alive |
-| `harmonia_mattermost_send_text` | `(channel_id: *const c_char, text: *const c_char) -> i32` | Send message to channel |
-| `harmonia_mattermost_last_error` | `() -> *mut c_char` | Last error message |
-| `harmonia_mattermost_free_string` | `(ptr: *mut c_char)` | Free returned strings |
+| `harmonia_frontend_version` | `() -> *const c_char` | Version string |
+| `harmonia_frontend_healthcheck` | `() -> i32` | Returns 1 if alive |
+| `harmonia_frontend_init` | `(config: *const c_char) -> i32` | Initialize frontend |
+| `harmonia_frontend_poll` | `(buf: *mut c_char, buf_len: usize) -> i32` | Poll (currently no inbound implementation) |
+| `harmonia_frontend_send` | `(channel: *const c_char, payload: *const c_char) -> i32` | Send message to channel |
+| `harmonia_frontend_last_error` | `() -> *const c_char` | Last error message |
+| `harmonia_frontend_shutdown` | `() -> i32` | Graceful shutdown |
+| `harmonia_frontend_free_string` | `(ptr: *mut c_char)` | Free returned strings |
 
 ## Configuration
 
@@ -33,5 +36,5 @@ Mattermost frontend for sending messages to Mattermost channels via the REST API
 ## Self-Improvement Notes
 
 - Posts JSON `{"channel_id": "...", "message": "..."}` with Bearer auth.
-- Currently send-only; to add receive: implement websocket connection for events.
+- Currently send-focused; poll returns no inbound messages yet.
 - To add file attachments: use `/api/v4/files` endpoint first, then reference in post.

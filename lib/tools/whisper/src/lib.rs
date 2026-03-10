@@ -1,9 +1,9 @@
 use harmonia_vault::{get_secret_for_component, init_from_env};
-use std::env;
 use std::ffi::{CStr, CString};
 use std::os::raw::c_char;
 use std::process::Command;
 use std::sync::{OnceLock, RwLock};
+const COMPONENT: &str = "whisper-tool";
 const VERSION: &[u8] = b"harmonia-whisper/0.1.0\0";
 static LAST_ERROR: OnceLock<RwLock<String>> = OnceLock::new();
 fn le() -> &'static RwLock<String> {
@@ -60,9 +60,12 @@ pub extern "C" fn harmonia_whisper_transcribe(audio_path: *const c_char) -> *mut
             return std::ptr::null_mut();
         }
     };
-    let endpoint = env::var("HARMONIA_WHISPER_API_URL")
-        .unwrap_or_else(|_| "https://api.openai.com/v1/audio/transcriptions".into());
-    let model = env::var("HARMONIA_WHISPER_MODEL").unwrap_or_else(|_| "whisper-1".into());
+    let endpoint = harmonia_config_store::get_own(COMPONENT, "api-url")
+        .ok()
+        .flatten()
+        .unwrap_or_else(|| "https://api.openai.com/v1/audio/transcriptions".into());
+    let model = harmonia_config_store::get_own_or(COMPONENT, "model", "whisper-1")
+        .unwrap_or_else(|_| "whisper-1".into());
     let out = Command::new("curl")
         .arg("-sS")
         .arg("-X")

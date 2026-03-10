@@ -21,13 +21,14 @@ pub fn run(env: &str) -> Result<(), Box<dyn std::error::Error>> {
         return Err("run `harmonia setup` first".into());
     }
 
-    // Runtime env can override source/lib roots for binary+source-rewrite installs.
-    let runtime_env_path = system_dir.join("config").join("runtime.env");
-    let runtime_env = load_runtime_env_file(&runtime_env_path);
-    apply_runtime_dir_overrides(&runtime_env);
+    // Bootstrap: set STATE_ROOT so config-store/vault can find their DBs
+    std::env::set_var("HARMONIA_STATE_ROOT", system_dir.to_string_lossy().as_ref());
 
-    // Find source directory
-    let source_dir = find_source_dir()?;
+    // Initialize config-store to read stored paths
+    let _ = harmonia_config_store::init_v2();
+
+    // Resolve paths: prefer config-store, fallback to auto-detection
+    let source_dir = resolve_source_dir(&system_dir)?;
     let boot_file = source_dir.join("src").join("core").join("boot.lisp");
     if !boot_file.exists() {
         return Err(format!("boot.lisp not found at {}", boot_file.display()).into());
@@ -50,9 +51,35 @@ pub fn run(env: &str) -> Result<(), Box<dyn std::error::Error>> {
     // Ensure native runtime artifacts exist before booting Lisp.
     ensure_runtime_artifacts(&source_dir, &lib_dir)?;
 
-    // Set environment variables
+    // Vault paths
     let vault_path = system_dir.join("vault.db");
     let wallet_db_path = resolve_wallet_db_path(&home);
+
+    // Write resolved paths back to config-store for runtime access
+    let _ = harmonia_config_store::set_config(
+        "harmonia-cli",
+        "global",
+        "source-dir",
+        &source_dir.to_string_lossy(),
+    );
+    let _ = harmonia_config_store::set_config(
+        "harmonia-cli",
+        "global",
+        "lib-dir",
+        &lib_dir.to_string_lossy(),
+    );
+    let _ = harmonia_config_store::set_config(
+        "harmonia-cli",
+        "global",
+        "system-dir",
+        &system_dir.to_string_lossy(),
+    );
+    let _ = harmonia_config_store::set_config(
+        "harmonia-cli",
+        "global",
+        "env",
+        env,
+    );
 
     println!(
         "{} Starting Harmonia (env={})",
@@ -63,35 +90,26 @@ pub fn run(env: &str) -> Result<(), Box<dyn std::error::Error>> {
     println!("  libraries: {}", lib_dir.display());
     println!("  vault:     {}", vault_path.display());
     println!("  wallet:    {}", wallet_db_path.display());
-    if !runtime_env.is_empty() {
-        println!(
-            "  runtime:   {} ({} vars)",
-            runtime_env_path.display(),
-            runtime_env.len()
-        );
-    }
+    println!("  config:    {}", system_dir.join("config.db").display());
     println!("  workspace: {}", system_dir.display());
     println!();
 
-    // Launch SBCL with the boot script
-    let mut cmd = Command::new("sbcl");
-    cmd.arg("--load")
+    // Launch SBCL — only pass the minimum bootstrap env vars that the
+    // Lisp/Rust layers need before config-store is initialized.
+    let status = Command::new("sbcl")
+        .arg("--load")
         .arg(&boot_file)
         .arg("--eval")
-        .arg("(harmonia:start)");
-    for (k, v) in runtime_env.iter() {
-        cmd.env(k, v);
-    }
-    let status = cmd
-        .env("HARMONIA_ENV", env)
+        .arg("(harmonia:start)")
+        // Bootstrap: config-store/vault need these to find their DB files
+        .env("HARMONIA_STATE_ROOT", system_dir.to_string_lossy().as_ref())
         .env("HARMONIA_VAULT_DB", vault_path.to_string_lossy().as_ref())
         .env(
             "HARMONIA_VAULT_WALLET_DB",
             wallet_db_path.to_string_lossy().as_ref(),
         )
-        .env("HARMONIA_VAULT_PATH", vault_path.to_string_lossy().as_ref())
-        .env("HARMONIA_SYSTEM_DIR", system_dir.to_string_lossy().as_ref())
-        .env("HARMONIA_SOURCE_DIR", source_dir.to_string_lossy().as_ref())
+        // Bootstrap: Lisp needs LIB_DIR to locate .dylib/.so files before
+        // config-store is loaded (vault.lisp loads first)
         .env("HARMONIA_LIB_DIR", lib_dir.to_string_lossy().as_ref())
         .current_dir(&source_dir)
         .status()?;
@@ -109,17 +127,6 @@ fn check_command(cmd: &str) -> bool {
         .output()
         .map(|o| o.status.success())
         .unwrap_or(false)
-}
-
-fn apply_runtime_dir_overrides(runtime_env: &[(String, String)]) {
-    for (k, v) in runtime_env {
-        if (k == "HARMONIA_SOURCE_DIR" || k == "HARMONIA_LIB_DIR")
-            && std::env::var(k).is_err()
-            && !v.trim().is_empty()
-        {
-            std::env::set_var(k, v);
-        }
-    }
 }
 
 fn resolve_wallet_db_path(home: &Path) -> PathBuf {
@@ -159,6 +166,14 @@ fn required_runtime_libraries() -> Vec<String> {
         "libharmonia_vault",
         "libharmonia_config_store",
         "libharmonia_openrouter",
+        "libharmonia_openai",
+        "libharmonia_anthropic",
+        "libharmonia_xai",
+        "libharmonia_google_ai_studio",
+        "libharmonia_google_vertex",
+        "libharmonia_amazon_bedrock",
+        "libharmonia_groq",
+        "libharmonia_alibaba",
         "libharmonia_git_ops",
         "libharmonia_harmonic_matrix",
         "libharmonia_admin_intent",
@@ -177,8 +192,11 @@ fn required_runtime_libraries() -> Vec<String> {
 }
 
 fn resolve_lib_dir(source_dir: &Path) -> PathBuf {
-    if let Ok(raw) = std::env::var("HARMONIA_LIB_DIR") {
-        let p = PathBuf::from(raw);
+    // Check config-store first
+    if let Ok(Some(stored)) =
+        harmonia_config_store::get_config("harmonia-cli", "global", "lib-dir")
+    {
+        let p = PathBuf::from(&stored);
         if p.exists() {
             return p;
         }
@@ -256,32 +274,12 @@ fn ensure_runtime_artifacts(
     Ok(())
 }
 
-fn load_runtime_env_file(path: &Path) -> Vec<(String, String)> {
-    let body = match std::fs::read_to_string(path) {
-        Ok(v) => v,
-        Err(_) => return Vec::new(),
-    };
-    let mut out = Vec::new();
-    for line in body.lines() {
-        let line = line.trim();
-        if line.is_empty() || line.starts_with('#') {
-            continue;
-        }
-        if let Some((k, v)) = line.split_once('=') {
-            let key = k.trim();
-            let value = v.trim();
-            if !key.is_empty() {
-                out.push((key.to_string(), value.to_string()));
-            }
-        }
-    }
-    out
-}
-
-fn find_source_dir() -> Result<PathBuf, Box<dyn std::error::Error>> {
-    // Priority 1: HARMONIA_SOURCE_DIR env var
-    if let Ok(env_dir) = std::env::var("HARMONIA_SOURCE_DIR") {
-        let p = PathBuf::from(&env_dir);
+fn resolve_source_dir(system_dir: &Path) -> Result<PathBuf, Box<dyn std::error::Error>> {
+    // Priority 1: Config-store (set during setup)
+    if let Ok(Some(stored)) =
+        harmonia_config_store::get_config("harmonia-cli", "global", "source-dir")
+    {
+        let p = PathBuf::from(&stored);
         if is_runtime_root(&p) {
             return Ok(p);
         }
@@ -294,15 +292,12 @@ fn find_source_dir() -> Result<PathBuf, Box<dyn std::error::Error>> {
     }
 
     // Priority 3: Standard install location (~/.harmoniis/harmonia)
-    if let Some(home) = dirs::home_dir() {
-        let installed_root = home.join(".harmoniis").join("harmonia");
-        if is_runtime_root(&installed_root) {
-            return Ok(installed_root);
-        }
-        let installed_src = installed_root.join("src");
-        if is_runtime_root(&installed_src) {
-            return Ok(installed_src);
-        }
+    if is_runtime_root(system_dir) {
+        return Ok(system_dir.to_path_buf());
+    }
+    let installed_src = system_dir.join("src");
+    if is_runtime_root(&installed_src) {
+        return Ok(installed_src);
     }
 
     // Priority 4: Walk up from binary location
@@ -320,5 +315,5 @@ fn find_source_dir() -> Result<PathBuf, Box<dyn std::error::Error>> {
         }
     }
 
-    Err("cannot find Harmonia source directory — set HARMONIA_SOURCE_DIR or run from the project root".into())
+    Err("cannot find Harmonia source directory — run `harmonia setup` first".into())
 }

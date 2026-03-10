@@ -15,3 +15,4 @@ name = "phoenix"
 path = "src/main.rs"
 
 [dependencies]
+harmonia-config-store = { version = "0.2.0", path = "../config-store" }

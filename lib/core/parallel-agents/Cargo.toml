@@ -14,4 +14,6 @@ categories = ["concurrency"]
 crate-type = ["cdylib", "rlib"]
 
 [dependencies]
+harmonia-config-store = { version = "0.2.0", path = "../config-store" }
 harmonia-vault = { version = "0.1.5", path = "../vault" }
+harmonia-provider-protocol = { version = "0.2.0", path = "../../backends/llms/provider-protocol" }

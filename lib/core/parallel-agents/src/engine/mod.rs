@@ -1,14 +1,13 @@
 mod clients;
 mod metrics;
 
-use std::fs;
 use std::sync::{Arc, RwLock};
 use std::thread;
 
 use harmonia_vault::{get_secret_for_component, init_from_env};
 
 use crate::model::{
-    append_metric_line, clear_error, json_escape, metrics_log_path, now_unix, set_error, state,
+    append_metric_line, clear_error, json_escape, now_unix, set_error, state,
     ModelPrice, Task,
 };
 
@@ -200,9 +199,7 @@ pub(crate) fn task_result(task_id: i64) -> Result<String, String> {
 }
 
 pub(crate) fn report() -> Result<String, String> {
-    let path = metrics_log_path();
-    let content = fs::read_to_string(path).unwrap_or_default();
-    Ok(render_report(&content))
+    Ok(render_report())
 }
 
 // ---------------------------------------------------------------------------

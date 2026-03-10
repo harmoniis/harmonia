@@ -37,6 +37,8 @@
   ("whatsapp" . "lib/frontends/whatsapp")
   ("telegram" . "lib/frontends/telegram")
   ("slack" . "lib/frontends/slack")
+  ("discord" . "lib/frontends/discord")
+  ("signal" . "lib/frontends/signal")
   ("tailscale" . "lib/frontends/tailscale")
   ("mattermost" . "lib/frontends/mattermost")
   ("nostr" . "lib/frontends/nostr")

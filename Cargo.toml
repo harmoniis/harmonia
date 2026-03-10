@@ -19,8 +19,17 @@ members = [
     "lib/core/signal-integrity",
     "lib/core/admin-intent",
 
-    # Backends — LLM providers + storage + HTTP
+    # Backends — provider protocol + LLM providers + storage + HTTP
+    "lib/backends/llms/provider-protocol",
     "lib/backends/llms/openrouter",
+    "lib/backends/llms/openai",
+    "lib/backends/llms/anthropic",
+    "lib/backends/llms/xai",
+    "lib/backends/llms/google-ai-studio",
+    "lib/backends/llms/google-vertex",
+    "lib/backends/llms/amazon-bedrock",
+    "lib/backends/llms/groq",
+    "lib/backends/llms/alibaba",
     "lib/backends/storage/s3",
     "lib/backends/http",
 
@@ -38,6 +47,8 @@ members = [
     "lib/frontends/whatsapp",
     "lib/frontends/telegram",
     "lib/frontends/slack",
+    "lib/frontends/discord",
+    "lib/frontends/signal",
     "lib/frontends/mattermost",
     "lib/frontends/nostr",
     "lib/frontends/email-client",
@@ -55,7 +66,7 @@ authors = ["Harmoniis <dev@harmoniis.com>"]
 
 [package]
 name = "harmonia"
-version = "0.1.5"
+version = "0.2.0"
 edition.workspace = true
 license.workspace = true
 repository.workspace = true
@@ -79,3 +90,4 @@ dirs = "5"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 harmonia-vault = { version = "0.1.5", path = "lib/core/vault" }
+harmonia-config-store = { version = "0.2.0", path = "lib/core/config-store" }

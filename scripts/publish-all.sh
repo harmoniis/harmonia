@@ -67,6 +67,8 @@ publish harmonia-search-brave
 publish harmonia-elevenlabs
 publish harmonia-telegram
 publish harmonia-slack
+publish harmonia-discord
+publish harmonia-signal
 publish harmonia-whatsapp
 publish harmonia-imessage
 publish harmonia-tailnet

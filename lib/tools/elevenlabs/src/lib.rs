@@ -1,9 +1,9 @@
 use harmonia_vault::{get_secret_for_component, init_from_env};
-use std::env;
 use std::ffi::{CStr, CString};
 use std::os::raw::c_char;
 use std::process::Command;
 use std::sync::{OnceLock, RwLock};
+const COMPONENT: &str = "elevenlabs-tool";
 const VERSION: &[u8] = b"harmonia-elevenlabs/0.1.0\0";
 static LAST_ERROR: OnceLock<RwLock<String>> = OnceLock::new();
 fn le() -> &'static RwLock<String> {
@@ -78,8 +78,10 @@ pub extern "C" fn harmonia_elevenlabs_tts_to_file(
             return -1;
         }
     };
-    let endpoint = env::var("HARMONIA_ELEVENLABS_API_URL")
-        .unwrap_or_else(|_| format!("https://api.elevenlabs.io/v1/text-to-speech/{voice}"));
+    let endpoint = harmonia_config_store::get_own(COMPONENT, "api-url")
+        .ok()
+        .flatten()
+        .unwrap_or_else(|| format!("https://api.elevenlabs.io/v1/text-to-speech/{voice}"));
     let payload = format!(
         "{{\"text\":\"{}\",\"model_id\":\"eleven_multilingual_v2\"}}",
         esc(&text)

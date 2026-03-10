@@ -10,14 +10,14 @@
 (declaim (ftype function parallel-load-policy))
 
 (defun %parallel-state-root ()
-  (or (sb-ext:posix-getenv "HARMONIA_STATE_ROOT")
+  (or (config-get-for "parallel-agents-core" "state-root" "global")
       (let ((base (or (sb-ext:posix-getenv "TMPDIR")
                       (namestring (user-homedir-pathname)))))
         (concatenate 'string (string-right-trim "/" base) "/harmonia"))))
 
 (defun %swarm-state-path ()
       (or
-      (sb-ext:posix-getenv "HARMONIA_PARALLEL_POLICY_PATH")
+      (config-get-for "parallel-agents-core" "policy-path")
       (concatenate 'string (%parallel-state-root) "/swarm.sexp")))
 
 (cffi:defcfun ("harmonia_parallel_agents_init" %parallel-init) :int)

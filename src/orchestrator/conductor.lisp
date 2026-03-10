@@ -209,14 +209,15 @@
         (subseq s 0 limit))))
 
 (defun %state-root ()
-  (or (sb-ext:posix-getenv "HARMONIA_STATE_ROOT")
+  (or (config-get-for "conductor" "state-root" "global")
       (let ((base (or (sb-ext:posix-getenv "TMPDIR")
                       (namestring (user-homedir-pathname)))))
         (concatenate 'string (string-right-trim "/" base) "/harmonia"))))
 
 (defun %config-or-env (cfg-key env-key default)
+  (declare (ignore env-key))
   (or (and (fboundp 'config-get) (config-get cfg-key))
-      (sb-ext:posix-getenv env-key)
+      (config-get-for "conductor" cfg-key "global")
       default))
 
 (defun %signal-has-capability-p (prompt capability)
@@ -233,7 +234,7 @@
   "Load or return cached A2UI component catalog."
   (or *a2ui-catalog-cache*
       (let ((path (merge-pathnames "config/a2ui-catalog.sexp"
-                                   (or (sb-ext:posix-getenv "HARMONIA_ROOT")
+                                   (or (config-get-for "conductor" "state-root" "global")
                                        (namestring (user-homedir-pathname))))))
         (handler-case
             (with-open-file (in path :direction :input :if-does-not-exist nil)

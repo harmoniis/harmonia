@@ -1,13 +1,14 @@
 use std::collections::HashMap;
-use std::env;
+
+const COMPONENT: &str = "harmonic-matrix";
 
 fn state_root() -> String {
-    env::var("HARMONIA_STATE_ROOT").unwrap_or_else(|_| {
-        env::temp_dir()
-            .join("harmonia")
-            .to_string_lossy()
-            .to_string()
-    })
+    let default = std::env::temp_dir()
+        .join("harmonia")
+        .to_string_lossy()
+        .to_string();
+    harmonia_config_store::get_config_or(COMPONENT, "global", "state-root", &default)
+        .unwrap_or_else(|_| default)
 }
 
 fn default_matrix_db() -> String {
@@ -69,21 +70,26 @@ pub(crate) struct StoreConfig {
 
 impl Default for StoreConfig {
     fn default() -> Self {
-        let kind = match env::var("HARMONIA_MATRIX_STORE_KIND") {
-            Ok(v) if v.eq_ignore_ascii_case("sqlite") || v.eq_ignore_ascii_case("sql") => {
+        let kind = match harmonia_config_store::get_own(COMPONENT, "store-kind") {
+            Ok(Some(v)) if v.eq_ignore_ascii_case("sqlite") || v.eq_ignore_ascii_case("sql") => {
                 StoreKind::Sqlite
             }
-            Ok(v) if v.eq_ignore_ascii_case("graph") => StoreKind::Graph,
+            Ok(Some(v)) if v.eq_ignore_ascii_case("graph") => StoreKind::Graph,
             _ => StoreKind::Memory,
         };
         let path = match kind {
-            StoreKind::Memory => {
-                env::var("HARMONIA_MATRIX_DB").unwrap_or_else(|_| default_matrix_db())
-            }
-            StoreKind::Sqlite => {
-                env::var("HARMONIA_MATRIX_DB").unwrap_or_else(|_| default_matrix_db())
-            }
-            StoreKind::Graph => env::var("HARMONIA_MATRIX_GRAPH_URI").unwrap_or_default(),
+            StoreKind::Memory => harmonia_config_store::get_own(COMPONENT, "db")
+                .ok()
+                .flatten()
+                .unwrap_or_else(default_matrix_db),
+            StoreKind::Sqlite => harmonia_config_store::get_own(COMPONENT, "db")
+                .ok()
+                .flatten()
+                .unwrap_or_else(default_matrix_db),
+            StoreKind::Graph => harmonia_config_store::get_own(COMPONENT, "graph-uri")
+                .ok()
+                .flatten()
+                .unwrap_or_default(),
         };
         Self { kind, path }
     }

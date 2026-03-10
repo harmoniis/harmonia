@@ -5,19 +5,23 @@ use std::process::Command;
 use std::thread;
 use std::time::Duration;
 
-fn env_bool(name: &str, default: bool) -> bool {
-    env::var(name)
+const COMPONENT: &str = "phoenix-core";
+
+fn config_bool(key: &str, default: bool) -> bool {
+    harmonia_config_store::get_own(COMPONENT, key)
+        .ok()
+        .flatten()
         .map(|v| v == "1" || v.eq_ignore_ascii_case("true"))
         .unwrap_or(default)
 }
 
 fn state_root() -> String {
-    env::var("HARMONIA_STATE_ROOT").unwrap_or_else(|_| {
-        env::temp_dir()
-            .join("harmonia")
-            .to_string_lossy()
-            .to_string()
-    })
+    let default = env::temp_dir()
+        .join("harmonia")
+        .to_string_lossy()
+        .to_string();
+    harmonia_config_store::get_config_or(COMPONENT, "global", "state-root", &default)
+        .unwrap_or_else(|_| default)
 }
 
 fn append_trauma(line: &str) {
@@ -34,8 +38,10 @@ fn append_trauma(line: &str) {
         let _ = writeln!(f, "{line}");
     }
 
-    let recovery_path = env::var("HARMONIA_RECOVERY_LOG")
-        .unwrap_or_else(|_| format!("{}/recovery.log", state_root()));
+    let recovery_path = harmonia_config_store::get_own(COMPONENT, "recovery-log")
+        .ok()
+        .flatten()
+        .unwrap_or_else(|| format!("{}/recovery.log", state_root()));
     if let Some(parent) = std::path::Path::new(&recovery_path).parent() {
         let _ = fs::create_dir_all(parent);
     }
@@ -70,10 +76,11 @@ fn run_child_once(cmdline: &str) -> i32 {
 }
 
 fn main() {
-    let env_mode = env::var("HARMONIA_ENV").unwrap_or_else(|_| "test".to_string());
-    if env_mode.eq_ignore_ascii_case("prod") && !env_bool("HARMONIA_ALLOW_PROD_GENESIS", false) {
+    let env_mode = harmonia_config_store::get_own_or(COMPONENT, "env", "test")
+        .unwrap_or_else(|_| "test".to_string());
+    if env_mode.eq_ignore_ascii_case("prod") && !config_bool("allow-prod-genesis", false) {
         eprintln!(
-            "[phoenix] refusing to start genesis in prod without HARMONIA_ALLOW_PROD_GENESIS=1"
+            "[phoenix] refusing to start genesis in prod without allow-prod-genesis=1 in config-store"
         );
         std::process::exit(2);
     }
@@ -124,6 +131,6 @@ fn main() {
 mod tests {
     #[test]
     fn phoenix_test_harness_runs() {
-        assert_eq!(super::env_bool("DOES_NOT_EXIST", true), true);
+        assert_eq!(super::config_bool("does-not-exist", true), true);
     }
 }

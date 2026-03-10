@@ -25,13 +25,16 @@ WhatsApp frontend via a bridge API (e.g., WhatsApp Business API or compatible ga
 
 ## Configuration
 
-Config S-expression or env vars:
+Config S-expression + vault/config-store:
 | Source | Key | Description |
 |--------|-----|-------------|
-| Config | `:api-url` | WhatsApp bridge API URL |
-| Env | `HARMONIA_WHATSAPP_API_URL` | Fallback API URL |
-| Config | `:api-key` | API authentication key |
-| Env | `HARMONIA_WHATSAPP_API_KEY` | Fallback API key |
+| Config-store | `whatsapp-frontend/api-url` | WhatsApp bridge API URL |
+| Vault | `whatsapp-session` | WhatsApp bridge authentication token |
+| Config | `:api-url` | Optional bootstrap value written into config-store |
+| Config | `:api-key` | Optional bootstrap value written into vault as `whatsapp-session` |
+
+Legacy env alias for `api-url` is resolved through config-store (`HARMONIA_WHATSAPP_API_URL`).
+Legacy vault bridge URL symbol (`whatsapp-bridge-url`) is migrated to config-store on init.
 
 ## Self-Improvement Notes
 

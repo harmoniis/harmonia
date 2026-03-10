@@ -1,4 +1,3 @@
-use std::env;
 use std::ffi::{CStr, CString};
 use std::os::raw::c_char;
 use std::process::Command;
@@ -7,6 +6,7 @@ use std::sync::{OnceLock, RwLock};
 use harmonia_signal_integrity::wrap_secure;
 use harmonia_vault::{get_secret_for_component, init_from_env};
 
+const COMPONENT: &str = "search-exa-tool";
 const VERSION: &[u8] = b"harmonia-search-exa/0.1.0\0";
 
 static LAST_ERROR: OnceLock<RwLock<String>> = OnceLock::new();
@@ -82,8 +82,10 @@ pub extern "C" fn harmonia_search_exa_query(query: *const c_char) -> *mut c_char
         }
     };
 
-    let endpoint = env::var("HARMONIA_EXA_API_URL")
-        .unwrap_or_else(|_| "https://api.exa.ai/search".to_string());
+    let endpoint = harmonia_config_store::get_own(COMPONENT, "api-url")
+        .ok()
+        .flatten()
+        .unwrap_or_else(|| "https://api.exa.ai/search".to_string());
     let payload = format!("{{\"query\":\"{}\",\"numResults\":5}}", json_escape(&query));
 
     let out = Command::new("curl")

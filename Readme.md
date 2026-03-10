@@ -137,7 +137,7 @@ harmonia uninstall
 | `harmonia-fs` | Filesystem operations |
 | `harmonia-parallel-agents` | Parallel agent orchestration |
 | `harmonia-harmonic-matrix` | Harmonic scoring and evolution |
-| `harmonia-config-store` | Configuration management |
+| `harmonia-config-store` | SQLite-backed scoped configuration store (policy-gated, cached) |
 | `harmonia-tailnet` | Tailscale mesh networking |
 | `harmonia-gateway` | Frontend gateway and signal routing |
 
@@ -145,7 +145,16 @@ harmonia uninstall
 
 | Crate | Description |
 |-------|-------------|
-| `harmonia-openrouter-backend` | Multi-provider LLM router (OpenRouter, OpenAI, Anthropic, xAI, Google AI Studio/Vertex, Bedrock/Nova, Groq, Alibaba) |
+| `harmonia-provider-protocol` | Shared model pool protocol, metrics, and FFI helpers |
+| `harmonia-openrouter` | Universal LLM gateway via OpenRouter |
+| `harmonia-openai` | OpenAI native backend |
+| `harmonia-anthropic` | Anthropic Messages API backend |
+| `harmonia-xai` | xAI / Grok backend |
+| `harmonia-google-ai-studio` | Google AI Studio (Gemini) backend |
+| `harmonia-google-vertex` | Google Vertex AI backend |
+| `harmonia-amazon-bedrock` | Amazon Bedrock / Nova backend |
+| `harmonia-groq` | Groq backend |
+| `harmonia-alibaba` | Alibaba / DashScope (Qwen) backend |
 
 ### Tools
 
@@ -166,6 +175,8 @@ harmonia uninstall
 | `harmonia-mqtt-client` | MQTT messaging |
 | `harmonia-telegram` | Telegram bot |
 | `harmonia-slack` | Slack bot |
+| `harmonia-discord` | Discord bot |
+| `harmonia-signal` | Signal bridge frontend |
 | `harmonia-whatsapp` | WhatsApp via bridge API |
 | `harmonia-imessage` | iMessage via BlueBubbles |
 | `harmonia-mattermost` | Mattermost bot |
@@ -203,14 +214,17 @@ After running `harmonia setup`, the system workspace lives at `~/.harmoniis/harm
 
 ```
 ~/.harmoniis/harmonia/
-├── vault.db          # Encrypted secrets (SQLite)
+├── vault.db          # Encrypted secrets (SQLite, AES-256-GCM)
+├── config.db         # Non-secret configuration (SQLite, config-store)
+├── metrics.db        # Model performance metrics (SQLite, auto-created)
 ├── config/           # Runtime configuration (S-expressions)
 │   ├── workspace.sexp
-│   ├── gateway-frontends.sexp
-│   └── runtime.env   # Setup-generated LLM runtime defaults/fallbacks
+│   └── gateway-frontends.sexp
 ├── genesis/          # Agent evolution knowledge
 └── frontends/        # Compiled frontend libraries
 ```
+
+All non-secret configuration (URLs, timeouts, paths, modes, feature flags) is managed by `config-store` with component-scoped access policies. All secrets (API keys, tokens, passwords) are stored in `vault`. No raw environment variables are used at runtime except for bootstrap paths (`HARMONIA_STATE_ROOT`, `HARMONIA_LIB_DIR`).
 
 ## Supported platforms
 

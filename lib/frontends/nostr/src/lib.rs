@@ -1,10 +1,10 @@
 use harmonia_vault::{get_secret_for_component, init_from_env};
-use std::env;
 use std::ffi::{CStr, CString};
 use std::os::raw::c_char;
 use std::process::Command;
 use std::sync::{OnceLock, RwLock};
 const VERSION: &[u8] = b"harmonia-nostr/0.1.0\0";
+const COMPONENT: &str = "nostr-frontend";
 static LAST_ERROR: OnceLock<RwLock<String>> = OnceLock::new();
 fn le() -> &'static RwLock<String> {
     LAST_ERROR.get_or_init(|| RwLock::new(String::new()))
@@ -55,8 +55,10 @@ pub extern "C" fn harmonia_nostr_publish_text(text: *const c_char) -> i32 {
             return -1;
         }
     };
-    let endpoint = env::var("HARMONIA_NOSTR_API_URL")
-        .unwrap_or_else(|_| "https://nostr.example/publish".into());
+    let endpoint = harmonia_config_store::get_own(COMPONENT, "api-url")
+        .ok()
+        .flatten()
+        .unwrap_or_else(|| "https://nostr.example/publish".into());
     let payload = format!(
         "{{\"content\":\"{}\",\"private_key\":\"{}\"}}",
         esc(&text),
@@ -114,4 +116,55 @@ pub extern "C" fn harmonia_nostr_free_string(ptr: *mut c_char) {
     unsafe {
         drop(CString::from_raw(ptr));
     }
+}
+
+// ---------------------------------------------------------------------------
+// Gateway frontend contract wrappers (standard harmonia_frontend_* symbols)
+// ---------------------------------------------------------------------------
+
+#[no_mangle]
+pub extern "C" fn harmonia_frontend_version() -> *const c_char {
+    harmonia_nostr_version()
+}
+
+#[no_mangle]
+pub extern "C" fn harmonia_frontend_healthcheck() -> i32 {
+    harmonia_nostr_healthcheck()
+}
+
+#[no_mangle]
+pub extern "C" fn harmonia_frontend_init(_config: *const c_char) -> i32 {
+    cle();
+    0
+}
+
+#[no_mangle]
+pub extern "C" fn harmonia_frontend_poll(buf: *mut c_char, buf_len: usize) -> i32 {
+    if buf.is_null() || buf_len == 0 {
+        sete("poll: null buffer or zero length");
+        return -1;
+    }
+    cle();
+    0
+}
+
+#[no_mangle]
+pub extern "C" fn harmonia_frontend_send(_channel: *const c_char, payload: *const c_char) -> i32 {
+    harmonia_nostr_publish_text(payload)
+}
+
+#[no_mangle]
+pub extern "C" fn harmonia_frontend_last_error() -> *const c_char {
+    harmonia_nostr_last_error() as *const c_char
+}
+
+#[no_mangle]
+pub extern "C" fn harmonia_frontend_shutdown() -> i32 {
+    cle();
+    0
+}
+
+#[no_mangle]
+pub extern "C" fn harmonia_frontend_free_string(ptr: *mut c_char) {
+    harmonia_nostr_free_string(ptr)
 }

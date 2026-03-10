@@ -16,3 +16,4 @@ crate-type = ["cdylib", "rlib"]
 [dependencies]
 harmonia-vault = { version = "0.1.5", path = "../../core/vault" }
 harmonia-signal-integrity = { version = "0.1.5", path = "../../core/signal-integrity" }
+harmonia-config-store = { version = "0.2.0", path = "../../core/config-store" }

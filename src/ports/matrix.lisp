@@ -8,15 +8,15 @@
   (merge-pathnames "../../config/matrix-topology.sexp" *boot-file*))
 (defparameter *harmonic-route-default-signal*
   (or (ignore-errors (let ((*read-eval* nil))
-                       (read-from-string (or (sb-ext:posix-getenv "HARMONIA_ROUTE_SIGNAL_DEFAULT") ""))))
+                       (read-from-string (or (config-get-for "harmonic-matrix" "route-signal-default") ""))))
       1.0d0))
 (defparameter *harmonic-route-default-noise*
   (or (ignore-errors (let ((*read-eval* nil))
-                       (read-from-string (or (sb-ext:posix-getenv "HARMONIA_ROUTE_NOISE_DEFAULT") ""))))
+                       (read-from-string (or (config-get-for "harmonic-matrix" "route-noise-default") ""))))
       0.1d0))
 
 (defun %matrix-state-root ()
-  (or (sb-ext:posix-getenv "HARMONIA_STATE_ROOT")
+  (or (config-get-for "harmonic-matrix" "state-root" "global")
       (let ((base (or (sb-ext:posix-getenv "TMPDIR")
                       (namestring (user-homedir-pathname)))))
         (concatenate 'string (string-right-trim "/" base) "/harmonia"))))
@@ -149,7 +149,7 @@
   (%hm-read-string (%hm-report) "report"))
 
 (defun %matrix-topology-path ()
-  (or (sb-ext:posix-getenv "HARMONIA_MATRIX_TOPOLOGY_PATH")
+  (or (config-get-for "harmonic-matrix" "topology-path")
       (concatenate 'string (%matrix-state-root) "/matrix-topology.sexp")))
 
 (defun %default-matrix-topology ()

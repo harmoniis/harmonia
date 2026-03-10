@@ -14,4 +14,5 @@ categories = ["filesystem"]
 crate-type = ["cdylib"]
 
 [dependencies]
+harmonia-config-store = { version = "0.2.0", path = "../../../core/config-store" }
 # Add as needed: aws-sdk-s3, tokio, etc.

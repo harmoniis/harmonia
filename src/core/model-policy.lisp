@@ -5,8 +5,8 @@
 (defparameter *model-policy-config-path*
   (merge-pathnames "../../config/model-policy.sexp" *boot-file*))
 (defparameter *model-policy-state-path*
-  (or (sb-ext:posix-getenv "HARMONIA_MODEL_POLICY_PATH")
-      (let ((root (or (sb-ext:posix-getenv "HARMONIA_STATE_ROOT")
+  (or (config-get-for "model-policy" "path")
+      (let ((root (or (config-get-for "model-policy" "state-root" "global")
                       (let ((base (or (sb-ext:posix-getenv "TMPDIR")
                                       (namestring (user-homedir-pathname)))))
                         (concatenate 'string (string-right-trim "/" base) "/harmonia")))))
@@ -128,7 +128,7 @@
 ;;; --- Experience Score ---
 
 (defun %swarm-scores-path ()
-  (let ((root (or (sb-ext:posix-getenv "HARMONIA_STATE_ROOT")
+  (let ((root (or (config-get-for "model-policy" "state-root" "global")
                   (let ((base (or (sb-ext:posix-getenv "TMPDIR")
                                   (namestring (user-homedir-pathname)))))
                     (concatenate 'string (string-right-trim "/" base) "/harmonia")))))
@@ -221,11 +221,11 @@
         (getf (first *model-profiles*) :id))))
 
 (defun %planner-enabled-p ()
-  (string= (or (sb-ext:posix-getenv "HARMONIA_MODEL_PLANNER") "1")
+  (string= (or (config-get-or "model-policy" "planner" "1") "1")
            "1"))
 
 (defun %planner-model ()
-  (or (sb-ext:posix-getenv "HARMONIA_MODEL_PLANNER_MODEL")
+  (or (config-get-for "model-policy" "planner-model")
       (%planner-profile-id)))
 
 ;;; --- Task Routing ---

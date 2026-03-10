@@ -54,23 +54,30 @@
           (%ouroboros-free-string ptr)))))
 
 (defun %env-true-p (name &optional (default nil))
+  "Check a config-store key (or env var name) for boolean truthiness."
   (let ((raw (sb-ext:posix-getenv name)))
     (if raw
         (member (string-downcase raw) '("1" "true" "yes" "on") :test #'string=)
         default)))
 
 (defun %configure-evolution-runtime ()
-  (setf *source-rewrite-enabled* (%env-true-p "HARMONIA_SOURCE_REWRITE_ENABLED" t))
-  (setf *distributed-evolution-enabled*
-        (%env-true-p "HARMONIA_DISTRIBUTED_EVOLUTION_ENABLED" nil))
+  (let ((rewrite-raw (config-get-for "evolution" "source-rewrite-enabled")))
+    (setf *source-rewrite-enabled*
+          (if rewrite-raw
+              (member (string-downcase rewrite-raw) '("1" "true" "yes" "on") :test #'string=)
+              t)))
+  (let ((dist-raw (config-get-for "evolution" "distributed-evolution-enabled")))
+    (setf *distributed-evolution-enabled*
+          (when dist-raw
+            (member (string-downcase dist-raw) '("1" "true" "yes" "on") :test #'string=))))
   (setf *distributed-store-kind*
-        (or (sb-ext:posix-getenv "HARMONIA_DISTRIBUTED_STORE_KIND") "s3"))
+        (or (config-get-for "evolution" "distributed-store-kind") "s3"))
   (setf *distributed-store-bucket*
-        (or (sb-ext:posix-getenv "HARMONIA_DISTRIBUTED_STORE_BUCKET") ""))
+        (or (config-get-for "evolution" "distributed-store-bucket") ""))
   (setf *distributed-store-prefix*
-        (or (sb-ext:posix-getenv "HARMONIA_DISTRIBUTED_STORE_PREFIX")
+        (or (config-get-for "evolution" "distributed-store-prefix")
             "harmonia/evolution"))
-  (let ((mode-raw (string-downcase (or (sb-ext:posix-getenv "HARMONIA_EVOLUTION_MODE") ""))))
+  (let ((mode-raw (string-downcase (or (config-get-for "evolution" "mode") ""))))
     (setf *evolution-mode*
           (cond
             ((string= mode-raw "artifact-rollout") :artifact-rollout)

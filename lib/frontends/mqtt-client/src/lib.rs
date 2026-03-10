@@ -2,7 +2,6 @@ use chrono::Utc;
 use rumqttc::{Client, Event, Incoming, MqttOptions, Outgoing, QoS, TlsConfiguration, Transport};
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, VecDeque};
-use std::env;
 use std::ffi::{CStr, CString};
 use std::fs;
 use std::os::raw::c_char;
@@ -12,6 +11,7 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use uuid::Uuid;
 
 const VERSION: &[u8] = b"harmonia-mqtt-client/0.3.0\0";
+const COMPONENT: &str = "mqtt-frontend";
 static LAST_ERROR: OnceLock<RwLock<String>> = OnceLock::new();
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -123,7 +123,7 @@ fn to_c_string(value: String) -> *mut c_char {
 
 fn parse_broker() -> Result<(String, u16), String> {
     let raw =
-        env::var("HARMONIA_MQTT_BROKER").unwrap_or_else(|_| "test.mosquitto.org:1883".to_string());
+        harmonia_config_store::get_own_or(COMPONENT, "broker", "test.mosquitto.org:1883").unwrap_or_else(|_| "test.mosquitto.org:1883".to_string());
     let (host, port_raw) = raw
         .split_once(':')
         .ok_or_else(|| format!("invalid HARMONIA_MQTT_BROKER: {raw}"))?;
@@ -134,14 +134,17 @@ fn parse_broker() -> Result<(String, u16), String> {
 }
 
 fn timeout_ms() -> u64 {
-    env::var("HARMONIA_MQTT_TIMEOUT_MS")
+    harmonia_config_store::get_own(COMPONENT, "timeout-ms")
         .ok()
+        .flatten()
         .and_then(|v| v.parse::<u64>().ok())
         .unwrap_or(5000)
 }
 
 fn tls_enabled() -> bool {
-    env::var("HARMONIA_MQTT_TLS")
+    harmonia_config_store::get_own(COMPONENT, "tls")
+        .ok()
+        .flatten()
         .map(|v| v == "1" || v.eq_ignore_ascii_case("true"))
         .unwrap_or(false)
 }
@@ -166,8 +169,10 @@ fn connect(prefix: &str) -> Result<(Client, rumqttc::Connection), String> {
     let mut opts = MqttOptions::new(client_id(prefix), host, port);
     opts.set_keep_alive(Duration::from_secs(5));
     if tls_enabled() {
-        let ca_path = env::var("HARMONIA_MQTT_CA_CERT")
-            .map_err(|_| "HARMONIA_MQTT_CA_CERT required when HARMONIA_MQTT_TLS=1".to_string())?;
+        let ca_path = harmonia_config_store::get_own(COMPONENT, "ca-cert")
+            .ok()
+            .flatten()
+            .ok_or_else(|| "HARMONIA_MQTT_CA_CERT required when HARMONIA_MQTT_TLS=1".to_string())?;
         let ca = fs::read(&ca_path).map_err(|e| format!("read ca cert failed: {e}"))?;
         let _ = harmonia_vault::init_from_env();
         // Keep a recoverable deterministic seed for MQTT TLS lineage.
@@ -176,10 +181,10 @@ fn connect(prefix: &str) -> Result<(Client, rumqttc::Connection), String> {
         }
 
         let client_auth = match (
-            env::var("HARMONIA_MQTT_CLIENT_CERT"),
-            env::var("HARMONIA_MQTT_CLIENT_KEY"),
+            harmonia_config_store::get_own(COMPONENT, "client-cert").ok().flatten(),
+            harmonia_config_store::get_own(COMPONENT, "client-key").ok().flatten(),
         ) {
-            (Ok(cert_path), Ok(key_path)) => {
+            (Some(cert_path), Some(key_path)) => {
                 let cert =
                     fs::read(&cert_path).map_err(|e| format!("read client cert failed: {e}"))?;
                 let key =

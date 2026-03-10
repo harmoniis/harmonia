@@ -17,7 +17,7 @@
     :so-path "target/release/libharmonia_imessage.so"
     :security-label :authenticated
     :auto-load :if-vault-keys
-    :vault-keys (:bluebubbles-server-url :bluebubbles-password))
+    :vault-keys (:bluebubbles-password))
    (:name "whatsapp"
     :so-path "target/release/libharmonia_whatsapp.so"
     :security-label :authenticated
@@ -33,6 +33,16 @@
     :security-label :authenticated
     :auto-load :if-vault-keys
     :vault-keys (:slack-app-token :slack-bot-token))
+   (:name "discord"
+    :so-path "target/release/libharmonia_discord.so"
+    :security-label :authenticated
+    :auto-load :if-vault-keys
+    :vault-keys (:discord-bot-token))
+   (:name "signal"
+    :so-path "target/release/libharmonia_signal.so"
+    :security-label :authenticated
+    :auto-load t
+    :vault-keys nil)
    (:name "tailscale"
     :so-path "target/release/libharmonia_tailscale_frontend.so"
     :security-label :authenticated

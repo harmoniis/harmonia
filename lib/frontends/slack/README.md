@@ -25,20 +25,22 @@ Slack Web API frontend. Connects to Slack workspaces to receive and send message
 
 ## Configuration
 
-Config S-expression or env vars:
+Config S-expression + vault/config-store:
 | Source | Key | Description |
 |--------|-----|-------------|
-| Config | `(bot-token ...)` | Slack bot token (xoxb-...) |
-| Env | `HARMONIA_SLACK_BOT_TOKEN` | Fallback bot token |
-| Config | `(app-token ...)` | Slack app token (xapp-...) |
-| Env | `HARMONIA_SLACK_APP_TOKEN` | Fallback app token |
-| Config | `(channels ...)` | Channel IDs to monitor |
-| Env | `HARMONIA_SLACK_CHANNELS` | Comma-separated channel IDs |
+| Vault | `slack-bot-token` | Slack bot token (required) |
+| Vault | `slack-app-token` | Slack app token (required) |
+| Config-store | `slack-frontend/channels` | Comma-separated channel IDs |
+| Config | `(channels ...)` | Optional channel list override |
+| Config | `(bot-token ...)` | Optional bootstrap value written into vault as `slack-bot-token` |
+| Config | `(app-token ...)` | Optional bootstrap value written into vault as `slack-app-token` |
+
+Legacy env aliases for channels are resolved through config-store (`HARMONIA_SLACK_CHANNELS`).
 
 ## Self-Improvement Notes
 
 - Client module (`client.rs`) handles Slack Web API.
-- Uses Socket Mode (app token) for real-time events or falls back to polling.
+- Uses polling via Slack Web API.
 - Sends via `chat.postMessage` API with channel and text.
 - Both bot-token and at least one channel are required to initialize.
 - To add threads: include `thread_ts` in send payload for threaded replies.

@@ -1,9 +1,10 @@
-use std::env;
 use std::ffi::{CStr, CString};
 use std::fs;
 use std::os::raw::c_char;
 use std::path::{Component, Path, PathBuf};
 use std::sync::{OnceLock, RwLock};
+
+const COMPONENT: &str = "fs";
 
 const VERSION: &[u8] = b"harmonia-fs/0.2.0\0";
 
@@ -42,11 +43,15 @@ fn to_c_string(value: String) -> *mut c_char {
 }
 
 fn sandbox_root() -> PathBuf {
-    let default_root = env::var("HARMONIA_STATE_ROOT")
+    let default_root = harmonia_config_store::get_config(COMPONENT, "global", "state-root")
+        .ok()
+        .flatten()
         .map(PathBuf::from)
-        .unwrap_or_else(|_| env::temp_dir().join("harmonia"))
+        .unwrap_or_else(|| std::env::temp_dir().join("harmonia"))
         .join("fs");
-    env::var("HARMONIA_FS_ROOT")
+    harmonia_config_store::get_config(COMPONENT, "global", "fs-root")
+        .ok()
+        .flatten()
         .map(PathBuf::from)
         .unwrap_or(default_root)
 }

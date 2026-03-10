@@ -24,7 +24,7 @@ This inventory follows the current Cargo workspace members in `../../Cargo.toml`
 | `lib/core/fs` | sandboxed filesystem operations |
 | `lib/core/parallel-agents` | API + tmux swarm execution engine |
 | `lib/core/harmonic-matrix` | route constraint + telemetry engine with security-aware routing (`route_allowed_with_context`) |
-| `lib/core/config-store` | runtime non-secret KV store |
+| `lib/core/config-store` | SQLite-backed scoped configuration store with in-memory cache, component access policies, and env var fallback chain |
 | `lib/core/tailnet` | tailscale mesh transport layer with HMAC-SHA256 authentication and replay protection |
 | `lib/core/gateway` | signal baseband + frontend registry with capabilities parsing, metadata enrichment, A2UI-aware signal emission, and inline dissonance scoring |
 | `lib/core/signal-integrity` | shared injection detection, dissonance scoring, and boundary wrapping for external data |
@@ -34,7 +34,16 @@ This inventory follows the current Cargo workspace members in `../../Cargo.toml`
 
 | Path | Purpose |
 |---|---|
-| `lib/backends/llms/openrouter` | LLM completion router (OpenRouter + native provider adapters: OpenAI, Anthropic, xAI, Google AI Studio/Vertex, Bedrock/Nova, Groq, Alibaba) |
+| `lib/backends/llms/provider-protocol` | Shared model pool protocol, metrics DB, FFI helpers for all LLM backends |
+| `lib/backends/llms/openrouter` | Universal LLM gateway via OpenRouter with background model catalogue sync |
+| `lib/backends/llms/openai` | OpenAI native backend |
+| `lib/backends/llms/anthropic` | Anthropic Messages API backend |
+| `lib/backends/llms/xai` | xAI / Grok backend with reasoning and web-search support |
+| `lib/backends/llms/google-ai-studio` | Google AI Studio (Gemini) backend |
+| `lib/backends/llms/google-vertex` | Google Vertex AI backend (Bearer token auth) |
+| `lib/backends/llms/amazon-bedrock` | Amazon Bedrock / Nova backend (AWS CLI) |
+| `lib/backends/llms/groq` | Groq backend |
+| `lib/backends/llms/alibaba` | Alibaba / DashScope (Qwen) backend |
 | `lib/backends/storage/s3` | storage adapter for artifact/object persistence |
 | `lib/backends/http` | shared HTTP adapter crate |
 
@@ -58,6 +67,8 @@ This inventory follows the current Cargo workspace members in `../../Cargo.toml`
 | `lib/frontends/whatsapp` | WhatsApp channel frontend |
 | `lib/frontends/telegram` | Telegram channel frontend |
 | `lib/frontends/slack` | Slack channel frontend |
+| `lib/frontends/discord` | Discord channel frontend |
+| `lib/frontends/signal` | Signal channel frontend via signal-cli bridge |
 | `lib/frontends/mattermost` | Mattermost channel frontend |
 | `lib/frontends/nostr` | Nostr channel frontend |
 | `lib/frontends/email-client` | email channel frontend |

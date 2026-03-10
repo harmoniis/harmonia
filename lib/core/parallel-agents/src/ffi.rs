@@ -456,6 +456,157 @@ pub extern "C" fn harmonia_tmux_swarm_poll() -> *mut c_char {
 }
 
 // ===========================================================================
+// Metrics query FFI — curated data for harmonic orchestration decisions
+// ===========================================================================
+
+/// Query performance stats for a specific model.
+/// Returns s-expression: (:model "x" :count N :success-rate F :avg-latency-ms F ...)
+#[no_mangle]
+pub extern "C" fn harmonia_metrics_model_stats(model: *const c_char) -> *mut c_char {
+    let model = match cstr_to_string(model) {
+        Ok(v) => v,
+        Err(e) => {
+            set_error(e);
+            return std::ptr::null_mut();
+        }
+    };
+    to_c_string(harmonia_provider_protocol::query_model_stats(&model))
+}
+
+/// Query best-performing models for a backend, ranked by success rate and speed.
+/// Returns s-expression list of top candidates.
+#[no_mangle]
+pub extern "C" fn harmonia_metrics_best_models(
+    backend: *const c_char,
+    limit: i32,
+) -> *mut c_char {
+    let backend = match cstr_to_string(backend) {
+        Ok(v) => v,
+        Err(e) => {
+            set_error(e);
+            return std::ptr::null_mut();
+        }
+    };
+    to_c_string(harmonia_provider_protocol::query_best_models_for_task(
+        &backend,
+        if limit <= 0 { 5 } else { limit },
+    ))
+}
+
+/// Full LLM backend performance report from metrics database.
+#[no_mangle]
+pub extern "C" fn harmonia_metrics_llm_report() -> *mut c_char {
+    to_c_string(harmonia_provider_protocol::query_llm_report())
+}
+
+/// Tmux agent event summary from metrics database.
+#[no_mangle]
+pub extern "C" fn harmonia_metrics_tmux_report() -> *mut c_char {
+    to_c_string(harmonia_provider_protocol::query_tmux_report())
+}
+
+/// Combined telemetry digest for harmonic orchestration decisions.
+/// Returns compact s-expression with the most actionable data across all tiers.
+#[no_mangle]
+pub extern "C" fn harmonia_metrics_telemetry_digest() -> *mut c_char {
+    to_c_string(harmonia_provider_protocol::query_telemetry_digest())
+}
+
+/// Sync model catalogue from OpenRouter API.
+/// Fetches all 290+ models with pricing into the models table.
+/// api_key: OpenRouter API key. Returns count of models synced or -1 on error.
+#[no_mangle]
+pub extern "C" fn harmonia_metrics_sync_models(api_key: *const c_char) -> i64 {
+    let key = match cstr_to_string(api_key) {
+        Ok(v) => v,
+        Err(e) => {
+            set_error(e);
+            return -1;
+        }
+    };
+    match harmonia_provider_protocol::sync_models_from_openrouter(&key) {
+        Ok(count) => {
+            clear_error();
+            count as i64
+        }
+        Err(e) => {
+            set_error(e);
+            -1
+        }
+    }
+}
+
+/// Run an arbitrary SELECT SQL query against the metrics database.
+/// Returns JSON array of result rows. Only SELECT/WITH/EXPLAIN allowed.
+/// Caller must free with harmonia_parallel_agents_free_string.
+#[no_mangle]
+pub extern "C" fn harmonia_metrics_query_json(sql: *const c_char) -> *mut c_char {
+    let sql = match cstr_to_string(sql) {
+        Ok(v) => v,
+        Err(e) => {
+            set_error(e);
+            return std::ptr::null_mut();
+        }
+    };
+    match harmonia_provider_protocol::query_sql(&sql) {
+        Ok(json) => {
+            clear_error();
+            to_c_string(json)
+        }
+        Err(e) => {
+            set_error(e);
+            std::ptr::null_mut()
+        }
+    }
+}
+
+/// Run an arbitrary SELECT SQL query, return results as s-expression.
+/// Each row becomes a plist: (:col-name val ...).
+/// Caller must free with harmonia_parallel_agents_free_string.
+#[no_mangle]
+pub extern "C" fn harmonia_metrics_query_sexp(sql: *const c_char) -> *mut c_char {
+    let sql = match cstr_to_string(sql) {
+        Ok(v) => v,
+        Err(e) => {
+            set_error(e);
+            return std::ptr::null_mut();
+        }
+    };
+    match harmonia_provider_protocol::query_sql_sexp(&sql) {
+        Ok(sexp) => {
+            clear_error();
+            to_c_string(sexp)
+        }
+        Err(e) => {
+            set_error(e);
+            std::ptr::null_mut()
+        }
+    }
+}
+
+// ===========================================================================
+// Metrics → Harmonic Matrix Bridge FFI
+// ===========================================================================
+
+/// Query recent LLM perf data as s-expression route entries for harmonic matrix.
+/// The Lisp conductor iterates and feeds each into `harmonic_matrix_observe_route()`.
+/// since_ts: Unix timestamp — only include data newer than this.
+/// Caller must free with harmonia_parallel_agents_free_string.
+#[no_mangle]
+pub extern "C" fn harmonia_metrics_bridge_routes(since_ts: i64) -> *mut c_char {
+    match harmonia_provider_protocol::bridge_perf_to_routes(since_ts) {
+        Ok(sexp) => {
+            clear_error();
+            to_c_string(sexp)
+        }
+        Err(e) => {
+            set_error(e);
+            std::ptr::null_mut()
+        }
+    }
+}
+
+// ===========================================================================
 // Tests
 // ===========================================================================
 
