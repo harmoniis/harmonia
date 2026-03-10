@@ -63,3 +63,4 @@ lcov.info
 *.profdata
 tarpaulin-report.html
 cobertura.xml
+scripts/__pycache__/
