@@ -1,6 +1,6 @@
 [package]
 name = "harmonia-s3"
-version = "0.1.7"
+version = "0.1.8"
 edition.workspace = true
 license.workspace = true
 repository.workspace = true
@@ -14,5 +14,5 @@ categories = ["filesystem"]
 crate-type = ["cdylib"]
 
 [dependencies]
-harmonia-config-store = { version = "0.1.7", path = "../../../core/config-store" }
+harmonia-config-store = { version = "0.1.8", path = "../../../core/config-store" }
 # Add as needed: aws-sdk-s3, tokio, etc.

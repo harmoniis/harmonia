@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.8] — 2026-03-11
+
+### Fixed
+- Windows CI and release builds now resolve actor registry symbols through `kernel32` module lookup instead of `dlsym(RTLD_DEFAULT, ...)`, which was Unix-only and broke `harmonia-actor-protocol` on `windows-latest`
+- Release automation now advances beyond the Windows build/test gate for the patched actor runtime path
+
 ## [0.1.7] — 2026-03-10
 
 ### Added
