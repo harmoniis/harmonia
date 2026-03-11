@@ -17,10 +17,10 @@ use std::sync::OnceLock;
 #[cfg(target_os = "macos")]
 const RTLD_DEFAULT: *mut c_void = -2isize as *mut c_void;
 
-#[cfg(target_os = "linux")]
+#[cfg(any(target_os = "linux", target_os = "freebsd"))]
 const RTLD_DEFAULT: *mut c_void = std::ptr::null_mut();
 
-#[cfg(any(target_os = "macos", target_os = "linux"))]
+#[cfg(any(target_os = "macos", target_os = "linux", target_os = "freebsd"))]
 extern "C" {
     fn dlsym(handle: *mut c_void, symbol: *const c_char) -> *mut c_void;
 }
@@ -45,7 +45,7 @@ type FreeStringFn = unsafe extern "C" fn(*mut c_char);
 
 // ─── Lazy resolution ────────────────────────────────────────────────────
 
-#[cfg(any(target_os = "macos", target_os = "linux"))]
+#[cfg(any(target_os = "macos", target_os = "linux", target_os = "freebsd"))]
 fn resolve_sym(name: &[u8]) -> *mut c_void {
     // name must be null-terminated
     unsafe { dlsym(RTLD_DEFAULT, name.as_ptr().cast()) }
