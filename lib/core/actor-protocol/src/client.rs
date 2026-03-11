@@ -20,8 +20,16 @@ const RTLD_DEFAULT: *mut c_void = -2isize as *mut c_void;
 #[cfg(target_os = "linux")]
 const RTLD_DEFAULT: *mut c_void = std::ptr::null_mut();
 
+#[cfg(any(target_os = "macos", target_os = "linux"))]
 extern "C" {
     fn dlsym(handle: *mut c_void, symbol: *const c_char) -> *mut c_void;
+}
+
+#[cfg(windows)]
+#[link(name = "kernel32")]
+extern "system" {
+    fn GetModuleHandleA(module_name: *const c_char) -> *mut c_void;
+    fn GetProcAddress(module: *mut c_void, proc_name: *const c_char) -> *mut c_void;
 }
 
 // ─── Function pointer types ─────────────────────────────────────────────
@@ -37,9 +45,32 @@ type FreeStringFn = unsafe extern "C" fn(*mut c_char);
 
 // ─── Lazy resolution ────────────────────────────────────────────────────
 
+#[cfg(any(target_os = "macos", target_os = "linux"))]
 fn resolve_sym(name: &[u8]) -> *mut c_void {
     // name must be null-terminated
     unsafe { dlsym(RTLD_DEFAULT, name.as_ptr().cast()) }
+}
+
+#[cfg(windows)]
+fn resolve_sym(name: &[u8]) -> *mut c_void {
+    // On Windows, the registry symbols live in the already-loaded
+    // parallel-agents DLL. Probe the common cargo/CFFI module names.
+    const MODULES: [&[u8]; 2] = [
+        b"harmonia_parallel_agents.dll\0",
+        b"libharmonia_parallel_agents.dll\0",
+    ];
+
+    for module in MODULES {
+        let handle = unsafe { GetModuleHandleA(module.as_ptr().cast()) };
+        if !handle.is_null() {
+            let ptr = unsafe { GetProcAddress(handle, name.as_ptr().cast()) };
+            if !ptr.is_null() {
+                return ptr;
+            }
+        }
+    }
+
+    std::ptr::null_mut()
 }
 
 macro_rules! resolve_fn {
