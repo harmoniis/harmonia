@@ -135,7 +135,16 @@ jobs:
           rustup component add rust-src --toolchain nightly
           cargo +nightly install cross --git https://github.com/cross-rs/cross
 
+      - name: Build release binaries (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $version = $env:GITHUB_REF_NAME -replace '^harmonia-v', ''
+          cargo build --workspace --release
+          bash scripts/build_release.sh $version "${{ matrix.platform }}"
+
       - name: Build release binaries
+        if: runner.os != 'Windows'
         shell: bash
         run: |
           VERSION=${GITHUB_REF_NAME#harmonia-v}
