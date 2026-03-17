@@ -31,6 +31,11 @@
   (name :string))
 (cffi:defcfun ("harmonia_gateway_free_string" %gateway-free-string) :void
   (ptr :pointer))
+(cffi:defcfun ("harmonia_gateway_set_command_query" %gateway-set-command-query) :int
+  (handler :pointer))
+(cffi:defcfun ("harmonia_gateway_set_payment_policy_query" %gateway-set-payment-policy-query) :int
+  (handler :pointer))
+(cffi:defcfun ("harmonia_gateway_pending_exit" %gateway-pending-exit) :int)
 
 (defun %parse-gateway-sexp (raw)
   (cond
@@ -38,6 +43,32 @@
     (t
      (let ((*read-eval* nil))
        (read-from-string raw)))))
+
+;;; ─── Command dispatch callback ─────────────────────────────────────────
+;;; The gateway calls this for delegated commands (/status, /backends, etc.)
+;;; that need Lisp runtime state. The gateway has already enforced security.
+
+(cffi:defcallback gateway-command-dispatch :pointer
+    ((command :string) (args :string))
+  (handler-case
+      (let ((result (%gateway-dispatch-command command args)))
+        (if result
+            (cffi:foreign-string-alloc result)
+            (cffi:null-pointer)))
+    (error (e)
+      (cffi:foreign-string-alloc
+       (format nil "[system] Error executing ~A: ~A" command e)))))
+
+(cffi:defcallback gateway-payment-policy-dispatch :pointer
+    ((summary :string))
+  (handler-case
+      (let ((result (%gateway-dispatch-payment-policy summary)))
+        (if result
+            (cffi:foreign-string-alloc result)
+            (cffi:null-pointer)))
+    (error (e)
+      (runtime-log *runtime* :gateway-payment-policy-error (list :error (format nil "~A" e)))
+      (cffi:null-pointer))))
 
 (defun init-baseband-port ()
   (ensure-cffi)
@@ -50,6 +81,18 @@
         (let ((actor-id (actor-register "gateway")))
           (setf (runtime-state-gateway-actor-id *runtime*) actor-id)
           (setf (gethash actor-id (runtime-state-actor-kinds *runtime*)) "gateway"))))
+    ;; Register the command dispatch callback so the gateway can delegate
+    ;; /status, /backends, /chronicle etc. back to Lisp for runtime state access
+    (when (zerop rc)
+      (let ((cb-rc (%gateway-set-command-query
+                    (cffi:callback gateway-command-dispatch))))
+        (when (zerop cb-rc)
+          (runtime-log *runtime* :gateway-command-query (list :status "registered")))))
+    (when (zerop rc)
+      (let ((cb-rc (%gateway-set-payment-policy-query
+                    (cffi:callback gateway-payment-policy-dispatch))))
+        (when (zerop cb-rc)
+          (runtime-log *runtime* :gateway-payment-policy-query (list :status "registered")))))
     (runtime-log *runtime* :gateway-init (list :status rc))
     (zerop rc)))
 
@@ -127,7 +170,7 @@
   (merge-pathnames "config/" (merge-pathnames "../../" *boot-file*)))
 
 (defun %system-config-root ()
-  (let ((system-dir (sb-ext:posix-getenv "HARMONIA_SYSTEM_DIR")))
+  (let ((system-dir (%boot-env "HARMONIA_SYSTEM_DIR")))
     (when (and system-dir (> (length system-dir) 0))
       (let ((root (if (char= (char system-dir (1- (length system-dir))) #\/)
                       system-dir
@@ -156,7 +199,7 @@
          (normalized (if (member ext '("dylib" "so" "dll") :test #'string=)
                          (concatenate 'string stem "." (%shared-lib-extension))
                          (concatenate 'string base "." (%shared-lib-extension))))
-         (lib-dir (sb-ext:posix-getenv "HARMONIA_LIB_DIR")))
+         (lib-dir (%boot-env "HARMONIA_LIB_DIR")))
     (if (and lib-dir (> (length lib-dir) 0))
         (let* ((root (if (char= (char lib-dir (1- (length lib-dir))) #\/)
                          lib-dir
@@ -209,8 +252,20 @@
      (%vault-keys-ready-p vault-keys))
     (t nil)))
 
+(defun %current-platform ()
+  "Return :MACOS, :LINUX, or :OTHER based on *features*."
+  #+darwin :macos
+  #+linux  :linux
+  #-(or darwin linux) :other)
+
+(defun %platform-allowed-p (platforms)
+  "Check if the current platform is in the allowed list, or if no list is given."
+  (if (null platforms)
+      t
+      (member (%current-platform) platforms)))
+
 (defun register-configured-frontends ()
-  "Read baseband.sexp and register each frontend, honoring auto-load policy."
+  "Read baseband.sexp and register each frontend, honoring auto-load policy and platform constraints."
   (let ((config-path (%gateway-config-path)))
     (when (probe-file config-path)
       (let ((config (with-open-file (s config-path) (read s))))
@@ -218,8 +273,10 @@
           (let ((name (getf fe :name))
                 (auto-load (getf fe :auto-load))
                 (vault-keys (getf fe :vault-keys))
-                (config-keys (getf fe :config-keys)))
-            (when (and (%should-auto-load-p auto-load vault-keys)
+                (config-keys (getf fe :config-keys))
+                (platforms (getf fe :platforms)))
+            (when (and (%platform-allowed-p platforms)
+                       (%should-auto-load-p auto-load vault-keys)
                        (%config-keys-ready-p config-keys))
               (handler-case
                   (gateway-register

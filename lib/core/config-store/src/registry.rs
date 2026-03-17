@@ -484,6 +484,91 @@ pub(crate) const REGISTRY: &[Entry] = &[
         env_override: None,
     },
     Entry {
+        scope: "payment-auth",
+        key: "bitcoin-asp-url",
+        env_override: Some("HARMONIA_ARK_ASP_URL"),
+    },
+    Entry {
+        scope: "payment-auth",
+        key: "identity-mode",
+        env_override: None,
+    },
+    Entry {
+        scope: "payment-auth",
+        key: "identity-price",
+        env_override: None,
+    },
+    Entry {
+        scope: "payment-auth",
+        key: "identity-unit",
+        env_override: None,
+    },
+    Entry {
+        scope: "payment-auth",
+        key: "identity-allowed-rails",
+        env_override: None,
+    },
+    Entry {
+        scope: "payment-auth",
+        key: "post-mode",
+        env_override: None,
+    },
+    Entry {
+        scope: "payment-auth",
+        key: "post-price",
+        env_override: None,
+    },
+    Entry {
+        scope: "payment-auth",
+        key: "post-unit",
+        env_override: None,
+    },
+    Entry {
+        scope: "payment-auth",
+        key: "post-allowed-rails",
+        env_override: None,
+    },
+    Entry {
+        scope: "payment-auth",
+        key: "comment-mode",
+        env_override: None,
+    },
+    Entry {
+        scope: "payment-auth",
+        key: "comment-price",
+        env_override: None,
+    },
+    Entry {
+        scope: "payment-auth",
+        key: "comment-unit",
+        env_override: None,
+    },
+    Entry {
+        scope: "payment-auth",
+        key: "comment-allowed-rails",
+        env_override: None,
+    },
+    Entry {
+        scope: "payment-auth",
+        key: "rate-mode",
+        env_override: None,
+    },
+    Entry {
+        scope: "payment-auth",
+        key: "rate-price",
+        env_override: None,
+    },
+    Entry {
+        scope: "payment-auth",
+        key: "rate-unit",
+        env_override: None,
+    },
+    Entry {
+        scope: "payment-auth",
+        key: "rate-allowed-rails",
+        env_override: None,
+    },
+    Entry {
         scope: "push-frontend",
         key: "mode",
         env_override: None,

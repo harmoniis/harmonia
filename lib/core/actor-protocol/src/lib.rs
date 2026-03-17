@@ -25,6 +25,9 @@ pub enum ActorKind {
     Chronicle,
     Tailnet,
     Signalograd,
+    Tool,
+    Supervisor,
+    Observability,
 }
 
 impl ActorKind {
@@ -36,6 +39,9 @@ impl ActorKind {
             ActorKind::Chronicle => "chronicle",
             ActorKind::Tailnet => "tailnet",
             ActorKind::Signalograd => "signalograd",
+            ActorKind::Tool => "tool",
+            ActorKind::Supervisor => "supervisor",
+            ActorKind::Observability => "observability",
         }
     }
 
@@ -47,6 +53,9 @@ impl ActorKind {
             "chronicle" => Ok(ActorKind::Chronicle),
             "tailnet" => Ok(ActorKind::Tailnet),
             "signalograd" => Ok(ActorKind::Signalograd),
+            "tool" => Ok(ActorKind::Tool),
+            "supervisor" => Ok(ActorKind::Supervisor),
+            "observability" => Ok(ActorKind::Observability),
             _ => Err(format!("unknown actor kind: {}", s)),
         }
     }
@@ -123,7 +132,42 @@ pub enum MessagePayload {
         table: String,
         count: u64,
     },
+    ToolInvoked {
+        tool_name: String,
+        operation: String,
+        request_id: u64,
+    },
+    ToolCompleted {
+        tool_name: String,
+        operation: String,
+        request_id: u64,
+        envelope_sexp: String,
+        duration_ms: u64,
+    },
+    ToolFailed {
+        tool_name: String,
+        operation: String,
+        request_id: u64,
+        error: String,
+        duration_ms: u64,
+    },
     Shutdown,
+    SupervisionReady {
+        task: u64,
+        spec: u64,
+        taxonomy: String,
+        assertions: u32,
+    },
+    SupervisionVerdict {
+        task: u64,
+        spec: u64,
+        passed: u32,
+        failed: u32,
+        skipped: u32,
+        confidence: f64,
+        grade: String,
+        summary: String,
+    },
 }
 
 impl HarmoniaMessage {
@@ -183,7 +227,77 @@ impl HarmoniaMessage {
                     count
                 )
             }
+            MessagePayload::ToolInvoked {
+                tool_name,
+                operation,
+                request_id,
+            } => format!(
+                ":tool-invoked :tool \"{}\" :operation \"{}\" :request-id {}",
+                sexp_escape(tool_name),
+                sexp_escape(operation),
+                request_id
+            ),
+            MessagePayload::ToolCompleted {
+                tool_name,
+                operation,
+                request_id,
+                envelope_sexp,
+                duration_ms,
+            } => format!(
+                ":tool-completed :tool \"{}\" :operation \"{}\" :request-id {} :envelope \"{}\" :duration-ms {}",
+                sexp_escape(tool_name),
+                sexp_escape(operation),
+                request_id,
+                sexp_escape(envelope_sexp),
+                duration_ms
+            ),
+            MessagePayload::ToolFailed {
+                tool_name,
+                operation,
+                request_id,
+                error,
+                duration_ms,
+            } => format!(
+                ":tool-failed :tool \"{}\" :operation \"{}\" :request-id {} :error \"{}\" :duration-ms {}",
+                sexp_escape(tool_name),
+                sexp_escape(operation),
+                request_id,
+                sexp_escape(error),
+                duration_ms
+            ),
             MessagePayload::Shutdown => ":shutdown".to_string(),
+            MessagePayload::SupervisionReady {
+                task,
+                spec,
+                taxonomy,
+                assertions,
+            } => format!(
+                ":supervision-ready :task {} :spec {} :taxonomy \"{}\" :assertions {}",
+                task,
+                spec,
+                sexp_escape(taxonomy),
+                assertions
+            ),
+            MessagePayload::SupervisionVerdict {
+                task,
+                spec,
+                passed,
+                failed,
+                skipped,
+                confidence,
+                grade,
+                summary,
+            } => format!(
+                ":supervision-verdict :task {} :spec {} :passed {} :failed {} :skipped {} :confidence {:.4} :grade \"{}\" :summary \"{}\"",
+                task,
+                spec,
+                passed,
+                failed,
+                skipped,
+                confidence,
+                sexp_escape(grade),
+                sexp_escape(summary)
+            ),
         };
         format!(
             "(:actor-id {} :kind :{} :timestamp {} :payload ({}))",
@@ -370,11 +484,10 @@ pub fn now_unix() -> u64 {
 }
 
 pub fn sexp_escape(input: &str) -> String {
-    input
-        .replace('\\', "\\\\")
-        .replace('"', "\\\"")
-        .replace('\n', "\\n")
-        .replace('\r', "\\r")
+    // CL's reader handles literal newlines inside strings natively.
+    // Only backslash and double-quote need escaping — \n in a CL string
+    // literal means literal 'n', NOT a newline, so we must NOT escape them.
+    input.replace('\\', "\\\\").replace('"', "\\\"")
 }
 
 // ─── Tests ──────────────────────────────────────────────────────────────
@@ -494,6 +607,9 @@ mod tests {
             ActorKind::Chronicle,
             ActorKind::Tailnet,
             ActorKind::Signalograd,
+            ActorKind::Tool,
+            ActorKind::Supervisor,
+            ActorKind::Observability,
         ] {
             let s = kind.as_str();
             let parsed = ActorKind::from_str(s).unwrap();

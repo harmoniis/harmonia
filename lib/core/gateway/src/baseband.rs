@@ -383,6 +383,8 @@ pub fn poll_baseband(registry: &Registry) -> ChannelBatch {
         .filter(|env| crate::sender_policy::is_signal_allowed(env))
         .collect();
 
+    let all_envelopes = crate::payment_auth::intercept_paid_actions(registry, all_envelopes);
+
     // Intercept gateway commands (/wallet, /identity, etc.) — handle in Rust,
     // send response back to the originating frontend, filter them out so the
     // Lisp orchestrator only receives agent-level prompts.

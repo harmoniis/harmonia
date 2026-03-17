@@ -1,0 +1,15 @@
+[package]
+name = "harmonia-tool-channel-protocol"
+version = "0.1.8"
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+authors.workspace = true
+description = "Standardised tool channel protocol — shared types for tool invocation, results, and capabilities in the Harmonia signal architecture"
+keywords = ["harmonia", "tools", "protocol"]
+categories = ["api-bindings"]
+
+[dependencies]
+harmonia-baseband-channel-protocol = { version = "0.1.8", path = "../baseband-channel-protocol" }
+harmonia-signal-integrity = { version = "0.1.8", path = "../signal-integrity" }

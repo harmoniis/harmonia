@@ -20,6 +20,7 @@ members = [
     "lib/core/signal-integrity",
     "lib/core/signalograd",
     "lib/core/transport-auth",
+    "lib/core/payment-auth",
     "lib/core/admin-intent",
     "lib/core/chronicle",
     "lib/core/actor-protocol",
@@ -123,7 +124,7 @@ harmonia-node-rpc = { version = "0.1.8", path = "lib/core/node-rpc" }
 harmonia-qr-terminal = { version = "0.1.8", path = "lib/core/qr-terminal" }
 harmonia-whatsapp = { version = "0.1.8", path = "lib/frontends/whatsapp" }
 harmonia-signal = { version = "0.1.0", path = "lib/frontends/signal" }
-rusqlite = { version = "0.31", features = ["bundled"] }
+rusqlite = { version = "0.37", features = ["bundled"] }
 tokio = { version = "1.44", features = ["rt-multi-thread", "time"] }
 async-trait = "0.1"
 

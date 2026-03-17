@@ -1,0 +1,23 @@
+[package]
+name = "harmonia-observability"
+version = "0.1.8"
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+authors.workspace = true
+description = "Distributed tracing via LangSmith for the Harmonia agent"
+keywords = ["harmonia", "observability", "tracing", "langsmith"]
+categories = ["development-tools::profiling"]
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+harmonia-config-store = { version = "0.1.8", path = "../config-store" }
+harmonia-vault = { version = "0.1.8", path = "../vault" }
+harmonia-actor-protocol = { version = "0.1.8", path = "../actor-protocol" }
+ureq = { version = "2", features = ["json"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+uuid = { version = "1", features = ["v4"] }

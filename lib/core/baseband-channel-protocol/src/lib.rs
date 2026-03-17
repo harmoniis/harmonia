@@ -178,6 +178,48 @@ pub struct ConversationRef {
     pub id: String,
 }
 
+#[derive(Debug, Clone)]
+pub struct OriginContext {
+    pub node_id: String,
+    pub node_label: Option<String>,
+    pub node_role: Option<String>,
+    pub channel_class: Option<String>,
+    pub node_key_id: Option<String>,
+    pub transport_security: Option<String>,
+    pub remote: bool,
+}
+
+impl OriginContext {
+    pub fn to_sexp(&self) -> String {
+        format!(
+            "(:node-id {}{}{}{}{}{} :remote {})",
+            sexp_string(&self.node_id),
+            sexp_optional_string("node-label", self.node_label.as_deref()),
+            sexp_optional_string("node-role", self.node_role.as_deref()),
+            sexp_optional_string("channel-class", self.channel_class.as_deref()),
+            sexp_optional_string("node-key-id", self.node_key_id.as_deref()),
+            sexp_optional_string("transport-security", self.transport_security.as_deref()),
+            sexp_bool(self.remote)
+        )
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct SessionContext {
+    pub id: String,
+    pub label: Option<String>,
+}
+
+impl SessionContext {
+    pub fn to_sexp(&self) -> String {
+        format!(
+            "(:id {}{})",
+            sexp_string(&self.id),
+            sexp_optional_string("label", self.label.as_deref())
+        )
+    }
+}
+
 impl ConversationRef {
     pub fn new(id: impl Into<String>) -> Self {
         Self { id: id.into() }
@@ -301,6 +343,8 @@ pub struct ChannelEnvelope {
     pub channel: ChannelRef,
     pub peer: PeerRef,
     pub conversation: ConversationRef,
+    pub origin: Option<OriginContext>,
+    pub session: Option<SessionContext>,
     pub body: ChannelBody,
     pub capabilities: Vec<Capability>,
     pub security: SecurityContext,
@@ -322,7 +366,7 @@ impl ChannelEnvelope {
             format!("({})", items.join(" "))
         };
         format!(
-            "(:id {} :version {} :kind {} :type-name {} :channel {} :peer {} :conversation {} :body {} :capabilities {} :security {} :audit {} :attachments {} :transport {})",
+            "(:id {} :version {} :kind {} :type-name {} :channel {} :peer {} :conversation {} :origin {} :session {} :body {} :capabilities {} :security {} :audit {} :attachments {} :transport {})",
             self.id,
             self.version,
             sexp_string(&self.kind),
@@ -330,6 +374,14 @@ impl ChannelEnvelope {
             self.channel.to_sexp(),
             self.peer.to_sexp(),
             self.conversation.to_sexp(),
+            self.origin
+                .as_ref()
+                .map(|origin| origin.to_sexp())
+                .unwrap_or_else(|| "nil".to_string()),
+            self.session
+                .as_ref()
+                .map(|session| session.to_sexp())
+                .unwrap_or_else(|| "nil".to_string()),
             self.body.to_sexp(),
             capabilities_to_sexp(&self.capabilities),
             self.security.to_sexp(),

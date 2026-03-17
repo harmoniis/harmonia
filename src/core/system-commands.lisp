@@ -1,8 +1,14 @@
-;;; system-commands.lisp — Frontend-agnostic slash command dispatch.
+;;; system-commands.lisp — System command handler implementations.
 ;;;
-;;; Intercepts /command inputs before they reach the LLM orchestration
-;;; pipeline. Returns a formatted string response, :system-exit, or nil
-;;; (fall-through to normal dispatch).
+;;; The gateway (Rust) intercepts ALL /commands from ALL frontends before
+;;; they reach the Lisp orchestrator. Commands requiring Lisp runtime state
+;;; are delegated back via a registered callback (%gateway-command-dispatch).
+;;;
+;;; This file provides:
+;;;   1. Handler implementations for commands that need Lisp state.
+;;;   2. The gateway dispatch callback that routes delegated commands.
+;;;   3. A legacy fallback (%maybe-dispatch-system-command) for any
+;;;      commands that slip through without the gateway callback.
 
 (in-package :harmonia)
 
@@ -45,19 +51,6 @@
           (*print-right-margin* 80))
       (write data :stream s))))
 
-;;; ─── Command table ─────────────────────────────────────────────────────
-
-(defparameter *system-commands*
-  '("/help" "/exit" "/status"
-    "/backends" "/frontends" "/tools"
-    "/chronicle" "/metrics" "/security" "/identity"
-    "/feedback")
-  "Known system command prefixes.")
-
-(defun %syscmd-known-p (cmd-word)
-  "Check if CMD-WORD (lowercase, with slash) matches a known system command."
-  (member cmd-word *system-commands* :test #'string=))
-
 ;;; ─── Payload extraction ────────────────────────────────────────────────
 
 (defun %syscmd-extract-text (input)
@@ -66,17 +59,128 @@
     (string input)
     (harmonia-signal (or (harmonia-signal-payload input) ""))))
 
-;;; ─── Top-level dispatch ────────────────────────────────────────────────
+;;; ─── Gateway callback dispatch ─────────────────────────────────────────
+;;; Called by the Rust gateway via the registered command query callback.
+;;; The gateway has already enforced security, so handlers here are called
+;;; in an owner-trust context (*current-originating-signal* = nil).
+
+(defun %gateway-dispatch-command (command args)
+  "Dispatch a delegated system command from the gateway.
+   Returns a response string, or nil if unrecognised."
+  (let ((args-str (or args "")))
+    (handler-case
+        (cond
+          ((string= command "/status")     (%syscmd-status))
+          ((string= command "/backends")   (%syscmd-backends args-str))
+          ((string= command "/frontends")  (%syscmd-frontends args-str))
+          ((string= command "/tools")      (%syscmd-tools))
+          ((string= command "/chronicle")  (%syscmd-chronicle args-str))
+          ((string= command "/metrics")    (%syscmd-metrics))
+          ((string= command "/security")   (%syscmd-security args-str))
+          ((string= command "/feedback")   (%syscmd-feedback args-str))
+          ((string= command "/exit")       ":system-exit")
+          (t nil))
+      (error (e)
+        (format nil "[system] Error executing ~A: ~A" command e)))))
+
+(defun %payment-policy-config-value (key)
+  (config-get-for "payment-auth" key "payment-auth"))
+
+(defun %payment-policy-split-rails (raw)
+  (let ((trimmed (string-trim '(#\Space #\Tab #\Newline #\Return) (or raw ""))))
+    (labels ((consume (start acc)
+               (let ((comma (position #\, trimmed :start start)))
+                 (if comma
+                     (consume (1+ comma)
+                              (let ((value (string-downcase
+                                            (string-trim '(#\Space #\Tab #\Newline #\Return)
+                                                         (subseq trimmed start comma)))))
+                                (if (zerop (length value)) acc (append acc (list value)))))
+                     (let ((value (string-downcase
+                                   (string-trim '(#\Space #\Tab #\Newline #\Return)
+                                                (subseq trimmed start)))))
+                       (if (zerop (length value)) acc (append acc (list value))))))))
+      (if (zerop (length trimmed))
+          '("webcash" "voucher" "bitcoin")
+          (consume 0 '())))))
+
+(defun %payment-policy-plist-to-sexp (value)
+  (cond
+    ((null value) nil)
+    ((stringp value) value)
+    ((and (listp value) (getf value :mode))
+     (with-output-to-string (s)
+       (let ((*print-pretty* nil)
+             (*print-readably* nil))
+         (write value :stream s))))
+    (t nil)))
+
+(defun %gateway-dispatch-payment-policy (summary)
+  "Return a payment policy s-expression, or nil to defer to Rust defaults."
+  (let* ((*read-eval* nil)
+         (summary-sexp (ignore-errors (read-from-string summary)))
+         (requested-action (string-downcase
+                            (or (and (listp summary-sexp)
+                                     (getf summary-sexp :requested-action))
+                                ""))))
+    (when (and summary-sexp (fboundp 'payment-policy-decide))
+      (let ((custom (%payment-policy-plist-to-sexp
+                     (ignore-errors (payment-policy-decide summary-sexp)))))
+        (when custom
+          (return-from %gateway-dispatch-payment-policy custom))))
+    (when (zerop (length requested-action))
+      (return-from %gateway-dispatch-payment-policy "(:mode :free)"))
+    (let* ((mode (string-downcase
+                  (or (%payment-policy-config-value
+                       (format nil "~A-mode" requested-action))
+                      "free")))
+           (price (%payment-policy-config-value
+                   (format nil "~A-price" requested-action)))
+           (unit (or (%payment-policy-config-value
+                      (format nil "~A-unit" requested-action))
+                     "wats"))
+           (rails (%payment-policy-split-rails
+                   (%payment-policy-config-value
+                    (format nil "~A-allowed-rails" requested-action)))))
+      (cond
+        ((string= mode "deny")
+         (format nil
+                 "(:mode :deny :code \"payment_denied\" :message \"Payment denied for ~A.\")"
+                 requested-action))
+        ((or (null price)
+             (zerop (length (string-trim '(#\Space #\Tab #\Newline #\Return) price))))
+         "(:mode :free)")
+        (t
+         (format nil
+                 "(:mode :pay :action \"~A\" :price \"~A\" :unit \"~A\" :allowed-rails (~{~S~^ ~}) :policy-id \"config-store\")"
+                 requested-action
+                 (string-trim '(#\Space #\Tab #\Newline #\Return) price)
+                 (string-trim '(#\Space #\Tab #\Newline #\Return) unit)
+                 rails))))))
+
+;;; ─── Legacy fallback dispatch ──────────────────────────────────────────
+;;; Kept for backward compatibility: if a command somehow reaches
+;;; orchestrate-once without being intercepted by the gateway, this
+;;; handles it. In the unified architecture, this should never trigger.
+
+(defparameter *system-commands*
+  '("/help" "/exit" "/status"
+    "/backends" "/frontends" "/tools"
+    "/chronicle" "/metrics" "/security"
+    "/feedback" "/wallet" "/identity")
+  "All known system command prefixes (gateway + delegated).")
+
+(defun %syscmd-known-p (cmd-word)
+  "Check if CMD-WORD (lowercase, with slash) matches a known system command."
+  (member cmd-word *system-commands* :test #'string=))
 
 (defun %maybe-dispatch-system-command (input)
-  "Check if INPUT is a system slash command. If so, execute and return
-   a string result or :system-exit. If not, return nil."
+  "Legacy fallback: intercept /commands that the gateway missed.
+   In normal operation the gateway handles everything; this is defense-in-depth."
   (let* ((text (string-trim '(#\Space #\Tab #\Newline) (%syscmd-extract-text input)))
          (text-lower (string-downcase text)))
-    ;; Must start with /
     (unless (and (> (length text-lower) 0) (char= (char text-lower 0) #\/))
       (return-from %maybe-dispatch-system-command nil))
-    ;; Split into command word and arguments
     (let* ((space-pos (position #\Space text-lower))
            (cmd-word (if space-pos (subseq text-lower 0 space-pos) text-lower))
            (args-str (if space-pos
@@ -84,50 +188,11 @@
                          "")))
       (unless (%syscmd-known-p cmd-word)
         (return-from %maybe-dispatch-system-command nil))
-      ;; Dispatch
+      ;; Try the gateway dispatch (covers all commands including wallet/identity)
       (handler-case
-          (cond
-            ((string= cmd-word "/help")       (%syscmd-help))
-            ((string= cmd-word "/exit")       (%syscmd-exit))
-            ((string= cmd-word "/status")     (%syscmd-status))
-            ((string= cmd-word "/backends")   (%syscmd-backends args-str))
-            ((string= cmd-word "/frontends")  (%syscmd-frontends args-str))
-            ((string= cmd-word "/tools")      (%syscmd-tools))
-            ((string= cmd-word "/chronicle")  (%syscmd-chronicle args-str))
-            ((string= cmd-word "/metrics")    (%syscmd-metrics))
-            ((string= cmd-word "/security")   (%syscmd-security args-str))
-            ((string= cmd-word "/identity")   (%syscmd-identity))
-            ((string= cmd-word "/feedback")   (%syscmd-feedback args-str))
-            (t nil))
+          (%gateway-dispatch-command cmd-word args-str)
         (error (e)
           (format nil "[system] Error executing ~A: ~A" cmd-word e))))))
-
-;;; ─── /help ─────────────────────────────────────────────────────────────
-
-(defun %syscmd-help ()
-  (format nil "~A~%~%~{~A~%~}"
-          "Harmonia System Commands"
-          (list
-           (%syscmd-kv "/help" "Show this help listing")
-           (%syscmd-kv "/exit" "Exit the TUI session (TUI only)")
-           (%syscmd-kv "/status" "System status overview")
-           (%syscmd-kv "/backends" "List configured LLM backends")
-           (%syscmd-kv "/backends <name>" "Show specific backend details")
-           (%syscmd-kv "/frontends" "List all frontends with status")
-           (%syscmd-kv "/frontends <name>" "Show specific frontend details")
-           (%syscmd-kv "/tools" "List configured tools")
-           (%syscmd-kv "/chronicle" "Chronicle overview (summary + GC)")
-           (%syscmd-kv "/chronicle harmony" "Harmony summary")
-           (%syscmd-kv "/chronicle delegation" "Delegation report")
-           (%syscmd-kv "/chronicle costs" "Cost report")
-           (%syscmd-kv "/chronicle graph" "Concept graph overview")
-           (%syscmd-kv "/chronicle gc" "GC status")
-           (%syscmd-kv "/metrics" "Metrics overview (parallel report)")
-           (%syscmd-kv "/security" "Security audit overview")
-           (%syscmd-kv "/security posture" "Current posture details")
-           (%syscmd-kv "/security errors" "Recent errors from error ring")
-           (%syscmd-kv "/identity" "Vault symbol listing and key status")
-           (%syscmd-kv "/feedback <note>" "Record human feedback for visible reply style"))))
 
 ;;; ─── /exit ─────────────────────────────────────────────────────────────
 
@@ -157,8 +222,6 @@
 ;;; ─── /status ───────────────────────────────────────────────────────────
 
 (defun %syscmd-status ()
-  (unless (%syscmd-read-allowed-p)
-    (return-from %syscmd-status (%syscmd-denied "/status")))
   (let ((lines '()))
     (flet ((add (text) (push text lines)))
       (add "System Status")
@@ -194,8 +257,6 @@
 ;;; ─── /backends ─────────────────────────────────────────────────────────
 
 (defun %syscmd-backends (args)
-  (unless (%syscmd-read-allowed-p)
-    (return-from %syscmd-backends (%syscmd-denied "/backends")))
   (if (and args (> (length args) 0))
       (%syscmd-backend-detail args)
       (%syscmd-backends-list)))
@@ -230,8 +291,6 @@
 ;;; ─── /frontends ────────────────────────────────────────────────────────
 
 (defun %syscmd-frontends (args)
-  (unless (%syscmd-read-allowed-p)
-    (return-from %syscmd-frontends (%syscmd-denied "/frontends")))
   (if (and args (> (length args) 0))
       (%syscmd-frontend-detail (string-trim '(#\Space #\Tab) args))
       (%syscmd-frontends-list)))
@@ -270,8 +329,6 @@
 ;;; ─── /tools ────────────────────────────────────────────────────────────
 
 (defun %syscmd-tools ()
-  (unless (%syscmd-read-allowed-p)
-    (return-from %syscmd-tools (%syscmd-denied "/tools")))
   (let ((lines '()))
     (flet ((add (text) (push text lines)))
       (add "Configured Tools")
@@ -298,8 +355,6 @@
 ;;; ─── /chronicle ────────────────────────────────────────────────────────
 
 (defun %syscmd-chronicle (args)
-  (unless (%syscmd-read-allowed-p)
-    (return-from %syscmd-chronicle (%syscmd-denied "/chronicle")))
   (let ((sub (string-downcase (string-trim '(#\Space #\Tab) args))))
     (cond
       ((string= sub "")        (%syscmd-chronicle-overview))
@@ -379,8 +434,6 @@
 ;;; ─── /metrics ──────────────────────────────────────────────────────────
 
 (defun %syscmd-metrics ()
-  (unless (%syscmd-read-allowed-p)
-    (return-from %syscmd-metrics (%syscmd-denied "/metrics")))
   (let ((report (ignore-errors (parallel-report))))
     (format nil "~A~%~A~%~A"
             "Metrics Overview"
@@ -390,8 +443,6 @@
 ;;; ─── /security ─────────────────────────────────────────────────────────
 
 (defun %syscmd-security (args)
-  (unless (%syscmd-read-allowed-p)
-    (return-from %syscmd-security (%syscmd-denied "/security")))
   (let ((sub (string-downcase (string-trim '(#\Space #\Tab) args))))
     (cond
       ((string= sub "")        (%syscmd-security-overview))
@@ -450,28 +501,3 @@
               (add (format nil "  ~A" err)))
             (add "  No recent errors.")))
       (format nil "~{~A~%~}" (nreverse lines)))))
-
-;;; ─── /identity ─────────────────────────────────────────────────────────
-
-(defun %syscmd-identity ()
-  (unless (%syscmd-read-allowed-p)
-    (return-from %syscmd-identity (%syscmd-denied "/identity")))
-  (let ((lines '()))
-    (flet ((add (text) (push text lines)))
-      (add "Identity & Vault")
-      (add (make-string 40 :initial-element #\-))
-      ;; Vault symbols
-      (let ((symbols (ignore-errors (vault-list-symbols))))
-        (add (format nil "Vault symbols (~D):" (length (or symbols '()))))
-        (if symbols
-            (dolist (sym symbols)
-              (let ((present (ignore-errors (vault-has-secret sym))))
-                (add (format nil "  ~A~30T~A" sym (if present "[set]" "[empty]")))))
-            (add "  (none)")))
-      (add "")
-      ;; Key status for known backends
-      (add "Backend key status:")
-      (dolist (key-name '("ANTHROPIC_API_KEY" "OPENROUTER_API_KEY"))
-        (let ((has (ignore-errors (vault-has-secret key-name))))
-          (add (format nil "  ~A~30T~A" key-name (if has "present" "missing"))))))
-    (format nil "~{~A~%~}" (nreverse lines))))

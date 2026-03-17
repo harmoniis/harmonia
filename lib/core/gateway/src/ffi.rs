@@ -283,9 +283,265 @@ pub extern "C" fn harmonia_gateway_crash_count(name: *const c_char) -> i32 {
 #[no_mangle]
 pub extern "C" fn harmonia_gateway_shutdown() -> i32 {
     let gw = gateway();
+    gw.tool_registry.shutdown_all();
     gw.registry.shutdown_all();
     clear_error();
     0
+}
+
+// ── Tool Channel FFI ───────────────────────────────────────────────────────
+
+#[no_mangle]
+pub extern "C" fn harmonia_gateway_register_tool(
+    name: *const c_char,
+    so_path: *const c_char,
+    config_sexp: *const c_char,
+    security_label: *const c_char,
+) -> i32 {
+    let name = match cstr_to_string(name) {
+        Ok(v) => v,
+        Err(e) => {
+            set_error(e);
+            return -1;
+        }
+    };
+    let so_path = match cstr_to_string(so_path) {
+        Ok(v) => v,
+        Err(e) => {
+            set_error(e);
+            return -1;
+        }
+    };
+    let config_sexp = match cstr_to_string(config_sexp) {
+        Ok(v) => v,
+        Err(e) => {
+            set_error(e);
+            return -1;
+        }
+    };
+    let security_label = match cstr_to_string(security_label) {
+        Ok(v) => v,
+        Err(e) => {
+            set_error(e);
+            return -1;
+        }
+    };
+    let label = SecurityLabel::from_str(&security_label);
+    let gw = gateway();
+    match gw
+        .tool_registry
+        .register(&name, &so_path, &config_sexp, label)
+    {
+        Ok(()) => {
+            clear_error();
+            0
+        }
+        Err(e) => {
+            set_error(e);
+            -1
+        }
+    }
+}
+
+#[no_mangle]
+pub extern "C" fn harmonia_gateway_unregister_tool(name: *const c_char) -> i32 {
+    let name = match cstr_to_string(name) {
+        Ok(v) => v,
+        Err(e) => {
+            set_error(e);
+            return -1;
+        }
+    };
+    let gw = gateway();
+    match gw.tool_registry.unregister(&name) {
+        Ok(()) => {
+            clear_error();
+            0
+        }
+        Err(e) => {
+            set_error(e);
+            -1
+        }
+    }
+}
+
+#[no_mangle]
+pub extern "C" fn harmonia_gateway_invoke_tool(
+    name: *const c_char,
+    operation: *const c_char,
+    params_sexp: *const c_char,
+) -> *mut c_char {
+    let name = match cstr_to_string(name) {
+        Ok(v) => v,
+        Err(e) => {
+            set_error(e);
+            return std::ptr::null_mut();
+        }
+    };
+    let operation = match cstr_to_string(operation) {
+        Ok(v) => v,
+        Err(e) => {
+            set_error(e);
+            return std::ptr::null_mut();
+        }
+    };
+    let params = match cstr_to_string(params_sexp) {
+        Ok(v) => v,
+        Err(e) => {
+            set_error(e);
+            return std::ptr::null_mut();
+        }
+    };
+    let gw = gateway();
+    match crate::tool_baseband::invoke_tool_signal(&gw.tool_registry, &name, &operation, &params) {
+        Ok(sexp) => {
+            clear_error();
+            to_c_string(sexp)
+        }
+        Err(e) => {
+            set_error(e);
+            std::ptr::null_mut()
+        }
+    }
+}
+
+#[no_mangle]
+pub extern "C" fn harmonia_gateway_list_tools() -> *mut c_char {
+    let gw = gateway();
+    let names = gw.tool_registry.list_names();
+    clear_error();
+    if names.is_empty() {
+        to_c_string("nil".to_string())
+    } else {
+        let items: Vec<String> = names.iter().map(|n| format!("\"{}\"", n)).collect();
+        to_c_string(format!("({})", items.join(" ")))
+    }
+}
+
+#[no_mangle]
+pub extern "C" fn harmonia_gateway_tool_capabilities(name: *const c_char) -> *mut c_char {
+    let name = match cstr_to_string(name) {
+        Ok(v) => v,
+        Err(e) => {
+            set_error(e);
+            return std::ptr::null_mut();
+        }
+    };
+    let gw = gateway();
+    match gw.tool_registry.capabilities(&name) {
+        Ok(sexp) => {
+            clear_error();
+            to_c_string(sexp)
+        }
+        Err(e) => {
+            set_error(e);
+            std::ptr::null_mut()
+        }
+    }
+}
+
+#[no_mangle]
+pub extern "C" fn harmonia_gateway_tool_status(name: *const c_char) -> *mut c_char {
+    let name = match cstr_to_string(name) {
+        Ok(v) => v,
+        Err(e) => {
+            set_error(e);
+            return std::ptr::null_mut();
+        }
+    };
+    let gw = gateway();
+    match gw.tool_registry.with_tool(&name, |handle| {
+        let version = handle.vtable.version();
+        let healthy = handle.vtable.healthcheck().unwrap_or(false);
+        format!(
+            "(:name \"{}\" :version \"{}\" :healthy {} :security \"{}\")",
+            name,
+            version,
+            if healthy { "t" } else { "nil" },
+            handle.security_label.as_str(),
+        )
+    }) {
+        Ok(sexp) => {
+            clear_error();
+            to_c_string(sexp)
+        }
+        Err(e) => {
+            set_error(e);
+            std::ptr::null_mut()
+        }
+    }
+}
+
+#[no_mangle]
+pub extern "C" fn harmonia_gateway_reload_tool(name: *const c_char) -> i32 {
+    let name = match cstr_to_string(name) {
+        Ok(v) => v,
+        Err(e) => {
+            set_error(e);
+            return -1;
+        }
+    };
+    let gw = gateway();
+    match gw.tool_registry.reload(&name) {
+        Ok(()) => {
+            clear_error();
+            0
+        }
+        Err(e) => {
+            set_error(e);
+            -1
+        }
+    }
+}
+
+// ── Command dispatch FFI ───────────────────────────────────────────────────
+
+/// Register a Lisp callback for delegated system commands.
+/// The callback signature: fn(command: *const c_char, args: *const c_char) -> *mut c_char
+/// Returns a malloc'd string (gateway frees it) or null if unhandled.
+#[no_mangle]
+pub extern "C" fn harmonia_gateway_set_command_query(
+    handler: Option<unsafe extern "C" fn(*const c_char, *const c_char) -> *mut c_char>,
+) -> i32 {
+    use crate::state::set_command_query;
+    set_command_query(handler);
+    clear_error();
+    if handler.is_some() {
+        log::info!("gateway: command query callback registered");
+    } else {
+        log::info!("gateway: command query callback cleared");
+    }
+    0
+}
+
+/// Register a Lisp callback for payment policy decisions.
+/// The callback signature: fn(summary: *const c_char) -> *mut c_char
+/// Returns a malloc'd s-expression string (gateway frees it) or null for default policy.
+#[no_mangle]
+pub extern "C" fn harmonia_gateway_set_payment_policy_query(
+    handler: Option<unsafe extern "C" fn(*const c_char) -> *mut c_char>,
+) -> i32 {
+    use crate::state::set_payment_policy_query;
+    set_payment_policy_query(handler);
+    clear_error();
+    if handler.is_some() {
+        log::info!("gateway: payment policy callback registered");
+    } else {
+        log::info!("gateway: payment policy callback cleared");
+    }
+    0
+}
+
+/// Returns 1 if /exit was intercepted and the Lisp run-loop should stop.
+/// Resets the flag after reading.
+#[no_mangle]
+pub extern "C" fn harmonia_gateway_pending_exit() -> i32 {
+    if crate::state::pending_exit() {
+        crate::state::set_pending_exit(false);
+        1
+    } else {
+        0
+    }
 }
 
 #[no_mangle]
