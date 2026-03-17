@@ -1,0 +1,22 @@
+load("@rules_rust//rust:defs.bzl", "rust_library")
+
+package(default_visibility = ["//visibility:public"])
+
+rust_library(
+    name = "transport-auth",
+    crate_name = "harmonia_transport_auth",
+    srcs = glob(["src/**/*.rs"]),
+    crate_root = "src/lib.rs",
+    edition = "2021",
+    deps = [
+        "//lib/core/config-store",
+        "//lib/core/vault",
+        "@crate_index//:hex",
+        "@crate_index//:rustls",
+        "@crate_index//:rustls-pemfile",
+        "@crate_index//:rustls-pki-types",
+        "@crate_index//:serde_json",
+        "@crate_index//:sha2",
+        "@crate_index//:x509-parser",
+    ],
+)

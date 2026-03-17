@@ -150,6 +150,27 @@ Applied to:
 `lib/frontends/mqtt-client/src/lib.rs`:
 - MQTT envelope ingress validates `agent_fp` against vault-stored expected fingerprint (`mqtt_agent_fp` symbol).
 - Parsed signals emit metadata with `:origin-fp` and per-message `:security` override (`\"untrusted\"` on mismatch).
+- MQTT trusted-client identity lists are loaded through `lib/core/transport-auth`, so certificate/trust normalization stays consistent with other authenticated transports.
+
+### HTTP/2 Mutual TLS Streaming
+
+`lib/frontends/http2-mtls/src/lib.rs`:
+- ALPN is pinned to `h2`; there is no HTTP/1 fallback.
+- Mutual TLS is mandatory. Requests without a client certificate never reach gateway/baseband.
+- Client identity is derived from the certificate common name and normalized through `lib/core/transport-auth`.
+- Trusted identities come from config-store key `http2-frontend/trusted-client-fingerprints-json`.
+- Each live stream maps to a canonical route key `<identity-fingerprint>/<session-id>/<channel>`, so multiple sessions from the same authenticated client can proceed in parallel.
+- Gateway metadata includes `:origin-fp`, `:tls-cert-fp`, `:session-id`, `:http2-path`, `:transport-security "mtls"`, `:trusted-origin t`, and `:remote t`.
+
+### Shared Transport Trust
+
+`lib/core/transport-auth` centralises:
+- fingerprint normalization
+- trusted identity list loading from config-store
+- PEM/certificate/key parsing
+- client certificate verification for transport frontends
+
+This keeps MQTT and HTTP/2 under one trust contract instead of each transport inventing its own parsing and allowlist rules.
 
 ### Vault Encryption at Rest
 
@@ -220,39 +241,42 @@ Ed25519 signature verification for privileged mutations:
 
 Owner's public key stored in vault. Private key on owner's device (never in vault).
 
+## Gateway Sender Policy
+
+Default deny-all sender filtering for messaging frontends at the gateway layer.
+
+**Principle**: Messaging channels default to rejecting all incoming signals except from explicitly allowed senders. This enforces the security-kernel principle of deny-by-default at the signal boundary.
+
+**Exempt frontends**: TUI (local), MQTT (device-paired), Tailscale (mesh-authenticated).
+
+**Filtered frontends**: email, slack, discord, mattermost, signal, whatsapp, imessage, telegram, nostr.
+
+**Implementation**: `lib/core/gateway/src/sender_policy.rs`
+
+Pass-through rules (evaluated in order):
+1. Non-messaging frontend → allow
+2. Self-originated signal (`origin.remote == false`) → allow
+3. Frontend in `allow-all` mode → allow
+4. Sender (peer ID or channel address) in frontend's allowlist → allow
+5. Default → **deny**
+
+**Config-store keys** (scope: `sender-policy`, written by `harmonia-cli`, read by `gateway`):
+- `allowlist-<frontend>` — comma-separated sender identifiers (email, phone, username)
+- `mode-<frontend>` — `"deny"` (default) or `"allow-all"`
+
+**Policy cache**: Lazy-loaded with 30-second TTL. Force-refreshable via `reload_policies()`.
+
+**TUI management**: `/policies` command and Policies submenu in `/menu` provide interactive add/remove/list/mode management per frontend.
+
 ## Threat Model
 
 | Threat | Frequency | Mitigation |
 |---|---|---|
 | Prompt injection via browser/search/tools | High | Boundary wrapping + taint propagation + policy gate |
 | Direct message injection via frontends | High | Typed signal dispatch + policy gate blocks privileged ops |
+| Unsolicited messages from unknown senders | High | Gateway sender policy — deny-by-default for messaging frontends |
 | Channel spoof / account takeover | Medium | Fingerprint validation + security label checks |
 | Memory poisoning | Medium | Boundary wrapping on memory recalls |
 | LLM confused deputy | High | Taint propagation — policy gate sees tainted origin even if LLM is tricked |
 | Replay attacks | Medium | Tailnet HMAC with 5-minute timestamp window |
 | Reader macro ACE | Critical | Safe parsers + `*read-eval*` nil everywhere |
-
-## Files Modified (v6)
-
-| File | Changes |
-|---|---|
-| `src/core/state.lisp` | `harmonia-signal` struct, `*current-originating-signal*` |
-| `src/core/loop.lisp` | Produces structs, `*read-eval*` nil, dissonance extraction |
-| `src/orchestrator/conductor.lisp` | Split dispatch, policy gate, safe parsers, taint propagation, invariant guards |
-| `src/core/harmonic-machine.lisp` | `:security-audit` phase, posture tracking |
-| `src/ports/matrix.lisp` | `route_allowed_with_context` FFI wrapper |
-| `src/memory/store/state.lisp` | `*read-eval*` nil binding |
-| `config/matrix-topology.sexp` | Raised min_harmony on privileged edges |
-| `config/harmony-policy.sexp` | `:security` section |
-| `lib/core/gateway/src/model.rs` | `dissonance` field on Signal |
-| `lib/core/gateway/src/baseband.rs` | Inline injection scanning |
-| `lib/core/harmonic-matrix/src/runtime/ops.rs` | `route_allowed_with_context` |
-| `lib/core/harmonic-matrix/src/ffi.rs` | Security-aware routing FFI |
-| `lib/core/tailnet/src/model.rs` | `timestamp_ms`, `hmac` on MeshMessage |
-| `lib/core/tailnet/src/transport.rs` | HMAC validation, replay protection |
-| `lib/core/vault/src/store.rs` | Encryption at rest, audit table |
-| `lib/tools/search-exa/src/lib.rs` | Boundary-wrapped results |
-| `lib/tools/search-brave/src/lib.rs` | Boundary-wrapped results |
-| `lib/frontends/mqtt-client/src/lib.rs` | Fingerprint validation |
-| `lib/core/signal-integrity/` | NEW — shared injection detection |
-| `lib/core/admin-intent/` | NEW — Ed25519 admin intent verification |

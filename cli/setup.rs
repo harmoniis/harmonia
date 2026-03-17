@@ -13,12 +13,6 @@ const BANNER: &str = r#"
  |_| |_|\__,_|_|  |_| |_| |_|\___/|_| |_|_|\__,_|
 "#;
 
-struct FrontendDef {
-    name: &'static str,
-    display: &'static str,
-    vault_keys: Vec<(&'static str, &'static str, bool)>, // (symbol, prompt, is_password)
-}
-
 struct LlmSecretDef {
     symbol: &'static str,
     prompt: &'static str,
@@ -32,83 +26,6 @@ struct LlmProviderDef {
     display: &'static str,
     required_command: Option<&'static str>,
     secrets: Vec<LlmSecretDef>,
-}
-
-fn frontend_defs() -> Vec<FrontendDef> {
-    vec![
-        FrontendDef {
-            name: "mqtt",
-            display: "MQTT",
-            vault_keys: vec![("mqtt-broker-url", "MQTT broker URL", false)],
-        },
-        FrontendDef {
-            name: "telegram",
-            display: "Telegram",
-            vault_keys: vec![("telegram-bot-token", "Telegram bot token", true)],
-        },
-        FrontendDef {
-            name: "slack",
-            display: "Slack",
-            vault_keys: vec![
-                ("slack-app-token", "Slack app token (xapp-...)", true),
-                ("slack-bot-token", "Slack bot token (xoxb-...)", true),
-            ],
-        },
-        FrontendDef {
-            name: "discord",
-            display: "Discord",
-            vault_keys: vec![("discord-bot-token", "Discord bot token", true)],
-        },
-        FrontendDef {
-            name: "signal",
-            display: "Signal (signal-cli bridge)",
-            vault_keys: vec![
-                ("signal-account", "Signal account/number", false),
-                ("signal-rpc-url", "Signal bridge URL", false),
-                (
-                    "signal-auth-token",
-                    "Signal bridge auth token (optional)",
-                    true,
-                ),
-            ],
-        },
-        FrontendDef {
-            name: "whatsapp",
-            display: "WhatsApp",
-            vault_keys: vec![
-                ("whatsapp-bridge-url", "WhatsApp bridge API URL", false),
-                ("whatsapp-session", "WhatsApp bridge API token", true),
-            ],
-        },
-        FrontendDef {
-            name: "imessage",
-            display: "iMessage (BlueBubbles)",
-            vault_keys: vec![
-                ("bluebubbles-server-url", "BlueBubbles server URL", false),
-                ("bluebubbles-password", "BlueBubbles password", true),
-            ],
-        },
-        FrontendDef {
-            name: "tailscale",
-            display: "Tailscale mesh",
-            vault_keys: vec![("tailscale-auth-key", "Tailscale auth key", true)],
-        },
-        FrontendDef {
-            name: "email",
-            display: "Email (IMAP/SMTP)",
-            vault_keys: vec![],
-        },
-        FrontendDef {
-            name: "mattermost",
-            display: "Mattermost",
-            vault_keys: vec![],
-        },
-        FrontendDef {
-            name: "nostr",
-            display: "Nostr",
-            vault_keys: vec![],
-        },
-    ]
 }
 
 fn llm_provider_defs() -> Vec<LlmProviderDef> {
@@ -353,21 +270,18 @@ fn read_masked(prompt: &str) -> Result<String, Box<dyn std::error::Error>> {
     Ok(buf)
 }
 
-fn prompt_llm_secret(
-    provider: &LlmProviderDef,
-    secret: &LlmSecretDef,
-) -> Result<String, Box<dyn std::error::Error>> {
-    let prompt = format!("    {} {}", provider.display, secret.prompt);
-    let value = if secret.is_password {
-        read_masked(&prompt)?
+fn provider_has_vault_keys(def: &LlmProviderDef) -> bool {
+    let required: Vec<_> = def.secrets.iter().filter(|s| s.required).collect();
+    if required.is_empty() {
+        // No required secrets (e.g. Bedrock) — only "configured" if at least one secret exists
+        def.secrets
+            .iter()
+            .any(|s| harmonia_vault::has_secret_for_symbol(s.symbol))
     } else {
-        let mut input = Input::<String>::new().with_prompt(prompt);
-        if let Some(default) = secret.default {
-            input = input.default(default.to_string());
-        }
-        input.allow_empty(true).interact_text()?
-    };
-    Ok(value.trim().to_string())
+        required
+            .iter()
+            .all(|s| harmonia_vault::has_secret_for_symbol(s.symbol))
+    }
 }
 
 fn configure_llm_providers() -> Result<Vec<String>, Box<dyn std::error::Error>> {
@@ -375,12 +289,32 @@ fn configure_llm_providers() -> Result<Vec<String>, Box<dyn std::error::Error>> 
     // Model selection is automatic — the backend owns a built-in model pool
     // with pricing, and the harmonic-matrix evolves selection over time.
     let defs = llm_provider_defs();
-    let display_names: Vec<&str> = defs.iter().map(|d| d.display).collect();
-    let defaults: Vec<bool> = defs.iter().map(|d| d.id == "openrouter").collect();
+
+    // Build display names showing which providers already have vault keys
+    let configured_flags: Vec<bool> = defs.iter().map(|d| provider_has_vault_keys(d)).collect();
+    let display_names: Vec<String> = defs
+        .iter()
+        .zip(configured_flags.iter())
+        .map(|(d, &has_keys)| {
+            if has_keys {
+                format!("{} [configured]", d.display)
+            } else {
+                d.display.to_string()
+            }
+        })
+        .collect();
+    let display_refs: Vec<&str> = display_names.iter().map(|s| s.as_str()).collect();
+
+    // Pre-select: already-configured providers stay selected, openrouter as default for fresh
+    let defaults: Vec<bool> = defs
+        .iter()
+        .zip(configured_flags.iter())
+        .map(|(d, &has_keys)| has_keys || d.id == "openrouter")
+        .collect();
 
     let selected = MultiSelect::new()
         .with_prompt("  [5/10] Select LLM providers (keys stored in vault only)")
-        .items(&display_names)
+        .items(&display_refs)
         .defaults(&defaults)
         .interact()?;
 
@@ -388,42 +322,66 @@ fn configure_llm_providers() -> Result<Vec<String>, Box<dyn std::error::Error>> 
         return Err("at least one LLM provider must be selected".into());
     }
 
-    println!(
-        "    {} Storing provider credentials in vault...",
-        style("→").cyan().bold()
-    );
-
     let mut configured_count = 0usize;
     let mut configured_provider_ids: Vec<String> = Vec::new();
     for idx in selected {
         let def = &defs[idx];
+        let already_configured = configured_flags[idx];
+
         if let Some(cmd) = def.required_command {
             if !check_command(cmd) {
                 println!(
-                    "    {} {} CLI not found (provider can still be configured for later): {}",
+                    "    {} {} CLI not found — provider can still be configured for later",
                     style("!").yellow().bold(),
                     cmd,
-                    def.display
                 );
             }
         }
 
-        let mut staged: Vec<(&str, String)> = Vec::new();
+        // Prompt for each secret, showing existing status per-key
+        let mut wrote_any = false;
         let mut missing_required = Vec::new();
         for secret in &def.secrets {
-            let value = prompt_llm_secret(def, secret)?;
+            let has_existing = harmonia_vault::has_secret_for_symbol(secret.symbol);
+            let prompt = if has_existing {
+                format!(
+                    "    {} {} (Enter to keep existing)",
+                    def.display, secret.prompt
+                )
+            } else {
+                format!("    {} {}", def.display, secret.prompt)
+            };
+
+            let value = if secret.is_password {
+                read_masked(&prompt)?
+            } else {
+                let mut input = Input::<String>::new().with_prompt(&prompt);
+                if !has_existing {
+                    if let Some(default) = secret.default {
+                        input = input.default(default.to_string());
+                    }
+                }
+                input.allow_empty(true).interact_text()?
+            };
+            let value = value.trim().to_string();
+
             if value.is_empty() {
-                if secret.required {
+                if has_existing {
+                    // Keeping existing value — counts toward being configured
+                } else if secret.required {
                     missing_required.push(secret.prompt);
                 }
                 continue;
             }
-            staged.push((secret.symbol, value));
+
+            harmonia_vault::set_secret_for_symbol(secret.symbol, &value)
+                .map_err(|e| format!("vault write failed for {}: {e}", secret.symbol))?;
+            wrote_any = true;
         }
 
         if !missing_required.is_empty() {
             println!(
-                "    {} {} skipped (missing required fields: {})",
+                "    {} {} skipped (missing required: {})",
                 style("!").yellow().bold(),
                 def.display,
                 missing_required.join(", ")
@@ -431,17 +389,36 @@ fn configure_llm_providers() -> Result<Vec<String>, Box<dyn std::error::Error>> 
             continue;
         }
 
-        for (symbol, value) in staged {
-            harmonia_vault::set_secret_for_symbol(symbol, &value)
-                .map_err(|e| format!("vault write failed for {}: {e}", symbol))?;
+        // A provider is configured if it had existing keys OR new keys were written
+        if already_configured || wrote_any {
+            configured_count += 1;
+            configured_provider_ids.push(def.id.to_string());
+            if wrote_any && already_configured {
+                println!(
+                    "    {} {} — updated",
+                    style("✓").green().bold(),
+                    def.display
+                );
+            } else if wrote_any {
+                println!(
+                    "    {} {} — key stored in vault",
+                    style("✓").green().bold(),
+                    def.display
+                );
+            } else {
+                println!(
+                    "    {} {} — kept existing",
+                    style("✓").green().bold(),
+                    def.display
+                );
+            }
+        } else {
+            println!(
+                "    {} {} skipped (no credentials provided)",
+                style("!").yellow().bold(),
+                def.display,
+            );
         }
-        configured_count += 1;
-        configured_provider_ids.push(def.id.to_string());
-        println!(
-            "    {} {} — key stored in vault",
-            style("✓").green().bold(),
-            def.display
-        );
     }
 
     if configured_count == 0 {
@@ -453,7 +430,6 @@ fn configure_llm_providers() -> Result<Vec<String>, Box<dyn std::error::Error>> 
         style("✓").green().bold()
     );
 
-    // No model env vars — the backend owns model selection via its built-in pool.
     Ok(configured_provider_ids)
 }
 
@@ -632,6 +608,56 @@ pub fn run_seeds_only() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
+fn configure_langsmith_observability() -> Result<(), Box<dyn std::error::Error>> {
+    println!();
+    println!("  LangSmith observability (optional — Enter to skip):");
+    println!(
+        "    {}",
+        style("Enables distributed tracing for debugging agent pipelines").dim()
+    );
+
+    let has_key = harmonia_vault::has_secret_for_symbol("langsmith-api-key");
+    let key_prompt = if has_key {
+        "    LangSmith API key [configured] (Enter to keep)"
+    } else {
+        "    LangSmith API key"
+    };
+    let api_key = read_masked(key_prompt)?;
+    if !api_key.is_empty() {
+        harmonia_vault::set_secret_for_symbol("langsmith-api-key", &api_key)
+            .map_err(|e| format!("vault write failed for langsmith-api-key: {e}"))?;
+
+        let project_name: String = Input::new()
+            .with_prompt("    LangSmith project name")
+            .default("harmonia".to_string())
+            .interact_text()?;
+
+        let cs =
+            |scope: &str, key: &str, val: &str| -> Result<(), Box<dyn std::error::Error>> {
+                harmonia_config_store::set_config("harmonia-cli", scope, key, val)
+                    .map_err(|e| e.into())
+            };
+
+        cs("observability", "enabled", "1")?;
+        cs("observability", "trace-level", "standard")?;
+        cs("observability", "sample-rate", "1.0")?;
+        cs("observability", "project-name", &project_name)?;
+
+        println!(
+            "    {} LangSmith observability configured (project={})",
+            style("✓").green().bold(),
+            project_name
+        );
+    } else if has_key {
+        println!(
+            "    {} LangSmith — keeping existing configuration",
+            style("✓").green().bold()
+        );
+    }
+
+    Ok(())
+}
+
 fn configure_evolution_profile(home: &Path) -> Result<(), Box<dyn std::error::Error>> {
     println!();
     let options = vec![
@@ -640,10 +666,31 @@ fn configure_evolution_profile(home: &Path) -> Result<(), Box<dyn std::error::Er
         "Distributed evolution participant (organization harmonization)",
     ];
 
+    // Detect existing evolution mode to set default selection
+    let existing_mode = harmonia_config_store::get_config("harmonia-cli", "evolution", "mode")
+        .ok()
+        .flatten();
+    let default_idx = match existing_mode.as_deref() {
+        Some("source-rewrite") => 1,
+        Some("artifact-rollout") => {
+            // Check if distributed is enabled
+            let distributed =
+                harmonia_config_store::get_config("harmonia-cli", "evolution", "distributed-enabled")
+                    .ok()
+                    .flatten();
+            if distributed.as_deref() == Some("1") {
+                2
+            } else {
+                0
+            }
+        }
+        _ => 0,
+    };
+
     let selection = dialoguer::Select::new()
         .with_prompt("  Evolution profile")
         .items(&options)
-        .default(0)
+        .default(default_idx)
         .interact()?;
 
     let cs = |scope: &str, key: &str, val: &str| {
@@ -681,17 +728,30 @@ fn configure_evolution_profile(home: &Path) -> Result<(), Box<dyn std::error::Er
             cs("evolution", "distributed-enabled", "1")?;
             cs("evolution", "distributed-store-kind", "s3")?;
 
-            let bucket: String = Input::new()
+            let existing_bucket =
+                harmonia_config_store::get_config("harmonia-cli", "evolution", "distributed-store-bucket")
+                    .ok()
+                    .flatten()
+                    .unwrap_or_default();
+            let mut bucket_input = Input::<String>::new()
                 .with_prompt("    Distributed evolution bucket")
-                .allow_empty(true)
-                .interact_text()?;
+                .allow_empty(true);
+            if !existing_bucket.is_empty() {
+                bucket_input = bucket_input.default(existing_bucket);
+            }
+            let bucket: String = bucket_input.interact_text()?;
             if !bucket.trim().is_empty() {
                 cs("evolution", "distributed-store-bucket", bucket.trim())?;
             }
 
+            let existing_prefix =
+                harmonia_config_store::get_config("harmonia-cli", "evolution", "distributed-store-prefix")
+                    .ok()
+                    .flatten()
+                    .unwrap_or_else(|| "harmonia/evolution".to_string());
             let prefix: String = Input::new()
                 .with_prompt("    Distributed evolution prefix")
-                .default("harmonia/evolution".to_string())
+                .default(existing_prefix)
                 .interact_text()?;
             cs("evolution", "distributed-store-prefix", prefix.trim())?;
         }
@@ -722,6 +782,7 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
     let system_dir = home.join(".harmoniis").join("harmonia");
     let lib_dir = crate::paths::lib_dir()?;
     let share_dir = crate::paths::share_dir()?;
+    let node_identity = crate::paths::current_node_identity()?;
     println!(
         "  {} User data:     {}",
         style("[1/4]").bold().dim(),
@@ -729,10 +790,17 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
     );
     println!("       Libraries:   {}", style(lib_dir.display()).green());
     println!("       App data:    {}", style(share_dir.display()).green());
+    println!(
+        "       Node:        {} ({}, {})",
+        style(&node_identity.label).green(),
+        node_identity.role.as_str(),
+        node_identity.install_profile.as_str()
+    );
     fs::create_dir_all(&system_dir)?;
     fs::create_dir_all(system_dir.join("config"))?;
     fs::create_dir_all(system_dir.join("frontends"))?;
     fs::create_dir_all(share_dir.join("genesis"))?;
+    crate::paths::ensure_node_layout(&node_identity)?;
 
     // Step 2: Check SBCL + Quicklisp
     println!(
@@ -768,6 +836,11 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
     // Step 3: Wallet + vault + config-store bootstrap
     println!();
     let wallet_path = ensure_harmoniis_wallet()?;
+    let wallet_root = wallet_path
+        .parent()
+        .map(Path::to_path_buf)
+        .unwrap_or_else(|| PathBuf::from("."));
+    std::env::set_var("HARMONIA_WALLET_ROOT", wallet_root.to_string_lossy().to_string());
     std::env::set_var(
         "HARMONIA_VAULT_WALLET_DB",
         wallet_path.to_string_lossy().to_string(),
@@ -793,24 +866,50 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
     // Write system paths to config-store
     cs("global", "state-root", &system_dir.to_string_lossy())?;
     cs("global", "system-dir", &system_dir.to_string_lossy())?;
+    cs("global", "wallet-root", &wallet_root.to_string_lossy())?;
+    cs("global", "wallet-db", &wallet_path.to_string_lossy())?;
 
     // Store platform-standard paths
     cs("global", "lib-dir", &lib_dir.to_string_lossy())?;
     cs("global", "share-dir", &share_dir.to_string_lossy())?;
+    cs("node", "label", &node_identity.label)?;
+    cs("node", "hostname", &node_identity.hostname)?;
+    cs("node", "role", node_identity.role.as_str())?;
+    cs(
+        "node",
+        "install-profile",
+        node_identity.install_profile.as_str(),
+    )?;
+    cs(
+        "node",
+        "sessions-root",
+        &crate::paths::node_sessions_dir(&node_identity.label)?.to_string_lossy(),
+    )?;
+    cs(
+        "node",
+        "pairings-root",
+        &crate::paths::node_pairings_dir(&node_identity.label)?.to_string_lossy(),
+    )?;
+    cs(
+        "node",
+        "memory-root",
+        &crate::paths::node_memory_dir(&node_identity.label)?.to_string_lossy(),
+    )?;
 
     // Detect source dir for dev builds
     if let Ok(source_dir) = find_source_dir() {
         cs("global", "source-dir", &source_dir.to_string_lossy())?;
     }
 
-    // User workspace
-    let default_workspace = home.join("workspace");
+    // User workspace — read existing workspace.sexp for default
+    let default_workspace = read_existing_workspace(&system_dir)
+        .unwrap_or_else(|| home.join("workspace").to_string_lossy().to_string());
     let workspace: String = Input::new()
         .with_prompt(format!(
             "  {} User workspace directory",
             style("[3/4]").bold().dim()
         ))
-        .default(default_workspace.to_string_lossy().to_string())
+        .default(default_workspace)
         .interact_text()?;
     let workspace_path = PathBuf::from(&workspace);
     fs::create_dir_all(&workspace_path)?;
@@ -844,48 +943,18 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
         style("─── Optional (Enter to skip, configure later with `harmonia setup`) ──").dim()
     );
 
-    // Frontend selection
+    let enabled_frontends: Vec<&str> = vec!["tui"];
     println!();
-    let defs = frontend_defs();
-    let display_names: Vec<&str> = defs.iter().map(|d| d.display).collect();
-    let selected = MultiSelect::new()
-        .with_prompt("  Select frontends to enable (TUI always on, Enter to skip all)")
-        .items(&display_names)
-        .interact()?;
+    println!(
+        "  {} Frontends are configured from the interactive CLI only.",
+        style("→").cyan().bold()
+    );
+    println!(
+        "    {}",
+        style("Finish setup, start Harmonia, then use /menu -> Frontends").dim()
+    );
 
-    let mut enabled_frontends: Vec<&str> = vec!["tui"];
-    let mut mqtt_selected = false;
-    if !selected.is_empty() {
-        println!("  Frontend credentials:");
-        for &idx in &selected {
-            let def = &defs[idx];
-            enabled_frontends.push(def.name);
-            if def.name == "mqtt" {
-                mqtt_selected = true;
-            }
-
-            for (symbol, prompt, is_password) in &def.vault_keys {
-                let value = if *is_password {
-                    read_masked(&format!("    {} {}", def.display, prompt))?
-                } else {
-                    Input::<String>::new()
-                        .with_prompt(format!("    {} {}", def.display, prompt))
-                        .allow_empty(true)
-                        .interact_text()?
-                };
-                if !value.is_empty() {
-                    harmonia_vault::set_secret_for_symbol(symbol, &value)
-                        .map_err(|e| format!("vault write failed for {}: {e}", symbol))?;
-                }
-            }
-        }
-    }
-
-    if mqtt_selected {
-        configure_mqtt_defaults(&wallet_path, &cs)?;
-    }
-
-    // Optional tool API keys
+    // Optional tool API keys — detect existing
     println!("\n  Optional tool API keys (Enter to skip):");
     let optional_keys = [
         ("exa-api-key", "Exa search API key"),
@@ -893,43 +962,73 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
         ("elevenlabs-api-key", "ElevenLabs API key"),
     ];
     for (symbol, prompt) in &optional_keys {
-        let value = read_masked(&format!("    {}", prompt))?;
+        let existing = harmonia_vault::has_secret_for_symbol(symbol);
+        let label = if existing {
+            format!("    {} [configured] (Enter to keep)", prompt)
+        } else {
+            format!("    {}", prompt)
+        };
+        let value = read_masked(&label)?;
         if !value.is_empty() {
             harmonia_vault::set_secret_for_symbol(symbol, &value)
                 .map_err(|e| format!("vault write failed for {}: {e}", symbol))?;
         }
     }
 
-    // Git fork + GitHub token (optional)
+    // Git fork + GitHub token (optional) — detect existing
     println!();
+    let has_fork = harmonia_vault::has_secret_for_symbol("github-fork-url");
+    let has_gh_token = harmonia_vault::has_secret_for_symbol("github-token");
+    let fork_prompt = if has_fork {
+        "  Git fork URL [configured] (Enter to keep)"
+    } else {
+        "  Git fork URL (Enter to skip)"
+    };
     let default_fork = "https://github.com/harmoniis/harmonia.git".to_string();
     let fork_url: String = Input::new()
-        .with_prompt("  Git fork URL (Enter to skip)")
+        .with_prompt(fork_prompt)
         .default(default_fork)
         .interact_text()?;
     if !fork_url.is_empty() {
         harmonia_vault::set_secret_for_symbol("github-fork-url", &fork_url)
             .map_err(|e| format!("vault write failed for github-fork-url: {e}"))?;
 
-        let github_token = read_masked("    GitHub PAT (for git push to fork, Enter to skip)")?;
+        let gh_prompt = if has_gh_token {
+            "    GitHub PAT [configured] (Enter to keep)"
+        } else {
+            "    GitHub PAT (for git push to fork, Enter to skip)"
+        };
+        let github_token = read_masked(gh_prompt)?;
         if !github_token.is_empty() {
             harmonia_vault::set_secret_for_symbol("github-token", &github_token)
                 .map_err(|e| format!("vault write failed for github-token: {e}"))?;
         }
     }
 
-    // S3 credentials (optional)
+    // S3 credentials (optional) — detect existing
     println!();
+    let has_s3 = harmonia_vault::has_secret_for_symbol("s3-bucket");
+    let s3_prompt = if has_s3 {
+        "  S3 bucket [configured] (Enter to keep)"
+    } else {
+        "  S3 bucket for binary backups (Enter to skip)"
+    };
     let s3_bucket: String = Input::new()
-        .with_prompt("  S3 bucket for binary backups (Enter to skip)")
+        .with_prompt(s3_prompt)
         .allow_empty(true)
         .interact_text()?;
     if !s3_bucket.is_empty() {
         harmonia_vault::set_secret_for_symbol("s3-bucket", &s3_bucket)
             .map_err(|e| format!("vault write failed for s3-bucket: {e}"))?;
 
+        let has_s3_key = harmonia_vault::has_secret_for_symbol("s3-access-key-id");
+        let s3_key_prompt = if has_s3_key {
+            "    AWS access key ID [configured] (Enter to keep)"
+        } else {
+            "    AWS access key ID"
+        };
         let s3_access_key: String = Input::new()
-            .with_prompt("    AWS access key ID")
+            .with_prompt(s3_key_prompt)
             .allow_empty(true)
             .interact_text()?;
         if !s3_access_key.is_empty() {
@@ -938,7 +1037,13 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
             let _ = harmonia_vault::set_secret_for_symbol("aws-access-key-id", &s3_access_key);
         }
 
-        let s3_secret_key = read_masked("    AWS secret access key")?;
+        let has_s3_secret = harmonia_vault::has_secret_for_symbol("s3-secret-access-key");
+        let s3_secret_prompt = if has_s3_secret {
+            "    AWS secret access key [configured] (Enter to keep)"
+        } else {
+            "    AWS secret access key"
+        };
+        let s3_secret_key = read_masked(s3_secret_prompt)?;
         if !s3_secret_key.is_empty() {
             harmonia_vault::set_secret_for_symbol("s3-secret-access-key", &s3_secret_key)
                 .map_err(|e| format!("vault write failed for s3-secret-access-key: {e}"))?;
@@ -948,7 +1053,15 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
             "    {} S3 credentials stored in vault",
             style("✓").green().bold()
         );
+    } else if has_s3 {
+        println!(
+            "    {} S3 credentials — keeping existing",
+            style("✓").green().bold()
+        );
     }
+
+    // LangSmith observability (optional)
+    configure_langsmith_observability()?;
 
     // Evolution profile (optional — defaults to artifact-rollout)
     configure_evolution_profile(&home)?;
@@ -1093,14 +1206,10 @@ fn check_command(cmd: &str) -> bool {
 }
 
 fn ensure_harmoniis_wallet() -> Result<PathBuf, Box<dyn std::error::Error>> {
-    let home = dirs::home_dir().ok_or("cannot determine home directory")?;
-    let wallet_path = home.join(".harmoniis").join("master.db");
-    let legacy_wallet_path = home.join(".harmoniis").join("rgb.db");
-    if wallet_path.exists() {
+    let wallet_root = crate::paths::wallet_root_path()?;
+    let wallet_path = wallet_root.join("master.db");
+    if wallet_path.exists() || wallet_root.join("rgb.db").exists() {
         return Ok(wallet_path);
-    }
-    if legacy_wallet_path.exists() {
-        return Ok(legacy_wallet_path);
     }
 
     ensure_wallet_cli()?;
@@ -1264,6 +1373,21 @@ fn install_quicklisp() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
+fn read_existing_workspace(system_dir: &Path) -> Option<String> {
+    let ws_path = system_dir.join("config").join("workspace.sexp");
+    let content = fs::read_to_string(ws_path).ok()?;
+    // Parse (:user-workspace "...") from workspace.sexp
+    let marker = ":user-workspace \"";
+    let start = content.find(marker)? + marker.len();
+    let end = content[start..].find('"')? + start;
+    let path = &content[start..end];
+    if path.is_empty() {
+        None
+    } else {
+        Some(path.to_string())
+    }
+}
+
 fn find_source_dir() -> Result<PathBuf, Box<dyn std::error::Error>> {
     fn is_runtime_root(path: &Path) -> bool {
         path.join("src").join("core").join("boot.lisp").exists()
@@ -1356,213 +1480,6 @@ fn install_cdylibs(target_dir: &Path, lib_dir: &Path) -> Result<(), Box<dyn std:
     Ok(())
 }
 
-fn configure_mqtt_defaults<F>(
-    wallet_path: &Path,
-    set_config: &F,
-) -> Result<(), Box<dyn std::error::Error>>
-where
-    F: Fn(&str, &str, &str) -> Result<(), Box<dyn std::error::Error>>,
-{
-    if !check_command("openssl") {
-        return Err("openssl is required to generate wallet-bound MQTT TLS certificates".into());
-    }
-
-    let mqtt_dir = crate::paths::data_dir()?.join("mqtt");
-    fs::create_dir_all(&mqtt_dir)?;
-    let label = "mqtt-client-alice";
-    let vault_new = Command::new("hrmw")
-        .args([
-            "key",
-            "vault-new",
-            "--wallet",
-            wallet_path.to_string_lossy().as_ref(),
-            "--label",
-            label,
-        ])
-        .output()?;
-    if !vault_new.status.success() {
-        return Err(format!(
-            "failed to create MQTT vault identity: {}",
-            String::from_utf8_lossy(&vault_new.stderr)
-        )
-        .into());
-    }
-    let public_key = parse_hrmw_output_field(
-        &String::from_utf8_lossy(&vault_new.stdout),
-        "Vault public key:",
-    )?;
-
-    let key_path = mqtt_dir.join("broker.key.pem");
-    let export = Command::new("hrmw")
-        .args([
-            "key",
-            "vault-export",
-            "--wallet",
-            wallet_path.to_string_lossy().as_ref(),
-            "--label",
-            label,
-            "--output",
-            key_path.to_string_lossy().as_ref(),
-        ])
-        .output()?;
-    if !export.status.success() {
-        return Err(format!(
-            "failed to export MQTT vault private key: {}",
-            String::from_utf8_lossy(&export.stderr)
-        )
-        .into());
-    }
-
-    let ca_key_path = mqtt_dir.join("broker-ca.key.pem");
-    let ca_path = mqtt_dir.join("broker-ca.crt");
-    let csr_path = mqtt_dir.join("broker.csr");
-    let cert_path = mqtt_dir.join("broker.crt");
-    let chain_path = mqtt_dir.join("broker.chain.crt");
-    let ext_path = mqtt_dir.join("broker.ext");
-    fs::write(
-        &ext_path,
-        "basicConstraints=critical,CA:FALSE\nkeyUsage=critical,digitalSignature\nextendedKeyUsage=serverAuth,clientAuth\nsubjectAltName=DNS:localhost,IP:127.0.0.1\n",
-    )?;
-
-    let ca_key_status = Command::new("openssl")
-        .args([
-            "genpkey",
-            "-algorithm",
-            "Ed25519",
-            "-out",
-            ca_key_path.to_string_lossy().as_ref(),
-        ])
-        .output()?;
-    if !ca_key_status.status.success() {
-        return Err(format!(
-            "failed to generate MQTT CA private key: {}",
-            String::from_utf8_lossy(&ca_key_status.stderr)
-        )
-        .into());
-    }
-
-    let ca_status = Command::new("openssl")
-        .args([
-            "req",
-            "-new",
-            "-x509",
-            "-key",
-            ca_key_path.to_string_lossy().as_ref(),
-            "-out",
-            ca_path.to_string_lossy().as_ref(),
-            "-days",
-            "365",
-            "-subj",
-            "/CN=harmonia-mqtt-ca",
-            "-addext",
-            "basicConstraints=critical,CA:TRUE",
-            "-addext",
-            "keyUsage=critical,digitalSignature,keyCertSign",
-        ])
-        .output()?;
-    if !ca_status.status.success() {
-        return Err(format!(
-            "failed to generate MQTT CA certificate: {}",
-            String::from_utf8_lossy(&ca_status.stderr)
-        )
-        .into());
-    }
-
-    let csr_status = Command::new("openssl")
-        .args([
-            "req",
-            "-new",
-            "-key",
-            key_path.to_string_lossy().as_ref(),
-            "-out",
-            csr_path.to_string_lossy().as_ref(),
-            "-subj",
-            &format!("/CN={public_key}"),
-        ])
-        .output()?;
-    if !csr_status.status.success() {
-        return Err(format!(
-            "failed to generate MQTT broker CSR: {}",
-            String::from_utf8_lossy(&csr_status.stderr)
-        )
-        .into());
-    }
-
-    let cert_status = Command::new("openssl")
-        .args([
-            "x509",
-            "-req",
-            "-in",
-            csr_path.to_string_lossy().as_ref(),
-            "-CA",
-            ca_path.to_string_lossy().as_ref(),
-            "-CAkey",
-            ca_key_path.to_string_lossy().as_ref(),
-            "-CAcreateserial",
-            "-out",
-            cert_path.to_string_lossy().as_ref(),
-            "-days",
-            "365",
-            "-extfile",
-            ext_path.to_string_lossy().as_ref(),
-        ])
-        .output()?;
-    if !cert_status.status.success() {
-        return Err(format!(
-            "failed to generate MQTT broker certificate: {}",
-            String::from_utf8_lossy(&cert_status.stderr)
-        )
-        .into());
-    }
-    let chain_pem = format!(
-        "{}\n{}",
-        fs::read_to_string(&cert_path)?,
-        fs::read_to_string(&ca_path)?
-    );
-    fs::write(&chain_path, chain_pem)?;
-
-    set_config("mqtt-broker", "mode", "embedded")?;
-    set_config("mqtt-broker", "bind", "127.0.0.1:8883")?;
-    set_config("mqtt-broker", "tls", "1")?;
-    set_config("mqtt-broker", "ca-cert", &ca_path.to_string_lossy())?;
-    set_config("mqtt-broker", "server-cert", &chain_path.to_string_lossy())?;
-    set_config("mqtt-broker", "server-key", &key_path.to_string_lossy())?;
-    set_config(
-        "mqtt-broker",
-        "remote-config-url",
-        "https://harmoniis.com/api/agent",
-    )?;
-    set_config("mqtt-broker", "remote-config-identity-label", label)?;
-    set_config("mqtt-broker", "remote-config-refresh-seconds", "60")?;
-    set_config("mqtt-broker", "identity-public-key", &public_key)?;
-
-    set_config("mqtt-frontend", "broker", "127.0.0.1:8883")?;
-    set_config("mqtt-frontend", "tls", "1")?;
-    set_config("mqtt-frontend", "ca-cert", &ca_path.to_string_lossy())?;
-    set_config("mqtt-frontend", "client-cert", &cert_path.to_string_lossy())?;
-    set_config("mqtt-frontend", "client-key", &key_path.to_string_lossy())?;
-    set_config(
-        "mqtt-frontend",
-        "push-webhook-url",
-        "https://harmoniis.com/api/webhooks/push",
-    )?;
-    set_config("mqtt-frontend", "trusted-client-fingerprints-json", "[]")?;
-    set_config("mqtt-frontend", "trusted-device-registry-json", "[]")?;
-    Ok(())
-}
-
-fn parse_hrmw_output_field(
-    output: &str,
-    prefix: &str,
-) -> Result<String, Box<dyn std::error::Error>> {
-    for line in output.lines() {
-        if let Some(rest) = line.strip_prefix(prefix) {
-            return Ok(rest.trim().to_string());
-        }
-    }
-    Err(format!("missing hrmw output field: {prefix}").into())
-}
-
 fn generate_gateway_config(enabled: &[&str]) -> String {
     let so_ext = if cfg!(target_os = "macos") {
         "dylib"
@@ -1579,6 +1496,12 @@ fn generate_gateway_config(enabled: &[&str]) -> String {
             "target/release/libharmonia_mqtt_client",
             ":authenticated",
             "(:mqtt-broker-url :mqtt-cert)",
+        ),
+        (
+            "http2",
+            "target/release/libharmonia_http2_mtls",
+            ":authenticated",
+            "nil",
         ),
         (
             "imessage",
@@ -1650,11 +1573,18 @@ fn generate_gateway_config(enabled: &[&str]) -> String {
         } else {
             "nil"
         };
-        let extra = if *name == "signal" {
-            "\n    :config-keys ((\"signal-frontend\" \"account\"))"
-        } else {
-            ""
-        };
+        let mut extra = String::new();
+        if *name == "signal" {
+            extra.push_str("\n    :config-keys ((\"signal-frontend\" \"account\"))");
+        }
+        if *name == "http2" {
+            extra.push_str(
+                "\n    :config-keys ((\"http2-frontend\" \"bind\") (\"http2-frontend\" \"ca-cert\") (\"http2-frontend\" \"server-cert\") (\"http2-frontend\" \"server-key\") (\"http2-frontend\" \"trusted-client-fingerprints-json\"))",
+            );
+        }
+        if *name == "imessage" {
+            extra.push_str("\n    :platforms (:macos)");
+        }
         entries.push(format!(
             "   (:name \"{name}\"\n    :so-path \"{path}.{so_ext}\"\n    :security-label {label}\n    :auto-load {auto_load}{extra}\n    :vault-keys {keys})",
         ));

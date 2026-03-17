@@ -107,6 +107,41 @@ pub(crate) const REGISTRY: &[Entry] = &[
     },
     Entry {
         scope: "global",
+        key: "share-dir",
+        env_override: None,
+    },
+    Entry {
+        scope: "global",
+        key: "data-dir",
+        env_override: Some("HARMONIA_DATA_DIR"),
+    },
+    Entry {
+        scope: "global",
+        key: "run-dir",
+        env_override: Some("HARMONIA_RUN_DIR"),
+    },
+    Entry {
+        scope: "global",
+        key: "log-dir",
+        env_override: Some("HARMONIA_LOG_DIR"),
+    },
+    Entry {
+        scope: "global",
+        key: "wallet-root",
+        env_override: Some("HARMONIA_WALLET_ROOT"),
+    },
+    Entry {
+        scope: "global",
+        key: "wallet-db",
+        env_override: Some("HARMONIA_VAULT_WALLET_DB"),
+    },
+    Entry {
+        scope: "global",
+        key: "vault-db",
+        env_override: Some("HARMONIA_VAULT_DB"),
+    },
+    Entry {
+        scope: "global",
         key: "env",
         env_override: None,
     },
@@ -139,6 +174,27 @@ pub(crate) const REGISTRY: &[Entry] = &[
         scope: "global",
         key: "hrmw-bin",
         env_override: Some("HARMONIA_HRMW_BIN"),
+    },
+    // ── node ──
+    Entry {
+        scope: "node",
+        key: "label",
+        env_override: Some("HARMONIA_NODE_LABEL"),
+    },
+    Entry {
+        scope: "node",
+        key: "role",
+        env_override: Some("HARMONIA_NODE_ROLE"),
+    },
+    Entry {
+        scope: "node",
+        key: "install-profile",
+        env_override: Some("HARMONIA_INSTALL_PROFILE"),
+    },
+    Entry {
+        scope: "node",
+        key: "pair-code",
+        env_override: Some("HARMONIA_PAIR_CODE"),
     },
     // ── openai ──
     Entry {
@@ -284,32 +340,43 @@ pub(crate) const REGISTRY: &[Entry] = &[
         key: "max-time-secs",
         env_override: None,
     },
+    // ── voice backends ──
+    Entry {
+        scope: "whisper-backend",
+        key: "groq-api-url",
+        env_override: None,
+    },
+    Entry {
+        scope: "whisper-backend",
+        key: "openai-api-url",
+        env_override: None,
+    },
+    Entry {
+        scope: "whisper-backend",
+        key: "connect-timeout-secs",
+        env_override: None,
+    },
+    Entry {
+        scope: "whisper-backend",
+        key: "max-time-secs",
+        env_override: None,
+    },
+    Entry {
+        scope: "elevenlabs-backend",
+        key: "base-url",
+        env_override: None,
+    },
+    Entry {
+        scope: "elevenlabs-backend",
+        key: "connect-timeout-secs",
+        env_override: None,
+    },
+    Entry {
+        scope: "elevenlabs-backend",
+        key: "max-time-secs",
+        env_override: None,
+    },
     // ── tools ──
-    Entry {
-        scope: "whisper-tool",
-        key: "api-url",
-        env_override: None,
-    },
-    Entry {
-        scope: "whisper-tool",
-        key: "model",
-        env_override: None,
-    },
-    Entry {
-        scope: "elevenlabs-tool",
-        key: "api-url",
-        env_override: None,
-    },
-    Entry {
-        scope: "elevenlabs-tool",
-        key: "default-voice",
-        env_override: None,
-    },
-    Entry {
-        scope: "elevenlabs-tool",
-        key: "default-output-path",
-        env_override: None,
-    },
     Entry {
         scope: "search-exa-tool",
         key: "api-url",
@@ -349,6 +416,56 @@ pub(crate) const REGISTRY: &[Entry] = &[
     Entry {
         scope: "mqtt-frontend",
         key: "client-key",
+        env_override: None,
+    },
+    Entry {
+        scope: "mqtt-frontend",
+        key: "trusted-client-fingerprints-json",
+        env_override: None,
+    },
+    Entry {
+        scope: "mqtt-frontend",
+        key: "trusted-device-registry-json",
+        env_override: None,
+    },
+    Entry {
+        scope: "http2-frontend",
+        key: "bind",
+        env_override: None,
+    },
+    Entry {
+        scope: "http2-frontend",
+        key: "ca-cert",
+        env_override: None,
+    },
+    Entry {
+        scope: "http2-frontend",
+        key: "server-cert",
+        env_override: None,
+    },
+    Entry {
+        scope: "http2-frontend",
+        key: "server-key",
+        env_override: None,
+    },
+    Entry {
+        scope: "http2-frontend",
+        key: "trusted-client-fingerprints-json",
+        env_override: None,
+    },
+    Entry {
+        scope: "http2-frontend",
+        key: "max-concurrent-streams",
+        env_override: None,
+    },
+    Entry {
+        scope: "http2-frontend",
+        key: "session-idle-timeout-ms",
+        env_override: None,
+    },
+    Entry {
+        scope: "http2-frontend",
+        key: "max-frame-bytes",
         env_override: None,
     },
     Entry {
@@ -487,8 +604,60 @@ pub(crate) const REGISTRY: &[Entry] = &[
     },
     Entry {
         scope: "tailnet-core",
+        key: "advertise-addr",
+        env_override: Some("HARMONIA_TAILNET_ADVERTISE_ADDR"),
+    },
+    Entry {
+        scope: "tailnet-core",
+        key: "advertise-host",
+        env_override: Some("HARMONIA_TAILNET_ADVERTISE_HOST"),
+    },
+    Entry {
+        scope: "tailnet-core",
         key: "hostname-prefix",
         env_override: None,
+    },
+    Entry {
+        scope: "tailnet-core",
+        key: "shared-secret",
+        env_override: Some("HARMONIA_MESH_SHARED_SECRET"),
+    },
+    // ── tailscale integration (CLI) ──
+    Entry {
+        scope: "tailscale",
+        key: "socket",
+        env_override: Some("HARMONIA_TAILSCALE_SOCKET"),
+    },
+    Entry {
+        scope: "tailscale",
+        key: "localapi-port",
+        env_override: Some("HARMONIA_TAILSCALE_LOCALAPI_PORT"),
+    },
+    // ── memory ──
+    Entry {
+        scope: "memory",
+        key: "night-start",
+        env_override: Some("HARMONIA_MEMORY_NIGHT_START"),
+    },
+    Entry {
+        scope: "memory",
+        key: "night-end",
+        env_override: Some("HARMONIA_MEMORY_NIGHT_END"),
+    },
+    Entry {
+        scope: "memory",
+        key: "idle-seconds",
+        env_override: Some("HARMONIA_MEMORY_IDLE_SECONDS"),
+    },
+    Entry {
+        scope: "memory",
+        key: "heartbeat-seconds",
+        env_override: Some("HARMONIA_MEMORY_HEARTBEAT_SECONDS"),
+    },
+    Entry {
+        scope: "memory",
+        key: "user-tz-hours-west",
+        env_override: Some("HARMONIA_USER_TZ_HOURS_WEST"),
     },
     // ── ouroboros ──
     Entry {
@@ -569,6 +738,32 @@ pub(crate) const REGISTRY: &[Entry] = &[
         key: "state-path",
         env_override: None,
     },
+    // ── observability ──
+    Entry {
+        scope: "observability",
+        key: "enabled",
+        env_override: Some("HARMONIA_OBSERVABILITY_ENABLED"),
+    },
+    Entry {
+        scope: "observability",
+        key: "trace-level",
+        env_override: Some("HARMONIA_OBSERVABILITY_TRACE_LEVEL"),
+    },
+    Entry {
+        scope: "observability",
+        key: "sample-rate",
+        env_override: Some("HARMONIA_OBSERVABILITY_SAMPLE_RATE"),
+    },
+    Entry {
+        scope: "observability",
+        key: "project-name",
+        env_override: Some("HARMONIA_OBSERVABILITY_PROJECT_NAME"),
+    },
+    Entry {
+        scope: "observability",
+        key: "api-url",
+        env_override: Some("HARMONIA_OBSERVABILITY_API_URL"),
+    },
 ];
 
 #[cfg(test)]
@@ -599,8 +794,12 @@ mod tests {
             "HARMONIA_MQTT_BROKER"
         );
         assert_eq!(
-            derive_env_name("whisper-tool", "model"),
-            "HARMONIA_WHISPER_MODEL"
+            derive_env_name("whisper-backend", "groq-api-url"),
+            "HARMONIA_WHISPER_GROQ_API_URL"
+        );
+        assert_eq!(
+            derive_env_name("elevenlabs-backend", "base-url"),
+            "HARMONIA_ELEVENLABS_BASE_URL"
         );
         assert_eq!(
             derive_env_name("tailnet-core", "port"),
@@ -667,6 +866,13 @@ mod tests {
             ("global", "state-root", "HARMONIA_STATE_ROOT"),
             ("global", "source-dir", "HARMONIA_SOURCE_DIR"),
             ("global", "lib-dir", "HARMONIA_LIB_DIR"),
+            ("global", "share-dir", "HARMONIA_SHARE_DIR"),
+            ("global", "data-dir", "HARMONIA_DATA_DIR"),
+            ("global", "run-dir", "HARMONIA_RUN_DIR"),
+            ("global", "log-dir", "HARMONIA_LOG_DIR"),
+            ("global", "wallet-root", "HARMONIA_WALLET_ROOT"),
+            ("global", "wallet-db", "HARMONIA_VAULT_WALLET_DB"),
+            ("global", "vault-db", "HARMONIA_VAULT_DB"),
             ("global", "env", "HARMONIA_ENV"),
             ("global", "fs-root", "HARMONIA_FS_ROOT"),
             ("global", "metrics-db", "HARMONIA_METRICS_DB"),
@@ -674,6 +880,11 @@ mod tests {
             ("global", "system-dir", "HARMONIA_SYSTEM_DIR"),
             ("global", "log-level", "HARMONIA_LOG_LEVEL"),
             ("global", "hrmw-bin", "HARMONIA_HRMW_BIN"),
+            // node
+            ("node", "label", "HARMONIA_NODE_LABEL"),
+            ("node", "role", "HARMONIA_NODE_ROLE"),
+            ("node", "install-profile", "HARMONIA_INSTALL_PROFILE"),
+            ("node", "pair-code", "HARMONIA_PAIR_CODE"),
             // openai
             ("openai-backend", "base-url", "HARMONIA_OPENAI_BASE_URL"),
             (
@@ -798,20 +1009,43 @@ mod tests {
                 "max-time-secs",
                 "HARMONIA_OPENROUTER_MAX_TIME_SECS",
             ),
+            // voice backends
+            (
+                "whisper-backend",
+                "groq-api-url",
+                "HARMONIA_WHISPER_GROQ_API_URL",
+            ),
+            (
+                "whisper-backend",
+                "openai-api-url",
+                "HARMONIA_WHISPER_OPENAI_API_URL",
+            ),
+            (
+                "whisper-backend",
+                "connect-timeout-secs",
+                "HARMONIA_WHISPER_CONNECT_TIMEOUT_SECS",
+            ),
+            (
+                "whisper-backend",
+                "max-time-secs",
+                "HARMONIA_WHISPER_MAX_TIME_SECS",
+            ),
+            (
+                "elevenlabs-backend",
+                "base-url",
+                "HARMONIA_ELEVENLABS_BASE_URL",
+            ),
+            (
+                "elevenlabs-backend",
+                "connect-timeout-secs",
+                "HARMONIA_ELEVENLABS_CONNECT_TIMEOUT_SECS",
+            ),
+            (
+                "elevenlabs-backend",
+                "max-time-secs",
+                "HARMONIA_ELEVENLABS_MAX_TIME_SECS",
+            ),
             // tools
-            ("whisper-tool", "api-url", "HARMONIA_WHISPER_API_URL"),
-            ("whisper-tool", "model", "HARMONIA_WHISPER_MODEL"),
-            ("elevenlabs-tool", "api-url", "HARMONIA_ELEVENLABS_API_URL"),
-            (
-                "elevenlabs-tool",
-                "default-voice",
-                "HARMONIA_ELEVENLABS_DEFAULT_VOICE",
-            ),
-            (
-                "elevenlabs-tool",
-                "default-output-path",
-                "HARMONIA_ELEVENLABS_DEFAULT_OUTPUT_PATH",
-            ),
             ("search-exa-tool", "api-url", "HARMONIA_EXA_API_URL"),
             ("search-brave-tool", "api-url", "HARMONIA_BRAVE_API_URL"),
             // frontends
@@ -889,8 +1123,48 @@ mod tests {
             ("tailnet-core", "port", "HARMONIA_TAILNET_PORT"),
             (
                 "tailnet-core",
+                "advertise-addr",
+                "HARMONIA_TAILNET_ADVERTISE_ADDR",
+            ),
+            (
+                "tailnet-core",
+                "advertise-host",
+                "HARMONIA_TAILNET_ADVERTISE_HOST",
+            ),
+            (
+                "tailnet-core",
                 "hostname-prefix",
                 "HARMONIA_TAILNET_HOSTNAME_PREFIX",
+            ),
+            (
+                "tailnet-core",
+                "shared-secret",
+                "HARMONIA_MESH_SHARED_SECRET",
+            ),
+            // tailscale integration
+            (
+                "tailscale",
+                "socket",
+                "HARMONIA_TAILSCALE_SOCKET",
+            ),
+            (
+                "tailscale",
+                "localapi-port",
+                "HARMONIA_TAILSCALE_LOCALAPI_PORT",
+            ),
+            // memory
+            ("memory", "night-start", "HARMONIA_MEMORY_NIGHT_START"),
+            ("memory", "night-end", "HARMONIA_MEMORY_NIGHT_END"),
+            ("memory", "idle-seconds", "HARMONIA_MEMORY_IDLE_SECONDS"),
+            (
+                "memory",
+                "heartbeat-seconds",
+                "HARMONIA_MEMORY_HEARTBEAT_SECONDS",
+            ),
+            (
+                "memory",
+                "user-tz-hours-west",
+                "HARMONIA_USER_TZ_HOURS_WEST",
             ),
             // ouroboros
             (
@@ -946,6 +1220,32 @@ mod tests {
                 "signalograd-core",
                 "state-path",
                 "HARMONIA_SIGNALOGRAD_STATE_PATH",
+            ),
+            // observability
+            (
+                "observability",
+                "enabled",
+                "HARMONIA_OBSERVABILITY_ENABLED",
+            ),
+            (
+                "observability",
+                "trace-level",
+                "HARMONIA_OBSERVABILITY_TRACE_LEVEL",
+            ),
+            (
+                "observability",
+                "sample-rate",
+                "HARMONIA_OBSERVABILITY_SAMPLE_RATE",
+            ),
+            (
+                "observability",
+                "project-name",
+                "HARMONIA_OBSERVABILITY_PROJECT_NAME",
+            ),
+            (
+                "observability",
+                "api-url",
+                "HARMONIA_OBSERVABILITY_API_URL",
             ),
         ];
 

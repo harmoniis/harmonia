@@ -62,6 +62,18 @@ jobs:
       - name: Run all tests
         run: cargo test --workspace
 
+      - name: Set up Bazel
+        if: runner.os == 'Linux'
+        uses: bazelbuild/setup-bazelisk@v3
+
+      - name: Bazel transport/frontend smoke build
+        if: runner.os == 'Linux'
+        run: |
+          bazel build \
+            //lib/core/transport-auth:transport-auth \
+            //lib/frontends/mqtt-client:mqtt-client \
+            //lib/frontends/http2-mtls:http2-mtls-so
+
   release:
     name: Release (${{ matrix.platform }})
     if: startsWith(github.ref, 'refs/tags/')

@@ -1,0 +1,25 @@
+load("@rules_rust//rust:defs.bzl", "rust_shared_library")
+
+package(default_visibility = ["//visibility:public"])
+
+rust_shared_library(
+    name = "http2-mtls-so",
+    srcs = glob(["src/**/*.rs"]),
+    crate_root = "src/lib.rs",
+    edition = "2021",
+    deps = [
+        "//lib/core/config-store",
+        "//lib/core/transport-auth:transport-auth",
+        "@crate_index//:bytes",
+        "@crate_index//:futures-util",
+        "@crate_index//:http",
+        "@crate_index//:http-body-util",
+        "@crate_index//:hyper",
+        "@crate_index//:hyper-util",
+        "@crate_index//:rustls",
+        "@crate_index//:rustls-pki-types",
+        "@crate_index//:serde_json",
+        "@crate_index//:tokio",
+        "@crate_index//:tokio-rustls",
+    ],
+)

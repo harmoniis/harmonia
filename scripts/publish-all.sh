@@ -48,6 +48,7 @@ publish harmonia-parallel-agents
 publish harmonia-harmonic-matrix
 publish harmonia-config-store
 publish harmonia-gateway
+publish harmonia-baseband-channel-protocol
 
 echo "=== Tier 0b: Frontends with no vault deps ==="
 publish harmonia-tui
@@ -68,9 +69,11 @@ publish harmonia-elevenlabs
 publish harmonia-telegram
 publish harmonia-slack
 publish harmonia-discord
+publish harmonia-transport-auth
 publish harmonia-signal
 publish harmonia-whatsapp
 publish harmonia-imessage
+publish harmonia-http2-mtls
 publish harmonia-tailnet
 
 echo "=== Tier 2: Depends on tailnet ==="

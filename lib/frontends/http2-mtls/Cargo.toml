@@ -1,0 +1,30 @@
+[package]
+name = "harmonia-http2-mtls"
+version = "0.1.8"
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+authors.workspace = true
+description = "HTTP/2 mutual TLS streaming frontend for the Harmonia agent"
+keywords = ["harmonia", "http2", "mtls"]
+categories = ["network-programming"]
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+doctest = false
+
+[dependencies]
+bytes = "1"
+futures-util = "0.3"
+harmonia-config-store = { version = "0.1.8", path = "../../core/config-store" }
+harmonia-transport-auth = { version = "0.1.8", path = "../../core/transport-auth" }
+http = "1"
+http-body-util = "0.1"
+hyper = { version = "1", features = ["http2", "server", "client"] }
+hyper-util = { version = "0.1", features = ["server", "client", "http2", "tokio"] }
+rustls = "0.22"
+rustls-pki-types = "1"
+serde_json = "1"
+tokio = { version = "1.44", features = ["macros", "net", "rt-multi-thread", "sync", "time", "io-util"] }
+tokio-rustls = "0.25"

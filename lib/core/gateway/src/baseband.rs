@@ -1,6 +1,7 @@
 use crate::model::{
     AuditContext, CanonicalMobileEnvelope, ChannelBatch, ChannelBody, ChannelEnvelope, ChannelRef,
-    ConversationRef, PeerRef, SecurityContext, SecurityLabel, TransportContext,
+    ConversationRef, OriginContext, PeerRef, SecurityContext, SecurityLabel, SessionContext,
+    TransportContext,
 };
 use crate::registry::Registry;
 use harmonia_signal_integrity::{
@@ -84,6 +85,91 @@ fn generic_body(payload: &str) -> ChannelBody {
     }
 }
 
+fn default_channel_class(driver_name: &str) -> Option<String> {
+    match driver_name {
+        "mqtt" => Some("mqtt-device".to_string()),
+        "http2" => Some("http2-client".to_string()),
+        "tailscale" => Some("tailscale-agent".to_string()),
+        "tui" => Some("local-tui".to_string()),
+        "telegram" => Some("telegram-bot".to_string()),
+        "whatsapp" => Some("whatsapp-bridge".to_string()),
+        "signal" => Some("signal-bridge".to_string()),
+        "imessage" => Some("imessage-bridge".to_string()),
+        "slack" => Some("slack-bot".to_string()),
+        "discord" => Some("discord-bot".to_string()),
+        "email" => Some("email-imap".to_string()),
+        "mattermost" => Some("mattermost-bot".to_string()),
+        "nostr" => Some("nostr-relay".to_string()),
+        _ => None,
+    }
+}
+
+fn default_node_role(driver_name: &str) -> Option<String> {
+    match driver_name {
+        "mqtt" => Some("mqtt-client".to_string()),
+        "http2" => Some("remote-user".to_string()),
+        "tailscale" => Some("remote-node".to_string()),
+        "email" | "telegram" | "whatsapp" | "signal" | "imessage" | "slack" | "discord"
+        | "mattermost" | "nostr" => Some("remote-user".to_string()),
+        _ => None,
+    }
+}
+
+fn build_origin_context(
+    driver_name: &str,
+    address: &str,
+    peer: &PeerRef,
+    metadata: Option<&str>,
+) -> Option<OriginContext> {
+    let node_id = metadata_string_value(metadata, "node-id").or_else(|| match driver_name {
+        "mqtt" => peer.device_id.clone().or_else(|| Some(peer.id.clone())),
+        "tailscale" if !address.is_empty() => Some(address.to_string()),
+        _ => None,
+    });
+    let node_label = metadata_string_value(metadata, "node-label").or_else(|| match driver_name {
+        "mqtt" => peer.device_id.clone().or_else(|| Some(peer.id.clone())),
+        "tailscale" if !address.is_empty() => Some(address.to_string()),
+        _ => None,
+    });
+    let node_role =
+        metadata_string_value(metadata, "node-role").or_else(|| default_node_role(driver_name));
+    let channel_class = metadata_string_value(metadata, "channel-class")
+        .or_else(|| default_channel_class(driver_name));
+    let node_key_id = metadata_string_value(metadata, "node-key-id");
+    let transport_security = metadata_string_value(metadata, "transport-security");
+    let remote = metadata_bool_value(metadata, "remote").unwrap_or(matches!(
+        driver_name,
+        "mqtt" | "tailscale"
+            | "http2"
+            | "telegram"
+            | "whatsapp"
+            | "signal"
+            | "imessage"
+            | "slack"
+            | "discord"
+            | "email"
+            | "mattermost"
+            | "nostr"
+    ));
+
+    let node_id = node_id.or_else(|| node_label.clone())?;
+    Some(OriginContext {
+        node_id,
+        node_label,
+        node_role,
+        channel_class,
+        node_key_id,
+        transport_security,
+        remote,
+    })
+}
+
+fn build_session_context(metadata: Option<&str>) -> Option<SessionContext> {
+    let id = metadata_string_value(metadata, "session-id")?;
+    let label = metadata_string_value(metadata, "session-label");
+    Some(SessionContext { id, label })
+}
+
 fn build_generic_envelope(
     driver_name: &str,
     security: SecurityLabel,
@@ -92,10 +178,10 @@ fn build_generic_envelope(
     payload: &str,
     metadata: Option<String>,
 ) -> ChannelEnvelope {
-    let fingerprint_valid =
-        metadata_bool_value(metadata.as_deref(), "fingerprint-valid").unwrap_or(true);
-    let origin_fp = metadata_string_value(metadata.as_deref(), "origin-fp");
-    let peer_id = metadata_string_value(metadata.as_deref(), "device-id")
+    let metadata_ref = metadata.as_deref();
+    let fingerprint_valid = metadata_bool_value(metadata_ref, "fingerprint-valid").unwrap_or(true);
+    let origin_fp = metadata_string_value(metadata_ref, "origin-fp");
+    let peer_id = metadata_string_value(metadata_ref, "device-id")
         .or_else(|| origin_fp.clone())
         .unwrap_or_else(|| {
             if address.is_empty() {
@@ -106,12 +192,12 @@ fn build_generic_envelope(
         });
     let mut peer = PeerRef::new(peer_id);
     peer.origin_fp = origin_fp;
-    peer.agent_fp = metadata_string_value(metadata.as_deref(), "agent-fp");
-    peer.device_id = metadata_string_value(metadata.as_deref(), "device-id");
-    peer.platform = metadata_string_value(metadata.as_deref(), "platform");
-    peer.device_model = metadata_string_value(metadata.as_deref(), "device-model");
-    peer.app_version = metadata_string_value(metadata.as_deref(), "app-version");
-    peer.a2ui_version = metadata_string_value(metadata.as_deref(), "a2ui-version");
+    peer.agent_fp = metadata_string_value(metadata_ref, "agent-fp");
+    peer.device_id = metadata_string_value(metadata_ref, "device-id");
+    peer.platform = metadata_string_value(metadata_ref, "platform");
+    peer.device_model = metadata_string_value(metadata_ref, "device-model");
+    peer.app_version = metadata_string_value(metadata_ref, "app-version");
+    peer.a2ui_version = metadata_string_value(metadata_ref, "a2ui-version");
 
     let label = if fingerprint_valid {
         security
@@ -119,6 +205,12 @@ fn build_generic_envelope(
         SecurityLabel::Untrusted
     };
     let channel = ChannelRef::new(driver_name, address);
+    let origin = build_origin_context(driver_name, address, &peer, metadata_ref);
+    let session = build_session_context(metadata_ref);
+    let conversation_id = session
+        .as_ref()
+        .map(|ctx| ctx.id.clone())
+        .unwrap_or_else(|| channel.label.clone());
     let body = generic_body(payload);
     let body_text = body.text.clone();
     ChannelEnvelope {
@@ -126,9 +218,11 @@ fn build_generic_envelope(
         version: 1,
         kind: "external".to_string(),
         type_name: generic_type_name(payload).to_string(),
-        conversation: ConversationRef::new(channel.label.clone()),
+        conversation: ConversationRef::new(conversation_id),
         channel: channel.clone(),
         peer,
+        origin,
+        session,
         body,
         capabilities: capabilities.to_vec(),
         security: SecurityContext {
@@ -157,12 +251,13 @@ fn build_mqtt_envelope(
     metadata: Option<String>,
 ) -> ChannelEnvelope {
     let now = now_ms();
+    let metadata_ref = metadata.as_deref();
     match serde_json::from_str::<CanonicalMobileEnvelope>(payload) {
         Ok(envelope) => {
             let fingerprint_valid =
-                metadata_bool_value(metadata.as_deref(), "fingerprint-valid").unwrap_or(true);
+                metadata_bool_value(metadata_ref, "fingerprint-valid").unwrap_or(true);
             let mut peer = PeerRef::new(
-                metadata_string_value(metadata.as_deref(), "device-id").unwrap_or_else(|| {
+                metadata_string_value(metadata_ref, "device-id").unwrap_or_else(|| {
                     if envelope.client_fp.is_empty() {
                         topic.to_string()
                     } else {
@@ -171,20 +266,20 @@ fn build_mqtt_envelope(
                 }),
             );
             peer.origin_fp = if envelope.client_fp.is_empty() {
-                metadata_string_value(metadata.as_deref(), "origin-fp")
+                metadata_string_value(metadata_ref, "origin-fp")
             } else {
                 Some(envelope.client_fp.clone())
             };
             peer.agent_fp = if envelope.agent_fp.is_empty() {
-                metadata_string_value(metadata.as_deref(), "agent-fp")
+                metadata_string_value(metadata_ref, "agent-fp")
             } else {
                 Some(envelope.agent_fp.clone())
             };
-            peer.device_id = metadata_string_value(metadata.as_deref(), "device-id");
-            peer.platform = metadata_string_value(metadata.as_deref(), "platform");
-            peer.device_model = metadata_string_value(metadata.as_deref(), "device-model");
-            peer.app_version = metadata_string_value(metadata.as_deref(), "app-version");
-            peer.a2ui_version = metadata_string_value(metadata.as_deref(), "a2ui-version");
+            peer.device_id = metadata_string_value(metadata_ref, "device-id");
+            peer.platform = metadata_string_value(metadata_ref, "platform");
+            peer.device_model = metadata_string_value(metadata_ref, "device-model");
+            peer.app_version = metadata_string_value(metadata_ref, "app-version");
+            peer.a2ui_version = metadata_string_value(metadata_ref, "a2ui-version");
 
             let body_text = envelope.body_text();
             let body = ChannelBody {
@@ -198,14 +293,22 @@ fn build_mqtt_envelope(
                 SecurityLabel::Untrusted
             };
             let channel = ChannelRef::new("mqtt", topic);
+            let origin = build_origin_context("mqtt", topic, &peer, metadata_ref);
+            let session = build_session_context(metadata_ref);
+            let conversation_id = session
+                .as_ref()
+                .map(|ctx| ctx.id.clone())
+                .unwrap_or_else(|| channel.label.clone());
             ChannelEnvelope {
                 id: next_envelope_id(),
                 version: envelope.v,
                 kind: envelope.kind,
                 type_name: envelope.type_name,
-                conversation: ConversationRef::new(channel.label.clone()),
+                conversation: ConversationRef::new(conversation_id),
                 channel: channel.clone(),
                 peer,
+                origin,
+                session,
                 body,
                 capabilities: capabilities.to_vec(),
                 security: SecurityContext {
@@ -274,7 +377,18 @@ pub fn poll_baseband(registry: &Registry) -> ChannelBatch {
         }
     });
 
-    // Post each envelope as InboundSignal to the unified actor mailbox
+    // Apply sender policy: deny-by-default for messaging frontends
+    let all_envelopes: Vec<ChannelEnvelope> = all_envelopes
+        .into_iter()
+        .filter(|env| crate::sender_policy::is_signal_allowed(env))
+        .collect();
+
+    // Intercept gateway commands (/wallet, /identity, etc.) — handle in Rust,
+    // send response back to the originating frontend, filter them out so the
+    // Lisp orchestrator only receives agent-level prompts.
+    let all_envelopes = crate::command_dispatch::intercept_commands(registry, all_envelopes);
+
+    // Post each remaining envelope as InboundSignal to the unified actor mailbox
     let gw_actor_id = crate::state::actor_id();
     if gw_actor_id > 0 && !all_envelopes.is_empty() {
         if harmonia_actor_protocol::client::is_available() {

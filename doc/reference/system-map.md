@@ -5,8 +5,8 @@
 Harmonia is layered as a constrained orchestration system:
 
 1. `Governance Layer`
-- Genesis constraints and identity: `../../../doc/agent/genesis/*`
-- Evolution state and scoring: `../../../doc/agent/evolution/latest/*`
+- Genesis constraints and identity: `../../src/boot/genesis/` (canonical), `../genesis/` (markdown mirror)
+- Evolution state and scoring: `../../src/boot/evolution/latest/` (canonical), `../evolution/` (markdown mirror)
 
 2. `Lisp Runtime Layer` (`src/`)
 - `core/`: boot, loop, policy, harmony machine, evolution versioning
@@ -27,14 +27,15 @@ Harmonia is layered as a constrained orchestration system:
 4. `Signal/Channel Layer`
 - Gateway/baseband polls frontends and emits capability-enriched, metadata-annotated signals.
 - Signals carry per-frontend capabilities (from baseband config) and per-message metadata (from frontend poll output).
-- Frontends include local (`tui`), network (`mqtt`), and mesh (`tailscale`).
+- 14 frontend channels: TUI, MQTT, HTTP/2 mTLS, Tailscale, Telegram, WhatsApp, Signal, iMessage, Slack, Discord, Email, Mattermost, Nostr, and future SMS.
 - A2UI dispatch is capabilities-driven — any frontend declaring `:a2ui` capability gets rich UI treatment.
 
 5. `Security Layer`
 - Security kernel: typed signal dispatch, deterministic policy gate, taint propagation via `*current-originating-signal*`.
+- Gateway sender policy: default deny-all for messaging frontends (email, Slack, Discord, Signal, WhatsApp, iMessage, Telegram, Mattermost, Nostr). Allowlist-based sender filtering at the signal boundary before command interception.
 - Adaptive shell: dissonance scoring at gateway, security-aware harmonic routing, `:security-audit` phase in harmonic machine.
-- Transport security: tailnet HMAC authentication, MQTT fingerprint validation, vault encryption at rest.
-- Policy config: `:security` section in `config/harmony-policy.sexp`.
+- Transport security: tailnet HMAC authentication, MQTT trusted identity validation, HTTP/2 mutual TLS, vault encryption at rest.
+- Policy config: `:security` section in `config/harmony-policy.sexp`, sender policy in config-store (`sender-policy` scope).
 
 6. `Experience Layer`
 - Runtime logs, memory entries, matrix telemetry, recovery logs, and evolution snapshots feed future behavior.
@@ -58,11 +59,14 @@ Harmonia is layered as a constrained orchestration system:
 ## Gateway/Baseband Signal Flow
 
 1. Baseband polls registered frontends (`src/ports/baseband.lisp`).
-2. Gateway parses 3-field poll output (`sub_channel\tpayload[\tmetadata]`) and enriches signals with frontend capabilities.
-3. Loop.lisp extracts nested `:channel` (`:frontend` + `:sub-channel`), `:security`, `:capabilities`, `:metadata`.
-4. Conductor checks signal capabilities for A2UI and injects component catalog (`config/a2ui-catalog.sexp`) when present.
-5. Outbound messages are flushed by gateway-send with A2UI text fallback for non-capable frontends.
-6. Frontend auto-load policy comes from `config/baseband.sexp`.
+2. Gateway applies sender policy filter (`sender_policy.rs`): messaging frontend signals from unlisted senders are dropped before further processing.
+3. Gateway intercepts all /commands via unified command dispatch (`command_dispatch.rs`): native Rust handlers or Lisp callback delegation. Command responses sent back to originating frontend.
+4. Non-command envelopes pass through. Gateway parses 3-field poll output (`sub_channel\tpayload\tmetadata_sexp`) and enriches signals with frontend capabilities.
+5. Sessionful transports keep route identity in `:sub-channel`; HTTP/2 uses `<identity>/<session>/<channel>` so multiple remote sessions can advance concurrently.
+6. Loop.lisp extracts nested `:channel` (`:frontend` + `:sub-channel`), `:security`, `:capabilities`, `:metadata`.
+7. Conductor checks signal capabilities for A2UI and injects component catalog (`config/a2ui-catalog.sexp`) when present.
+8. Outbound messages are flushed by gateway-send with A2UI text fallback for non-capable frontends.
+9. Frontend auto-load policy comes from `config/baseband.sexp`.
 
 ## Evolution Flow
 
@@ -78,16 +82,15 @@ Harmonia is layered as a constrained orchestration system:
 
 | Concept Family | Primary Source Docs |
 |---|---|
-| Harmonic philosophy, laws, attractors | `../../../doc/agent/genesis/HARMONIC_THEORY.md` |
-| Architecture and FFI contract | `../../../doc/agent/genesis/ARCHITECTURE.md` |
-| Gateway/baseband and signal semantics | `../../../doc/agent/genesis/GATEWAY.md` |
-| Swarm tiers and tmux orchestration | `../../../doc/agent/genesis/SWARM.md` |
-| Self rewrite protocol | `../../../doc/agent/genesis/SELF_REWRITE.md` |
-| UI/UX and A2UI intent | `../../../doc/agent/genesis/UIUX.md`, `../../../doc/agent/genesis/A2UI_SPEC.md` |
-| Runtime matrix policy | `../../../doc/agent/evolution/latest/HARMONIC_MATRIX.md` |
-| Swarm/model policy | `../../../doc/agent/evolution/latest/SWARM_POLICY.md` |
-| Recovery role split | `../../../doc/agent/evolution/latest/RECOVERY.md` |
-| Evolution/versioning process | `../../../doc/agent/evolution/EVOLUTION.md` |
+| Harmonic philosophy, laws, attractors | `../genesis/concepts.md` |
+| Architecture and FFI contract | `../genesis/runtime-architecture.md` |
+| Gateway/baseband and signal semantics | `../genesis/gateway-frontends.md` |
+| Ports and FFI mapping | `../genesis/ports-and-ffi.md` |
+| A2UI component catalog | `../../config/a2ui-catalog.sexp` |
+| Runtime matrix topology | `../../config/matrix-topology.sexp` |
+| Swarm/model policy | `../../config/swarm.sexp`, `../../config/model-policy.sexp` |
+| Evolution changelog and state | `../evolution/changelog.md`, `../evolution/current-state.md` |
+| Rewrite roadmap | `../evolution/rewrite-roadmap.md` |
 | Chronicle knowledge base | `lib/core/chronicle/` — graph-native observability, SQL-traversable concept graphs |
 
 ## Architectural Guardrails

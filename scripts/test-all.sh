@@ -20,6 +20,7 @@ sbcl \
   --eval "(format t \"fs=~D~%\" (hc #P\"$ROOT_DIR/target/release/libharmonia_fs.dylib\" \"harmonia_fs_healthcheck\"))" \
   --eval "(format t \"git=~D~%\" (hc #P\"$ROOT_DIR/target/release/libharmonia_git_ops.dylib\" \"harmonia_git_ops_healthcheck\"))" \
   --eval "(format t \"http=~D~%\" (hc #P\"$ROOT_DIR/target/release/libharmonia_http.dylib\" \"harmonia_http_healthcheck\"))" \
+  --eval "(format t \"http2=~D~%\" (hc #P\"$ROOT_DIR/target/release/libharmonia_http2_mtls.dylib\" \"harmonia_frontend_healthcheck\"))" \
   --eval "(format t \"memory=~D~%\" (hc #P\"$ROOT_DIR/target/release/libharmonia_memory.dylib\" \"harmonia_memory_healthcheck\"))" \
   --eval "(format t \"mqtt=~D~%\" (hc #P\"$ROOT_DIR/target/release/libharmonia_mqtt_client.dylib\" \"harmonia_mqtt_client_healthcheck\"))" \
   --eval "(format t \"openrouter=~D~%\" (hc #P\"$ROOT_DIR/target/release/libharmonia_openrouter.dylib\" \"harmonia_openrouter_healthcheck\"))" \

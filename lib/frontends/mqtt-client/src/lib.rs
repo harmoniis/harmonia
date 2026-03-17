@@ -1,5 +1,9 @@
 use chrono::Utc;
 use harmonia_baseband_channel_protocol::CanonicalMobileEnvelope;
+use harmonia_transport_auth::{
+    load_client_auth_from_config_or_vault, load_required_bytes, load_trusted_fingerprints,
+    normalize_fingerprint, record_tls_lineage_seed,
+};
 use rumqttc::{Client, Event, Incoming, MqttOptions, Outgoing, QoS, TlsConfiguration, Transport};
 use rusqlite::{params, Connection};
 use serde::{Deserialize, Serialize};
@@ -128,7 +132,6 @@ fn state_root() -> String {
     harmonia_config_store::get_config(COMPONENT, "global", "state-root")
         .ok()
         .flatten()
-        .or_else(|| std::env::var("HARMONIA_STATE_ROOT").ok())
         .unwrap_or_else(|| {
             std::env::temp_dir()
                 .join("harmonia")
@@ -241,16 +244,10 @@ fn load_remote_device_registry() {
 }
 
 fn trusted_origin_fingerprints() -> HashSet<String> {
-    let trusted_clients =
-        harmonia_config_store::get_own(COMPONENT, "trusted-client-fingerprints-json")
-            .ok()
-            .flatten()
-            .unwrap_or_else(|| "[]".to_string());
-    serde_json::from_str::<Vec<String>>(&trusted_clients)
-        .unwrap_or_default()
-        .into_iter()
-        .map(|fp| fp.to_ascii_uppercase())
-        .collect()
+    load_trusted_fingerprints(
+        COMPONENT,
+        harmonia_transport_auth::DEFAULT_TRUST_SCOPE_KEY,
+    )
 }
 
 // ─── Helpers ────────────────────────────────────────────────────────
@@ -334,61 +331,15 @@ fn connect(prefix: &str) -> Result<(Client, rumqttc::Connection), String> {
     let mut opts = MqttOptions::new(client_id(prefix), host, port);
     opts.set_keep_alive(Duration::from_secs(5));
     if tls_enabled() {
-        let ca_path = harmonia_config_store::get_own(COMPONENT, "ca-cert")
-            .ok()
-            .flatten()
-            .ok_or_else(|| "HARMONIA_MQTT_CA_CERT required when HARMONIA_MQTT_TLS=1".to_string())?;
-        let ca = fs::read(&ca_path).map_err(|e| format!("read ca cert failed: {e}"))?;
-        let _ = harmonia_vault::init_from_env();
-        // Keep a recoverable deterministic seed for MQTT TLS lineage.
-        if let Ok(seed_hex) = harmonia_vault::derive_component_seed_hex("mqtt-frontend", "tls") {
-            let _ = harmonia_vault::set_secret_for_symbol("mqtt_tls_master_seed", &seed_hex);
-        }
-
-        let client_auth = match (
-            harmonia_config_store::get_own(COMPONENT, "client-cert")
-                .ok()
-                .flatten(),
-            harmonia_config_store::get_own(COMPONENT, "client-key")
-                .ok()
-                .flatten(),
-        ) {
-            (Some(cert_path), Some(key_path)) => {
-                let cert =
-                    fs::read(&cert_path).map_err(|e| format!("read client cert failed: {e}"))?;
-                let key =
-                    fs::read(&key_path).map_err(|e| format!("read client key failed: {e}"))?;
-                if let Ok(cert_pem) = String::from_utf8(cert.clone()) {
-                    let _ = harmonia_vault::set_secret_for_symbol(
-                        "mqtt_tls_client_cert_pem",
-                        &cert_pem,
-                    );
-                }
-                if let Ok(key_pem) = String::from_utf8(key.clone()) {
-                    let _ =
-                        harmonia_vault::set_secret_for_symbol("mqtt_tls_client_key_pem", &key_pem);
-                }
-                Some((cert, key))
-            }
-            _ => {
-                let cert = harmonia_vault::get_secret_for_component(
-                    "mqtt-frontend",
-                    "mqtt_tls_client_cert_pem",
-                )
-                .ok()
-                .flatten();
-                let key = harmonia_vault::get_secret_for_component(
-                    "mqtt-frontend",
-                    "mqtt_tls_client_key_pem",
-                )
-                .ok()
-                .flatten();
-                match (cert, key) {
-                    (Some(c), Some(k)) => Some((c.into_bytes(), k.into_bytes())),
-                    _ => None,
-                }
-            }
-        };
+        let ca = load_required_bytes(COMPONENT, "ca-cert")?;
+        let _ = record_tls_lineage_seed(COMPONENT, "tls", "mqtt_tls_master_seed");
+        let client_auth = load_client_auth_from_config_or_vault(
+            COMPONENT,
+            "client-cert",
+            "client-key",
+            "mqtt_tls_client_cert_pem",
+            "mqtt_tls_client_key_pem",
+        )?;
         opts.set_transport(Transport::Tls(TlsConfiguration::Simple {
             ca,
             alpn: None,
@@ -430,17 +381,18 @@ fn validate_agent_fingerprint(envelope: &MessageEnvelope) -> bool {
             .ok()
             .flatten()
         {
-            Some(fp) if !fp.is_empty() => fp,
+            Some(fp) if !fp.is_empty() => normalize_fingerprint(&fp),
             _ => return true, // No expected fingerprint configured, allow
         };
     if envelope.agent_fp.is_empty() {
         log::warn!("mqtt: message missing agent_fp, downgrading to untrusted");
         return false;
     }
-    if envelope.agent_fp != expected_fp {
+    let actual = normalize_fingerprint(&envelope.agent_fp);
+    if actual != expected_fp {
         log::warn!(
             "mqtt: agent_fp mismatch (got {}, expected {}), downgrading to untrusted",
-            envelope.agent_fp,
+            actual,
             expected_fp
         );
         return false;
@@ -453,7 +405,7 @@ fn origin_is_trusted(env: &MessageEnvelope) -> bool {
     if trusted.is_empty() {
         return true;
     }
-    trusted.contains(&env.client_fp.to_ascii_uppercase())
+    trusted.contains(&normalize_fingerprint(&env.client_fp))
 }
 
 fn build_envelope_metadata(env: &MessageEnvelope, fp_valid: bool, origin_trusted: bool) -> String {
@@ -719,14 +671,42 @@ fn parse_hrmw_output_field(output: &str, prefix: &str) -> Result<String, String>
 }
 
 fn resolve_wallet_db_path() -> PathBuf {
+    if let Ok(path) = harmonia_config_store::get_config(COMPONENT, "global", "wallet-root") {
+        if let Some(root) = path.map(|value| value.trim().to_string()).filter(|v| !v.is_empty()) {
+            return PathBuf::from(root).join("master.db");
+        }
+    }
+    if let Ok(path) = std::env::var("HARMONIA_WALLET_ROOT") {
+        let trimmed = path.trim();
+        if !trimmed.is_empty() {
+            return PathBuf::from(trimmed).join("master.db");
+        }
+    }
+    for key in [
+        "HARMONIA_VAULT_WALLET_DB",
+        "HARMONIA_WALLET_DB",
+        "HARMONIIS_WALLET_DB",
+    ] {
+        if let Ok(path) = std::env::var(key) {
+            let trimmed = path.trim();
+            if !trimmed.is_empty() {
+                let candidate = PathBuf::from(trimmed);
+                if candidate
+                    .file_name()
+                    .and_then(|name| name.to_str())
+                    .map(|name| name.eq_ignore_ascii_case("master.db"))
+                    .unwrap_or(false)
+                {
+                    return candidate;
+                }
+                return candidate.join("master.db");
+            }
+        }
+    }
     let home = std::env::var("HOME")
         .map(PathBuf::from)
         .unwrap_or_else(|_| PathBuf::from("."));
-    let primary = home.join(".harmoniis").join("master.db");
-    if primary.exists() {
-        return primary;
-    }
-    home.join(".harmoniis").join("rgb.db")
+    home.join(".harmoniis").join("wallet").join("master.db")
 }
 
 // ─── Config sexp parser ─────────────────────────────────────────────

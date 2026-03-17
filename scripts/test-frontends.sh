@@ -10,6 +10,7 @@ cargo build --release \
   -p harmonia-telegram \
   -p harmonia-slack \
   -p harmonia-discord \
+  -p harmonia-http2-mtls \
   -p harmonia-signal \
   -p harmonia-mattermost \
   -p harmonia-nostr \
@@ -29,6 +30,7 @@ sbcl --disable-debugger \
   --eval '(cffi:load-foreign-library #P"/Users/george/harmoniis/projects/agent/harmonia/target/release/libharmonia_whatsapp.dylib")' \
   --eval '(cffi:load-foreign-library #P"/Users/george/harmoniis/projects/agent/harmonia/target/release/libharmonia_telegram.dylib")' \
   --eval '(cffi:load-foreign-library #P"/Users/george/harmoniis/projects/agent/harmonia/target/release/libharmonia_slack.dylib")' \
+  --eval '(cffi:load-foreign-library #P"/Users/george/harmoniis/projects/agent/harmonia/target/release/libharmonia_http2_mtls.dylib")' \
   --eval '(cffi:load-foreign-library #P"/Users/george/harmoniis/projects/agent/harmonia/target/release/libharmonia_mattermost.dylib")' \
   --eval '(cffi:load-foreign-library #P"/Users/george/harmoniis/projects/agent/harmonia/target/release/libharmonia_nostr.dylib")' \
   --eval '(cffi:load-foreign-library #P"/Users/george/harmoniis/projects/agent/harmonia/target/release/libharmonia_email_client.dylib")' \
@@ -42,6 +44,7 @@ sbcl --disable-debugger \
   --eval '(cffi:defcfun ("harmonia_whatsapp_healthcheck" wa-hc) :int)' \
   --eval '(cffi:defcfun ("harmonia_telegram_healthcheck" tg-hc) :int)' \
   --eval '(cffi:defcfun ("harmonia_slack_healthcheck" sl-hc) :int)' \
+  --eval '(cffi:defcfun ("harmonia_frontend_healthcheck" h2-hc) :int)' \
   --eval '(cffi:defcfun ("harmonia_mattermost_healthcheck" mm-hc) :int)' \
   --eval '(cffi:defcfun ("harmonia_nostr_healthcheck" ns-hc) :int)' \
   --eval '(cffi:defcfun ("harmonia_email_client_healthcheck" em-hc) :int)' \
@@ -53,7 +56,7 @@ sbcl --disable-debugger \
   --eval '(cffi:defcfun ("harmonia_harmonic_matrix_healthcheck" hm-hc) :int)' \
   --eval '(cffi:defcfun ("harmonia_browser_healthcheck" bw-hc) :int)' \
   --eval '(cffi:defcfun ("harmonia_whatsapp_store_linked_device" wa-store) :int (id :string) (cred :string))' \
-  --eval '(format t "~&COMMS_HC=~S~%" (list (wa-hc) (tg-hc) (sl-hc) (mm-hc) (ns-hc) (em-hc) (exa-hc) (br-hc) (wh-hc) (el-hc) (pa-hc) (hm-hc) (bw-hc)))' \
+  --eval '(format t "~&COMMS_HC=~S~%" (list (wa-hc) (tg-hc) (sl-hc) (h2-hc) (mm-hc) (ns-hc) (em-hc) (exa-hc) (br-hc) (wh-hc) (el-hc) (pa-hc) (hm-hc) (bw-hc)))' \
   --eval '(format t "~&WA_STORE=~D~%" (wa-store "device-test" "cred-test"))' \
   --quit
 

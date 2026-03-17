@@ -2,16 +2,14 @@ load("@rules_rust//rust:defs.bzl", "rust_library")
 
 package(default_visibility = ["//visibility:public"])
 
-# Push is an rlib utility consumed by mqtt-client, not a standalone cdylib frontend.
 rust_library(
-    name = "push",
-    crate_name = "harmonia_push",
+    name = "baseband-channel-protocol",
+    crate_name = "harmonia_baseband_channel_protocol",
     srcs = glob(["src/**/*.rs"]),
+    crate_root = "src/lib.rs",
     edition = "2021",
     deps = [
-        "//lib/core/config-store",
         "@crate_index//:serde",
         "@crate_index//:serde_json",
-        "@crate_index//:ureq",
     ],
 )

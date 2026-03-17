@@ -11,7 +11,7 @@
 
 1. Full bootstrap/update flow: `harmonia setup`
 2. Seed policy only (no frontend/tool/provider re-entry): `harmonia setup --seeds`
-3. MQTT setup now seeds an embedded broker by default when the MQTT frontend is selected:
+3. MQTT is an embedded auto-configured broker. OpenSSL failure is non-fatal (falls back to plaintext on 127.0.0.1:1883). Setup seeds the broker config when the MQTT frontend is selected:
 ```bash
 sqlite3 ~/.harmoniis/harmonia/config.db \
   "select scope,key,value from config_kv where scope in ('mqtt-broker','mqtt-frontend') order by scope,key;"
@@ -23,12 +23,19 @@ ls ~/.harmoniis/harmonia/mqtt/
 5. Default remote config endpoints seeded by setup:
    - Remote config: `https://harmoniis.com/api/agent`
    - Push webhook: `https://harmoniis.com/api/webhooks/push`
-6. Verify active provider + seed list in config-store:
+6. Frontend setup and reconfiguration is centralized in the interactive CLI Frontends menu (`/menu` -> `Frontends` or `/frontends`). QR frontends and transport frontends should not be configured through duplicate pairing menus.
+7. HTTP/2 mTLS frontend config lives only in config-store:
+```bash
+sqlite3 ~/.harmoniis/harmonia/config.db \
+  "select key,value from config_kv where scope='http2-frontend' order by key;"
+```
+8. HTTP/2 trusted identities are stored in `http2-frontend/trusted-client-fingerprints-json`; server cert paths come from `ca-cert`, `server-cert`, and `server-key`.
+9. Verify active provider + seed list in config-store:
 ```bash
 sqlite3 ~/.harmoniis/harmonia/config.db \
   "select scope,key,value from config_kv where scope='model-policy' and key in ('provider','seed-models') order by key;"
 ```
-7. Verify provider-scoped defaults and overrides:
+10. Verify provider-scoped defaults and overrides:
 ```bash
 sqlite3 ~/.harmoniis/harmonia/config.db \
   "select key,value from config_kv where scope='model-policy' and key like 'seed-models-%' order by key;"
@@ -61,6 +68,7 @@ From `scripts/`:
 7. `./scripts/workload-local.sh` / `workload-cloud.sh` / `workload-full.sh` - workload paths.
 8. `./scripts/check-doc-reference-coverage.sh` - enforces canonical doc coverage mapping.
 9. `./scripts/generate-doc-section-coverage.sh` - regenerates heading-level matrix.
+10. Linux CI also runs a Bazel smoke build for `transport-auth`, `mqtt-client`, and `http2-mtls` to keep Cargo and Bazel integration aligned.
 
 ## 4. Recovery Procedure
 
@@ -70,14 +78,12 @@ From `scripts/`:
 4. Reload mutable policy state if corruption is suspected.
 5. Trigger rollback path when a rewrite caused instability.
 
-Canonical source: `../../../doc/agent/evolution/latest/RECOVERY.md`.
-
 ## 5. Documentation Consistency Check
 
 When docs are moved or renamed:
 
-1. Confirm every `doc/agent/genesis/*.md` concept remains mapped in `doc/reference/migration-map.md`.
-2. Confirm every `doc/agent/evolution/latest/*.md` topic remains mapped in `doc/reference/migration-map.md`.
+1. Confirm every `doc/genesis/*.md` concept remains mapped in `doc/reference/migration-map.md`.
+2. Confirm every `doc/evolution/*.md` topic remains mapped in `doc/reference/migration-map.md`.
 3. Remove stale paths from `doc/reference/*`.
 
 ## 6. Safe Change Pattern
@@ -134,8 +140,24 @@ Attempt to set vault min_harmony to 0.05 via `harmony-policy-set`. Must be rejec
 - **MQTT**: Send a message with wrong `agent_fp` → must arrive as untrusted.
 - **MQTT**: Send a message from a client fingerprint not present in `mqtt-frontend/trusted-client-fingerprints-json` → must arrive as untrusted.
 - **MQTT**: Stop the agent while a device is offline, restart, reconnect the device, and verify the persisted offline queue flushes.
+- **HTTP/2**: Connect without a client certificate → handshake must fail before gateway ingress.
+- **HTTP/2**: Connect with an untrusted client identity fingerprint → request must be rejected.
+- **HTTP/2**: Open two streams with different session IDs from the same authenticated client → route keys and outbound responses must stay isolated.
 
-### 7.8 Security Posture Check
+### 7.8 Sender Policy Verification
+
+1. Configure an email allowlist via `/policies` → Email → Add → enter `test@example.com`.
+2. Verify config-store contains the value:
+```bash
+sqlite3 ~/.harmoniis/harmonia/config.db \
+  "select value from config_kv where scope='sender-policy' and key='allowlist-email';"
+```
+3. Send a test signal from an unlisted sender address → must be silently dropped at gateway.
+4. Send from `test@example.com` → must pass through to orchestrator.
+5. Test allow-all mode: `/policies` → Email → Allow all → verify `mode-email` is `allow-all`.
+6. Test deny-all reset: `/policies` → Email → Deny all → verify mode reverts.
+
+### 7.9 Security Posture Check
 
 Monitor `*security-posture*` during normal operation. Should be `:nominal`. After sustained injection attempts, should escalate to `:elevated` or `:alert`.
 

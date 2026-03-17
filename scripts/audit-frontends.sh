@@ -11,6 +11,7 @@ cargo build --release \
   -p harmonia-gateway \
   -p harmonia-tui \
   -p harmonia-mqtt-client \
+  -p harmonia-http2-mtls \
   -p harmonia-telegram \
   -p harmonia-slack \
   -p harmonia-discord \
@@ -27,6 +28,7 @@ echo "[2/3] exported symbol audit (gateway contract)"
 for lib in \
   libharmonia_tui.dylib \
   libharmonia_mqtt_client.dylib \
+  libharmonia_http2_mtls.dylib \
   libharmonia_telegram.dylib \
   libharmonia_slack.dylib \
   libharmonia_discord.dylib \
@@ -72,6 +74,7 @@ print(f"init rc={gw.harmonia_gateway_init()}")
 frontends = [
     ("tui", "libharmonia_tui.dylib"),
     ("mqtt", "libharmonia_mqtt_client.dylib"),
+    ("http2", "libharmonia_http2_mtls.dylib"),
     ("telegram", "libharmonia_telegram.dylib"),
     ("slack", "libharmonia_slack.dylib"),
     ("discord", "libharmonia_discord.dylib"),

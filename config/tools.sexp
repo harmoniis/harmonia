@@ -22,17 +22,20 @@
   ;; Backends — LLM providers
   ("openrouter-backend" . "lib/backends/llms/openrouter")
 
+  ;; Backends — Voice providers
+  ("voice-router" . "lib/backends/voice/voice-router")
+
   ;; Tools — utility plugins
   ("browser" . "lib/tools/browser")
   ("search-exa" . "lib/tools/search-exa")
   ("search-brave" . "lib/tools/search-brave")
-  ("whisper" . "lib/tools/whisper")
-  ("elevenlabs" . "lib/tools/elevenlabs")
-  ("social" . "lib/tools/social")
+  ("hfetch" . "lib/tools/hfetch")
+  ("zoom" . "lib/tools/zoom")
 
   ;; Frontends — hot-pluggable channels (loaded via gateway, not directly)
   ;; Listed here for reference; actual loading is via baseband.sexp
   ("mqtt-client" . "lib/frontends/mqtt-client")
+  ("http2-mtls" . "lib/frontends/http2-mtls")
   ("tui" . "lib/frontends/tui")
   ("imessage" . "lib/frontends/imessage")
   ("whatsapp" . "lib/frontends/whatsapp")
