@@ -1356,7 +1356,7 @@ fn handle_command(
 
         // ── Resume past session ──
         "/resume" => match run_resume_flow(stdout, session) {
-            Ok(true) => CommandResult::Quit, // session switched, reconnect
+            Ok(true) => CommandResult::Quit,     // session switched, reconnect
             Ok(false) => CommandResult::Handled, // cancelled
             Err(e) => {
                 eprintln!("\n  {RED}Resume error: {}{RESET}", e);
@@ -1380,7 +1380,9 @@ fn handle_command(
 
         // ── Device pairing ──
         "/pair" | "/link" => {
-            eprintln!("\n  {DIM}Use Frontends from /menu. /pair is a compatibility alias.{RESET}\n");
+            eprintln!(
+                "\n  {DIM}Use Frontends from /menu. /pair is a compatibility alias.{RESET}\n"
+            );
             match crate::paths::current_node_identity() {
                 Ok(node_identity) => {
                     if let Err(e) =
@@ -1413,10 +1415,8 @@ fn handle_command(
         }
 
         // ── System commands (sent to daemon) ──
-        "/status" | "/backends" | "/tools" | "/chronicle" | "/metrics"
-        | "/security" | "/identity" | "/feedback" | "/wallet" => {
-            CommandResult::SendToAgent(cmd.to_string())
-        }
+        "/status" | "/backends" | "/tools" | "/chronicle" | "/metrics" | "/security"
+        | "/identity" | "/feedback" | "/wallet" => CommandResult::SendToAgent(cmd.to_string()),
 
         _ => CommandResult::SessionText,
     }
@@ -1457,10 +1457,7 @@ fn run_menu_flow(
                             if let Err(e) =
                                 crate::frontend_pairing::run_pairing_menu(stdout, &node_identity)
                             {
-                                eprintln!(
-                                    "\n  {RED}Pairing error: {}{RESET}",
-                                    e
-                                );
+                                eprintln!("\n  {RED}Pairing error: {}{RESET}", e);
                                 eprintln!("  {DIM}Press any key to continue...{RESET}\n");
                                 let _ = crossterm::terminal::enable_raw_mode();
                                 let _ = crossterm::event::read();
@@ -1470,7 +1467,8 @@ fn run_menu_flow(
                         "action:resume-session" => {
                             // We don't have session ref here, but we can get the label
                             let node_identity = crate::paths::current_node_identity()?;
-                            let dummy_session = crate::paths::resume_or_create_session(&node_identity)?;
+                            let dummy_session =
+                                crate::paths::resume_or_create_session(&node_identity)?;
                             match run_resume_flow(stdout, &dummy_session) {
                                 Ok(true) => {
                                     eprintln!("\n  {YELLOW}Session switched. Please restart harmonia to connect.{RESET}\n");
@@ -1618,11 +1616,31 @@ fn run_policy_frontend_menu(
 
     loop {
         let items = vec![
-            crate::menus::MenuItem::new("List allowed senders", "action:list", "Show current allowlist"),
-            crate::menus::MenuItem::new("Add allowed sender", "action:add", "Add a sender to the allowlist"),
-            crate::menus::MenuItem::new("Remove allowed sender", "action:remove", "Remove a sender from the allowlist"),
-            crate::menus::MenuItem::new("Allow all (not recommended)", "action:allow-all", "Accept messages from anyone"),
-            crate::menus::MenuItem::new("Deny all (default)", "action:deny-all", "Block all senders"),
+            crate::menus::MenuItem::new(
+                "List allowed senders",
+                "action:list",
+                "Show current allowlist",
+            ),
+            crate::menus::MenuItem::new(
+                "Add allowed sender",
+                "action:add",
+                "Add a sender to the allowlist",
+            ),
+            crate::menus::MenuItem::new(
+                "Remove allowed sender",
+                "action:remove",
+                "Remove a sender from the allowlist",
+            ),
+            crate::menus::MenuItem::new(
+                "Allow all (not recommended)",
+                "action:allow-all",
+                "Accept messages from anyone",
+            ),
+            crate::menus::MenuItem::new(
+                "Deny all (default)",
+                "action:deny-all",
+                "Block all senders",
+            ),
         ];
 
         let title = format!("{} Sender Policy", display_name);
@@ -1633,17 +1651,23 @@ fn run_policy_frontend_menu(
                     let mode_key = format!("mode-{}", frontend);
                     let mode = crate::paths::config_value("sender-policy", &mode_key)?
                         .unwrap_or_else(|| "deny".to_string());
-                    let allowlist = crate::paths::config_value("sender-policy", &key)?
-                        .unwrap_or_default();
+                    let allowlist =
+                        crate::paths::config_value("sender-policy", &key)?.unwrap_or_default();
 
                     eprintln!();
-                    eprintln!("  {BOLD_CYAN}◆{RESET} {BOLD}{} Sender Policy{RESET}", display_name);
+                    eprintln!(
+                        "  {BOLD_CYAN}◆{RESET} {BOLD}{} Sender Policy{RESET}",
+                        display_name
+                    );
                     eprintln!("  {DIM}──────────────────────────────────────{RESET}");
-                    eprintln!("  {CYAN}mode{RESET}      {}", if mode == "allow-all" {
-                        format!("{YELLOW}allow-all{RESET}")
-                    } else {
-                        format!("{GREEN}deny (default){RESET}")
-                    });
+                    eprintln!(
+                        "  {CYAN}mode{RESET}      {}",
+                        if mode == "allow-all" {
+                            format!("{YELLOW}allow-all{RESET}")
+                        } else {
+                            format!("{GREEN}deny (default){RESET}")
+                        }
+                    );
                     if allowlist.is_empty() {
                         eprintln!("  {CYAN}senders{RESET}   {DIM}(none){RESET}");
                     } else {
@@ -1669,20 +1693,23 @@ fn run_policy_frontend_menu(
                     }
 
                     let key = format!("allowlist-{}", frontend);
-                    let existing = crate::paths::config_value("sender-policy", &key)?
-                        .unwrap_or_default();
+                    let existing =
+                        crate::paths::config_value("sender-policy", &key)?.unwrap_or_default();
                     let new_val = if existing.is_empty() {
                         sender.clone()
                     } else {
                         format!("{},{}", existing, sender)
                     };
                     crate::paths::set_config_value("sender-policy", &key, &new_val)?;
-                    eprintln!("  {GREEN}✓{RESET} Added '{}' to {} allowlist.\n", sender, display_name);
+                    eprintln!(
+                        "  {GREEN}✓{RESET} Added '{}' to {} allowlist.\n",
+                        sender, display_name
+                    );
                 }
                 "action:remove" => {
                     let key = format!("allowlist-{}", frontend);
-                    let existing = crate::paths::config_value("sender-policy", &key)?
-                        .unwrap_or_default();
+                    let existing =
+                        crate::paths::config_value("sender-policy", &key)?.unwrap_or_default();
                     let senders: Vec<&str> = existing
                         .split(',')
                         .map(|s| s.trim())
@@ -1705,7 +1732,10 @@ fn run_policy_frontend_menu(
                                 .collect();
                             let new_val = remaining.join(",");
                             crate::paths::set_config_value("sender-policy", &key, &new_val)?;
-                            eprintln!("\n  {GREEN}✓{RESET} Removed '{}' from {} allowlist.\n", to_remove, display_name);
+                            eprintln!(
+                                "\n  {GREEN}✓{RESET} Removed '{}' from {} allowlist.\n",
+                                to_remove, display_name
+                            );
                         }
                         _ => {}
                     }

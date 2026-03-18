@@ -479,11 +479,7 @@ mod tests {
                 "HARMONIA_MESH_SHARED_SECRET",
             ),
             // tailscale integration
-            (
-                "tailscale",
-                "socket",
-                "HARMONIA_TAILSCALE_SOCKET",
-            ),
+            ("tailscale", "socket", "HARMONIA_TAILSCALE_SOCKET"),
             (
                 "tailscale",
                 "localapi-port",
@@ -559,11 +555,7 @@ mod tests {
                 "HARMONIA_SIGNALOGRAD_STATE_PATH",
             ),
             // observability
-            (
-                "observability",
-                "enabled",
-                "HARMONIA_OBSERVABILITY_ENABLED",
-            ),
+            ("observability", "enabled", "HARMONIA_OBSERVABILITY_ENABLED"),
             (
                 "observability",
                 "trace-level",
@@ -579,11 +571,7 @@ mod tests {
                 "project-name",
                 "HARMONIA_OBSERVABILITY_PROJECT_NAME",
             ),
-            (
-                "observability",
-                "api-url",
-                "HARMONIA_OBSERVABILITY_API_URL",
-            ),
+            ("observability", "api-url", "HARMONIA_OBSERVABILITY_API_URL"),
         ];
 
         let actual = all_entries();

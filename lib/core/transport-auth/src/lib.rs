@@ -41,7 +41,8 @@ pub fn config_path(component: &str, key: &str) -> Result<Option<PathBuf>, String
 }
 
 pub fn required_config_path(component: &str, key: &str) -> Result<PathBuf, String> {
-    config_path(component, key)?.ok_or_else(|| format!("missing config-store key {component}/{key}"))
+    config_path(component, key)?
+        .ok_or_else(|| format!("missing config-store key {component}/{key}"))
 }
 
 pub fn load_trusted_fingerprints(component: &str, key: &str) -> HashSet<String> {
@@ -67,16 +68,24 @@ pub fn load_trusted_fingerprints(component: &str, key: &str) -> HashSet<String> 
 
 pub fn load_required_bytes(component: &str, key: &str) -> Result<Vec<u8>, String> {
     let path = required_config_path(component, key)?;
-    fs::read(&path)
-        .map_err(|e| format!("failed reading {component}/{key} from {}: {e}", path.display()))
+    fs::read(&path).map_err(|e| {
+        format!(
+            "failed reading {component}/{key} from {}: {e}",
+            path.display()
+        )
+    })
 }
 
 pub fn load_optional_bytes(component: &str, key: &str) -> Result<Option<Vec<u8>>, String> {
     let Some(path) = config_path(component, key)? else {
         return Ok(None);
     };
-    let bytes = fs::read(&path)
-        .map_err(|e| format!("failed reading {component}/{key} from {}: {e}", path.display()))?;
+    let bytes = fs::read(&path).map_err(|e| {
+        format!(
+            "failed reading {component}/{key} from {}: {e}",
+            path.display()
+        )
+    })?;
     Ok(Some(bytes))
 }
 
@@ -123,8 +132,8 @@ pub fn certificate_fingerprint(der: &[u8]) -> String {
 }
 
 pub fn identity_fingerprint_from_der(der: &[u8]) -> Result<String, String> {
-    let (_, cert) =
-        X509Certificate::from_der(der).map_err(|e| format!("parse client certificate failed: {e}"))?;
+    let (_, cert) = X509Certificate::from_der(der)
+        .map_err(|e| format!("parse client certificate failed: {e}"))?;
     let common_name = cert
         .subject()
         .iter_common_name()
@@ -158,21 +167,24 @@ pub fn verify_client_certificate_der(
 }
 
 pub fn load_cert_chain(path: &Path) -> Result<Vec<CertificateDer<'static>>, String> {
-    let file =
-        fs::File::open(path).map_err(|e| format!("failed opening certificate {}: {e}", path.display()))?;
+    let file = fs::File::open(path)
+        .map_err(|e| format!("failed opening certificate {}: {e}", path.display()))?;
     let mut reader = BufReader::new(file);
     let certs = rustls_pemfile::certs(&mut reader)
         .collect::<Result<Vec<_>, _>>()
         .map_err(|e| format!("failed parsing certificate {}: {e}", path.display()))?;
     if certs.is_empty() {
-        return Err(format!("certificate file {} did not contain any certs", path.display()));
+        return Err(format!(
+            "certificate file {} did not contain any certs",
+            path.display()
+        ));
     }
     Ok(certs)
 }
 
 pub fn load_private_key(path: &Path) -> Result<PrivateKeyDer<'static>, String> {
-    let file =
-        fs::File::open(path).map_err(|e| format!("failed opening private key {}: {e}", path.display()))?;
+    let file = fs::File::open(path)
+        .map_err(|e| format!("failed opening private key {}: {e}", path.display()))?;
     let mut reader = BufReader::new(file);
     loop {
         match rustls_pemfile::read_one(&mut reader)
@@ -251,7 +263,10 @@ wHD7q++JijPj738MVLN+6uUINs2wTnG9/yT/kpT4zjho
 
     #[test]
     fn extracts_identity_from_certificate_common_name() {
-        assert_eq!(identity_fingerprint_from_der(&client_der()).unwrap(), "ABCDEF1234567890");
+        assert_eq!(
+            identity_fingerprint_from_der(&client_der()).unwrap(),
+            "ABCDEF1234567890"
+        );
     }
 
     #[test]

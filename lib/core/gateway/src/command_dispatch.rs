@@ -7,7 +7,6 @@
 ///      to runtime state (status, backends, chronicle, etc.).
 ///
 /// Lisp never sees command envelopes; only agent-level prompts pass through.
-
 use crate::model::{ChannelEnvelope, SecurityLabel};
 use crate::registry::Registry;
 use std::ffi::{CStr, CString};
@@ -208,10 +207,7 @@ fn execute_wallet() -> String {
                 &wallet_db
             },
         ),
-        kv(
-            "Wallet present:",
-            if wallet_present { "yes" } else { "no" },
-        ),
+        kv("Wallet present:", if wallet_present { "yes" } else { "no" }),
         kv(
             "Vault DB:",
             if vault_db.is_empty() {

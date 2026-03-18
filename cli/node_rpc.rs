@@ -724,7 +724,10 @@ fn frontend_configure(
             if !ok {
                 return Err("Telegram bot token is invalid".to_string());
             }
-            Ok((None, "Telegram bot token verified. Frontend ready.".to_string()))
+            Ok((
+                None,
+                "Telegram bot token verified. Frontend ready.".to_string(),
+            ))
         }
         "slack" => {
             set_secret_if_present(value_for(values, "bot-token"), &["slack-bot-token"])?;
@@ -751,7 +754,10 @@ fn frontend_configure(
             if !ok {
                 return Err("Discord token verification failed".to_string());
             }
-            Ok((None, format!("Discord verified. Saved channels: {channels}")))
+            Ok((
+                None,
+                format!("Discord verified. Saved channels: {channels}"),
+            ))
         }
         "mattermost" => {
             let api_url = value_for(values, "api-url").unwrap_or("").trim();
@@ -764,15 +770,15 @@ fn frontend_configure(
             }
             config_set("mattermost-frontend", "api-url", api_url)?;
             config_set("mattermost-frontend", "channels", channels)?;
-            set_secret_if_present(
-                value_for(values, "bot-token"),
-                &["mattermost-bot-token"],
-            )?;
+            set_secret_if_present(value_for(values, "bot-token"), &["mattermost-bot-token"])?;
             let ok = verify_mattermost_token()?;
             if !ok {
                 return Err("Mattermost auth failed".to_string());
             }
-            Ok((None, format!("Mattermost verified. Saved channels: {channels}")))
+            Ok((
+                None,
+                format!("Mattermost verified. Saved channels: {channels}"),
+            ))
         }
         "email" => {
             let required = [
@@ -794,17 +800,15 @@ fn frontend_configure(
                 }
                 config_set("email-frontend", key, value)?;
             }
-            set_secret_if_present(
-                value_for(values, "imap-password"),
-                &["email-imap-password"],
-            )?;
-            set_secret_if_present(
-                value_for(values, "smtp-password"),
-                &["email-smtp-password"],
-            )?;
+            set_secret_if_present(value_for(values, "imap-password"), &["email-imap-password"])?;
+            set_secret_if_present(value_for(values, "smtp-password"), &["email-smtp-password"])?;
             if !vault_has(
                 "email-frontend",
-                &["email-imap-password", "email-password", "email-smtp-password"],
+                &[
+                    "email-imap-password",
+                    "email-password",
+                    "email-smtp-password",
+                ],
             ) {
                 return Err("Email requires an IMAP password".to_string());
             }
@@ -844,15 +848,15 @@ fn frontend_configure(
                 return Err("iMessage requires server-url".to_string());
             }
             config_set("imessage-frontend", "server-url", server_url)?;
-            set_secret_if_present(
-                value_for(values, "password"),
-                &["bluebubbles-password"],
-            )?;
+            set_secret_if_present(value_for(values, "password"), &["bluebubbles-password"])?;
             let ok = verify_imessage_bridge()?;
             if !ok {
                 return Err("BlueBubbles bridge is not responding".to_string());
             }
-            Ok((None, "BlueBubbles bridge verified. Frontend ready.".to_string()))
+            Ok((
+                None,
+                "BlueBubbles bridge verified. Frontend ready.".to_string(),
+            ))
         }
         "tailscale" => {
             set_secret_if_present(value_for(values, "auth-key"), &["tailscale-auth-key"])?;
@@ -890,7 +894,9 @@ fn frontend_configure(
                 .filter(|value| !value.is_empty())
                 .collect();
             if trusted.is_empty() {
-                return Err("HTTP/2 requires at least one valid trusted client fingerprint".to_string());
+                return Err(
+                    "HTTP/2 requires at least one valid trusted client fingerprint".to_string(),
+                );
             }
             config_set("http2-frontend", "bind", &bind)?;
             config_set("http2-frontend", "ca-cert", ca_cert)?;
@@ -920,8 +926,13 @@ fn frontend_configure(
                 ),
             ))
         }
-        "mqtt" => Ok((None, "MQTT is managed automatically by Harmonia.".to_string())),
-        _ => Err(format!("frontend '{frontend}' does not support configuration")),
+        "mqtt" => Ok((
+            None,
+            "MQTT is managed automatically by Harmonia.".to_string(),
+        )),
+        _ => Err(format!(
+            "frontend '{frontend}' does not support configuration"
+        )),
     }
 }
 
@@ -1018,7 +1029,10 @@ fn list_pairable_frontends() -> Vec<harmonia_node_rpc::PairableFrontend> {
 
     // Telegram — bot token verification
     {
-        let has_token = vault_has("telegram-frontend", &["telegram-bot-token", "telegram-bot-api-token"]);
+        let has_token = vault_has(
+            "telegram-frontend",
+            &["telegram-bot-token", "telegram-bot-api-token"],
+        );
         let (status, pairable) = if has_token {
             match verify_telegram_token() {
                 Ok(true) => ("connected".to_string(), false),
@@ -1079,7 +1093,10 @@ fn list_pairable_frontends() -> Vec<harmonia_node_rpc::PairableFrontend> {
     // Mattermost — server + token verification
     {
         let has_url = config_has("mattermost-frontend", "api-url");
-        let has_token = vault_has("mattermost-frontend", &["mattermost-bot-token", "mattermost-token"]);
+        let has_token = vault_has(
+            "mattermost-frontend",
+            &["mattermost-bot-token", "mattermost-token"],
+        );
         let (status, pairable) = if has_url && has_token {
             match verify_mattermost_token() {
                 Ok(true) => ("connected".to_string(), false),
@@ -1102,7 +1119,11 @@ fn list_pairable_frontends() -> Vec<harmonia_node_rpc::PairableFrontend> {
         let has_host = config_has("email-frontend", "imap-host");
         let has_password = vault_has(
             "email-frontend",
-            &["email-imap-password", "email-password", "email-smtp-password"],
+            &[
+                "email-imap-password",
+                "email-password",
+                "email-smtp-password",
+            ],
         );
         let (status, pairable) = if has_host && has_password {
             ("configured".to_string(), false)
@@ -1196,8 +1217,11 @@ fn list_pairable_frontends() -> Vec<harmonia_node_rpc::PairableFrontend> {
 // ---------------------------------------------------------------------------
 
 fn verify_telegram_token() -> Result<bool, String> {
-    let token = vault_get("telegram-frontend", &["telegram-bot-token", "telegram-bot-api-token"])
-        .ok_or("no token")?;
+    let token = vault_get(
+        "telegram-frontend",
+        &["telegram-bot-token", "telegram-bot-api-token"],
+    )
+    .ok_or("no token")?;
     let url = format!("https://api.telegram.org/bot{token}/getMe");
     match ureq::get(&url).call() {
         Ok(resp) => {
@@ -1226,26 +1250,29 @@ fn verify_slack_token() -> Result<bool, String> {
 }
 
 fn verify_discord_token() -> Result<bool, String> {
-    let token = vault_get("discord-frontend", &["discord-bot-token", "discord-token"])
-        .ok_or("no token")?;
+    let token =
+        vault_get("discord-frontend", &["discord-bot-token", "discord-token"]).ok_or("no token")?;
     http_ok_bot("https://discord.com/api/v10/users/@me", &token)
 }
 
 fn verify_mattermost_token() -> Result<bool, String> {
     let url = config_get("mattermost-frontend", "api-url").ok_or("no url")?;
-    let token = vault_get("mattermost-frontend", &["mattermost-bot-token", "mattermost-token"])
-        .ok_or("no token")?;
+    let token = vault_get(
+        "mattermost-frontend",
+        &["mattermost-bot-token", "mattermost-token"],
+    )
+    .ok_or("no token")?;
     http_ok(&format!("{url}/api/v4/users/me"), Some(&token))
 }
 
 #[cfg(target_os = "macos")]
 fn verify_imessage_bridge() -> Result<bool, String> {
     let url = config_get("imessage-frontend", "server-url").ok_or("no url")?;
-    let password = vault_get("imessage-frontend", &["bluebubbles-password", "imessage-password"]);
-    http_ok(
-        &format!("{url}/api/v1/server/info"),
-        password.as_deref(),
-    )
+    let password = vault_get(
+        "imessage-frontend",
+        &["bluebubbles-password", "imessage-password"],
+    );
+    http_ok(&format!("{url}/api/v1/server/info"), password.as_deref())
 }
 
 fn frontend_pair_init(frontend: &str) -> Result<(Option<String>, String), String> {
@@ -1265,42 +1292,59 @@ fn frontend_pair_init(frontend: &str) -> Result<(Option<String>, String), String
                 "Scan the QR code with Signal on your phone:\nSignal > Settings > Linked Devices > Link New Device".to_string(),
             ))
         }
-        "telegram" => {
-            match verify_telegram_token() {
-                Ok(true) => Ok((None, "Telegram bot token verified. Bot is connected and receiving messages.".to_string())),
-                Ok(false) => Err("Telegram bot token is invalid. Update it via `harmonia setup`.".to_string()),
-                Err(e) => Err(format!("Cannot reach Telegram API: {e}")),
+        "telegram" => match verify_telegram_token() {
+            Ok(true) => Ok((
+                None,
+                "Telegram bot token verified. Bot is connected and receiving messages.".to_string(),
+            )),
+            Ok(false) => {
+                Err("Telegram bot token is invalid. Update it via `harmonia setup`.".to_string())
             }
-        }
-        "slack" => {
-            match verify_slack_token() {
-                Ok(true) => Ok((None, "Slack bot token verified. Bot is connected.".to_string())),
-                Ok(false) => Err("Slack bot token is invalid. Update it via `harmonia setup`.".to_string()),
-                Err(e) => Err(format!("Cannot reach Slack API: {e}")),
+            Err(e) => Err(format!("Cannot reach Telegram API: {e}")),
+        },
+        "slack" => match verify_slack_token() {
+            Ok(true) => Ok((
+                None,
+                "Slack bot token verified. Bot is connected.".to_string(),
+            )),
+            Ok(false) => {
+                Err("Slack bot token is invalid. Update it via `harmonia setup`.".to_string())
             }
-        }
-        "discord" => {
-            match verify_discord_token() {
-                Ok(true) => Ok((None, "Discord bot token verified. Bot is connected.".to_string())),
-                Ok(false) => Err("Discord bot token is invalid. Update it via `harmonia setup`.".to_string()),
-                Err(e) => Err(format!("Cannot reach Discord API: {e}")),
+            Err(e) => Err(format!("Cannot reach Slack API: {e}")),
+        },
+        "discord" => match verify_discord_token() {
+            Ok(true) => Ok((
+                None,
+                "Discord bot token verified. Bot is connected.".to_string(),
+            )),
+            Ok(false) => {
+                Err("Discord bot token is invalid. Update it via `harmonia setup`.".to_string())
             }
-        }
-        "mattermost" => {
-            match verify_mattermost_token() {
-                Ok(true) => Ok((None, "Mattermost bot token verified. Bot is connected.".to_string())),
-                Ok(false) => Err("Mattermost auth failed. Check api-url and bot token via `harmonia setup`.".to_string()),
-                Err(e) => Err(format!("Cannot reach Mattermost server: {e}")),
-            }
-        }
+            Err(e) => Err(format!("Cannot reach Discord API: {e}")),
+        },
+        "mattermost" => match verify_mattermost_token() {
+            Ok(true) => Ok((
+                None,
+                "Mattermost bot token verified. Bot is connected.".to_string(),
+            )),
+            Ok(false) => Err(
+                "Mattermost auth failed. Check api-url and bot token via `harmonia setup`."
+                    .to_string(),
+            ),
+            Err(e) => Err(format!("Cannot reach Mattermost server: {e}")),
+        },
         #[cfg(target_os = "macos")]
-        "imessage" => {
-            match verify_imessage_bridge() {
-                Ok(true) => Ok((None, "BlueBubbles bridge is reachable. iMessage is connected.".to_string())),
-                Ok(false) => Err("BlueBubbles bridge is not responding. Check server-url via `harmonia setup`.".to_string()),
-                Err(e) => Err(format!("Cannot reach BlueBubbles: {e}")),
-            }
-        }
+        "imessage" => match verify_imessage_bridge() {
+            Ok(true) => Ok((
+                None,
+                "BlueBubbles bridge is reachable. iMessage is connected.".to_string(),
+            )),
+            Ok(false) => Err(
+                "BlueBubbles bridge is not responding. Check server-url via `harmonia setup`."
+                    .to_string(),
+            ),
+            Err(e) => Err(format!("Cannot reach BlueBubbles: {e}")),
+        },
         _ => Err(format!("frontend '{frontend}' does not support linking")),
     }
 }
@@ -1316,20 +1360,62 @@ fn frontend_pair_status(frontend: &str) -> Result<(bool, String), String> {
             }
             Ok(status)
         }
-        "telegram" => verify_telegram_token().map(|ok| (ok, if ok { "connected" } else { "token invalid" }.to_string())),
-        "slack" => verify_slack_token().map(|ok| (ok, if ok { "connected" } else { "token invalid" }.to_string())),
-        "discord" => verify_discord_token().map(|ok| (ok, if ok { "connected" } else { "token invalid" }.to_string())),
-        "mattermost" => verify_mattermost_token().map(|ok| (ok, if ok { "connected" } else { "auth failed" }.to_string())),
+        "telegram" => verify_telegram_token().map(|ok| {
+            (
+                ok,
+                if ok { "connected" } else { "token invalid" }.to_string(),
+            )
+        }),
+        "slack" => verify_slack_token().map(|ok| {
+            (
+                ok,
+                if ok { "connected" } else { "token invalid" }.to_string(),
+            )
+        }),
+        "discord" => verify_discord_token().map(|ok| {
+            (
+                ok,
+                if ok { "connected" } else { "token invalid" }.to_string(),
+            )
+        }),
+        "mattermost" => verify_mattermost_token()
+            .map(|ok| (ok, if ok { "connected" } else { "auth failed" }.to_string())),
         #[cfg(target_os = "macos")]
-        "imessage" => verify_imessage_bridge().map(|ok| (ok, if ok { "connected" } else { "bridge unreachable" }.to_string())),
+        "imessage" => verify_imessage_bridge().map(|ok| {
+            (
+                ok,
+                if ok {
+                    "connected"
+                } else {
+                    "bridge unreachable"
+                }
+                .to_string(),
+            )
+        }),
         "email" => {
             let configured = config_has("email-frontend", "imap-host")
                 && vault_has("email-frontend", &["email-imap-password", "email-password"]);
-            Ok((configured, if configured { "configured" } else { "not configured" }.to_string()))
+            Ok((
+                configured,
+                if configured {
+                    "configured"
+                } else {
+                    "not configured"
+                }
+                .to_string(),
+            ))
         }
         "nostr" => {
             let configured = vault_has("nostr-frontend", &["nostr-private-key", "nostr-nsec"]);
-            Ok((configured, if configured { "key configured" } else { "not configured" }.to_string()))
+            Ok((
+                configured,
+                if configured {
+                    "key configured"
+                } else {
+                    "not configured"
+                }
+                .to_string(),
+            ))
         }
         "http2" => {
             let configured = config_has("http2-frontend", "bind")
@@ -1427,7 +1513,10 @@ fn bind_vault_env() -> Result<(), String> {
     let _ = crate::paths::set_config_value("global", "wallet-db", &wallet_db.to_string_lossy());
     let _ = crate::paths::set_config_value("global", "state-root", &state_root.to_string_lossy());
     std::env::set_var("HARMONIA_VAULT_DB", vault_db.to_string_lossy().as_ref());
-    std::env::set_var("HARMONIA_WALLET_ROOT", wallet_root.to_string_lossy().as_ref());
+    std::env::set_var(
+        "HARMONIA_WALLET_ROOT",
+        wallet_root.to_string_lossy().as_ref(),
+    );
     std::env::set_var(
         "HARMONIA_VAULT_WALLET_DB",
         wallet_db.to_string_lossy().as_ref(),

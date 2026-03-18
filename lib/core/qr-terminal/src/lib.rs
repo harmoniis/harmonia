@@ -36,9 +36,9 @@ pub fn render_qr_to_string(data: &str) -> Result<String, String> {
             let top = is_dark(row, col);
             let bot = is_dark(row + 1, col);
             let ch = match (top, bot) {
-                (true, true) => '\u{2588}',   // █  full block
-                (true, false) => '\u{2580}',  // ▀  upper half
-                (false, true) => '\u{2584}',  // ▄  lower half
+                (true, true) => '\u{2588}',  // █  full block
+                (true, false) => '\u{2580}', // ▀  upper half
+                (false, true) => '\u{2584}', // ▄  lower half
                 (false, false) => ' ',
             };
             out.push(ch);

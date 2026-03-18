@@ -62,7 +62,9 @@ fn load_policies() -> SenderPolicyCache {
     for &frontend in MESSAGING_FRONTENDS {
         // Check mode
         let mode_key = format!("mode-{}", frontend);
-        if let Ok(Some(mode)) = harmonia_config_store::get_config("gateway", "sender-policy", &mode_key) {
+        if let Ok(Some(mode)) =
+            harmonia_config_store::get_config("gateway", "sender-policy", &mode_key)
+        {
             if mode == "allow-all" {
                 allow_all.insert(frontend.to_string());
             }
@@ -70,7 +72,9 @@ fn load_policies() -> SenderPolicyCache {
 
         // Load allowlist
         let list_key = format!("allowlist-{}", frontend);
-        if let Ok(Some(list)) = harmonia_config_store::get_config("gateway", "sender-policy", &list_key) {
+        if let Ok(Some(list)) =
+            harmonia_config_store::get_config("gateway", "sender-policy", &list_key)
+        {
             let senders: HashSet<String> = list
                 .split(',')
                 .map(|s| s.trim().to_lowercase())

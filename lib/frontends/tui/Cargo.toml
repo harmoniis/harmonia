@@ -1,6 +1,6 @@
 [package]
 name = "harmonia-tui"
-version = "0.1.8"
+version = "0.1.9"
 edition.workspace = true
 license.workspace = true
 repository.workspace = true
@@ -16,7 +16,7 @@ crate-type = ["cdylib", "rlib"]
 [dependencies]
 crossterm = "0.28"
 dirs = "5"
-harmonia-config-store = { version = "0.1.8", path = "../../core/config-store" }
+harmonia-config-store = { version = "0.1.9", path = "../../core/config-store" }
 
 [target.'cfg(unix)'.dependencies]
 libc = "0.2"

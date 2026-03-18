@@ -1,85 +1,93 @@
-#!/bin/bash
-# Publish all Harmonia crates to crates.io in dependency order.
+#!/usr/bin/env bash
+# Publish all Harmonia crates to crates.io in workspace dependency order.
 # Usage: ./scripts/publish-all.sh [--dry-run]
-set -eu
+set -euo pipefail
 
 DRY_RUN=""
-if [ "${1:-}" = "--dry-run" ]; then
-    DRY_RUN="--dry-run"
-    echo "==> Dry-run mode"
+if [[ "${1:-}" == "--dry-run" ]]; then
+  DRY_RUN="--dry-run"
+  echo "==> Dry-run mode"
 fi
 
 SLEEP=75
 
 publish() {
-    local crate="$1"
-    echo "--- Publishing $crate ---"
-    local output
-    if output=$(cargo publish -p "$crate" $DRY_RUN 2>&1); then
-        echo "$output"
+  local crate="$1"
+  echo "--- Publishing ${crate} ---"
+  local output
+  if output=$(cargo publish -p "${crate}" ${DRY_RUN} 2>&1); then
+    echo "${output}"
+  else
+    if echo "${output}" | grep -q "already exists"; then
+      echo "    ${crate} already published, skipping"
     else
-        if echo "$output" | grep -q "already exists"; then
-            echo "    $crate already published, skipping"
-        else
-            echo "$output" >&2
-            echo "    ERROR: failed to publish $crate"
-            return 1
-        fi
+      echo "${output}" >&2
+      echo "    ERROR: failed to publish ${crate}"
+      return 1
     fi
-    if [ -z "$DRY_RUN" ]; then
-        echo "    Waiting ${SLEEP}s for crates.io index..."
-        sleep "$SLEEP"
-    fi
+  fi
+  if [[ -z "${DRY_RUN}" ]]; then
+    echo "    Waiting ${SLEEP}s for crates.io index..."
+    sleep "${SLEEP}"
+  fi
 }
 
-echo "=== Tier 0: No harmonia-* dependencies ==="
-publish harmonia-vault
-publish harmonia-phoenix
-publish harmonia-ouroboros
-publish harmonia-memory
-publish harmonia-fs
-publish harmonia-http
-publish harmonia-s3
-publish harmonia-git-ops
-publish harmonia-rust-forge
-publish harmonia-cron-scheduler
-publish harmonia-recovery
-publish harmonia-parallel-agents
-publish harmonia-harmonic-matrix
-publish harmonia-config-store
-publish harmonia-gateway
-publish harmonia-baseband-channel-protocol
+publish_order() {
+  local metadata
+  metadata="$(cargo metadata --quiet --format-version 1)"
+  printf '%s' "${metadata}" | python3 - <<'PY'
+import json
+import sys
+from collections import defaultdict
+from heapq import heapify, heappop, heappush
 
-echo "=== Tier 0b: Frontends with no vault deps ==="
-publish harmonia-tui
-publish harmonia-push
-publish harmonia-mqtt-client
-publish harmonia-mattermost
-publish harmonia-nostr
-publish harmonia-email-client
-publish harmonia-whisper
-publish harmonia-social
+meta = json.load(sys.stdin)
+workspace = set(meta["workspace_members"])
+packages = {pkg["id"]: pkg for pkg in meta["packages"] if pkg["id"] in workspace}
+nodes = {node["id"]: node for node in meta["resolve"]["nodes"] if node["id"] in workspace}
 
-echo "=== Tier 1: Depends on vault ==="
-publish harmonia-openrouter-backend
-publish harmonia-browser
-publish harmonia-search-exa
-publish harmonia-search-brave
-publish harmonia-elevenlabs
-publish harmonia-telegram
-publish harmonia-slack
-publish harmonia-discord
-publish harmonia-transport-auth
-publish harmonia-signal
-publish harmonia-whatsapp
-publish harmonia-imessage
-publish harmonia-http2-mtls
-publish harmonia-tailnet
+forward = {pkg_id: set() for pkg_id in packages}
+indegree = {pkg_id: 0 for pkg_id in packages}
 
-echo "=== Tier 2: Depends on tailnet ==="
-publish harmonia-tailscale-frontend
+for pkg_id, node in nodes.items():
+    for dep in node["deps"]:
+        dep_id = dep["pkg"]
+        if dep_id not in packages:
+            continue
+        if pkg_id in forward[dep_id]:
+            continue
+        forward[dep_id].add(pkg_id)
+        indegree[pkg_id] += 1
 
-echo "=== Tier 3: Root binary ==="
-publish harmonia
+ready = sorted(pkg["name"] for pkg_id, pkg in packages.items() if indegree[pkg_id] == 0)
+heapify(ready)
+id_by_name = {pkg["name"]: pkg_id for pkg_id, pkg in packages.items()}
+order = []
+
+while ready:
+    name = heappop(ready)
+    pkg_id = id_by_name[name]
+    order.append(name)
+    for dependent in sorted(forward[pkg_id], key=lambda dep_id: packages[dep_id]["name"]):
+        indegree[dependent] -= 1
+        if indegree[dependent] == 0:
+            heappush(ready, packages[dependent]["name"])
+
+if len(order) != len(packages):
+    missing = sorted(pkg["name"] for pkg_id, pkg in packages.items() if pkg["name"] not in order)
+    raise SystemExit(
+        f"failed to resolve publish order for workspace packages: {', '.join(missing)}"
+    )
+
+for name in order:
+    print(name)
+PY
+}
+
+echo "=== Publishing workspace crates in dependency order ==="
+while IFS= read -r crate; do
+  [[ -n "${crate}" ]] || continue
+  publish "${crate}"
+done < <(publish_order)
 
 echo "=== Done ==="

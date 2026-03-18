@@ -1,6 +1,6 @@
 [package]
 name = "harmonia-observability"
-version = "0.1.8"
+version = "0.1.9"
 edition.workspace = true
 license.workspace = true
 repository.workspace = true
@@ -14,9 +14,9 @@ categories = ["development-tools::profiling"]
 crate-type = ["cdylib", "rlib"]
 
 [dependencies]
-harmonia-config-store = { version = "0.1.8", path = "../config-store" }
-harmonia-vault = { version = "0.1.8", path = "../vault" }
-harmonia-actor-protocol = { version = "0.1.8", path = "../actor-protocol" }
+harmonia-config-store = { version = "0.1.9", path = "../config-store" }
+harmonia-vault = { version = "0.1.9", path = "../vault" }
+harmonia-actor-protocol = { version = "0.1.9", path = "../actor-protocol" }
 ureq = { version = "2", features = ["json"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"

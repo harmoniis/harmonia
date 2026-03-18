@@ -5,7 +5,7 @@
 //! Uses std::sync::mpsc — no tokio needed.
 
 use crate::client::LangSmithClient;
-use crate::model::{TraceMessage, new_uuid, now_iso, dotted_order_root};
+use crate::model::{dotted_order_root, new_uuid, now_iso, TraceMessage};
 use serde_json::{json, Value};
 use std::sync::mpsc::{self, Receiver, SyncSender};
 use std::sync::OnceLock;

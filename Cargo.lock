@@ -2027,7 +2027,7 @@ dependencies = [
 
 [[package]]
 name = "harmonia"
-version = "0.1.8"
+version = "0.1.9"
 dependencies = [
  "async-trait",
  "base64 0.22.1",
@@ -2060,11 +2060,11 @@ dependencies = [
 
 [[package]]
 name = "harmonia-actor-protocol"
-version = "0.1.8"
+version = "0.1.9"
 
 [[package]]
 name = "harmonia-admin-intent"
-version = "0.1.8"
+version = "0.1.9"
 dependencies = [
  "ed25519-dalek",
  "harmonia-vault",
@@ -2075,7 +2075,7 @@ dependencies = [
 
 [[package]]
 name = "harmonia-alibaba"
-version = "0.1.8"
+version = "0.1.9"
 dependencies = [
  "harmonia-config-store",
  "harmonia-provider-protocol",
@@ -2084,7 +2084,7 @@ dependencies = [
 
 [[package]]
 name = "harmonia-amazon-bedrock"
-version = "0.1.8"
+version = "0.1.9"
 dependencies = [
  "harmonia-config-store",
  "harmonia-provider-protocol",
@@ -2093,7 +2093,7 @@ dependencies = [
 
 [[package]]
 name = "harmonia-anthropic"
-version = "0.1.8"
+version = "0.1.9"
 dependencies = [
  "harmonia-config-store",
  "harmonia-provider-protocol",
@@ -2102,7 +2102,7 @@ dependencies = [
 
 [[package]]
 name = "harmonia-baseband-channel-protocol"
-version = "0.1.8"
+version = "0.1.9"
 dependencies = [
  "serde",
  "serde_json",
@@ -2123,7 +2123,7 @@ dependencies = [
 
 [[package]]
 name = "harmonia-chronicle"
-version = "0.1.8"
+version = "0.1.9"
 dependencies = [
  "harmonia-actor-protocol",
  "harmonia-config-store",
@@ -2133,18 +2133,18 @@ dependencies = [
 
 [[package]]
 name = "harmonia-config-store"
-version = "0.1.8"
+version = "0.1.9"
 dependencies = [
  "rusqlite",
 ]
 
 [[package]]
 name = "harmonia-cron-scheduler"
-version = "0.1.8"
+version = "0.1.9"
 
 [[package]]
 name = "harmonia-discord"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "harmonia-config-store",
  "harmonia-vault",
@@ -2155,7 +2155,7 @@ dependencies = [
 
 [[package]]
 name = "harmonia-elevenlabs"
-version = "0.1.8"
+version = "0.1.9"
 dependencies = [
  "harmonia-config-store",
  "harmonia-voice-protocol",
@@ -2165,7 +2165,7 @@ dependencies = [
 
 [[package]]
 name = "harmonia-email-client"
-version = "0.1.8"
+version = "0.1.9"
 dependencies = [
  "harmonia-config-store",
  "harmonia-vault",
@@ -2179,14 +2179,14 @@ dependencies = [
 
 [[package]]
 name = "harmonia-fs"
-version = "0.1.8"
+version = "0.1.9"
 dependencies = [
  "harmonia-config-store",
 ]
 
 [[package]]
 name = "harmonia-gateway"
-version = "0.1.8"
+version = "0.1.9"
 dependencies = [
  "harmonia-actor-protocol",
  "harmonia-baseband-channel-protocol",
@@ -2204,11 +2204,11 @@ dependencies = [
 
 [[package]]
 name = "harmonia-git-ops"
-version = "0.1.8"
+version = "0.1.9"
 
 [[package]]
 name = "harmonia-google-ai-studio"
-version = "0.1.8"
+version = "0.1.9"
 dependencies = [
  "harmonia-config-store",
  "harmonia-provider-protocol",
@@ -2217,7 +2217,7 @@ dependencies = [
 
 [[package]]
 name = "harmonia-google-vertex"
-version = "0.1.8"
+version = "0.1.9"
 dependencies = [
  "harmonia-config-store",
  "harmonia-provider-protocol",
@@ -2226,7 +2226,7 @@ dependencies = [
 
 [[package]]
 name = "harmonia-groq"
-version = "0.1.8"
+version = "0.1.9"
 dependencies = [
  "harmonia-config-store",
  "harmonia-provider-protocol",
@@ -2235,7 +2235,7 @@ dependencies = [
 
 [[package]]
 name = "harmonia-harmonic-matrix"
-version = "0.1.8"
+version = "0.1.9"
 dependencies = [
  "harmonia-config-store",
  "rusqlite",
@@ -2243,7 +2243,7 @@ dependencies = [
 
 [[package]]
 name = "harmonia-hfetch"
-version = "0.1.8"
+version = "0.1.9"
 dependencies = [
  "clap",
  "harmonia-signal-integrity",
@@ -2253,14 +2253,14 @@ dependencies = [
 
 [[package]]
 name = "harmonia-http"
-version = "0.1.8"
+version = "0.1.9"
 dependencies = [
  "harmonia-vault",
 ]
 
 [[package]]
 name = "harmonia-http2-mtls"
-version = "0.1.8"
+version = "0.1.9"
 dependencies = [
  "bytes",
  "futures-util",
@@ -2279,7 +2279,7 @@ dependencies = [
 
 [[package]]
 name = "harmonia-imessage"
-version = "0.1.8"
+version = "0.1.9"
 dependencies = [
  "harmonia-config-store",
  "harmonia-vault",
@@ -2290,7 +2290,7 @@ dependencies = [
 
 [[package]]
 name = "harmonia-mattermost"
-version = "0.1.8"
+version = "0.1.9"
 dependencies = [
  "harmonia-config-store",
  "harmonia-vault",
@@ -2301,11 +2301,11 @@ dependencies = [
 
 [[package]]
 name = "harmonia-memory"
-version = "0.1.8"
+version = "0.1.9"
 
 [[package]]
 name = "harmonia-mqtt-client"
-version = "0.1.8"
+version = "0.1.9"
 dependencies = [
  "chrono",
  "harmonia-baseband-channel-protocol",
@@ -2326,14 +2326,14 @@ dependencies = [
 
 [[package]]
 name = "harmonia-node-rpc"
-version = "0.1.8"
+version = "0.1.9"
 dependencies = [
  "serde",
 ]
 
 [[package]]
 name = "harmonia-nostr"
-version = "0.1.8"
+version = "0.1.9"
 dependencies = [
  "harmonia-config-store",
  "harmonia-vault",
@@ -2347,7 +2347,7 @@ dependencies = [
 
 [[package]]
 name = "harmonia-observability"
-version = "0.1.8"
+version = "0.1.9"
 dependencies = [
  "harmonia-actor-protocol",
  "harmonia-config-store",
@@ -2360,7 +2360,7 @@ dependencies = [
 
 [[package]]
 name = "harmonia-openai"
-version = "0.1.8"
+version = "0.1.9"
 dependencies = [
  "harmonia-config-store",
  "harmonia-provider-protocol",
@@ -2369,7 +2369,7 @@ dependencies = [
 
 [[package]]
 name = "harmonia-openrouter"
-version = "0.1.8"
+version = "0.1.9"
 dependencies = [
  "harmonia-config-store",
  "harmonia-provider-protocol",
@@ -2378,7 +2378,7 @@ dependencies = [
 
 [[package]]
 name = "harmonia-ouroboros"
-version = "0.1.8"
+version = "0.1.9"
 dependencies = [
  "harmonia-chronicle",
  "harmonia-config-store",
@@ -2386,7 +2386,7 @@ dependencies = [
 
 [[package]]
 name = "harmonia-parallel-agents"
-version = "0.1.8"
+version = "0.1.9"
 dependencies = [
  "harmonia-actor-protocol",
  "harmonia-config-store",
@@ -2397,7 +2397,7 @@ dependencies = [
 
 [[package]]
 name = "harmonia-payment-auth"
-version = "0.1.8"
+version = "0.1.9"
 dependencies = [
  "bdk_wallet",
  "chrono",
@@ -2413,7 +2413,7 @@ dependencies = [
 
 [[package]]
 name = "harmonia-phoenix"
-version = "0.1.8"
+version = "0.1.9"
 dependencies = [
  "harmonia-chronicle",
  "harmonia-config-store",
@@ -2421,7 +2421,7 @@ dependencies = [
 
 [[package]]
 name = "harmonia-provider-protocol"
-version = "0.1.8"
+version = "0.1.9"
 dependencies = [
  "harmonia-config-store",
  "harmonia-vault",
@@ -2431,7 +2431,7 @@ dependencies = [
 
 [[package]]
 name = "harmonia-provider-router"
-version = "0.1.8"
+version = "0.1.9"
 dependencies = [
  "harmonia-alibaba",
  "harmonia-amazon-bedrock",
@@ -2447,7 +2447,7 @@ dependencies = [
 
 [[package]]
 name = "harmonia-push"
-version = "0.1.8"
+version = "0.1.9"
 dependencies = [
  "harmonia-config-store",
  "serde",
@@ -2457,32 +2457,32 @@ dependencies = [
 
 [[package]]
 name = "harmonia-qr-terminal"
-version = "0.1.8"
+version = "0.1.9"
 dependencies = [
  "qrcode",
 ]
 
 [[package]]
 name = "harmonia-recovery"
-version = "0.1.8"
+version = "0.1.9"
 dependencies = [
  "harmonia-config-store",
 ]
 
 [[package]]
 name = "harmonia-rust-forge"
-version = "0.1.8"
+version = "0.1.9"
 
 [[package]]
 name = "harmonia-s3"
-version = "0.1.8"
+version = "0.1.9"
 dependencies = [
  "harmonia-config-store",
 ]
 
 [[package]]
 name = "harmonia-search-brave"
-version = "0.1.8"
+version = "0.1.9"
 dependencies = [
  "harmonia-config-store",
  "harmonia-signal-integrity",
@@ -2491,7 +2491,7 @@ dependencies = [
 
 [[package]]
 name = "harmonia-search-exa"
-version = "0.1.8"
+version = "0.1.9"
 dependencies = [
  "harmonia-config-store",
  "harmonia-signal-integrity",
@@ -2500,7 +2500,7 @@ dependencies = [
 
 [[package]]
 name = "harmonia-signal"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "harmonia-config-store",
  "harmonia-vault",
@@ -2510,11 +2510,11 @@ dependencies = [
 
 [[package]]
 name = "harmonia-signal-integrity"
-version = "0.1.8"
+version = "0.1.9"
 
 [[package]]
 name = "harmonia-signalograd"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "harmonia-actor-protocol",
  "harmonia-config-store",
@@ -2524,7 +2524,7 @@ dependencies = [
 
 [[package]]
 name = "harmonia-slack"
-version = "0.1.8"
+version = "0.1.9"
 dependencies = [
  "harmonia-config-store",
  "harmonia-vault",
@@ -2535,7 +2535,7 @@ dependencies = [
 
 [[package]]
 name = "harmonia-tailnet"
-version = "0.1.8"
+version = "0.1.9"
 dependencies = [
  "base64 0.22.1",
  "dirs",
@@ -2551,7 +2551,7 @@ dependencies = [
 
 [[package]]
 name = "harmonia-tailscale-frontend"
-version = "0.1.8"
+version = "0.1.9"
 dependencies = [
  "harmonia-tailnet",
  "serde_json",
@@ -2559,7 +2559,7 @@ dependencies = [
 
 [[package]]
 name = "harmonia-telegram"
-version = "0.1.8"
+version = "0.1.9"
 dependencies = [
  "harmonia-vault",
  "serde",
@@ -2569,7 +2569,7 @@ dependencies = [
 
 [[package]]
 name = "harmonia-tool-channel-protocol"
-version = "0.1.8"
+version = "0.1.9"
 dependencies = [
  "harmonia-baseband-channel-protocol",
  "harmonia-signal-integrity",
@@ -2577,7 +2577,7 @@ dependencies = [
 
 [[package]]
 name = "harmonia-transport-auth"
-version = "0.1.8"
+version = "0.1.9"
 dependencies = [
  "harmonia-config-store",
  "harmonia-vault",
@@ -2592,7 +2592,7 @@ dependencies = [
 
 [[package]]
 name = "harmonia-tui"
-version = "0.1.8"
+version = "0.1.9"
 dependencies = [
  "crossterm",
  "dirs",
@@ -2602,7 +2602,7 @@ dependencies = [
 
 [[package]]
 name = "harmonia-vault"
-version = "0.1.8"
+version = "0.1.9"
 dependencies = [
  "aes-gcm",
  "hex",
@@ -2614,7 +2614,7 @@ dependencies = [
 
 [[package]]
 name = "harmonia-voice-protocol"
-version = "0.1.8"
+version = "0.1.9"
 dependencies = [
  "harmonia-config-store",
  "harmonia-vault",
@@ -2625,7 +2625,7 @@ dependencies = [
 
 [[package]]
 name = "harmonia-voice-router"
-version = "0.1.8"
+version = "0.1.9"
 dependencies = [
  "harmonia-config-store",
  "harmonia-elevenlabs",
@@ -2635,7 +2635,7 @@ dependencies = [
 
 [[package]]
 name = "harmonia-whatsapp"
-version = "0.1.8"
+version = "0.1.9"
 dependencies = [
  "harmonia-config-store",
  "harmonia-vault",
@@ -2646,7 +2646,7 @@ dependencies = [
 
 [[package]]
 name = "harmonia-whisper"
-version = "0.1.8"
+version = "0.1.9"
 dependencies = [
  "harmonia-config-store",
  "harmonia-voice-protocol",
@@ -2655,7 +2655,7 @@ dependencies = [
 
 [[package]]
 name = "harmonia-xai"
-version = "0.1.8"
+version = "0.1.9"
 dependencies = [
  "harmonia-config-store",
  "harmonia-provider-protocol",
@@ -2664,7 +2664,7 @@ dependencies = [
 
 [[package]]
 name = "harmonia-zoom"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "harmonia-browser",
  "harmonia-vault",
@@ -2674,7 +2674,7 @@ dependencies = [
 
 [[package]]
 name = "harmoniis-wallet"
-version = "0.1.37"
+version = "0.1.38"
 dependencies = [
  "anyhow",
  "ark-bdk-wallet",

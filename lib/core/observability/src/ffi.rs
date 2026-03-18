@@ -6,8 +6,8 @@
 use crate::config::ObservabilityConfig;
 use crate::context::{self, TraceContext, TraceContextGuard};
 use crate::model::{
-    dotted_order_child, dotted_order_root, global_state, handle_map, new_uuid, now_iso,
-    TraceEvent, TraceMessage, TraceSpan,
+    dotted_order_child, dotted_order_root, global_state, handle_map, new_uuid, now_iso, TraceEvent,
+    TraceMessage, TraceSpan,
 };
 use crate::sender;
 use std::ffi::CStr;

@@ -139,7 +139,11 @@ fn tailnet_advertise_host(node: &crate::paths::NodeIdentity) -> String {
         .ok()
         .flatten()
         .filter(|raw| !raw.trim().is_empty())
-        .or_else(|| crate::paths::config_value("tailnet-core", "advertise-addr").ok().flatten())
+        .or_else(|| {
+            crate::paths::config_value("tailnet-core", "advertise-addr")
+                .ok()
+                .flatten()
+        })
         .map(|raw| {
             if raw.contains(':') {
                 raw.split(':').next().unwrap_or(&raw).to_string()

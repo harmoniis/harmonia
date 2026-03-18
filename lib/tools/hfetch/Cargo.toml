@@ -1,6 +1,6 @@
 [package]
 name = "harmonia-hfetch"
-version = "0.1.8"
+version = "0.1.9"
 edition.workspace = true
 license.workspace = true
 repository.workspace = true
@@ -19,7 +19,7 @@ name = "hfetch"
 path = "src/main.rs"
 
 [dependencies]
-harmonia-signal-integrity = { version = "0.1.8", path = "../../core/signal-integrity" }
+harmonia-signal-integrity = { version = "0.1.9", path = "../../core/signal-integrity" }
 ureq = "2"
 serde_json = "1"
 clap = { version = "4", features = ["derive"] }

@@ -1,6 +1,6 @@
 [package]
 name = "harmonia-voice-protocol"
-version = "0.1.8"
+version = "0.1.9"
 edition.workspace = true
 license.workspace = true
 repository.workspace = true
@@ -11,8 +11,8 @@ keywords = ["harmonia", "voice", "protocol"]
 categories = ["api-bindings"]
 
 [dependencies]
-harmonia-config-store = { version = "0.1.8", path = "../../../core/config-store" }
-harmonia-vault = { version = "0.1.8", path = "../../../core/vault" }
+harmonia-config-store = { version = "0.1.9", path = "../../../core/config-store" }
+harmonia-vault = { version = "0.1.9", path = "../../../core/vault" }
 rusqlite = { version = "0.37", features = ["bundled"] }
 serde_json = "1"
 ureq = "2"

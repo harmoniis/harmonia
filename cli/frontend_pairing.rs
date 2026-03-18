@@ -18,7 +18,9 @@ const RESET: &str = "\x1b[0m";
 const QR_FRONTENDS: &[&str] = &["whatsapp", "signal"];
 
 pub enum PairingTarget {
-    Local { node_label: String },
+    Local {
+        node_label: String,
+    },
     Remote {
         node: crate::paths::NodeIdentity,
         pairing: crate::pairing::PairingRecord,
@@ -458,7 +460,11 @@ pub fn run_pairing_menu(
                 } else {
                     format!("{DIM}○ {}{RESET}", fe.status)
                 };
-                MenuItem::new(&fe.display, &format!("frontend:{}", fe.name), &status_indicator)
+                MenuItem::new(
+                    &fe.display,
+                    &format!("frontend:{}", fe.name),
+                    &status_indicator,
+                )
             })
             .collect();
 
@@ -498,7 +504,14 @@ fn manage_frontend(
         let values = prompt_frontend_values(entry)?;
         let (qr_data, instructions) = configure_frontend(target, &frontend.name, values)?;
         if QR_FRONTENDS.contains(&frontend.name.as_str()) {
-            run_qr_pair_flow(stdout, target, frontend.name.as_str(), &frontend.display, qr_data, &instructions)?;
+            run_qr_pair_flow(
+                stdout,
+                target,
+                frontend.name.as_str(),
+                &frontend.display,
+                qr_data,
+                &instructions,
+            )?;
         } else {
             print_instructions(&instructions, true);
             wait_for_key();
@@ -519,7 +532,14 @@ fn manage_frontend(
     if frontend.pairable {
         if QR_FRONTENDS.contains(&frontend.name.as_str()) {
             let (qr_data, instructions) = pair_frontend(target, frontend.name.as_str())?;
-            run_qr_pair_flow(stdout, target, frontend.name.as_str(), &frontend.display, qr_data, &instructions)?;
+            run_qr_pair_flow(
+                stdout,
+                target,
+                frontend.name.as_str(),
+                &frontend.display,
+                qr_data,
+                &instructions,
+            )?;
         } else {
             let (_, instructions) = pair_frontend(target, frontend.name.as_str())?;
             print_instructions(&instructions, true);
@@ -642,7 +662,9 @@ fn pair_frontend(
     frontend_name: &str,
 ) -> Result<(Option<String>, String), Box<dyn std::error::Error>> {
     match target {
-        PairingTarget::Local { .. } => Ok(crate::node_rpc::frontend_pair_init_local(frontend_name)?),
+        PairingTarget::Local { .. } => {
+            Ok(crate::node_rpc::frontend_pair_init_local(frontend_name)?)
+        }
         PairingTarget::Remote { node, pairing } => {
             let response = crate::node_rpc::request_remote(
                 node,
@@ -743,7 +765,9 @@ fn frontend_pair_status(
     frontend_name: &str,
 ) -> Result<(bool, String), Box<dyn std::error::Error>> {
     match target {
-        PairingTarget::Local { .. } => Ok(crate::node_rpc::frontend_pair_status_local(frontend_name)?),
+        PairingTarget::Local { .. } => {
+            Ok(crate::node_rpc::frontend_pair_status_local(frontend_name)?)
+        }
         PairingTarget::Remote { node, pairing } => {
             let response = crate::node_rpc::request_remote(
                 node,

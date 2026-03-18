@@ -244,10 +244,7 @@ fn load_remote_device_registry() {
 }
 
 fn trusted_origin_fingerprints() -> HashSet<String> {
-    load_trusted_fingerprints(
-        COMPONENT,
-        harmonia_transport_auth::DEFAULT_TRUST_SCOPE_KEY,
-    )
+    load_trusted_fingerprints(COMPONENT, harmonia_transport_auth::DEFAULT_TRUST_SCOPE_KEY)
 }
 
 // ─── Helpers ────────────────────────────────────────────────────────
@@ -672,7 +669,10 @@ fn parse_hrmw_output_field(output: &str, prefix: &str) -> Result<String, String>
 
 fn resolve_wallet_db_path() -> PathBuf {
     if let Ok(path) = harmonia_config_store::get_config(COMPONENT, "global", "wallet-root") {
-        if let Some(root) = path.map(|value| value.trim().to_string()).filter(|v| !v.is_empty()) {
+        if let Some(root) = path
+            .map(|value| value.trim().to_string())
+            .filter(|v| !v.is_empty())
+        {
             return PathBuf::from(root).join("master.db");
         }
     }

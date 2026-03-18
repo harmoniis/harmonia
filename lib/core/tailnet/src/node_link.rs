@@ -59,7 +59,8 @@ fn now_ms() -> u64 {
 }
 
 fn data_dir() -> Option<PathBuf> {
-    if let Ok(Some(path)) = harmonia_config_store::get_config("tailnet-core", "global", "data-dir") {
+    if let Ok(Some(path)) = harmonia_config_store::get_config("tailnet-core", "global", "data-dir")
+    {
         if !path.trim().is_empty() {
             return Some(PathBuf::from(path));
         }

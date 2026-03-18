@@ -305,7 +305,11 @@ pub fn main_menu_items() -> Vec<MenuItem> {
         MenuItem::new("Metrics", "/metrics", "Model performance data"),
         MenuItem::new("Security", "submenu:security", "Security audit & posture"),
         MenuItem::new("Policies", "submenu:policies", "Channel sender allowlists"),
-        MenuItem::new("Resume Session", "action:resume-session", "Switch to a past session"),
+        MenuItem::new(
+            "Resume Session",
+            "action:resume-session",
+            "Switch to a past session",
+        ),
         MenuItem::new("Identity", "/identity", "Wallet & vault keys"),
     ]
 }

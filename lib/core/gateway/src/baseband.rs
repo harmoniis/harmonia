@@ -139,7 +139,8 @@ fn build_origin_context(
     let transport_security = metadata_string_value(metadata, "transport-security");
     let remote = metadata_bool_value(metadata, "remote").unwrap_or(matches!(
         driver_name,
-        "mqtt" | "tailscale"
+        "mqtt"
+            | "tailscale"
             | "http2"
             | "telegram"
             | "whatsapp"

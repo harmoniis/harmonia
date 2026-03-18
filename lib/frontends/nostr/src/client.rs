@@ -91,7 +91,10 @@ impl NostrEvent {
             .tags
             .iter()
             .map(|tag| {
-                let items: Vec<String> = tag.iter().map(|s| format!("\"{}\"", escape_json(s))).collect();
+                let items: Vec<String> = tag
+                    .iter()
+                    .map(|s| format!("\"{}\"", escape_json(s)))
+                    .collect();
                 format!("[{}]", items.join(","))
             })
             .collect();
@@ -124,19 +127,12 @@ fn sign_event(
 
     // Build commitment string per NIP-01:
     // [0, pubkey, created_at, kind, tags, content]
-    let commit_value = serde_json::json!([
-        0,
-        pubkey_hex,
-        created_at,
-        kind,
-        tags,
-        content
-    ]);
+    let commit_value = serde_json::json!([0, pubkey_hex, created_at, kind, tags, content]);
     let commit_str = commit_value.to_string();
 
     let id_hash = Sha256::digest(commit_str.as_bytes());
-    let msg = Message::from_digest_slice(&id_hash)
-        .map_err(|e| format!("message from digest: {e}"))?;
+    let msg =
+        Message::from_digest_slice(&id_hash).map_err(|e| format!("message from digest: {e}"))?;
     let sig = secp.sign_schnorr(&msg, &kp);
 
     Ok(NostrEvent {
@@ -157,9 +153,7 @@ pub fn init(config: &str) -> Result<(), String> {
     }
 
     // Ingest private key from config into vault
-    if let Some(key) = sexp_value(config, ":private-key")
-        .or_else(|| sexp_value(config, ":nsec"))
-    {
+    if let Some(key) = sexp_value(config, ":private-key").or_else(|| sexp_value(config, ":nsec")) {
         let trimmed = key.trim();
         if !trimmed.is_empty() {
             harmonia_vault::set_secret_for_symbol("nostr-private-key", trimmed)?;
@@ -178,10 +172,10 @@ pub fn init(config: &str) -> Result<(), String> {
     let key_hex = read_vault_secret(NOSTR_KEY_SYMBOLS)?
         .ok_or("missing nostr private key in vault (symbol: nostr-private-key)")?;
 
-    let key_bytes = hex::decode(key_hex.trim())
-        .map_err(|e| format!("invalid hex private key: {e}"))?;
-    let sk = SecretKey::from_slice(&key_bytes)
-        .map_err(|e| format!("invalid secp256k1 key: {e}"))?;
+    let key_bytes =
+        hex::decode(key_hex.trim()).map_err(|e| format!("invalid hex private key: {e}"))?;
+    let sk =
+        SecretKey::from_slice(&key_bytes).map_err(|e| format!("invalid secp256k1 key: {e}"))?;
 
     // Derive public key
     let secp = Secp256k1::new();
@@ -325,10 +319,7 @@ pub fn send(channel: &str, text: &str) -> Result<(), String> {
         if !s.initialized {
             return Err("nostr not initialized".into());
         }
-        (
-            s.secret_key.ok_or("no secret key")?,
-            s.relay_urls.clone(),
-        )
+        (s.secret_key.ok_or("no secret key")?, s.relay_urls.clone())
     };
 
     // Kind 1 = text note (public), kind 4 = encrypted DM

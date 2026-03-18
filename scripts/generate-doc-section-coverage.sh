@@ -13,18 +13,12 @@ if [[ ! -f "${MIGRATION_MAP}" ]]; then
   exit 1
 fi
 
-if [[ -d "${ROOT_DIR}/../doc/agent/genesis" && -d "${ROOT_DIR}/../doc/agent/evolution/latest" ]]; then
-  CANON_GENESIS="${ROOT_DIR}/../doc/agent/genesis"
-  CANON_EVOLUTION="${ROOT_DIR}/../doc/agent/evolution/latest"
-  SOURCE_PREFIX="../../../doc/agent"
-  SCOPE_DESC='`doc/agent/genesis`, `doc/agent/evolution/latest`'
-elif [[ -d "${ROOT_DIR}/src/boot/genesis" && -d "${ROOT_DIR}/src/boot/evolution/latest" ]]; then
-  CANON_GENESIS="${ROOT_DIR}/src/boot/genesis"
-  CANON_EVOLUTION="${ROOT_DIR}/src/boot/evolution/latest"
-  SOURCE_PREFIX="../../src/boot"
-  SCOPE_DESC='`src/boot/genesis`, `src/boot/evolution/latest`'
+if [[ -d "${ROOT_DIR}/doc/genesis" && -d "${ROOT_DIR}/doc/evolution" ]]; then
+  CANON_GENESIS="${ROOT_DIR}/doc/genesis"
+  CANON_EVOLUTION="${ROOT_DIR}/doc/evolution"
+  SCOPE_DESC='`doc/genesis`, `doc/evolution`'
 else
-  echo "[doc-coverage] canonical docs missing under doc/agent and src/boot" >&2
+  echo "[doc-coverage] canonical docs missing under doc/genesis and doc/evolution" >&2
   exit 1
 fi
 
@@ -35,21 +29,24 @@ trim() {
 doc_source_ref() {
   local doc="$1"
   if [[ "${doc}" == "${CANON_GENESIS}"/* ]]; then
-    printf '%s/genesis/%s' "${SOURCE_PREFIX}" "${doc#${CANON_GENESIS}/}"
+    printf '../genesis/%s' "${doc#${CANON_GENESIS}/}"
   else
-    printf '%s/evolution/latest/%s' "${SOURCE_PREFIX}" "${doc#${CANON_EVOLUTION}/}"
+    printf '../evolution/%s' "${doc#${CANON_EVOLUTION}/}"
   fi
 }
 
-DOCS=()
-while IFS= read -r doc; do
-  DOCS+=("${doc}")
-done < <(
-  {
-    find "${CANON_GENESIS}" -maxdepth 1 -type f -name '*.md' -print
-    find "${CANON_EVOLUTION}" -maxdepth 1 -type f -name '*.md' -print
-  } | sort
-)
+DOC_LIST="$(mktemp)"
+cleanup() {
+  rm -f "${DOC_LIST}"
+}
+trap cleanup EXIT
+
+{
+  find "${CANON_GENESIS}" -maxdepth 1 -type f -name '*.md' -print
+  find "${CANON_EVOLUTION}" -maxdepth 1 -type f -name '*.md' -print
+} | sort > "${DOC_LIST}"
+
+DOC_COUNT="$(wc -l < "${DOC_LIST}" | tr -d '[:space:]')"
 
 {
   echo "# Source Section Coverage Matrix"
@@ -59,10 +56,10 @@ done < <(
   echo
   echo "## Scope"
   echo "- Canonical roots: ${SCOPE_DESC}"
-  echo "- Files indexed: ${#DOCS[@]}"
+  echo "- Files indexed: ${DOC_COUNT}"
   echo
 
-  for doc in "${DOCS[@]}"; do
+  while IFS= read -r doc; do
     source_ref="$(doc_source_ref "${doc}")"
     map_pattern="$(printf '| `%s` |' "${source_ref}")"
     row="$(grep -F "${map_pattern}" "${MIGRATION_MAP}" || true)"
@@ -92,7 +89,7 @@ done < <(
       printf '  - L%s: `%s`\n' "${ln}" "${text}"
     done <<< "${headings}"
     echo
-  done
+  done < "${DOC_LIST}"
 } > "${OUT_FILE}"
 
 echo "[doc-coverage] wrote ${OUT_FILE}"

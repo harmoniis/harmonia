@@ -1,6 +1,6 @@
 [package]
 name = "harmonia-transport-auth"
-version = "0.1.8"
+version = "0.1.9"
 edition.workspace = true
 license.workspace = true
 repository.workspace = true
@@ -11,8 +11,8 @@ keywords = ["harmonia", "transport", "tls"]
 categories = ["network-programming", "cryptography"]
 
 [dependencies]
-harmonia-config-store = { version = "0.1.8", path = "../config-store" }
-harmonia-vault = { version = "0.1.8", path = "../vault" }
+harmonia-config-store = { version = "0.1.9", path = "../config-store" }
+harmonia-vault = { version = "0.1.9", path = "../vault" }
 hex = "0.4"
 rustls = "0.22"
 rustls-pemfile = "2"

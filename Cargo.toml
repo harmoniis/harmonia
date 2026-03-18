@@ -85,7 +85,7 @@ authors = ["Harmoniis <dev@harmoniis.com>"]
 
 [package]
 name = "harmonia"
-version = "0.1.8"
+version = "0.1.9"
 edition.workspace = true
 license.workspace = true
 repository.workspace = true
@@ -116,14 +116,14 @@ rmqtt = { version = "0.18.1", features = ["tls"] }
 base64 = "0.22"
 snow = "0.10"
 tailscale-localapi = "0.5"
-harmonia-vault = { version = "0.1.8", path = "lib/core/vault" }
-harmonia-config-store = { version = "0.1.8", path = "lib/core/config-store" }
-harmonia-transport-auth = { version = "0.1.8", path = "lib/core/transport-auth" }
-harmonia-tailnet = { version = "0.1.8", path = "lib/core/tailnet" }
-harmonia-node-rpc = { version = "0.1.8", path = "lib/core/node-rpc" }
-harmonia-qr-terminal = { version = "0.1.8", path = "lib/core/qr-terminal" }
-harmonia-whatsapp = { version = "0.1.8", path = "lib/frontends/whatsapp" }
-harmonia-signal = { version = "0.1.0", path = "lib/frontends/signal" }
+harmonia-vault = { version = "0.1.9", path = "lib/core/vault" }
+harmonia-config-store = { version = "0.1.9", path = "lib/core/config-store" }
+harmonia-transport-auth = { version = "0.1.9", path = "lib/core/transport-auth" }
+harmonia-tailnet = { version = "0.1.9", path = "lib/core/tailnet" }
+harmonia-node-rpc = { version = "0.1.9", path = "lib/core/node-rpc" }
+harmonia-qr-terminal = { version = "0.1.9", path = "lib/core/qr-terminal" }
+harmonia-whatsapp = { version = "0.1.9", path = "lib/frontends/whatsapp" }
+harmonia-signal = { version = "0.1.1", path = "lib/frontends/signal" }
 rusqlite = { version = "0.37", features = ["bundled"] }
 tokio = { version = "1.44", features = ["rt-multi-thread", "time"] }
 async-trait = "0.1"

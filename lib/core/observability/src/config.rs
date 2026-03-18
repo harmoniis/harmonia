@@ -25,11 +25,10 @@ impl ObservabilityConfig {
             .map(|v| TraceLevel::from_str(&v))
             .unwrap_or(TraceLevel::Standard);
 
-        let sample_rate =
-            read_config_or_env("sample-rate", "HARMONIA_OBSERVABILITY_SAMPLE_RATE")
-                .and_then(|v| v.parse::<f64>().ok())
-                .unwrap_or(1.0)
-                .clamp(0.0, 1.0);
+        let sample_rate = read_config_or_env("sample-rate", "HARMONIA_OBSERVABILITY_SAMPLE_RATE")
+            .and_then(|v| v.parse::<f64>().ok())
+            .unwrap_or(1.0)
+            .clamp(0.0, 1.0);
 
         let project_name =
             read_config_or_env("project-name", "HARMONIA_OBSERVABILITY_PROJECT_NAME")

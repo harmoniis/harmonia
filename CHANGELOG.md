@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.9] — 2026-03-18
+
+### Added
+- Added the shared transport-auth core, HTTP/2 mTLS frontend, and unified payment-auth gateway path for authenticated remote sessions and 402-style challenge handling.
+- Added the consolidated frontend management and remote pairing/runtime flow, including the QR terminal helper and node-link/node-service CLI surfaces.
+
+### Changed
+- Moved canonical architecture docs to `doc/genesis` and `doc/evolution`, refreshed the reference coverage matrix, and tracked `MODULE.bazel.lock` for deterministic Bazel dependency resolution.
+- Hardened release automation so workspace crate publishing follows actual dependency order and CI clones the sibling `harmoniis-wallet` repo for local path dependencies.
+
+### Fixed
+- Fixed CI regressions on Linux and macOS by updating the doc coverage scripts to the new documentation layout and regenerating the checked-in coverage snapshot.
+- Fixed Windows CI bootstrap by making the wallet path dependency available during workflow execution instead of assuming a developer-local sibling checkout.
+
 ## [0.1.8] — 2026-03-11
 
 ### Fixed

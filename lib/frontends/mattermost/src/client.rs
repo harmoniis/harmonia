@@ -142,8 +142,8 @@ pub fn init(config: &str) -> Result<(), String> {
     }
 
     // Ingest token from s-expr config into vault
-    if let Some(token) = sexp_value(config, ":bot-token")
-        .or_else(|| extract_sexp_string(config, "bot-token"))
+    if let Some(token) =
+        sexp_value(config, ":bot-token").or_else(|| extract_sexp_string(config, "bot-token"))
     {
         let trimmed = token.trim();
         if !trimmed.is_empty() {
@@ -152,8 +152,8 @@ pub fn init(config: &str) -> Result<(), String> {
     }
 
     // Ingest server URL into config-store
-    if let Some(url) = sexp_value(config, ":api-url")
-        .or_else(|| extract_sexp_string(config, "api-url"))
+    if let Some(url) =
+        sexp_value(config, ":api-url").or_else(|| extract_sexp_string(config, "api-url"))
     {
         let trimmed = url.trim();
         if !trimmed.is_empty() {
@@ -191,7 +191,9 @@ pub fn init(config: &str) -> Result<(), String> {
         return Err("missing api-url: set mattermost-frontend/api-url in config-store".into());
     }
     if s.channels.is_empty() {
-        return Err("no channels configured: set mattermost-frontend/channels in config-store".into());
+        return Err(
+            "no channels configured: set mattermost-frontend/channels in config-store".into(),
+        );
     }
 
     // Discover bot user ID

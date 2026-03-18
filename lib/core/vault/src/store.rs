@@ -79,9 +79,9 @@ fn default_wallet_db_path() -> Option<PathBuf> {
     let home = env::var("HOME").ok()?;
     Some(
         PathBuf::from(&home)
-        .join(".harmoniis")
-        .join("wallet")
-        .join("master.db"),
+            .join(".harmoniis")
+            .join("wallet")
+            .join("master.db"),
     )
 }
 

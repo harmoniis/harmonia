@@ -3,9 +3,9 @@ use std::ffi::{CStr, CString};
 use crate::model::ChannelEnvelope;
 use crate::registry::Registry;
 use harmonia_payment_auth::{
-    append_settlement_metadata, build_challenge_payload, build_denied_payload,
-    build_policy_query, default_policy_response, extract_payment_metadata, parse_policy_response,
-    record_challenge, settle_payment, PaymentRequirement, PolicyDecision,
+    append_settlement_metadata, build_challenge_payload, build_denied_payload, build_policy_query,
+    default_policy_response, extract_payment_metadata, parse_policy_response, record_challenge,
+    settle_payment, PaymentRequirement, PolicyDecision,
 };
 
 extern "C" {
@@ -23,7 +23,8 @@ pub fn intercept_paid_actions(
             .action_hint
             .clone()
             .unwrap_or_else(|| default_action_hint(&envelope));
-        let decision = query_payment_policy(&build_policy_query(&envelope, &payment), &requested_action);
+        let decision =
+            query_payment_policy(&build_policy_query(&envelope, &payment), &requested_action);
         match decision {
             PolicyDecision::Free => forwarded.push(envelope),
             PolicyDecision::Deny { code, message } => {

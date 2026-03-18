@@ -74,9 +74,11 @@ pub(crate) fn spawn(
             initial_prompt.to_string()
         };
 
-        let (cmd, args) = cli_type.launch_command_noninteractive(
-            if prompt_file.is_some() { &effective_prompt } else { initial_prompt }
-        );
+        let (cmd, args) = cli_type.launch_command_noninteractive(if prompt_file.is_some() {
+            &effective_prompt
+        } else {
+            initial_prompt
+        });
         let full_cmd = if args.is_empty() {
             cmd
         } else {

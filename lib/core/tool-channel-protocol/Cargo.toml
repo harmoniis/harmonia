@@ -1,6 +1,6 @@
 [package]
 name = "harmonia-tool-channel-protocol"
-version = "0.1.8"
+version = "0.1.9"
 edition.workspace = true
 license.workspace = true
 repository.workspace = true
@@ -11,5 +11,5 @@ keywords = ["harmonia", "tools", "protocol"]
 categories = ["api-bindings"]
 
 [dependencies]
-harmonia-baseband-channel-protocol = { version = "0.1.8", path = "../baseband-channel-protocol" }
-harmonia-signal-integrity = { version = "0.1.8", path = "../signal-integrity" }
+harmonia-baseband-channel-protocol = { version = "0.1.9", path = "../baseband-channel-protocol" }
+harmonia-signal-integrity = { version = "0.1.9", path = "../signal-integrity" }

@@ -1,6 +1,6 @@
 use bytes::Bytes;
 use futures_util::stream;
-use http::header::{CONTENT_TYPE, HeaderValue};
+use http::header::{HeaderValue, CONTENT_TYPE};
 use http::{Method, Request, Response, StatusCode};
 use http_body_util::{BodyExt, Full, StreamBody};
 use hyper::body::{Frame, Incoming};
@@ -164,11 +164,12 @@ fn load_config() -> Result<FrontendConfig, String> {
                 .to_string(),
         );
     }
-    let max_concurrent_streams = harmonia_config_store::get_own(COMPONENT, "max-concurrent-streams")
-        .ok()
-        .flatten()
-        .and_then(|value| value.parse::<u32>().ok())
-        .unwrap_or(DEFAULT_MAX_STREAMS);
+    let max_concurrent_streams =
+        harmonia_config_store::get_own(COMPONENT, "max-concurrent-streams")
+            .ok()
+            .flatten()
+            .and_then(|value| value.parse::<u32>().ok())
+            .unwrap_or(DEFAULT_MAX_STREAMS);
     let session_idle_timeout_ms =
         harmonia_config_store::get_own(COMPONENT, "session-idle-timeout-ms")
             .ok()
@@ -387,9 +388,10 @@ async fn handle_stream_request(
     ));
 
     let mut response = Response::new(stream_body(outbound_rx));
-    response
-        .headers_mut()
-        .insert(CONTENT_TYPE, HeaderValue::from_static("application/x-ndjson"));
+    response.headers_mut().insert(
+        CONTENT_TYPE,
+        HeaderValue::from_static("application/x-ndjson"),
+    );
     Ok(response)
 }
 
@@ -536,9 +538,7 @@ fn take_state() -> Option<FrontendState> {
 fn enqueue_outbound(outbound: &mpsc::Sender<Bytes>, payload: Bytes) -> Result<(), String> {
     match outbound.try_send(payload) {
         Ok(()) => Ok(()),
-        Err(tokio::sync::mpsc::error::TrySendError::Closed(_)) => {
-            Err("stream closed".to_string())
-        }
+        Err(tokio::sync::mpsc::error::TrySendError::Closed(_)) => Err("stream closed".to_string()),
         Err(tokio::sync::mpsc::error::TrySendError::Full(payload)) => {
             if let Ok(handle) = tokio::runtime::Handle::try_current() {
                 let outbound = outbound.clone();
@@ -703,19 +703,15 @@ pub extern "C" fn harmonia_frontend_send(channel: *const c_char, payload: *const
         }
     };
 
-    let Some((outbound, last_activity_ms)) = state_slot()
-        .lock()
-        .ok()
-        .and_then(|guard| {
-            guard.as_ref().and_then(|state| {
-                state.sessions.read().ok().and_then(|sessions| {
-                    sessions.get(&route).map(|handle| {
-                        (handle.outbound.clone(), handle.last_activity_ms.clone())
-                    })
-                })
+    let Some((outbound, last_activity_ms)) = state_slot().lock().ok().and_then(|guard| {
+        guard.as_ref().and_then(|state| {
+            state.sessions.read().ok().and_then(|sessions| {
+                sessions
+                    .get(&route)
+                    .map(|handle| (handle.outbound.clone(), handle.last_activity_ms.clone()))
             })
         })
-    else {
+    }) else {
         set_error(format!("no active HTTP/2 stream for route {route}"));
         return -1;
     };
@@ -958,12 +954,8 @@ kfXXAnwXjyrrLvFKUakhMpIQ
     }
 
     fn temp_root(prefix: &str) -> PathBuf {
-        let path = std::env::temp_dir().join(format!(
-            "{}-{}-{}",
-            prefix,
-            std::process::id(),
-            now_ms()
-        ));
+        let path =
+            std::env::temp_dir().join(format!("{}-{}-{}", prefix, std::process::id(), now_ms()));
         fs::create_dir_all(&path).unwrap();
         path
     }
@@ -1216,8 +1208,14 @@ kfXXAnwXjyrrLvFKUakhMpIQ
             let route_b = CString::new("ABCDEF1234567890/session-b/alerts").unwrap();
             let payload_a = CString::new("reply-a").unwrap();
             let payload_b = CString::new("reply-b").unwrap();
-            assert_eq!(harmonia_frontend_send(route_a.as_ptr(), payload_a.as_ptr()), 0);
-            assert_eq!(harmonia_frontend_send(route_b.as_ptr(), payload_b.as_ptr()), 0);
+            assert_eq!(
+                harmonia_frontend_send(route_a.as_ptr(), payload_a.as_ptr()),
+                0
+            );
+            assert_eq!(
+                harmonia_frontend_send(route_b.as_ptr(), payload_b.as_ptr()),
+                0
+            );
 
             let body_a = response_a.body_mut();
             let body_b = response_b.body_mut();

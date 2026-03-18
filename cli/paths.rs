@@ -152,7 +152,11 @@ fn ensure_state_root_env() -> Result<PathBuf, Box<dyn std::error::Error>> {
 pub fn config_value(scope: &str, key: &str) -> Result<Option<String>, Box<dyn std::error::Error>> {
     let _ = ensure_state_root_env()?;
     harmonia_config_store::init_v2()?;
-    Ok(harmonia_config_store::get_config("harmonia-cli", scope, key)?)
+    Ok(harmonia_config_store::get_config(
+        "harmonia-cli",
+        scope,
+        key,
+    )?)
 }
 
 pub fn set_config_value(
@@ -247,11 +251,27 @@ pub fn sync_runtime_config(identity: &NodeIdentity) -> Result<(), Box<dyn std::e
     let vault_db = vault_db_path()?;
 
     let entries = [
-        ("global", "state-root", state_root.to_string_lossy().to_string()),
-        ("global", "system-dir", state_root.to_string_lossy().to_string()),
-        ("global", "data-dir", state_root.to_string_lossy().to_string()),
+        (
+            "global",
+            "state-root",
+            state_root.to_string_lossy().to_string(),
+        ),
+        (
+            "global",
+            "system-dir",
+            state_root.to_string_lossy().to_string(),
+        ),
+        (
+            "global",
+            "data-dir",
+            state_root.to_string_lossy().to_string(),
+        ),
         ("global", "lib-dir", lib_dir.to_string_lossy().to_string()),
-        ("global", "share-dir", share_dir.to_string_lossy().to_string()),
+        (
+            "global",
+            "share-dir",
+            share_dir.to_string_lossy().to_string(),
+        ),
         ("global", "run-dir", run_dir.to_string_lossy().to_string()),
         ("global", "log-dir", log_dir.to_string_lossy().to_string()),
         (
@@ -259,7 +279,11 @@ pub fn sync_runtime_config(identity: &NodeIdentity) -> Result<(), Box<dyn std::e
             "wallet-root",
             wallet_root.to_string_lossy().to_string(),
         ),
-        ("global", "wallet-db", wallet_db.to_string_lossy().to_string()),
+        (
+            "global",
+            "wallet-db",
+            wallet_db.to_string_lossy().to_string(),
+        ),
         ("global", "vault-db", vault_db.to_string_lossy().to_string()),
         ("node", "label", identity.label.clone()),
         ("node", "hostname", identity.hostname.clone()),
@@ -272,24 +296,36 @@ pub fn sync_runtime_config(identity: &NodeIdentity) -> Result<(), Box<dyn std::e
         (
             "node",
             "sessions-root",
-            node_sessions_dir(&identity.label)?.to_string_lossy().to_string(),
+            node_sessions_dir(&identity.label)?
+                .to_string_lossy()
+                .to_string(),
         ),
         (
             "node",
             "pairings-root",
-            node_pairings_dir(&identity.label)?.to_string_lossy().to_string(),
+            node_pairings_dir(&identity.label)?
+                .to_string_lossy()
+                .to_string(),
         ),
         (
             "node",
             "memory-root",
-            node_memory_dir(&identity.label)?.to_string_lossy().to_string(),
+            node_memory_dir(&identity.label)?
+                .to_string_lossy()
+                .to_string(),
         ),
     ];
     for (scope, key, value) in entries {
         set_config_value(scope, key, &value)?;
     }
-    std::env::set_var("HARMONIA_WALLET_ROOT", wallet_root.to_string_lossy().as_ref());
-    std::env::set_var("HARMONIA_VAULT_WALLET_DB", wallet_db.to_string_lossy().as_ref());
+    std::env::set_var(
+        "HARMONIA_WALLET_ROOT",
+        wallet_root.to_string_lossy().as_ref(),
+    );
+    std::env::set_var(
+        "HARMONIA_VAULT_WALLET_DB",
+        wallet_db.to_string_lossy().as_ref(),
+    );
     Ok(())
 }
 
@@ -344,7 +380,10 @@ fn session_events_path(
     Ok(session_dir(label, session_id)?.join("events.jsonl"))
 }
 
-pub fn write_current_session(label: &str, session_id: &str) -> Result<(), Box<dyn std::error::Error>> {
+pub fn write_current_session(
+    label: &str,
+    session_id: &str,
+) -> Result<(), Box<dyn std::error::Error>> {
     let path = current_session_path(label)?;
     if let Some(parent) = path.parent() {
         fs::create_dir_all(parent)?;

@@ -412,13 +412,11 @@ fn resolve_signal_config() -> (String, String, String) {
         .ok()
         .flatten()
         .or_else(|| {
-            SIGNAL_AUTH_TOKEN_SYMBOLS
-                .iter()
-                .find_map(|sym| {
-                    harmonia_vault::get_secret_for_component(COMPONENT, sym)
-                        .ok()
-                        .flatten()
-                })
+            SIGNAL_AUTH_TOKEN_SYMBOLS.iter().find_map(|sym| {
+                harmonia_vault::get_secret_for_component(COMPONENT, sym)
+                    .ok()
+                    .flatten()
+            })
         })
         .unwrap_or_default();
     (rpc_url, account, auth_token)

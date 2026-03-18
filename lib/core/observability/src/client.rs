@@ -27,11 +27,7 @@ impl LangSmithClient {
     }
 
     /// Batch-submit run creates and updates.
-    pub fn post_runs_batch(
-        &self,
-        creates: &[Value],
-        updates: &[Value],
-    ) -> Result<(), String> {
+    pub fn post_runs_batch(&self, creates: &[Value], updates: &[Value]) -> Result<(), String> {
         if creates.is_empty() && updates.is_empty() {
             return Ok(());
         }

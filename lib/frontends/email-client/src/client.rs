@@ -221,8 +221,8 @@ fn imap_get_latest_uid(
         let _ = session.logout();
         Ok(uid)
     } else {
-        let tcp = std::net::TcpStream::connect((host, port))
-            .map_err(|e| format!("imap tcp: {e}"))?;
+        let tcp =
+            std::net::TcpStream::connect((host, port)).map_err(|e| format!("imap tcp: {e}"))?;
         let client = imap::Client::new(tcp);
         let mut session = client
             .login(user, password)
@@ -313,8 +313,7 @@ fn imap_poll_plain(
     mailbox: &str,
     last_uid: u32,
 ) -> Result<Vec<(u32, String, String, EmailPaymentHeaders)>, String> {
-    let tcp =
-        std::net::TcpStream::connect((host, port)).map_err(|e| format!("imap tcp: {e}"))?;
+    let tcp = std::net::TcpStream::connect((host, port)).map_err(|e| format!("imap tcp: {e}"))?;
     let client = imap::Client::new(tcp);
     let mut session = client
         .login(user, password)
@@ -388,7 +387,11 @@ fn parse_body_text(raw: &[u8]) -> String {
         Ok(parsed) => {
             // Prefer text/plain subpart
             for sub in &parsed.subparts {
-                if let Some(ct) = sub.headers.iter().find(|h| h.get_key_ref() == "Content-Type") {
+                if let Some(ct) = sub
+                    .headers
+                    .iter()
+                    .find(|h| h.get_key_ref() == "Content-Type")
+                {
                     if ct.get_value().contains("text/plain") {
                         if let Ok(body) = sub.get_body() {
                             return body;
@@ -397,9 +400,9 @@ fn parse_body_text(raw: &[u8]) -> String {
                 }
             }
             // Fall back to main body
-            parsed.get_body().unwrap_or_else(|_| {
-                String::from_utf8_lossy(raw).to_string()
-            })
+            parsed
+                .get_body()
+                .unwrap_or_else(|_| String::from_utf8_lossy(raw).to_string())
         }
         Err(_) => String::from_utf8_lossy(raw).to_string(),
     }
@@ -445,16 +448,14 @@ pub fn send(to: &str, text: &str) -> Result<(), String> {
                 .port(smtp_port)
                 .credentials(creds)
                 .build();
-            lettre::Transport::send(&transport, &email)
-                .map_err(|e| format!("smtp send: {e}"))?;
+            lettre::Transport::send(&transport, &email).map_err(|e| format!("smtp send: {e}"))?;
         }
         "none" => {
             let transport = lettre::SmtpTransport::builder_dangerous(&smtp_host)
                 .port(smtp_port)
                 .credentials(creds)
                 .build();
-            lettre::Transport::send(&transport, &email)
-                .map_err(|e| format!("smtp send: {e}"))?;
+            lettre::Transport::send(&transport, &email).map_err(|e| format!("smtp send: {e}"))?;
         }
         _ => {
             // "starttls" (default)
@@ -463,8 +464,7 @@ pub fn send(to: &str, text: &str) -> Result<(), String> {
                 .port(smtp_port)
                 .credentials(creds)
                 .build();
-            lettre::Transport::send(&transport, &email)
-                .map_err(|e| format!("smtp send: {e}"))?;
+            lettre::Transport::send(&transport, &email).map_err(|e| format!("smtp send: {e}"))?;
         }
     }
 
@@ -532,7 +532,10 @@ fn format_email_metadata(sender: &str, headers: &EmailPaymentHeaders) -> String 
         metadata.push(format!(":payment-action \"{}\"", escape_metadata(action)));
     }
     if let Some(challenge) = &headers.challenge {
-        metadata.push(format!(":payment-challenge \"{}\"", escape_metadata(challenge)));
+        metadata.push(format!(
+            ":payment-challenge \"{}\"",
+            escape_metadata(challenge)
+        ));
     }
     format!("({})", metadata.join(" "))
 }

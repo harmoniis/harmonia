@@ -31,15 +31,12 @@ fn default_state() -> MeshState {
         .flatten()
         .filter(|raw| !raw.trim().is_empty())
         .unwrap_or_else(|| hostname.clone());
-    let advertise_addr = harmonia_config_store::get_config(
-        "harmonia-cli",
-        "tailnet-core",
-        "advertise-addr",
-    )
-    .ok()
-    .flatten()
-    .filter(|raw| !raw.trim().is_empty())
-        .unwrap_or_else(|| format!("{}:{}", hostname, port));
+    let advertise_addr =
+        harmonia_config_store::get_config("harmonia-cli", "tailnet-core", "advertise-addr")
+            .ok()
+            .flatten()
+            .filter(|raw| !raw.trim().is_empty())
+            .unwrap_or_else(|| format!("{}:{}", hostname, port));
     let role = harmonia_config_store::get_config("harmonia-cli", "node", "role")
         .ok()
         .flatten()

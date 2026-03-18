@@ -9,99 +9,88 @@ MIGRATION_MAP="${REF_DIR}/migration-map.md"
 SECTION_MATRIX="${REF_DIR}/source-section-coverage.md"
 GEN_SCRIPT="${SCRIPT_DIR}/generate-doc-section-coverage.sh"
 
-errors=()
+HAS_ERRORS=0
+
+report_error() {
+  printf '[doc-coverage] %s\n' "$1" >&2
+  HAS_ERRORS=1
+}
 
 if [[ ! -f "${MIGRATION_MAP}" ]]; then
-  errors+=("missing migration map: ${MIGRATION_MAP}")
+  report_error "missing migration map: ${MIGRATION_MAP}"
 fi
 
 if [[ ! -x "${GEN_SCRIPT}" ]]; then
-  errors+=("missing or non-executable generator: ${GEN_SCRIPT}")
+  report_error "missing or non-executable generator: ${GEN_SCRIPT}"
 fi
 
-CANON_MODE=""
-if [[ -d "${ROOT_DIR}/../doc/agent/genesis" && -d "${ROOT_DIR}/../doc/agent/evolution/latest" ]]; then
-  CANON_MODE="doc-agent"
-  CANON_GENESIS="${ROOT_DIR}/../doc/agent/genesis"
-  CANON_EVOLUTION="${ROOT_DIR}/../doc/agent/evolution/latest"
-  SOURCE_PREFIX="../../../doc/agent"
-elif [[ -d "${ROOT_DIR}/src/boot/genesis" && -d "${ROOT_DIR}/src/boot/evolution/latest" ]]; then
-  CANON_MODE="src-boot"
-  CANON_GENESIS="${ROOT_DIR}/src/boot/genesis"
-  CANON_EVOLUTION="${ROOT_DIR}/src/boot/evolution/latest"
-  SOURCE_PREFIX="../../src/boot"
+if [[ -d "${ROOT_DIR}/doc/genesis" && -d "${ROOT_DIR}/doc/evolution" ]]; then
+  CANON_GENESIS="${ROOT_DIR}/doc/genesis"
+  CANON_EVOLUTION="${ROOT_DIR}/doc/evolution"
 else
-  errors+=("canonical docs missing under doc/agent and src/boot")
+  report_error "canonical docs missing under doc/genesis and doc/evolution"
 fi
 
-if (( ${#errors[@]} > 0 )); then
-  printf '[doc-coverage] %s\n' "${errors[@]}" >&2
+if (( HAS_ERRORS > 0 )); then
   exit 1
 fi
 
 doc_source_ref() {
   local doc="$1"
   if [[ "${doc}" == "${CANON_GENESIS}"/* ]]; then
-    printf '%s/genesis/%s' "${SOURCE_PREFIX}" "${doc#${CANON_GENESIS}/}"
+    printf '../genesis/%s' "${doc#${CANON_GENESIS}/}"
   else
-    printf '%s/evolution/latest/%s' "${SOURCE_PREFIX}" "${doc#${CANON_EVOLUTION}/}"
+    printf '../evolution/%s' "${doc#${CANON_EVOLUTION}/}"
   fi
 }
 
-DOCS=()
-while IFS= read -r doc; do
-  DOCS+=("${doc}")
-done < <(
-  {
-    find "${CANON_GENESIS}" -maxdepth 1 -type f -name '*.md' -print
-    find "${CANON_EVOLUTION}" -maxdepth 1 -type f -name '*.md' -print
-  } | sort
-)
+DOC_LIST="$(mktemp)"
+TMP_MATRIX="$(mktemp)"
+TMP_DIFF="$(mktemp)"
 
-for doc in "${DOCS[@]}"; do
-  source_ref="$(doc_source_ref "${doc}")"
-  map_pattern="$(printf '| `%s` |' "${source_ref}")"
-  if ! grep -Fq "${map_pattern}" "${MIGRATION_MAP}"; then
-    errors+=("migration-map missing source entry: ${source_ref}")
-  fi
-done
-
-mapped_refs=()
-while IFS= read -r ref; do
-  mapped_refs+=("${ref}")
-done < <(grep -oE '(doc/agent|src/boot)/(genesis|evolution/latest)/[^` ]+\.md' "${MIGRATION_MAP}" | sort -u || true)
-
-for ref in "${mapped_refs[@]}"; do
-  if [[ "${ref}" == doc/agent/* ]]; then
-    abs="${ROOT_DIR}/../${ref}"
-  else
-    abs="${ROOT_DIR}/${ref}"
-  fi
-  if [[ ! -f "${abs}" ]]; then
-    errors+=("migration-map stale source path: ${ref}")
-  fi
-done
-
-tmp_file="$(mktemp)"
 cleanup() {
-  rm -f "${tmp_file}"
+  rm -f "${DOC_LIST}" "${TMP_MATRIX}" "${TMP_DIFF}"
 }
 trap cleanup EXIT
 
-bash "${GEN_SCRIPT}" "${tmp_file}" >/dev/null
+{
+  find "${CANON_GENESIS}" -maxdepth 1 -type f -name '*.md' -print
+  find "${CANON_EVOLUTION}" -maxdepth 1 -type f -name '*.md' -print
+} | sort > "${DOC_LIST}"
 
-if [[ ! -f "${SECTION_MATRIX}" ]]; then
-  errors+=("missing section coverage file: ${SECTION_MATRIX}")
-else
-  if ! diff -u "${SECTION_MATRIX}" "${tmp_file}" > /tmp/doc-coverage.diff.$$; then
-    errors+=("section coverage file out of date: ${SECTION_MATRIX} (run scripts/generate-doc-section-coverage.sh)")
-    cat /tmp/doc-coverage.diff.$$ >&2 || true
-  fi
-  rm -f /tmp/doc-coverage.diff.$$ || true
+DOC_COUNT="$(wc -l < "${DOC_LIST}" | tr -d '[:space:]')"
+if [[ "${DOC_COUNT}" == "0" ]]; then
+  report_error "canonical doc roots are empty"
 fi
 
-if (( ${#errors[@]} > 0 )); then
-  printf '[doc-coverage] %s\n' "${errors[@]}" >&2
+while IFS= read -r doc; do
+  source_ref="$(doc_source_ref "${doc}")"
+  map_pattern="$(printf '| `%s` |' "${source_ref}")"
+  if ! grep -Fq "${map_pattern}" "${MIGRATION_MAP}"; then
+    report_error "migration-map missing source entry: ${source_ref}"
+  fi
+done < "${DOC_LIST}"
+
+while IFS= read -r ref; do
+  [[ -n "${ref}" ]] || continue
+  abs="${REF_DIR}/${ref}"
+  if [[ ! -f "${abs}" ]]; then
+    report_error "migration-map stale source path: ${ref}"
+  fi
+done < <(grep -oE '\.\./(genesis|evolution)/[^` ]+\.md' "${MIGRATION_MAP}" | sort -u || true)
+
+bash "${GEN_SCRIPT}" "${TMP_MATRIX}" >/dev/null
+
+if [[ ! -f "${SECTION_MATRIX}" ]]; then
+  report_error "missing section coverage file: ${SECTION_MATRIX}"
+else
+  if ! diff -u "${SECTION_MATRIX}" "${TMP_MATRIX}" > "${TMP_DIFF}"; then
+    report_error "section coverage file out of date: ${SECTION_MATRIX} (run scripts/generate-doc-section-coverage.sh)"
+    cat "${TMP_DIFF}" >&2 || true
+  fi
+fi
+
+if (( HAS_ERRORS > 0 )); then
   exit 1
 fi
 

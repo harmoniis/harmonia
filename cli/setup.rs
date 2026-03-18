@@ -632,11 +632,9 @@ fn configure_langsmith_observability() -> Result<(), Box<dyn std::error::Error>>
             .default("harmonia".to_string())
             .interact_text()?;
 
-        let cs =
-            |scope: &str, key: &str, val: &str| -> Result<(), Box<dyn std::error::Error>> {
-                harmonia_config_store::set_config("harmonia-cli", scope, key, val)
-                    .map_err(|e| e.into())
-            };
+        let cs = |scope: &str, key: &str, val: &str| -> Result<(), Box<dyn std::error::Error>> {
+            harmonia_config_store::set_config("harmonia-cli", scope, key, val).map_err(|e| e.into())
+        };
 
         cs("observability", "enabled", "1")?;
         cs("observability", "trace-level", "standard")?;
@@ -674,10 +672,13 @@ fn configure_evolution_profile(home: &Path) -> Result<(), Box<dyn std::error::Er
         Some("source-rewrite") => 1,
         Some("artifact-rollout") => {
             // Check if distributed is enabled
-            let distributed =
-                harmonia_config_store::get_config("harmonia-cli", "evolution", "distributed-enabled")
-                    .ok()
-                    .flatten();
+            let distributed = harmonia_config_store::get_config(
+                "harmonia-cli",
+                "evolution",
+                "distributed-enabled",
+            )
+            .ok()
+            .flatten();
             if distributed.as_deref() == Some("1") {
                 2
             } else {
@@ -728,11 +729,14 @@ fn configure_evolution_profile(home: &Path) -> Result<(), Box<dyn std::error::Er
             cs("evolution", "distributed-enabled", "1")?;
             cs("evolution", "distributed-store-kind", "s3")?;
 
-            let existing_bucket =
-                harmonia_config_store::get_config("harmonia-cli", "evolution", "distributed-store-bucket")
-                    .ok()
-                    .flatten()
-                    .unwrap_or_default();
+            let existing_bucket = harmonia_config_store::get_config(
+                "harmonia-cli",
+                "evolution",
+                "distributed-store-bucket",
+            )
+            .ok()
+            .flatten()
+            .unwrap_or_default();
             let mut bucket_input = Input::<String>::new()
                 .with_prompt("    Distributed evolution bucket")
                 .allow_empty(true);
@@ -744,11 +748,14 @@ fn configure_evolution_profile(home: &Path) -> Result<(), Box<dyn std::error::Er
                 cs("evolution", "distributed-store-bucket", bucket.trim())?;
             }
 
-            let existing_prefix =
-                harmonia_config_store::get_config("harmonia-cli", "evolution", "distributed-store-prefix")
-                    .ok()
-                    .flatten()
-                    .unwrap_or_else(|| "harmonia/evolution".to_string());
+            let existing_prefix = harmonia_config_store::get_config(
+                "harmonia-cli",
+                "evolution",
+                "distributed-store-prefix",
+            )
+            .ok()
+            .flatten()
+            .unwrap_or_else(|| "harmonia/evolution".to_string());
             let prefix: String = Input::new()
                 .with_prompt("    Distributed evolution prefix")
                 .default(existing_prefix)
@@ -840,7 +847,10 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
         .parent()
         .map(Path::to_path_buf)
         .unwrap_or_else(|| PathBuf::from("."));
-    std::env::set_var("HARMONIA_WALLET_ROOT", wallet_root.to_string_lossy().to_string());
+    std::env::set_var(
+        "HARMONIA_WALLET_ROOT",
+        wallet_root.to_string_lossy().to_string(),
+    );
     std::env::set_var(
         "HARMONIA_VAULT_WALLET_DB",
         wallet_path.to_string_lossy().to_string(),

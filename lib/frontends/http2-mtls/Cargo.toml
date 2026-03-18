@@ -1,6 +1,6 @@
 [package]
 name = "harmonia-http2-mtls"
-version = "0.1.8"
+version = "0.1.9"
 edition.workspace = true
 license.workspace = true
 repository.workspace = true
@@ -17,8 +17,8 @@ doctest = false
 [dependencies]
 bytes = "1"
 futures-util = "0.3"
-harmonia-config-store = { version = "0.1.8", path = "../../core/config-store" }
-harmonia-transport-auth = { version = "0.1.8", path = "../../core/transport-auth" }
+harmonia-config-store = { version = "0.1.9", path = "../../core/config-store" }
+harmonia-transport-auth = { version = "0.1.9", path = "../../core/transport-auth" }
 http = "1"
 http-body-util = "0.1"
 hyper = { version = "1", features = ["http2", "server", "client"] }

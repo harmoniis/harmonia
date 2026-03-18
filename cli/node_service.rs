@@ -136,8 +136,7 @@ fn run_client_mode(
                     if let Some(response) =
                         crate::node_rpc::handle_command_message(&node, &pairing, &msg)
                     {
-                        if let Err(err) = transport::send_message(&pairing.remote_addr, &response)
-                        {
+                        if let Err(err) = transport::send_message(&pairing.remote_addr, &response) {
                             eprintln!("node-service rpc response send failed: {err}");
                         }
                     }

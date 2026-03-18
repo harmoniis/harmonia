@@ -231,13 +231,11 @@ fn resolve_api_config() -> (String, String) {
         .ok()
         .flatten()
         .or_else(|| {
-            WHATSAPP_API_KEY_SYMBOLS
-                .iter()
-                .find_map(|sym| {
-                    harmonia_vault::get_secret_for_component(COMPONENT, sym)
-                        .ok()
-                        .flatten()
-                })
+            WHATSAPP_API_KEY_SYMBOLS.iter().find_map(|sym| {
+                harmonia_vault::get_secret_for_component(COMPONENT, sym)
+                    .ok()
+                    .flatten()
+            })
         })
         .unwrap_or_default();
     (url, key)
@@ -332,7 +330,11 @@ pub fn pair_status() -> Result<(bool, String), String> {
                         .get("message")
                         .or_else(|| json.get("status"))
                         .and_then(|v| v.as_str())
-                        .unwrap_or(if connected { "connected" } else { "not connected" });
+                        .unwrap_or(if connected {
+                            "connected"
+                        } else {
+                            "not connected"
+                        });
                     return Ok((connected, msg.to_string()));
                 }
             }

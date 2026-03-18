@@ -21,6 +21,16 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Clone sibling harmoniis-wallet for local path dependencies
+        shell: bash
+        run: |
+          WORK_ROOT="$(cd "${GITHUB_WORKSPACE}/../.." && pwd)"
+          WALLET_DIR="${WORK_ROOT}/marketplace/harmoniis-wallet"
+          mkdir -p "${WORK_ROOT}/marketplace"
+          if [ ! -d "${WALLET_DIR}/.git" ]; then
+            git clone --depth 1 https://github.com/harmoniis/harmoniis-wallet.git "${WALLET_DIR}"
+          fi
+
       - uses: dtolnay/rust-toolchain@stable
         with:
           toolchain: "1.93.0"
@@ -111,6 +121,16 @@ jobs:
             build_std: true
     steps:
       - uses: actions/checkout@v4
+
+      - name: Clone sibling harmoniis-wallet for local path dependencies
+        shell: bash
+        run: |
+          WORK_ROOT="$(cd "${GITHUB_WORKSPACE}/../.." && pwd)"
+          WALLET_DIR="${WORK_ROOT}/marketplace/harmoniis-wallet"
+          mkdir -p "${WORK_ROOT}/marketplace"
+          if [ ! -d "${WALLET_DIR}/.git" ]; then
+            git clone --depth 1 https://github.com/harmoniis/harmoniis-wallet.git "${WALLET_DIR}"
+          fi
 
       - uses: dtolnay/rust-toolchain@stable
         with:
@@ -222,6 +242,16 @@ jobs:
       CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
     steps:
       - uses: actions/checkout@v4
+
+      - name: Clone sibling harmoniis-wallet for local path dependencies
+        shell: bash
+        run: |
+          WORK_ROOT="$(cd "${GITHUB_WORKSPACE}/../.." && pwd)"
+          WALLET_DIR="${WORK_ROOT}/marketplace/harmoniis-wallet"
+          mkdir -p "${WORK_ROOT}/marketplace"
+          if [ ! -d "${WALLET_DIR}/.git" ]; then
+            git clone --depth 1 https://github.com/harmoniis/harmoniis-wallet.git "${WALLET_DIR}"
+          fi
 
       - uses: dtolnay/rust-toolchain@stable
         with:
