@@ -61,8 +61,19 @@ for lib in target/release/*."${LIB_EXT}"; do
     name="$(basename "$lib")"
     # Skip build artifacts that aren't our libs
     case "$name" in
-        libharmonia_*|harmonia_*) cp "$lib" "$STAGING/lib/" ;;
+        libharmonia_*|harmonia_*) ;;
+        *) continue ;;
     esac
+    # iMessage (BlueBubbles) only works on macOS — skip on other platforms
+    case "$PLATFORM" in
+        macos*) ;;
+        *)
+            case "$name" in
+                *imessage*) echo "  [skip] $name (macOS only)"; continue ;;
+            esac
+            ;;
+    esac
+    cp "$lib" "$STAGING/lib/"
 done
 
 # Copy config files

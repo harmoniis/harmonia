@@ -143,13 +143,26 @@ pub extern "C" fn harmonia_tailnet_send(
         }
     };
 
-    let from = mesh::local_node_info().unwrap_or_else(|_| "unknown".to_string());
+    let local_node = mesh::local_node().ok();
+    let from = local_node
+        .as_ref()
+        .map(|node| node.id.0.clone())
+        .unwrap_or_else(|| "unknown".to_string());
 
     let msg = MeshMessage {
         from,
         to: addr.clone(),
         payload: payload_str,
         msg_type: mt,
+        origin: local_node.map(|node| crate::model::MeshOrigin {
+            node_id: node.id.0,
+            node_label: Some(node.label),
+            node_role: Some(node.role),
+            channel_class: Some("tailscale-agent".to_string()),
+            node_key_id: None,
+            transport_security: None,
+        }),
+        session: None,
         timestamp_ms: std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .unwrap_or_default()

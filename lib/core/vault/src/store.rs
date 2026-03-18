@@ -77,11 +77,21 @@ fn key_from_master_env() -> Result<Option<[u8; 32]>, String> {
 
 fn default_wallet_db_path() -> Option<PathBuf> {
     let home = env::var("HOME").ok()?;
-    let path = PathBuf::from(home).join(".harmoniis").join("master.db");
-    path.exists().then_some(path)
+    Some(
+        PathBuf::from(&home)
+        .join(".harmoniis")
+        .join("wallet")
+        .join("master.db"),
+    )
 }
 
 fn wallet_db_path() -> Option<PathBuf> {
+    if let Ok(v) = env::var("HARMONIA_WALLET_ROOT") {
+        let trimmed = v.trim();
+        if !trimmed.is_empty() {
+            return Some(PathBuf::from(trimmed).join("master.db"));
+        }
+    }
     for key in [
         "HARMONIA_VAULT_WALLET_DB",
         "HARMONIA_WALLET_DB",
@@ -400,6 +410,7 @@ mod tests {
 
     const TEST_ENV_KEYS: &[&str] = &[
         "HOME",
+        "HARMONIA_WALLET_ROOT",
         "HARMONIA_VAULT_WALLET_DB",
         "HARMONIA_WALLET_DB",
         "HARMONIIS_WALLET_DB",

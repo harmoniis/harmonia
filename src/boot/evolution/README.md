@@ -18,10 +18,10 @@ This directory is the runtime-adjacent memory of:
 
 ## Reading Order (Latest)
 
-1. `latest/current-state.md`
-2. `latest/scorecard.md`
-3. `latest/changelog.md`
-4. `latest/rewrite-roadmap.md`
+1. `latest/current-state.sexp`
+2. `latest/scorecard.sexp`
+3. `latest/changelog.sexp`
+4. `latest/rewrite-roadmap.sexp`
 
 ## Snapshot Rule
 

@@ -37,8 +37,19 @@ pub(crate) struct CliProfile {
     /// Patterns indicating an error state.
     pub(crate) error_patterns: &'static [&'static str],
 
+    /// Patterns indicating an onboarding/survey/first-run prompt to auto-dismiss.
+    pub(crate) onboarding_patterns: &'static [&'static str],
+
+    /// Patterns indicating plan mode (accept/reject plan).
+    pub(crate) plan_mode_patterns: &'static [&'static str],
+
     /// How many trailing lines to examine for state detection.
     pub(crate) detection_window: usize,
+
+    /// Whether the permission prompt is a TUI selector (arrow keys + Enter)
+    /// rather than a y/n text prompt. If true, approve = Enter (default selection),
+    /// deny = navigate to deny + Enter.
+    pub(crate) permission_is_selector: bool,
 
     /// Key to send for "approve/allow" permission prompts.
     pub(crate) approve_key: &'static str,
@@ -57,13 +68,12 @@ pub(crate) struct CliProfile {
 pub(crate) static CLAUDE_CODE_PROFILE: CliProfile = CliProfile {
     name: "claude-code",
     input_prompt_patterns: &[
-        "❯",  // Claude Code's default prompt
-        "> ", // fallback prompt
+        "❯ ", // Claude Code's interactive prompt (with trailing space)
         "What would you like to do?",
         "How can I help",
         "Enter your prompt",
         "Type a message",
-        "╰─", // prompt box bottom
+        "╰─", // prompt box bottom border
     ],
     processing_patterns: &[
         "Thinking",
@@ -76,24 +86,33 @@ pub(crate) static CLAUDE_CODE_PROFILE: CliProfile = CliProfile {
         "⠦",
         "⠧",
         "⠇",
-        "⠏", // spinner
+        "⠏", // spinner frames
         "Working",
         "Reading",
         "Searching",
         "Writing",
         "Editing",
         "Running",
+        "Compiling",
+        "Analyzing",
+        "Generating",
+        "Fetching",
+        "Installing",
+        "Building",
+        "Downloading",
     ],
     permission_patterns: &[
-        "Allow",
-        "Deny",
-        "approve",
-        "Do you want to proceed",
-        "Permission",
         "Allow once",
         "Allow always",
+        "Allow",
+        "Deny",
+        "Do you want to proceed",
         "want to allow",
-        "(y/n)",
+        "wants to run", // "The Bash tool wants to run:"
+        "wants to execute",
+        "wants to write",
+        "wants to edit",
+        "wants to read",
         "Yes / No",
     ],
     confirmation_patterns: &[
@@ -106,18 +125,21 @@ pub(crate) static CLAUDE_CODE_PROFILE: CliProfile = CliProfile {
         "Confirm",
     ],
     selection_patterns: &[
-        "Select", "Choose", "Pick", "❯",   // selection cursor (context-dependent)
-        "[ ]", // checkbox
-        "[x]", // checked checkbox
-        "(●)", // radio selected
-        "(○)", // radio unselected
+        "Select",
+        "Choose",
+        "Pick",
+        "[ ] ",           // checkbox unchecked
+        "[x] ",           // checkbox checked
+        "(●) ",           // radio selected
+        "(○) ",           // radio unselected
+        "Use arrow keys", // selection instructions
     ],
     completion_patterns: &[
-        "exited",
+        "$ ",     // back to shell prompt (bash/linux)
+        "% ",     // back to shell prompt (zsh/macOS)
+        "❯ exit", // explicit exit in interactive mode
         "Session ended",
         "Goodbye",
-        "$ ", // back to shell prompt (bash/linux)
-        "% ", // back to shell prompt (zsh/macOS)
     ],
     error_patterns: &[
         "Error:",
@@ -129,10 +151,42 @@ pub(crate) static CLAUDE_CODE_PROFILE: CliProfile = CliProfile {
         "API key",
         "rate limit",
         "timed out",
+        "ECONNREFUSED",
+        "ETIMEDOUT",
+        "spawn ENOENT", // command not found
+        "command not found",
     ],
-    detection_window: 15,
-    approve_key: "y",
-    deny_key: "n",
+    onboarding_patterns: &[
+        "Welcome to Claude",
+        "Terms of Service",
+        "telemetry",
+        "Telemetry",
+        "opt in",
+        "opt out",
+        "first time",
+        "Get started",
+        "getting started",
+        "setup wizard",
+        "onboarding",
+        "Would you like to enable",
+    ],
+    plan_mode_patterns: &[
+        "Plan:",
+        "plan mode",
+        "Plan mode",
+        "Accept plan",
+        "Reject plan",
+        "accept this plan",
+        "reject this plan",
+        "Execute plan",
+    ],
+    detection_window: 25, // larger window — Claude Code output can be verbose
+    // Claude Code permission prompts are TUI selector widgets, not y/n text prompts.
+    // "Allow once" is the default (first) option — just press Enter to accept.
+    // To deny: arrow Down twice to "Deny", then Enter.
+    permission_is_selector: true,
+    approve_key: "", // just Enter (default selection = "Allow once")
+    deny_key: "",    // handled by select_option(2) for "Deny"
     yes_key: "y",
     no_key: "n",
 };
@@ -146,7 +200,7 @@ pub(crate) static CODEX_PROFILE: CliProfile = CliProfile {
     ],
     permission_patterns: &["Allow", "Deny", "approve", "Approve", "(y/n)"],
     confirmation_patterns: &["(y/n)", "(Y/n)", "Continue?", "Proceed?"],
-    selection_patterns: &["Select", "Choose", "❯"],
+    selection_patterns: &["Select", "Choose"],
     completion_patterns: &[
         "exited",
         "$ ",          // bash/linux
@@ -154,7 +208,10 @@ pub(crate) static CODEX_PROFILE: CliProfile = CliProfile {
         "tokens used", // codex exec completion indicator
     ],
     error_patterns: &["Error:", "error:", "FATAL", "panicked"],
+    onboarding_patterns: &[],
+    plan_mode_patterns: &[],
     detection_window: 12,
+    permission_is_selector: false,
     approve_key: "y",
     deny_key: "n",
     yes_key: "y",

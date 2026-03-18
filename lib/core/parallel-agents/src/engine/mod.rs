@@ -7,7 +7,7 @@ use std::thread;
 use harmonia_vault::{get_secret_for_component, init_from_env};
 
 use crate::model::{
-    append_metric_line, clear_error, json_escape, now_unix, set_error, state, ModelPrice, Task,
+    append_metric_line, clear_error, now_unix, set_error, sexp_escape, state, ModelPrice, Task,
 };
 
 use self::clients::{request_openrouter, verify_with_search};
@@ -360,11 +360,11 @@ pub(crate) fn task_result(task_id: i64) -> Result<String, String> {
         if t.success { "t" } else { "nil" },
         if t.verified { "t" } else { "nil" },
         t.verification_source,
-        json_escape(&t.verification_detail),
+        sexp_escape(&t.verification_detail),
         t.latency_ms,
         t.cost_usd,
-        json_escape(&t.response),
-        json_escape(&t.error)
+        sexp_escape(&t.response),
+        sexp_escape(&t.error)
     ))
 }
 

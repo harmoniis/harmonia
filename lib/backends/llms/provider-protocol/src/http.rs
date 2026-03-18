@@ -1,7 +1,6 @@
 //! HTTP helpers for LLM provider backends.
 
 use serde_json::Value;
-use std::env;
 use std::process::Command;
 
 /// Timeout configuration for HTTP calls.
@@ -36,17 +35,6 @@ pub fn get_timeout(
                 .flatten(),
         )
         .unwrap_or(max_default),
-    }
-}
-
-/// Read a boolean from an env var, returning `default` if unset.
-pub fn bool_env(name: &str, default: bool) -> bool {
-    match env::var(name) {
-        Ok(v) => matches!(
-            v.trim().to_ascii_lowercase().as_str(),
-            "1" | "true" | "yes" | "on"
-        ),
-        Err(_) => default,
     }
 }
 

@@ -29,6 +29,8 @@ fn state() -> &'static RwLock<DiscordState> {
 #[derive(Deserialize)]
 struct DiscordUser {
     #[serde(default)]
+    id: String,
+    #[serde(default)]
     bot: bool,
 }
 
@@ -182,7 +184,7 @@ pub fn init(config: &str) -> Result<(), String> {
     Ok(())
 }
 
-pub fn poll() -> Result<Vec<(String, String)>, String> {
+pub fn poll() -> Result<Vec<(String, String, Option<String>)>, String> {
     let (token, channels, cursors) = {
         let s = state().read().map_err(|e| format!("lock: {e}"))?;
         if !s.initialized {
@@ -232,7 +234,16 @@ pub fn poll() -> Result<Vec<(String, String)>, String> {
             if is_bot_message(&msg) || msg.content.trim().is_empty() {
                 continue;
             }
-            outbound.push((channel.clone(), msg.content));
+            let author_id = msg
+                .author
+                .as_ref()
+                .map(|u| u.id.as_str())
+                .unwrap_or("unknown");
+            let metadata = format!(
+                "(:channel-class \"discord-bot\" :node-id \"{}\" :remote t)",
+                author_id.replace('\\', "\\\\").replace('"', "\\\"")
+            );
+            outbound.push((channel.clone(), msg.content, Some(metadata)));
         }
 
         if max_seen > previous {

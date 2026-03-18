@@ -1,0 +1,20 @@
+[package]
+name = "harmonia-voice-router"
+version = "0.1.8"
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+authors.workspace = true
+description = "Voice provider router — multi-backend dispatch for STT and TTS in the Harmonia agent"
+keywords = ["harmonia", "voice", "router"]
+categories = ["api-bindings"]
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+harmonia-voice-protocol = { version = "0.1.8", path = "../voice-protocol" }
+harmonia-whisper = { version = "0.1.8", path = "../whisper" }
+harmonia-elevenlabs = { version = "0.1.8", path = "../elevenlabs" }
+harmonia-config-store = { version = "0.1.8", path = "../../../core/config-store" }

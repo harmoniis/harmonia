@@ -86,12 +86,18 @@ pub extern "C" fn harmonia_frontend_poll(buf: *mut c_char, buf_len: usize) -> i3
                 clear_error();
                 return 0;
             }
-            // Format: newline-separated lines of `sub_channel\tpayload`.
-            let formatted: String = signals
-                .iter()
-                .map(|(ch, pl)| format!("{}\t{}", ch, pl))
-                .collect::<Vec<_>>()
-                .join("\n");
+            // Format: sub_channel\tpayload[\tmetadata]\n per signal
+            let mut formatted = String::new();
+            for (ch, pl, metadata) in &signals {
+                formatted.push_str(ch);
+                formatted.push('\t');
+                formatted.push_str(pl);
+                if let Some(meta) = metadata {
+                    formatted.push('\t');
+                    formatted.push_str(meta);
+                }
+                formatted.push('\n');
+            }
             let bytes = formatted.as_bytes();
             let to_copy = bytes.len().min(buf_len.saturating_sub(1));
             unsafe {

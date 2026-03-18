@@ -1,12 +1,14 @@
-//! Interactive menu framework for Harmonia TUI.
+//! Interactive menu framework for Harmonia TUI sessions.
 //!
 //! Provides arrow-key navigable selection menus that convert
 //! user choices into /commands sent through the daemon socket.
 
 use crossterm::{
-    cursor,
+    cursor::{self, Hide, MoveTo, Show},
     event::{self, Event, KeyCode, KeyEvent, KeyModifiers},
-    terminal, ExecutableCommand,
+    queue,
+    style::Print,
+    terminal::{self, Clear, ClearType},
 };
 use std::io::{Stdout, Write};
 
@@ -47,7 +49,7 @@ pub enum MenuAction {
 
 /// Show an interactive selection menu. Returns the selected command string or None.
 pub fn interactive_select(
-    stdout: &mut Stdout,
+    _stdout: &mut Stdout,
     title: &str,
     items: &[MenuItem],
 ) -> Result<MenuAction, Box<dyn std::error::Error>> {
@@ -55,21 +57,61 @@ pub fn interactive_select(
         return Ok(MenuAction::Cancel);
     }
 
-    let mut selected: usize = 0;
+    terminal::enable_raw_mode()?;
+    let result = interactive_select_inner(title, items);
+    let _ = terminal::disable_raw_mode();
 
-    // Calculate max label width for alignment
+    match result {
+        Ok((action, menu_row, total_lines)) => {
+            clear_menu(menu_row, total_lines)?;
+            Ok(action)
+        }
+        Err(e) => Err(e),
+    }
+}
+
+/// Inner menu loop — runs entirely in raw mode. Caller guarantees cleanup.
+fn interactive_select_inner(
+    title: &str,
+    items: &[MenuItem],
+) -> Result<(MenuAction, u16, u16), Box<dyn std::error::Error>> {
+    let mut selected: usize = 0;
     let max_label = items.iter().map(|i| i.label.len()).max().unwrap_or(0);
 
-    terminal::enable_raw_mode()?;
+    // Drain any stale key events (e.g. Enter release from previous menu)
+    while event::poll(std::time::Duration::from_millis(50))? {
+        let _ = event::read()?;
+    }
 
-    // Draw initial menu
-    draw_menu(stdout, title, items, selected, max_label)?;
+    // Flush and get cursor position for absolute positioning
+    std::io::stderr().flush()?;
+    std::io::stdout().flush()?;
+    let (_, start_row) = cursor::position()?;
+    let (_, term_h) = terminal::size()?;
+
+    // total rows: title + separator + items + nav hint = items.len() + 3
+    let total_lines = items.len() as u16 + 3;
+    let max_menu_row = term_h.saturating_sub(total_lines + 1);
+    let menu_row = if start_row > max_menu_row {
+        let deficit = start_row - max_menu_row;
+        let mut err = std::io::stderr();
+        for _ in 0..deficit {
+            let _ = write!(err, "\n");
+        }
+        let _ = err.flush();
+        queue!(err, MoveTo(0, max_menu_row))?;
+        err.flush()?;
+        max_menu_row
+    } else {
+        start_row
+    };
+
+    draw_menu(title, items, selected, max_label, menu_row)?;
 
     let result = loop {
         if event::poll(std::time::Duration::from_millis(100))? {
             if let Event::Key(key) = event::read()? {
                 match key {
-                    // Navigation
                     KeyEvent {
                         code: KeyCode::Up, ..
                     }
@@ -78,12 +120,12 @@ pub fn interactive_select(
                         modifiers: KeyModifiers::NONE,
                         ..
                     } => {
-                        if selected > 0 {
-                            selected -= 1;
+                        selected = if selected > 0 {
+                            selected - 1
                         } else {
-                            selected = items.len() - 1;
-                        }
-                        draw_menu(stdout, title, items, selected, max_label)?;
+                            items.len() - 1
+                        };
+                        draw_menu(title, items, selected, max_label, menu_row)?;
                     }
 
                     KeyEvent {
@@ -96,10 +138,9 @@ pub fn interactive_select(
                         ..
                     } => {
                         selected = (selected + 1) % items.len();
-                        draw_menu(stdout, title, items, selected, max_label)?;
+                        draw_menu(title, items, selected, max_label, menu_row)?;
                     }
 
-                    // Select
                     KeyEvent {
                         code: KeyCode::Enter,
                         ..
@@ -112,7 +153,6 @@ pub fn interactive_select(
                         };
                     }
 
-                    // Cancel
                     KeyEvent {
                         code: KeyCode::Esc, ..
                     }
@@ -124,7 +164,6 @@ pub fn interactive_select(
                         break MenuAction::Cancel;
                     }
 
-                    // Ctrl+C
                     KeyEvent {
                         code: KeyCode::Char('c'),
                         modifiers: KeyModifiers::CONTROL,
@@ -133,7 +172,6 @@ pub fn interactive_select(
                         break MenuAction::Cancel;
                     }
 
-                    // Back
                     KeyEvent {
                         code: KeyCode::Left,
                         ..
@@ -145,7 +183,6 @@ pub fn interactive_select(
                         break MenuAction::Back;
                     }
 
-                    // Number shortcuts
                     KeyEvent {
                         code: KeyCode::Char(c @ '1'..='9'),
                         modifiers: KeyModifiers::NONE,
@@ -168,80 +205,87 @@ pub fn interactive_select(
         }
     };
 
-    terminal::disable_raw_mode()?;
-
-    // Clear menu lines
-    clear_menu(stdout, items.len() + 4)?;
-
-    Ok(result)
+    Ok((result, menu_row, total_lines))
 }
 
+/// Draw the menu at fixed absolute rows starting from `menu_row` (0-based).
 fn draw_menu(
-    stdout: &mut Stdout,
     title: &str,
     items: &[MenuItem],
     selected: usize,
     max_label: usize,
+    menu_row: u16,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    // Move to start of menu area
-    let total_lines = items.len() + 4; // title + separator + items + nav hint + blank
-    for _ in 0..total_lines {
-        write!(stdout, "\x1b[2K\r\n")?;
-    }
-    // Move back up
-    stdout.execute(cursor::MoveUp(total_lines as u16))?;
+    let mut err = std::io::stderr();
+    queue!(err, Hide)?;
+
+    let mut row = menu_row;
 
     // Title
-    write!(
-        stdout,
-        "\r\x1b[2K  {BOLD_CYAN}◆{RESET} {BOLD}{title}{RESET}\r\n"
+    queue!(
+        err,
+        MoveTo(0, row),
+        Clear(ClearType::CurrentLine),
+        Print(format!("  {BOLD_CYAN}◆{RESET} {BOLD}{title}{RESET}"))
     )?;
-    write!(
-        stdout,
-        "\r\x1b[2K  {DIM}──────────────────────────────────────{RESET}\r\n"
+    row += 1;
+
+    // Separator
+    queue!(
+        err,
+        MoveTo(0, row),
+        Clear(ClearType::CurrentLine),
+        Print(format!(
+            "  {DIM}──────────────────────────────────────{RESET}"
+        ))
     )?;
+    row += 1;
 
     // Items
     for (i, item) in items.iter().enumerate() {
         let num = i + 1;
+        queue!(err, MoveTo(0, row), Clear(ClearType::CurrentLine))?;
         if i == selected {
-            write!(
-                stdout,
-                "\r\x1b[2K  {BOLD_CYAN}❯{RESET} {BOLD}{num}.{RESET} {BOLD_CYAN}{:<width$}{RESET}  {DIM}{}{RESET}\r\n",
-                item.label,
-                item.hint,
-                width = max_label
-            )?;
+            queue!(err, Print(format!(
+                "  {BOLD_CYAN}❯{RESET} {BOLD}{num}.{RESET} {BOLD_CYAN}{:<width$}{RESET}  {DIM}{}{RESET}",
+                item.label, item.hint, width = max_label
+            )))?;
         } else {
-            write!(
-                stdout,
-                "\r\x1b[2K    {DIM}{num}.{RESET} {:<width$}  {DIM}{}{RESET}\r\n",
-                item.label,
-                item.hint,
-                width = max_label
+            queue!(
+                err,
+                Print(format!(
+                    "    {DIM}{num}.{RESET} {:<width$}  {DIM}{}{RESET}",
+                    item.label,
+                    item.hint,
+                    width = max_label
+                ))
             )?;
         }
+        row += 1;
     }
 
     // Navigation hint
-    write!(
-        stdout,
-        "\r\x1b[2K  {DIM}↑↓ navigate  Enter select  Esc cancel  1-9 jump{RESET}\r\n"
+    queue!(
+        err,
+        MoveTo(0, row),
+        Clear(ClearType::CurrentLine),
+        Print(format!(
+            "  {DIM}↑↓ navigate  Enter select  Left/Backspace back  Esc close  1-9 jump{RESET}"
+        ))
     )?;
 
-    stdout.flush()?;
+    queue!(err, Show)?;
+    err.flush()?;
     Ok(())
 }
 
-fn clear_menu(stdout: &mut Stdout, lines: usize) -> Result<(), Box<dyn std::error::Error>> {
-    // Move up and clear each line
-    stdout.execute(cursor::MoveUp(1))?; // we're already one line past
-    for _ in 0..lines {
-        write!(stdout, "\r\x1b[2K")?;
-        stdout.execute(cursor::MoveUp(1))?;
+fn clear_menu(menu_row: u16, total_lines: u16) -> Result<(), Box<dyn std::error::Error>> {
+    let mut err = std::io::stderr();
+    for r in 0..total_lines {
+        let _ = queue!(err, MoveTo(0, menu_row + r), Clear(ClearType::CurrentLine));
     }
-    write!(stdout, "\r\x1b[2K")?;
-    stdout.flush()?;
+    let _ = queue!(err, MoveTo(0, menu_row));
+    err.flush()?;
     Ok(())
 }
 
@@ -251,11 +295,17 @@ pub fn main_menu_items() -> Vec<MenuItem> {
     vec![
         MenuItem::new("Status", "/status", "System status & health"),
         MenuItem::new("Backends", "submenu:backends", "LLM provider configuration"),
-        MenuItem::new("Frontends", "submenu:frontends", "Communication channels"),
+        MenuItem::new(
+            "Frontends",
+            "action:pair-frontend",
+            "Setup, verify, and QR-link communication channels",
+        ),
         MenuItem::new("Tools", "/tools", "Tool API keys & status"),
         MenuItem::new("Chronicle", "submenu:chronicle", "Observability & history"),
         MenuItem::new("Metrics", "/metrics", "Model performance data"),
         MenuItem::new("Security", "submenu:security", "Security audit & posture"),
+        MenuItem::new("Policies", "submenu:policies", "Channel sender allowlists"),
+        MenuItem::new("Resume Session", "action:resume-session", "Switch to a past session"),
         MenuItem::new("Identity", "/identity", "Wallet & vault keys"),
     ]
 }
@@ -296,18 +346,11 @@ pub fn backends_menu_items() -> Vec<MenuItem> {
 }
 
 pub fn frontends_menu_items() -> Vec<MenuItem> {
-    vec![
-        MenuItem::new("Overview", "/frontends", "List all frontends with status"),
-        MenuItem::new("TUI", "/frontends tui", "Terminal interface status"),
-        MenuItem::new("MQTT", "/frontends mqtt", "MQTT broker details"),
-        MenuItem::new("Telegram", "/frontends telegram", "Telegram bot details"),
-        MenuItem::new("Slack", "/frontends slack", "Slack bot details"),
-        MenuItem::new("Discord", "/frontends discord", "Discord bot details"),
-        MenuItem::new("WhatsApp", "/frontends whatsapp", "WhatsApp bridge details"),
-        MenuItem::new("iMessage", "/frontends imessage", "iMessage bridge details"),
-        MenuItem::new("Signal", "/frontends signal", "Signal bridge details"),
-        MenuItem::new("Tailscale", "/frontends tailscale", "Mesh network details"),
-    ]
+    vec![MenuItem::new(
+        "Manage Frontends",
+        "action:pair-frontend",
+        "Setup, verify, and pair frontends",
+    )]
 }
 
 pub fn chronicle_menu_items() -> Vec<MenuItem> {
@@ -341,6 +384,40 @@ pub fn security_menu_items() -> Vec<MenuItem> {
     ]
 }
 
+pub fn policies_menu_items() -> Vec<MenuItem> {
+    vec![
+        MenuItem::new("Email", "action:policy-email", "Email sender allowlist"),
+        MenuItem::new("Signal", "action:policy-signal", "Signal sender allowlist"),
+        MenuItem::new(
+            "WhatsApp",
+            "action:policy-whatsapp",
+            "WhatsApp sender allowlist",
+        ),
+        MenuItem::new(
+            "iMessage",
+            "action:policy-imessage",
+            "iMessage sender allowlist",
+        ),
+        MenuItem::new("Slack", "action:policy-slack", "Slack sender allowlist"),
+        MenuItem::new(
+            "Discord",
+            "action:policy-discord",
+            "Discord sender allowlist",
+        ),
+        MenuItem::new(
+            "Mattermost",
+            "action:policy-mattermost",
+            "Mattermost sender allowlist",
+        ),
+        MenuItem::new(
+            "Telegram",
+            "action:policy-telegram",
+            "Telegram sender allowlist",
+        ),
+        MenuItem::new("Nostr", "action:policy-nostr", "Nostr sender allowlist"),
+    ]
+}
+
 /// Resolve submenu name to items
 pub fn submenu_items(name: &str) -> Option<(&str, Vec<MenuItem>)> {
     match name {
@@ -348,6 +425,7 @@ pub fn submenu_items(name: &str) -> Option<(&str, Vec<MenuItem>)> {
         "frontends" => Some(("Frontends", frontends_menu_items())),
         "chronicle" => Some(("Chronicle", chronicle_menu_items())),
         "security" => Some(("Security", security_menu_items())),
+        "policies" => Some(("Policies", policies_menu_items())),
         _ => None,
     }
 }

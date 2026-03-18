@@ -7,7 +7,7 @@ use std::sync::{Mutex, OnceLock};
 static DB_CONN: OnceLock<Mutex<Connection>> = OnceLock::new();
 
 // ─── Schema version for migrations ────────────────────────────────────
-const SCHEMA_VERSION: i32 = 2;
+const SCHEMA_VERSION: i32 = 3;
 
 fn state_root() -> PathBuf {
     let default = env::temp_dir()
@@ -83,6 +83,9 @@ fn run_migrations(conn: &Connection) -> Result<(), String> {
     }
     if current_version < 2 {
         migrate_v2(conn)?;
+    }
+    if current_version < 3 {
+        migrate_v3(conn)?;
     }
 
     conn.execute(
@@ -294,6 +297,47 @@ fn migrate_v2(conn: &Connection) -> Result<(), String> {
         CREATE INDEX IF NOT EXISTS idx_se_ts ON signalograd_events(ts);
         CREATE INDEX IF NOT EXISTS idx_se_type ON signalograd_events(event_type);
         CREATE INDEX IF NOT EXISTS idx_se_cycle ON signalograd_events(cycle);
+        ",
+    )
+    .map_err(|e| e.to_string())?;
+    Ok(())
+}
+
+fn migrate_v3(conn: &Connection) -> Result<(), String> {
+    conn.execute_batch(
+        "
+        -- ═══ Supervision specs ═══
+        -- Frozen before task execution. Verdict filled after completion.
+        CREATE TABLE IF NOT EXISTS supervision_specs (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            ts INTEGER NOT NULL DEFAULT (CAST(strftime('%s','now') AS INTEGER) * 1000),
+            task INTEGER NOT NULL,
+            taxonomy TEXT NOT NULL DEFAULT 'deferred',
+            spec TEXT NOT NULL,
+            assertions INTEGER NOT NULL DEFAULT 0,
+            passed INTEGER DEFAULT NULL,
+            failed INTEGER DEFAULT NULL,
+            skipped INTEGER DEFAULT NULL,
+            verdict TEXT DEFAULT NULL,
+            confidence REAL DEFAULT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_ss_ts ON supervision_specs(ts);
+        CREATE INDEX IF NOT EXISTS idx_ss_task ON supervision_specs(task);
+        CREATE INDEX IF NOT EXISTS idx_ss_verdict ON supervision_specs(verdict);
+
+        -- ═══ Supervision evidence ═══
+        -- Individual assertion evaluations linked to a spec.
+        CREATE TABLE IF NOT EXISTS supervision_evidence (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            spec INTEGER NOT NULL REFERENCES supervision_specs(id),
+            kind TEXT NOT NULL,
+            detail TEXT,
+            passed INTEGER NOT NULL DEFAULT 0,
+            evidence TEXT,
+            duration INTEGER NOT NULL DEFAULT 0
+        );
+        CREATE INDEX IF NOT EXISTS idx_sve_spec ON supervision_evidence(spec);
+        CREATE INDEX IF NOT EXISTS idx_sve_kind ON supervision_evidence(kind);
         ",
     )
     .map_err(|e| e.to_string())?;
@@ -678,6 +722,8 @@ pub fn gc_status() -> Result<String, String> {
         "graph_snapshots",
         "graph_nodes",
         "graph_edges",
+        "supervision_specs",
+        "supervision_evidence",
     ]
     .iter()
     .map(|table| {

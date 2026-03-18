@@ -24,11 +24,33 @@
     (:windows "Windows")
     (t "unknown")))
 
+;;; ─── Environment access ─────────────────────────────────────────────
+;;;
+;;; %boot-env is the ONLY function that reads env vars directly.
+;;; Pre-config-store code uses %boot-env; post-config-store code uses
+;;; config-get-for (which handles env fallback internally).
+
+(defun %boot-env (name &optional default)
+  "Read an environment variable. Use ONLY for pre-config-store bootstrap paths.
+   After config-store init, use config-get-for instead."
+  (or (sb-ext:posix-getenv name) default))
+
+(defun %platform-tmpdir ()
+  "Platform temporary directory."
+  (%boot-env "TMPDIR" "/tmp"))
+
+(defun %tmpdir-state-root ()
+  "State root from config-store, falling back to $TMPDIR/harmonia.
+   Use in post-config-store code where config-get-for is available."
+  (or (and (fboundp 'config-get-for)
+           (funcall 'config-get-for "conductor" "state-root" "global"))
+      (concatenate 'string (string-right-trim "/" (%platform-tmpdir)) "/harmonia")))
+
 ;;; ─── Path introspection ────────────────────────────────────────────────
 
 (defun %state-root ()
-  (or (sb-ext:posix-getenv "HARMONIA_STATE_ROOT")
-      (let ((home (sb-ext:posix-getenv "HOME")))
+  (or (%boot-env "HARMONIA_STATE_ROOT")
+      (let ((home (%boot-env "HOME")))
         (when home (concatenate 'string home "/.harmoniis/harmonia")))))
 
 (defun %source-root ()
@@ -37,19 +59,19 @@
     (namestring (merge-pathnames "../../" *boot-file*))))
 
 (defun %lib-dir ()
-  (or (sb-ext:posix-getenv "HARMONIA_LIB_DIR")
-      (let ((home (sb-ext:posix-getenv "HOME")))
+  (or (%boot-env "HARMONIA_LIB_DIR")
+      (let ((home (%boot-env "HOME")))
         (when home (concatenate 'string home "/.local/lib/harmonia/")))))
 
 (defun %log-path ()
   "Platform-correct log path."
   (case (%platform)
     (:macos
-     (let ((home (sb-ext:posix-getenv "HOME")))
+     (let ((home (%boot-env "HOME")))
        (when home (concatenate 'string home "/Library/Logs/Harmonia/harmonia.log"))))
     (:linux
-     (let ((state (or (sb-ext:posix-getenv "XDG_STATE_HOME")
-                      (let ((h (sb-ext:posix-getenv "HOME")))
+     (let ((state (or (%boot-env "XDG_STATE_HOME")
+                      (let ((h (%boot-env "HOME")))
                         (when h (concatenate 'string h "/.local/state"))))))
        (when state (concatenate 'string state "/harmonia/harmonia.log"))))
     (t (let ((root (%state-root)))
@@ -59,10 +81,9 @@
   "Platform-correct runtime directory (PID/socket)."
   (case (%platform)
     (:macos
-     (let ((tmpdir (sb-ext:posix-getenv "TMPDIR")))
-       (when tmpdir (concatenate 'string (string-right-trim "/" tmpdir) "/harmonia/"))))
+     (concatenate 'string (string-right-trim "/" (%platform-tmpdir)) "/harmonia/"))
     (:linux
-     (let ((xdg (sb-ext:posix-getenv "XDG_RUNTIME_DIR")))
+     (let ((xdg (%boot-env "XDG_RUNTIME_DIR")))
        (if xdg
            (concatenate 'string xdg "/harmonia/")
            "/tmp/harmonia/")))

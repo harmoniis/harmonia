@@ -80,8 +80,9 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
     }
 
     // 8. Never touch wallet data — verify
-    let wallet_dir = home.join(".harmoniis").join("wallet");
-    let wallet_db = home.join(".harmoniis").join("master.db");
+    let wallet_dir =
+        crate::paths::wallet_root_path().unwrap_or_else(|_| home.join(".harmoniis").join("wallet"));
+    let wallet_db = wallet_dir.join("master.db");
     if wallet_dir.exists() || wallet_db.exists() {
         println!("  {} Wallet data untouched", style("✓").green().bold());
     }

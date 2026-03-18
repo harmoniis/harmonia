@@ -100,6 +100,19 @@ These keys are populated by setup and refreshed by the embedded broker process:
 
 Operational note: the embedded broker uses `rmqtt` with `cert_cn_as_username`, so the wallet-derived certificate CN must be the normalized client fingerprint. Offline device messages are persisted in `mqtt-offline-queue.db` under `HARMONIA_STATE_ROOT`.
 
+## Sender Policy Config Keys
+
+These keys control the gateway sender policy for messaging frontends. Written by `harmonia-cli` (admin), read by `gateway`.
+
+| Scope | Key | Purpose |
+|---|---|---|
+| `sender-policy` | `mode-<frontend>` | `"deny"` (default) or `"allow-all"` — controls whether the frontend accepts all senders or only allowlisted ones |
+| `sender-policy` | `allowlist-<frontend>` | comma-separated sender identifiers (email addresses, phone numbers, usernames) permitted to send to this frontend |
+
+Where `<frontend>` is one of: `email`, `signal`, `whatsapp`, `imessage`, `slack`, `discord`, `mattermost`, `telegram`, `nostr`.
+
+Managed via `/policies` TUI command or direct config-store writes. Gateway reads with 30-second cache TTL.
+
 ## Policy Boundaries
 
 1. Secrets are not config policy; they live behind vault APIs.
@@ -109,7 +122,7 @@ Operational note: the embedded broker uses `rmqtt` with `cert_cn_as_username`, s
 
 ## Canonical Cross-References
 
-1. Runtime policy architecture: `../../../doc/agent/evolution/latest/HARMONIC_MATRIX.md`
-2. Swarm/model policy details: `../../../doc/agent/evolution/latest/SWARM_POLICY.md`
-3. Memory schema policy: `../../../doc/agent/evolution/latest/MEMORY_SCHEMA.md`
-4. A2UI policy and component semantics: `../../../doc/agent/genesis/A2UI_SPEC.md`
+1. Matrix topology: `../../config/matrix-topology.sexp`
+2. Swarm/model policy: `../../config/swarm.sexp`, `../../config/model-policy.sexp`
+3. Harmony policy: `../../config/harmony-policy.sexp`
+4. A2UI component catalog: `../../config/a2ui-catalog.sexp`

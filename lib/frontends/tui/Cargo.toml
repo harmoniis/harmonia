@@ -16,6 +16,7 @@ crate-type = ["cdylib", "rlib"]
 [dependencies]
 crossterm = "0.28"
 dirs = "5"
+harmonia-config-store = { version = "0.1.8", path = "../../core/config-store" }
 
 [target.'cfg(unix)'.dependencies]
 libc = "0.2"

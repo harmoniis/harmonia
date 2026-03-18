@@ -1,0 +1,19 @@
+[package]
+name = "harmonia-whisper"
+version = "0.1.8"
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+authors.workspace = true
+description = "Whisper speech-to-text backend for the Harmonia agent — Groq primary, OpenAI fallback"
+keywords = ["harmonia", "whisper", "stt", "voice"]
+categories = ["api-bindings"]
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+harmonia-voice-protocol = { version = "0.1.8", path = "../voice-protocol" }
+harmonia-config-store = { version = "0.1.8", path = "../../../core/config-store" }
+serde_json = "1"

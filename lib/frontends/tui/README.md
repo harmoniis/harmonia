@@ -29,7 +29,7 @@ No vault symbols required. Config S-expression: `()` (empty).
 
 ## Self-Improvement Notes
 
-- Implements the standard 7-function frontend FFI contract.
+- Implements the standard 8-function frontend FFI contract.
 - `poll` reads from a background stdin reader thread; returns 0 if no input, >0 with bytes written to buf.
 - `send` writes to stdout with a newline.
 - Compiled as cdylib, hot-loaded by gateway via `harmonia_gateway_register`.

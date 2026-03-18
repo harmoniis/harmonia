@@ -1,2 +1,2 @@
-mod backend;
+pub mod backend;
 mod ffi;

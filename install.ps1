@@ -1,4 +1,10 @@
+param(
+    [ValidateSet("full-agent", "tui-client")]
+    [string]$Profile = $(if ($env:HARMONIA_INSTALL_PROFILE) { $env:HARMONIA_INSTALL_PROFILE } else { "full-agent" })
+)
+
 $ErrorActionPreference = "Stop"
+$env:HARMONIA_INSTALL_PROFILE = $Profile
 
 function Write-Section([string]$Message, [string]$Color = "Cyan") {
     Write-Host "  $Message" -ForegroundColor $Color
@@ -32,6 +38,25 @@ function Get-InstallPaths {
         ShareDir = if ($env:HARMONIA_SHARE_DIR) { $env:HARMONIA_SHARE_DIR } else { Join-Path $localRoot "Harmonia\share" }
         SourceCheckout = if ($env:HARMONIA_SOURCE_ROOT) { $env:HARMONIA_SOURCE_ROOT } else { Join-Path $localRoot "Harmonia\source-checkout" }
     }
+}
+
+function Get-RoleForProfile([string]$InstallProfile) {
+    if ($InstallProfile -eq "tui-client") {
+        return "tui-client"
+    }
+    return "agent"
+}
+
+function Get-NodeLabel {
+    if ($env:HARMONIA_NODE_LABEL) {
+        return ($env:HARMONIA_NODE_LABEL.ToLowerInvariant() -replace '[^a-z0-9._-]+', '-').Trim('.','_','-')
+    }
+    $raw = if ($env:COMPUTERNAME) { $env:COMPUTERNAME } else { "harmonia-node" }
+    $label = ($raw.ToLowerInvariant() -replace '[^a-z0-9._-]+', '-').Trim('.','_','-')
+    if ([string]::IsNullOrWhiteSpace($label)) {
+        return "harmonia-node"
+    }
+    return $label
 }
 
 function Ensure-Dir([string]$Path) {
@@ -147,7 +172,9 @@ function Install-Libraries([string]$ReleaseDir, [string]$LibDir) {
     } | Remove-Item -Force -ErrorAction SilentlyContinue
 
     $libs = Get-ChildItem $ReleaseDir -Filter "*.dll" | Where-Object {
-        $_.Name -like "libharmonia_*" -or $_.Name -like "harmonia_*"
+        ($_.Name -like "libharmonia_*" -or $_.Name -like "harmonia_*") -and
+        # iMessage (BlueBubbles) only works on macOS — skip on Windows
+        $_.Name -notlike "*imessage*"
     }
     if (-not $libs) {
         throw "no runtime libraries found in $ReleaseDir"
@@ -174,12 +201,32 @@ function Ensure-DataDirs([string]$DataDir) {
     Ensure-Dir (Join-Path $DataDir "state")
     Ensure-Dir (Join-Path $DataDir "frontends")
     Ensure-Dir (Join-Path $DataDir "config")
+    Ensure-Dir (Join-Path $DataDir "nodes")
+}
+
+function Write-NodeIdentity([string]$DataDir) {
+    $label = Get-NodeLabel
+    $role = Get-RoleForProfile $Profile
+    $nodeDir = Join-Path (Join-Path $DataDir "nodes") $label
+    Ensure-Dir $nodeDir
+    Ensure-Dir (Join-Path $nodeDir "sessions")
+    Ensure-Dir (Join-Path $nodeDir "pairings")
+    Ensure-Dir (Join-Path $nodeDir "memory")
+    $identity = @{
+        label = $label
+        hostname = $label
+        role = $role
+        install_profile = $Profile
+    } | ConvertTo-Json
+    Set-Content -Path (Join-Path $DataDir "config\node.json") -Value $identity
+    Set-Content -Path (Join-Path $nodeDir "node.json") -Value $identity
 }
 
 function Install-FromArtifactRoot([string]$ArtifactRoot, [string]$Version) {
     $paths = Get-InstallPaths
 
     Write-Step "Installing Harmonia v$Version"
+    Write-Host "    profile:   $Profile"
     Write-Host "    user data: $($paths.DataDir)"
     Write-Host "    binaries:  $($paths.BinDir)"
     Write-Host "    libraries: $($paths.LibDir)"
@@ -189,6 +236,7 @@ function Install-FromArtifactRoot([string]$ArtifactRoot, [string]$Version) {
     Install-Libraries (Join-Path $ArtifactRoot "lib") $paths.LibDir
     Install-ShareTree $ArtifactRoot $paths.ShareDir
     Ensure-DataDirs $paths.DataDir
+    Write-NodeIdentity $paths.DataDir
     Add-UserPathEntry $paths.BinDir
 
     $versionText = & (Join-Path $paths.BinDir "harmonia.exe") --version 2>$null
@@ -198,6 +246,7 @@ function Install-FromArtifactRoot([string]$ArtifactRoot, [string]$Version) {
     Write-Host "    libraries: $($paths.LibDir)"
     Write-Host "    shared:    $($paths.ShareDir)"
     Write-Host "    user data: $($paths.DataDir)"
+    Write-Host "    profile:   $Profile"
 }
 
 function Get-RepoVersion([string]$RepoRoot) {
@@ -337,11 +386,20 @@ Write-Section "Harmonia — Self-improving Common Lisp + Rust agent"
 Write-Host ""
 
 Check-Rust
-Check-Sbcl
-Check-Quicklisp
+if ($Profile -eq "full-agent") {
+    Check-Sbcl
+    Check-Quicklisp
+} else {
+    Write-Step "Install profile: tui-client (skipping local SBCL/Quicklisp bootstrap)"
+}
 Install-Harmonia
 
 Write-Host ""
 Write-Host "  Next:"
-Write-Host "    harmonia setup"
-Write-Host "    harmonia start"
+if ($Profile -eq "tui-client") {
+    Write-Host "    On the agent node: harmonia pairing invite"
+    Write-Host "    harmonia"
+} else {
+    Write-Host "    harmonia setup"
+    Write-Host "    harmonia start"
+}

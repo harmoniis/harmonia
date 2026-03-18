@@ -26,10 +26,31 @@ fn default_state() -> MeshState {
     let hostname = std::env::var("HOSTNAME")
         .or_else(|_| std::env::var("HOST"))
         .unwrap_or_else(|_| "unknown".to_string());
+    let label = harmonia_config_store::get_config("harmonia-cli", "node", "label")
+        .ok()
+        .flatten()
+        .filter(|raw| !raw.trim().is_empty())
+        .unwrap_or_else(|| hostname.clone());
+    let advertise_addr = harmonia_config_store::get_config(
+        "harmonia-cli",
+        "tailnet-core",
+        "advertise-addr",
+    )
+    .ok()
+    .flatten()
+    .filter(|raw| !raw.trim().is_empty())
+        .unwrap_or_else(|| format!("{}:{}", hostname, port));
+    let role = harmonia_config_store::get_config("harmonia-cli", "node", "role")
+        .ok()
+        .flatten()
+        .filter(|raw| !raw.trim().is_empty())
+        .unwrap_or_else(|| "agent".to_string());
 
     MeshState {
         local_node: NodeInfo {
-            id: NodeId(hostname),
+            id: NodeId(advertise_addr),
+            label,
+            role,
             capabilities: NodeCapabilities {
                 frontends: Vec::new(),
                 tools: Vec::new(),
@@ -74,6 +95,12 @@ pub fn init(config_sexp: &str) -> Result<(), String> {
     if let Some(id) = extract_sexp_string(config_sexp, "id") {
         state.local_node.id = NodeId(id);
     }
+    if let Some(label) = extract_sexp_string(config_sexp, "label") {
+        state.local_node.label = label;
+    }
+    if let Some(role) = extract_sexp_string(config_sexp, "role") {
+        state.local_node.role = role;
+    }
     if let Some(port) = extract_sexp_u16(config_sexp, "port") {
         state.listen_port = port;
     }
@@ -112,6 +139,8 @@ pub fn register_node(node_info_sexp: &str) -> Result<(), String> {
     // Parse minimal fields from sexp.
     let id = extract_sexp_string(node_info_sexp, "id")
         .ok_or_else(|| "missing (id ...) in node info".to_string())?;
+    let label = extract_sexp_string(node_info_sexp, "label").unwrap_or_else(|| id.clone());
+    let role = extract_sexp_string(node_info_sexp, "role").unwrap_or_else(|| "agent".to_string());
 
     let frontends = extract_sexp_string_list(node_info_sexp, "frontends").unwrap_or_default();
     let tools = extract_sexp_string_list(node_info_sexp, "tools").unwrap_or_default();
@@ -120,6 +149,8 @@ pub fn register_node(node_info_sexp: &str) -> Result<(), String> {
 
     let info = NodeInfo {
         id: NodeId(id.clone()),
+        label,
+        role,
         capabilities: NodeCapabilities {
             frontends,
             tools,
@@ -138,6 +169,11 @@ pub fn register_node(node_info_sexp: &str) -> Result<(), String> {
 pub fn local_node_info() -> Result<String, String> {
     let state = mesh().read().map_err(|e| format!("lock: {}", e))?;
     Ok(state.local_node.to_sexp())
+}
+
+pub fn local_node() -> Result<NodeInfo, String> {
+    let state = mesh().read().map_err(|e| format!("lock: {}", e))?;
+    Ok(state.local_node.clone())
 }
 
 /// Return the configured listen port.

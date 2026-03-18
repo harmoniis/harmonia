@@ -17,9 +17,7 @@
 
 (defun %matrix-state-root ()
   (or (config-get-for "harmonic-matrix" "state-root" "global")
-      (let ((base (or (sb-ext:posix-getenv "TMPDIR")
-                      (namestring (user-homedir-pathname)))))
-        (concatenate 'string (string-right-trim "/" base) "/harmonia"))))
+      (%tmpdir-state-root)))
 
 (cffi:defcfun ("harmonia_harmonic_matrix_init" %hm-init) :int)
 (cffi:defcfun ("harmonia_harmonic_matrix_set_store" %hm-set-store) :int

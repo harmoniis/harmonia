@@ -4,7 +4,10 @@ use serde_json::{json, Value};
 use crate::model::json_escape;
 
 const COMPONENT: &str = "parallel-agents-core";
-const GROK_TRUTH_MODEL: &str = "x-ai/grok-4.1-fast";
+
+const FALLBACK_TRUTH_KEYWORDS: &str = "truth|reality|accurate|accuracy|fact check|fact-check|verify|verification|debunk|controvers|what actually|what is really|real-time|realtime|current event|harmonic truth";
+
+const FALLBACK_VERIFY_TEMPLATE: &str = "You are the truth-seeking verification subagent. Use live web and X search when useful. Prioritize factual accuracy over style.\n\nOriginal user prompt:\n{PROMPT}\n\nCandidate answer:\n{RESPONSE}\n\nReply exactly in this format:\nVERIFY: yes|no|uncertain\nSOURCE: web|x|web+x|unknown\nNOTES: one concise sentence";
 
 fn extract_content_from_response(payload: &[u8]) -> Option<String> {
     let parsed: Value = serde_json::from_slice(payload).ok()?;
@@ -26,48 +29,41 @@ fn extract_error_message(payload: &[u8]) -> Option<String> {
         })
 }
 
-fn grok_truth_model(model: &str) -> bool {
-    let lower = model.trim().to_ascii_lowercase();
-    lower == GROK_TRUTH_MODEL || lower == "xai/grok-4.1-fast"
+fn preferred_truth_seeking_model() -> String {
+    harmonia_config_store::get_config(COMPONENT, "prompts", "truth-seeking-model")
+        .ok()
+        .flatten()
+        .unwrap_or_else(|| "x-ai/grok-4.1-fast".to_string())
 }
 
 fn truth_seeking_prompt(prompt: &str) -> bool {
     let lower = prompt.to_ascii_lowercase();
-    [
-        "truth",
-        "reality",
-        "accurate",
-        "accuracy",
-        "fact check",
-        "fact-check",
-        "verify",
-        "verification",
-        "debunk",
-        "controvers",
-        "what actually",
-        "what is really",
-        "real-time",
-        "realtime",
-        "current event",
-        "harmonic truth",
-    ]
-    .iter()
-    .any(|needle| lower.contains(needle))
+    let keywords =
+        harmonia_config_store::get_config(COMPONENT, "prompts", "truth-seeking-keywords")
+            .ok()
+            .flatten()
+            .unwrap_or_else(|| FALLBACK_TRUTH_KEYWORDS.to_string());
+    keywords.split('|').any(|kw| lower.contains(kw.trim()))
 }
 
 fn openrouter_payload(prompt: &str, model: &str) -> Value {
+    let caps = harmonia_provider_protocol::model_capabilities(model);
     let mut payload = json!({
         "model": model,
         "messages": [{"role": "user", "content": prompt}],
     });
-    if grok_truth_model(model) {
-        payload["reasoning"] = json!({
-            "enabled": true,
-            "effort": "high",
-            "exclude": true
-        });
-        payload["plugins"] = json!([{ "id": "web", "engine": "native" }]);
-        payload["web_search_options"] = json!({ "search_context_size": "high" });
+    if let Some(ref r) = caps.reasoning {
+        if r.enabled {
+            payload["reasoning"] = json!({
+                "enabled": true,
+                "effort": r.effort,
+                "exclude": r.exclude
+            });
+        }
+    }
+    if let Some(ref s) = caps.web_search {
+        payload["plugins"] = json!([{ "id": &s.plugin_id, "engine": &s.engine }]);
+        payload["web_search_options"] = json!({ "search_context_size": &s.search_context_size });
     }
     payload
 }
@@ -90,9 +86,16 @@ fn openrouter_api_key() -> Result<Option<String>, String> {
 }
 
 fn make_grok_verify_prompt(prompt: &str, response: &str) -> String {
-    format!(
-        "You are the truth-seeking verification subagent. Use live web and X search when useful. Prioritize factual accuracy over style.\n\nOriginal user prompt:\n{prompt}\n\nCandidate answer:\n{response}\n\nReply exactly in this format:\nVERIFY: yes|no|uncertain\nSOURCE: web|x|web+x|unknown\nNOTES: one concise sentence"
-    )
+    let template = harmonia_config_store::get_config(COMPONENT, "prompts", "grok-verification")
+        .ok()
+        .flatten()
+        .unwrap_or_else(|| FALLBACK_VERIFY_TEMPLATE.to_string());
+    // Template uses {PROMPT} and {RESPONSE} placeholders (or CL-style ~A)
+    template
+        .replace("{PROMPT}", prompt)
+        .replace("{RESPONSE}", response)
+        .replacen("~A", prompt, 1)
+        .replacen("~A", response, 1)
 }
 
 fn grok_verify_result(report: &str) -> (bool, String, String) {
@@ -106,11 +109,8 @@ fn verify_with_grok(prompt: &str, response: &str) -> Result<(bool, String, Strin
     let key = openrouter_api_key()?.ok_or_else(|| {
         "missing secret: openrouter-api-key (vault component: openrouter-backend)".to_string()
     })?;
-    let report = request_openrouter(
-        &make_grok_verify_prompt(prompt, response),
-        GROK_TRUTH_MODEL,
-        &key,
-    )?;
+    let model = preferred_truth_seeking_model();
+    let report = request_openrouter(&make_grok_verify_prompt(prompt, response), &model, &key)?;
     Ok(grok_verify_result(&report))
 }
 
@@ -400,8 +400,7 @@ mod tests {
     use serde_json::json;
 
     use super::{
-        extract_content_from_response, grok_truth_model, grok_verify_result, openrouter_payload,
-        truth_seeking_prompt, GROK_TRUTH_MODEL,
+        extract_content_from_response, grok_verify_result, openrouter_payload, truth_seeking_prompt,
     };
 
     #[test]
@@ -415,8 +414,7 @@ mod tests {
 
     #[test]
     fn grok_truth_payload_enables_reasoning_and_search() {
-        let payload = openrouter_payload("verify this", GROK_TRUTH_MODEL);
-        assert!(grok_truth_model(GROK_TRUTH_MODEL));
+        let payload = openrouter_payload("verify this", "x-ai/grok-4.1-fast");
         assert_eq!(payload["reasoning"]["enabled"], json!(true));
         assert_eq!(payload["plugins"][0]["id"], json!("web"));
         assert_eq!(payload["plugins"][0]["engine"], json!("native"));
@@ -424,6 +422,13 @@ mod tests {
             payload["web_search_options"]["search_context_size"],
             json!("high")
         );
+    }
+
+    #[test]
+    fn non_grok_payload_has_no_plugins() {
+        let payload = openrouter_payload("hello", "anthropic/claude-sonnet-4.6");
+        assert!(payload.get("reasoning").is_none());
+        assert!(payload.get("plugins").is_none());
     }
 
     #[test]

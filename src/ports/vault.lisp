@@ -32,7 +32,7 @@
 
 (defun %release-lib-roots ()
   (let ((roots '())
-        (env (sb-ext:posix-getenv "HARMONIA_LIB_DIR")))
+        (env (%boot-env "HARMONIA_LIB_DIR")))
     (when (and env (> (length env) 0))
       (push (pathname (if (char= (char env (1- (length env))) #\/)
                           env
@@ -40,7 +40,7 @@
             roots))
     ;; Dev fallback: target/release/ relative to boot.lisp
     (push (merge-pathnames "../../target/release/" *boot-file*) roots)
-    (let* ((home (sb-ext:posix-getenv "HOME"))
+    (let* ((home (%boot-env "HOME"))
            (platform-lib (when home
                            (pathname (concatenate 'string home "/.local/lib/harmonia/")))))
       (when platform-lib

@@ -15,10 +15,41 @@ set -euo pipefail
 
 REPO="harmoniis/harmonia"
 VERSION="${HARMONIA_VERSION:-}"
+INSTALL_PROFILE="${HARMONIA_INSTALL_PROFILE:-full-agent}"
 
 info()  { printf '\033[1;34m==>\033[0m %s\n' "$*"; }
 warn()  { printf '\033[1;33m==>\033[0m %s\n' "$*"; }
 error() { printf '\033[1;31m==>\033[0m %s\n' "$*" >&2; exit 1; }
+
+validate_install_profile() {
+    case "$INSTALL_PROFILE" in
+        full-agent|tui-client) ;;
+        *)
+            error "Unsupported install profile: $INSTALL_PROFILE (use full-agent or tui-client)"
+            ;;
+    esac
+}
+
+role_for_profile() {
+    case "$1" in
+        tui-client) printf '%s\n' "tui-client" ;;
+        *) printf '%s\n' "agent" ;;
+    esac
+}
+
+detect_node_label() {
+    local raw
+    raw="${HARMONIA_NODE_LABEL:-}"
+    if [ -z "$raw" ]; then
+        raw="$(hostname 2>/dev/null || uname -n 2>/dev/null || printf 'harmonia-node')"
+    fi
+    raw="$(printf '%s' "$raw" | tr '[:upper:]' '[:lower:]')"
+    raw="$(printf '%s' "$raw" | sed -E 's/[^a-z0-9._-]+/-/g; s/[-._]+$//; s/^[-._]+//; s/-+/-/g')"
+    if [ -z "$raw" ]; then
+        raw="harmonia-node"
+    fi
+    printf '%s\n' "$raw"
+}
 
 detect_platform() {
     local os arch
@@ -167,7 +198,15 @@ install_libs() {
     mkdir -p "$libdir"
     find "$libdir" -maxdepth 1 -type f -name "libharmonia_*.${ext}" -delete 2>/dev/null || true
     local copied=0
+    local is_macos=0
+    case "$(uname -s)" in Darwin) is_macos=1 ;; esac
     while IFS= read -r lib; do
+        local name
+        name="$(basename "$lib")"
+        # iMessage (BlueBubbles) only works on macOS — skip on other platforms
+        if [ "$is_macos" -eq 0 ]; then
+            case "$name" in *imessage*) continue ;; esac
+        fi
         cp "$lib" "$libdir/"
         copied=1
     done < <(find "$src" -maxdepth 1 -type f -name "libharmonia_*.${ext}" | sort)
@@ -185,7 +224,24 @@ install_share_tree() {
 
 ensure_data_dirs() {
     local datadir="$1"
-    mkdir -p "$datadir" "$datadir/state" "$datadir/frontends" "$datadir/config"
+    mkdir -p "$datadir" "$datadir/state" "$datadir/frontends" "$datadir/config" "$datadir/nodes"
+}
+
+write_node_identity() {
+    local datadir="$1" profile="$2" label role node_dir
+    label="$(detect_node_label)"
+    role="$(role_for_profile "$profile")"
+    node_dir="$datadir/nodes/$label"
+    mkdir -p "$node_dir/sessions" "$node_dir/pairings" "$node_dir/memory"
+    cat > "$datadir/config/node.json" <<EOF
+{
+  "label": "$label",
+  "hostname": "$label",
+  "role": "$role",
+  "install_profile": "$profile"
+}
+EOF
+    cp "$datadir/config/node.json" "$node_dir/node.json"
 }
 
 install_from_artifact_root() {
@@ -199,6 +255,7 @@ install_from_artifact_root() {
     ext="$(shared_lib_ext)"
 
     info "Installing Harmonia v${version}"
+    info "  profile:   ${INSTALL_PROFILE}"
     info "  user data: ${datadir}"
     info "  binaries:  ${bindir}"
     info "  libraries: ${libdir}"
@@ -208,6 +265,7 @@ install_from_artifact_root() {
     install_libs "$artifact_root/lib" "$libdir" "$ext"
     install_share_tree "$artifact_root" "$sharedir"
     ensure_data_dirs "$datadir"
+    write_node_identity "$datadir" "$INSTALL_PROFILE"
     install_shell_integration "$rc" "$bindir"
 
     info "Installation complete"
@@ -217,6 +275,7 @@ install_from_artifact_root() {
     echo "  Libraries: ${libdir}"
     echo "  Shared:    ${sharedir}"
     echo "  User data: ${datadir}"
+    echo "  Profile:   ${INSTALL_PROFILE}"
     echo ""
     if [ -n "$rc" ]; then
         case ":$PATH:" in
@@ -229,6 +288,64 @@ install_from_artifact_root() {
                 ;;
         esac
     fi
+
+    if [ "$INSTALL_PROFILE" = "tui-client" ]; then
+        echo "  Remote pairing:"
+        echo "    On the agent node:  harmonia pairing invite"
+        echo "    On this client:     harmonia"
+        echo ""
+        echo "  Runtime:"
+        echo "    The first `harmonia` session will save the pairing and start the local"
+        echo "    tailscale node-service automatically. Later sessions reconnect through"
+        echo "    that local node-service."
+        echo ""
+        maybe_launch_tui_client "$bindir"
+    fi
+}
+
+maybe_launch_tui_client() {
+    local bindir="$1" answer
+    [ "${HARMONIA_SKIP_POST_INSTALL:-0}" = "1" ] && return 0
+    [ -t 0 ] || return 0
+    [ -t 1 ] || return 0
+    [ -x "$bindir/harmonia" ] || return 0
+    printf "Launch the pairing and remote session setup now? [Y/n] "
+    read -r answer || return 0
+    case "$answer" in
+        n|N|no|NO)
+            return 0
+            ;;
+    esac
+    "$bindir/harmonia" || warn "Post-install pairing session exited before completion"
+}
+
+parse_args() {
+    while [ "$#" -gt 0 ]; do
+        case "$1" in
+            --profile)
+                [ "$#" -ge 2 ] || error "--profile requires a value"
+                INSTALL_PROFILE="$2"
+                shift 2
+                ;;
+            --profile=*)
+                INSTALL_PROFILE="${1#*=}"
+                shift
+                ;;
+            --version)
+                [ "$#" -ge 2 ] || error "--version requires a value"
+                VERSION="$2"
+                shift 2
+                ;;
+            --version=*)
+                VERSION="${1#*=}"
+                shift
+                ;;
+            *)
+                error "Unknown installer option: $1"
+                ;;
+        esac
+    done
+    validate_install_profile
 }
 
 install_from_local_repo() {
@@ -291,6 +408,7 @@ download_release_artifact() {
 
 main() {
     local script_dir repo_root extracted
+    parse_args "$@"
     script_dir="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)"
     repo_root="$(cd "$script_dir/.." && pwd)"
 

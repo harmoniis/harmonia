@@ -137,10 +137,9 @@ fn now_secs() -> i64 {
 }
 
 /// Escape a string for s-expression output.
+/// CL's reader handles literal newlines in strings natively — do NOT escape them.
 fn sexp_escape(s: &str) -> String {
-    s.replace('\\', "\\\\")
-        .replace('"', "\\\"")
-        .replace('\n', "\\n")
+    s.replace('\\', "\\\\").replace('"', "\\\"")
 }
 
 // ---------------------------------------------------------------------------

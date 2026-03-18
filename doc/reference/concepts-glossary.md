@@ -13,7 +13,8 @@
 
 - `Conductor`: Lisp orchestration engine that routes prompts and tool ops.
 - `Port`: Lisp capability boundary backed by Rust C-ABI.
-- `Baseband`: unified signal ingress/egress processor (gateway).
+- `Baseband`: unified signal ingress/egress processor (gateway) with command dispatch.
+- `Unified Command Dispatch`: gateway-level interception of ALL /commands from ALL frontends. Native Rust handlers for wallet/identity/help; Lisp callback delegation for runtime-state commands.
 - `Router`: LLM completion boundary used by orchestration.
 - `Swarm`: parallel subagent system (API tier + tmux CLI tier).
 - `Lineage`: VCS commit/push boundary for evolution provenance.
@@ -61,7 +62,7 @@
 - `Canonical Envelope`: shared message structure used across agent/platform clients.
 - `Device Registry`: MQTT frontend's in-memory registry of connected devices with platform info, capabilities, push tokens, and online/offline state.
 - `Offline Queue`: per-device message queue in MQTT frontend, flushed on reconnect with push notification for offline delivery.
-- `Push Webhook`: HTTP POST-based push notification delivery via `lib/frontends/push` (rlib utility consumed by mqtt-client).
+- `Push Webhook`: HTTP POST-based push notification delivery via `lib/frontends/push` (utility library consumed by mqtt-client).
 
 ## Security
 

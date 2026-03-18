@@ -53,13 +53,6 @@
              (cffi:foreign-string-to-lisp ptr)
           (%ouroboros-free-string ptr)))))
 
-(defun %env-true-p (name &optional (default nil))
-  "Check a config-store key (or env var name) for boolean truthiness."
-  (let ((raw (sb-ext:posix-getenv name)))
-    (if raw
-        (member (string-downcase raw) '("1" "true" "yes" "on") :test #'string=)
-        default)))
-
 (defun %configure-evolution-runtime ()
   (let ((rewrite-raw (config-get-for "evolution" "source-rewrite-enabled")))
     (setf *source-rewrite-enabled*

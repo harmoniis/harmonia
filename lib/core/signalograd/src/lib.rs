@@ -7,7 +7,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Mutex, OnceLock};
 
 const LATENT_DIM: usize = 32;
-const INPUT_DIM: usize = 24;
+const INPUT_DIM: usize = 25;
 const MEMORY_SLOTS: usize = 32;
 const HEAD_COUNT: usize = 5;
 const PHI: f64 = 1.618_033_988_749_895;
@@ -48,6 +48,7 @@ struct Observation {
     actor_stalls: f64,
     queue_depth: f64,
     error_pressure: f64,
+    supervision: f64,
     prior_confidence: f64,
     presentation_cleanliness: f64,
     presentation_verbosity: f64,
@@ -627,6 +628,7 @@ fn observation_vector(obs: &Observation) -> [f64; INPUT_DIM] {
         clamp(obs.actor_stalls / 8.0, 0.0, 1.0),
         clamp(obs.queue_depth / 12.0, 0.0, 1.0),
         clamp(obs.error_pressure, 0.0, 1.0),
+        clamp(obs.supervision, 0.0, 1.0),
         clamp(obs.prior_confidence, 0.0, 1.0),
     ]
 }
@@ -1175,6 +1177,7 @@ fn parse_observation_sexp(sexp: &Sexp) -> Result<Observation, String> {
         actor_stalls: plist_f64(items, "actor-stalls").unwrap_or(0.0),
         queue_depth: plist_f64(items, "queue-depth").unwrap_or(0.0),
         error_pressure: plist_f64(items, "error-pressure").unwrap_or(0.0),
+        supervision: plist_f64(items, "supervision").unwrap_or(0.5),
         prior_confidence: plist_f64(items, "prior-confidence").unwrap_or(0.0),
         presentation_cleanliness: plist_f64(items, "presentation-cleanliness").unwrap_or(1.0),
         presentation_verbosity: plist_f64(items, "presentation-verbosity").unwrap_or(0.0),

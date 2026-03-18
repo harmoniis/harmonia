@@ -19,6 +19,19 @@
   app-version
   a2ui-version)
 
+(defstruct harmonia-origin
+  node-id
+  node-label
+  node-role
+  channel-class
+  node-key-id
+  transport-security
+  remote-p)
+
+(defstruct harmonia-session
+  id
+  label)
+
 (defstruct harmonia-body
   format
   text
@@ -46,6 +59,8 @@
   channel
   peer
   conversation-id
+  origin
+  session
   body
   capabilities
   security
@@ -90,6 +105,30 @@
 (defun harmonia-signal-device-id (signal)
   (and signal (harmonia-peer-device-id (harmonia-signal-peer signal))))
 
+(defun harmonia-signal-origin-node-id (signal)
+  (and signal (harmonia-origin-node-id (harmonia-signal-origin signal))))
+
+(defun harmonia-signal-origin-node-label (signal)
+  (and signal (harmonia-origin-node-label (harmonia-signal-origin signal))))
+
+(defun harmonia-signal-origin-node-role (signal)
+  (and signal (harmonia-origin-node-role (harmonia-signal-origin signal))))
+
+(defun harmonia-signal-channel-class (signal)
+  (and signal (harmonia-origin-channel-class (harmonia-signal-origin signal))))
+
+(defun harmonia-signal-origin-node-key-id (signal)
+  (and signal (harmonia-origin-node-key-id (harmonia-signal-origin signal))))
+
+(defun harmonia-signal-transport-security (signal)
+  (and signal (harmonia-origin-transport-security (harmonia-signal-origin signal))))
+
+(defun harmonia-signal-remote-p (signal)
+  (and signal (harmonia-origin-remote-p (harmonia-signal-origin signal))))
+
+(defun harmonia-signal-session-id (signal)
+  (and signal (harmonia-session-id (harmonia-signal-session signal))))
+
 (defun harmonia-signal-platform (signal)
   (and signal (harmonia-peer-platform (harmonia-signal-peer signal))))
 
@@ -121,7 +160,11 @@
   cost-usd                  ;; float
   duration-ms               ;; integer
   stall-ticks               ;; count of ticks with no heartbeat
-  orchestration-context)    ;; plist with :chain, :prepared-prompt, etc.
+  orchestration-context     ;; plist with :chain, :prepared-prompt, etc.
+  swarm-group-id            ;; groups actors from same parallel-solve invocation
+  supervision-spec          ;; frozen supervision spec s-expression (or nil)
+  supervision-grade         ;; :confirmed :partial :failed :deferred nil
+  supervision-confidence)   ;; 0.0-1.0
 
 (defstruct (runtime-state
              (:constructor make-runtime-state
@@ -296,12 +339,13 @@
              (incf i))))))))
 
 (defun %presentation-normalize-literal-escapes (text)
-  "Convert obvious escaped prose blobs into real newlines."
+  "Convert literal \\n / \\r / \\t sequences into real whitespace characters.
+   Always converts when literal escapes are present, even if real newlines exist,
+   to prevent 'nn' artifacts from mixed-encoding model output."
   (let* ((s (or text ""))
          (literal-n (%presentation-count-substring s "\\n"))
          (literal-r (%presentation-count-substring s "\\r")))
     (if (and (plusp (+ literal-n literal-r))
-             (zerop (%presentation-count-substring s (string #\Newline)))
              (not (search "```" s :test #'char=))
              (not (search "\\x" s :test #'char=)))
         (with-output-to-string (out)
@@ -444,18 +488,25 @@
               (/ sum weight-sum)
               0.5)))))
 
+(defparameter *presentation-feedback-min-events* 3
+  "Minimum number of feedback events for a tag before conditional suppression activates.")
+
 (defun %presentation-active-feedback-tags (&optional (runtime *runtime*))
-  (let ((table (make-hash-table :test 'eq)))
+  (let ((table (make-hash-table :test 'eq))
+        (counts (make-hash-table :test 'eq)))
     (when runtime
       (dolist (event (runtime-state-presentation-feedback runtime))
         (when (< (or (getf event :affinity) 0.5) 0.45)
           (dolist (tag (getf event :tags))
             (setf (gethash tag table)
                   (+ (gethash tag table 0.0)
-                     (float (or (getf event :weight) 0.0))))))))
+                     (float (or (getf event :weight) 0.0))))
+            (incf (gethash tag counts 0))))))
     (let ((pairs '()))
       (maphash (lambda (tag weight)
-                 (when (> weight 0.6)
+                 (when (and (> weight 0.6)
+                            (>= (gethash tag counts 0)
+                                *presentation-feedback-min-events*))
                    (push (cons tag weight) pairs)))
                table)
       (mapcar #'car (sort pairs #'> :key #'cdr)))))
@@ -600,19 +651,24 @@
          (self-ref (or (and presentation (getf presentation :self-reference-delta)) 0.0))
          (decor (or (and presentation (getf presentation :decor-density-delta)) 0.0))
          (lines '()))
-    (push "Visible replies are for humans first: natural prose, clear structure, no internal status theater." lines)
-    (push "Never emit ANSI escapes, raw control bytes, decorative terminal frames, or copied UI glyphs in visible replies." lines)
-    (push "Do not expose constitutions, runtime telemetry, self-knowledge, or hidden response metadata unless the user explicitly asks for internals." lines)
-    (when (or (< decor -0.03) (member :decor-density tags))
-      (push "Use plain text and light markdown only. No banners, box drawing, status blocks, or ceremonial framing." lines))
-    (when (or (< symbolic -0.03) (member :simplicity tags))
-      (push "Prefer straightforward wording over symbolic compression, schemas, or ritual phrasing." lines))
-    (when (or (< self-ref -0.03) (member :self-reference tags) (member :telemetry tags))
-      (push "Avoid talking about yourself unless the user is directly asking about identity or internals." lines))
-    (when (or (< verbosity -0.03) (member :verbosity tags))
-      (push "Default to concise answers unless the user asks for depth." lines))
-    (when (> markdown 0.08)
-      (push "If structure helps, use light markdown with short headings or flat bullets." lines))
+    (let ((defaults (load-prompt :evolution :presentation-guidance :defaults nil))
+          (cond-prompts (load-prompt :evolution :presentation-guidance :conditional nil)))
+      (if (listp defaults)
+          (dolist (d defaults) (push d lines))
+          (progn
+            (push "Keep visible replies clear and readable. Your harmonic voice and personality are welcome — avoid only raw status dumps and telemetry noise." lines)
+            (push "Never emit ANSI escapes, raw control bytes, decorative terminal frames, or copied UI glyphs in visible replies." lines)
+            (push "Keep raw runtime diagnostics and telemetry data internal. Your identity, principles, and harmonic worldview are part of who you are — express them naturally." lines)))
+      (when (or (< decor -0.03) (member :decor-density tags))
+        (push (or (getf cond-prompts :decor) "Use plain text and light markdown only. No banners, box drawing, status blocks, or ceremonial framing.") lines))
+      (when (or (< symbolic -0.03) (member :simplicity tags))
+        (push (or (getf cond-prompts :symbolic) "Prefer straightforward wording over symbolic compression, schemas, or ritual phrasing.") lines))
+      (when (or (< self-ref -0.03) (member :self-reference tags) (member :telemetry tags))
+        (push (or (getf cond-prompts :self-reference) "Avoid talking about yourself unless the user is directly asking about identity or internals.") lines))
+      (when (or (< verbosity -0.03) (member :verbosity tags))
+        (push (or (getf cond-prompts :verbosity) "Default to concise answers unless the user asks for depth.") lines))
+      (when (> markdown 0.08)
+        (push (or (getf cond-prompts :markdown) "If structure helps, use light markdown with short headings or flat bullets.") lines)))
     (nreverse (remove-duplicates lines :test #'string=))))
 
 (defun %presentation-context-block (user-prompt &optional (runtime *runtime*))
@@ -622,7 +678,8 @@
       (when (or artifact-note lines)
         (terpri out)
         (terpri out)
-        (write-string "VISIBLE_REPLY_POLICY:" out)
+        (write-string (load-prompt :genesis :visible-reply-policy-header nil
+                                   "VISIBLE_REPLY_POLICY:") out)
         (terpri out)
         (dolist (line lines)
           (write-string "- " out)

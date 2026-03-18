@@ -30,30 +30,29 @@
 (defparameter *noise-score-threshold* 0.02)
 (defparameter *memory-last-journal-day* 0)
 
-(defun %getenv (name &optional default)
-  (or (sb-ext:posix-getenv name) default))
-
-(defun %parse-int-env (name default)
-  (let ((raw (%getenv name nil)))
+(defun %memory-config-int (key default)
+  "Read an integer config value from config-store (memory scope) with fallback."
+  (let ((raw (and (fboundp 'config-get-for)
+                  (funcall 'config-get-for "memory" key))))
     (if raw
         (handler-case (parse-integer raw)
           (error () default))
         default)))
 
 (defun %night-config ()
-  (list :start (%parse-int-env "HARMONIA_MEMORY_NIGHT_START" 1)
-        :end (%parse-int-env "HARMONIA_MEMORY_NIGHT_END" 5)
-        :idle-seconds (%parse-int-env "HARMONIA_MEMORY_IDLE_SECONDS" 900)
-        :heartbeat-seconds (%parse-int-env "HARMONIA_MEMORY_HEARTBEAT_SECONDS" 300)))
+  (list :start (%memory-config-int "night-start" 1)
+        :end (%memory-config-int "night-end" 5)
+        :idle-seconds (%memory-config-int "idle-seconds" 900)
+        :heartbeat-seconds (%memory-config-int "heartbeat-seconds" 300)))
 
 (defun %user-timezone-west ()
-  (let ((override (%getenv "HARMONIA_USER_TZ_HOURS_WEST" nil)))
-    (if override
-        (handler-case
-            (let ((*read-eval* nil))
-              (read-from-string override))
-          (error () nil))
-        nil)))
+  (let ((raw (and (fboundp 'config-get-for)
+                  (funcall 'config-get-for "memory" "user-tz-hours-west"))))
+    (when raw
+      (handler-case
+          (let ((*read-eval* nil))
+            (read-from-string raw))
+        (error () nil)))))
 
 (defun %local-hour (ut)
   (multiple-value-bind (_sec _min hour _day _month _year _dow _dst _tz)

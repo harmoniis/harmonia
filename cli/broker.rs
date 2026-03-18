@@ -1,5 +1,6 @@
 use async_trait::async_trait;
 use console::style;
+use harmonia_transport_auth::normalize_fingerprint;
 use rmqtt::context::ServerContext;
 use rmqtt::hook::{Handler, HookResult, Parameter, ReturnType, Type};
 use rmqtt::net::Builder as ListenerBuilder;
@@ -406,10 +407,6 @@ fn update_trust_state(owner_fingerprint: String, trusted_fingerprints: Vec<Strin
     }
 }
 
-fn normalize_fingerprint(value: &str) -> String {
-    value.replace([' ', ':', '-'], "").to_ascii_uppercase()
-}
-
 fn sign_with_vault(
     wallet: &PathBuf,
     label: &str,
@@ -472,22 +469,11 @@ fn parse_output_field(output: &str, prefix: &str) -> Result<String, Box<dyn std:
 }
 
 fn resolve_wallet_db_path() -> PathBuf {
-    for key in [
-        "HARMONIA_VAULT_WALLET_DB",
-        "HARMONIA_WALLET_DB",
-        "HARMONIIS_WALLET_DB",
-    ] {
-        if let Ok(path) = std::env::var(key) {
-            let path = PathBuf::from(path);
-            if path.exists() {
-                return path;
-            }
-        }
-    }
-    dirs::home_dir()
-        .unwrap_or_else(|| PathBuf::from("."))
-        .join(".harmoniis")
-        .join("master.db")
+    crate::paths::wallet_db_path().unwrap_or_else(|_| {
+        std::env::var("HARMONIA_VAULT_WALLET_DB")
+            .map(PathBuf::from)
+            .unwrap_or_else(|_| PathBuf::from("master.db"))
+    })
 }
 
 fn now_unix_ms() -> u128 {

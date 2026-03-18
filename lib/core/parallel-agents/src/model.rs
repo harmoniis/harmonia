@@ -138,6 +138,10 @@ pub(crate) enum CliState {
     WaitingForConfirmation { question: String },
     /// CLI is presenting a selection menu
     WaitingForSelection { options: Vec<String> },
+    /// CLI is showing an onboarding/survey/first-run prompt
+    Onboarding,
+    /// CLI is in plan mode — showing a plan for accept/reject
+    PlanMode,
     /// CLI has finished its task
     Completed,
     /// CLI has encountered an error
@@ -158,25 +162,27 @@ impl CliState {
             } => {
                 format!(
                     "(:waiting-for-permission :tool \"{}\" :description \"{}\")",
-                    json_escape(tool_name),
-                    json_escape(description)
+                    sexp_escape(tool_name),
+                    sexp_escape(description)
                 )
             }
             CliState::WaitingForConfirmation { question } => {
                 format!(
                     "(:waiting-for-confirmation :question \"{}\")",
-                    json_escape(question)
+                    sexp_escape(question)
                 )
             }
             CliState::WaitingForSelection { options } => {
                 let opts: Vec<String> = options
                     .iter()
-                    .map(|o| format!("\"{}\"", json_escape(o)))
+                    .map(|o| format!("\"{}\"", sexp_escape(o)))
                     .collect();
                 format!("(:waiting-for-selection :options ({}))", opts.join(" "))
             }
+            CliState::Onboarding => ":onboarding".to_string(),
+            CliState::PlanMode => ":plan-mode".to_string(),
             CliState::Completed => ":completed".to_string(),
-            CliState::Error(e) => format!("(:error \"{}\")", json_escape(e)),
+            CliState::Error(e) => format!("(:error \"{}\")", sexp_escape(e)),
             CliState::Terminated => ":terminated".to_string(),
         }
     }
@@ -189,6 +195,8 @@ impl CliState {
                 | CliState::WaitingForPermission { .. }
                 | CliState::WaitingForConfirmation { .. }
                 | CliState::WaitingForSelection { .. }
+                | CliState::Onboarding
+                | CliState::PlanMode
         )
     }
 }
@@ -224,8 +232,8 @@ impl TmuxAgent {
             ),
             self.id,
             self.cli_type.as_str(),
-            json_escape(&self.session_name),
-            json_escape(&self.workdir),
+            sexp_escape(&self.session_name),
+            sexp_escape(&self.workdir),
             self.state.to_sexp(),
             self.created_at,
             self.interaction_count,
@@ -307,11 +315,18 @@ pub(crate) fn now_unix() -> u64 {
 }
 
 pub(crate) fn json_escape(input: &str) -> String {
+    // Used for actual JSON contexts (HTTP payloads).
     input
         .replace('\\', "\\\\")
         .replace('"', "\\\"")
         .replace('\n', "\\n")
         .replace('\r', "\\r")
+}
+
+pub(crate) fn sexp_escape(input: &str) -> String {
+    // CL's reader handles literal newlines inside strings natively — do NOT
+    // escape them. Only backslash and double-quote need escaping.
+    input.replace('\\', "\\\\").replace('"', "\\\"")
 }
 
 pub(crate) fn append_tmux_metric_line(agent: &TmuxAgent, event: &str) {

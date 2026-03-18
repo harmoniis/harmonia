@@ -14,9 +14,7 @@
                      (config-get-for "model-policy" "path"))
                 (let ((root (or (and (fboundp 'config-get-for)
                                      (config-get-for "model-policy" "state-root" "global"))
-                                (let ((base (or (sb-ext:posix-getenv "TMPDIR")
-                                                (namestring (user-homedir-pathname)))))
-                                  (concatenate 'string (string-right-trim "/" base) "/harmonia")))))
+                                (%tmpdir-state-root))))
                   (concatenate 'string root "/model-policy.sexp"))))))
 
 (defparameter *model-profiles* '())
@@ -36,7 +34,7 @@
                              "anthropic/claude-sonnet-4.6")
     :cli-preference ("claude-code" "codex")
     :cli-task-kinds (:software-dev :coding :critical-reasoning)
-    :actor-stall-threshold 50
+    :actor-stall-threshold 180
     :cli-cooloff-seconds 3600
     :cli-quota-patterns ("quota" "rate limit" "cooldown" "usage cap" "too many requests")
     :vitruvian-signal-min 0.62
@@ -109,50 +107,86 @@
 
 ;;; --- Task Classification ---
 
+(defparameter *truth-seeking-keywords-fallback*
+  '("truth" "reality" "accurate" "accuracy" "fact check" "fact-check"
+    "verify" "verification" "debunk" "controvers" "what actually"
+    "what is really" "real-time" "realtime" "current event" "harmonic truth"))
+
 (defun %truth-seeking-prompt-p (prompt)
+  (let ((p (string-downcase (or prompt "")))
+        (keywords (or (when (fboundp 'load-security-pattern)
+                        (funcall 'load-security-pattern :truth-seeking-keywords))
+                      *truth-seeking-keywords-fallback*)))
+    (some (lambda (kw) (search (string-downcase kw) p)) keywords)))
+
+(defun %question-marker-p (prompt)
+  "Return T if PROMPT looks like a question rather than an action request."
   (let ((p (string-downcase (or prompt ""))))
-    (or (search "truth" p)
-        (search "reality" p)
-        (search "accurate" p)
-        (search "accuracy" p)
-        (search "fact-check" p)
-        (search "fact check" p)
-        (search "verify" p)
-        (search "verification" p)
-        (search "debunk" p)
-        (search "controvers" p)
-        (search "what actually" p)
-        (search "what is really" p)
-        (search "real-time" p)
-        (search "realtime" p)
-        (search "current event" p)
-        (search "harmonic truth" p))))
+    (or (search "?" p)
+        (search "what is" p) (search "what are" p) (search "what does" p)
+        (search "how does" p) (search "how do" p) (search "how is" p)
+        (search "tell me" p) (search "explain" p) (search "describe" p)
+        (search "do you" p) (search "can you" p) (search "do we" p)
+        (search "show me" p) (search "list " p) (search "status" p)
+        (search "who " p) (search "why " p) (search "where " p))))
 
 (defun %task-kind (prompt)
-  (let ((p (string-downcase prompt)))
+  (let* ((p (string-downcase prompt))
+         (is-question (%question-marker-p p)))
     (cond
-      ((or (search "implement" p) (search "refactor" p) (search "write code" p)
-           (search "fix bug" p) (search "pull request" p) (search "pr " p)
-           (search "commit" p) (search "deploy" p) (search "test suite" p)
-           (search "debug" p) (search "build" p) (search "compile error" p))
+      ;; Action-oriented software dev — must have action verbs, not just keywords
+      ((and (not is-question)
+            (or (search "implement" p) (search "refactor" p) (search "write code" p)
+                (search "fix bug" p) (search "pull request" p) (search "pr " p)
+                (search "commit" p) (search "deploy" p) (search "test suite" p)
+                (search "debug" p) (search "build" p) (search "compile error" p)))
        :software-dev)
-      ((or (search "summarize" p) (search "compress" p) (search "memory" p)
-           (search "digest" p) (search "consolidate" p) (search "journal" p))
+      ;; Memory operations — only when actually doing ops, not asking about memory system
+      ((and (not is-question)
+            (or (search "summarize" p) (search "compress" p)
+                (search "digest" p) (search "consolidate" p) (search "journal" p))
+            ;; "memory" alone is too broad — require action context
+            (not (search "memory system" p))
+            (not (search "how memory" p)))
        :memory-ops)
+      ;; Truth-seeking — web search, fact checking, controversial topics
       ((%truth-seeking-prompt-p p) :truth-seeking)
+      ;; Codemode — pipeline/batch operations
       ((or (search "codemode" p) (search "mcp" p) (search "pipeline" p)
            (search "batch tools" p) (search "tool chain" p))
        :codemode)
-      ((or (search "ocr" p) (search "image" p) (search "vision" p)) :vision)
-      ((or (search "rewrite" p) (search "evolution" p) (search "architecture" p)) :critical-reasoning)
-      ((or (search "plan" p) (search "orchestrate" p) (search "decision" p)) :planning)
+      ;; Vision — only when actually processing images
+      ((and (not is-question)
+            (or (search "ocr" p) (search "image" p) (search "vision" p)))
+       :vision)
+      ;; Critical reasoning — only for actual rewrite/evolution actions
+      ((and (not is-question)
+            (or (search "rewrite" p) (search "evolution" p)))
+       :critical-reasoning)
+      ;; Planning — only for actual planning tasks, not questions about orchestration
+      ((and (not is-question)
+            (or (search "plan" p) (search "decision" p)))
+       :planning)
+      ;; Questions about architecture/orchestration → general (orchestrator answers)
+      ((and is-question
+            (or (search "orchestrat" p) (search "architect" p)
+                (search "harmoni" p) (search "system" p)
+                (search "swarm" p) (search "subagent" p)
+                (search "signalograd" p) (search "conductor" p)))
+       :general)
+      ;; Tooling
       ((or (search "tool op=" p) (search "send" p) (search "search " p)) :tooling)
-      ((or (search "code" p) (search "bug" p)) :coding)
+      ;; Coding — only with action intent
+      ((and (not is-question)
+            (or (search "code" p) (search "bug" p)))
+       :coding)
       (t :general))))
 
-;;; --- Task Weights ---
+;;; --- Task Weights (signalograd-adaptive) ---
 
-(defun %task-weights (task)
+(defun %task-weights-base (task)
+  "Base weight distributions per task kind. These are starting points —
+   signalograd applies adaptive deltas at runtime."
   (case task
     (:software-dev '(:completion 0.30 :correctness 0.25 :speed 0.08 :price 0.12
                      :token-efficiency 0.07 :orchestration-efficiency 0.12 :experience 0.06))
@@ -173,6 +207,35 @@
     (:codemode '(:completion 0.22 :correctness 0.16 :speed 0.16 :price 0.16
                  :token-efficiency 0.16 :orchestration-efficiency 0.14))
     (t *model-harmony-weights*)))
+
+(defun %task-weights (task)
+  "Return signalograd-adaptive task weights. Base weights are adjusted by
+   signalograd routing deltas, then re-normalized so they sum to 1.0."
+  (let* ((base (%task-weights-base task))
+         ;; Map task-weight dimensions to signalograd routing metrics
+         ;; completion → :reasoning, correctness → :success, speed → :speed, price → :price
+         (w-completion (signalograd-routing-weight :reasoning
+                         (or (getf base :completion) 0.0) *runtime*))
+         (w-correctness (signalograd-routing-weight :success
+                          (or (getf base :correctness) 0.0) *runtime*))
+         (w-speed (signalograd-routing-weight :speed
+                    (or (getf base :speed) 0.0) *runtime*))
+         (w-price (signalograd-routing-weight :price
+                    (or (getf base :price) 0.0) *runtime*))
+         ;; No signalograd mapping — use base values directly
+         (w-token-eff (or (getf base :token-efficiency) 0.0))
+         (w-orch-eff (or (getf base :orchestration-efficiency) 0.0))
+         (w-experience (or (getf base :experience) 0.0))
+         ;; Re-normalize to sum to 1.0
+         (total (max 0.001 (+ w-completion w-correctness w-speed w-price
+                              w-token-eff w-orch-eff w-experience))))
+    (list :completion (/ w-completion total)
+          :correctness (/ w-correctness total)
+          :speed (/ w-speed total)
+          :price (/ w-price total)
+          :token-efficiency (/ w-token-eff total)
+          :orchestration-efficiency (/ w-orch-eff total)
+          :experience (/ w-experience total))))
 
 ;;; --- Task Tag Needs ---
 
@@ -204,9 +267,7 @@
 
 (defun %swarm-scores-path ()
   (let ((root (or (config-get-for "model-policy" "state-root" "global")
-                  (let ((base (or (sb-ext:posix-getenv "TMPDIR")
-                                  (namestring (user-homedir-pathname)))))
-                    (concatenate 'string (string-right-trim "/" base) "/harmonia")))))
+                  (%tmpdir-state-root))))
     (concatenate 'string root "/swarm_model_scores.sexp")))
 
 (defun %load-swarm-scores ()
@@ -226,12 +287,22 @@
            (or (getf entry :harmony-avg) 0.0))
         0.0)))
 
-;;; --- Model Features (Grok etc.) ---
+;;; --- Model Features & Native Tools ---
 
 (defun %model-features (model-id)
   "Return the :features plist for MODEL-ID, or NIL."
   (let ((profile (%profile-by-id model-id)))
     (when profile (getf profile :features))))
+
+(defun %model-native-tools (model-id)
+  "Return the :native-tools plist for MODEL-ID, or NIL."
+  (let ((profile (%profile-by-id model-id)))
+    (when profile (getf profile :native-tools))))
+
+(defun model-has-native-tool-p (model-id tool-key)
+  "Return T if MODEL-ID declares TOOL-KEY in its :native-tools."
+  (let ((tools (%model-native-tools model-id)))
+    (and tools (not (null (getf tools tool-key))))))
 
 (defun model-feature-params (model-id)
   "Return a readable sexp of feature flags for MODEL-ID."
@@ -485,6 +556,12 @@
                  (getf *model-evolution-policy* :orchestrator-delegate-swarm)
                  t)))
 
+(defun model-policy-orchestrator-model ()
+  (or (getf *model-evolution-policy* :orchestrator-model) "inception/mercury-2"))
+
+(defun model-policy-orchestrator-enabled-p ()
+  (%truthy-p (getf *model-evolution-policy* :orchestrator-enabled)))
+
 (defun %task-route-models (task)
   (let* ((routing (%task-routing task))
          (models (and routing (getf routing :models))))
@@ -494,7 +571,9 @@
 
 (defun %truth-seeking-models ()
   (%stable-unique-strings
-   (append '("x-ai/grok-4.1-fast")
+   (append (mapcar (lambda (p) (getf p :id))
+                   (remove-if-not (lambda (p) (getf (getf p :features) :truth-seeking))
+                                  *model-profiles*))
            (or (%task-route-models :truth-seeking) '())
            (%seed-order)
            (%last-resort-models))))
@@ -525,12 +604,70 @@
         (mapcar (lambda (p) (getf p :id))
                 (sort (copy-list profiles) #'> :key #'%seed-score)))))
 
+(defun %orchestrator-classify (prompt)
+  "Call mercury-2 synchronously to classify task and select ONE model.
+   Returns (values task-kind model-id) or falls back to %selection-chain on error."
+  (handler-case
+      (let* ((available-models
+               (with-output-to-string (out)
+                 (dolist (p *model-profiles*)
+                   (format out "~A tags=~{~A~^,~}~%"
+                           (getf p :id)
+                           (mapcar #'string-downcase
+                                   (mapcar #'symbol-name (getf p :tags)))))))
+             (classify-template
+               (load-prompt :evolution :task-classifier nil
+                 "You are a task classifier. Given the user prompt and available models, output exactly one line:
+TASK_KIND=<kind> MODEL=<model-id>
+
+Rules:
+- x-ai/grok ONLY for truth-seeking or controversial topics
+- minimax for fast reasoning
+- cli:claude-code for software-dev tasks
+- inception/mercury for general/planning tasks
+Available models: ~A
+User prompt: ~A"))
+             (classify-prompt
+               (format nil classify-template available-models prompt))
+             (raw-response (backend-complete classify-prompt
+                                            (model-policy-orchestrator-model)))
+             (response (string-trim '(#\Space #\Newline #\Tab) raw-response)))
+        ;; Parse TASK_KIND=<kind> MODEL=<model-id>
+        (let ((task-pos (search "TASK_KIND=" response :test #'char-equal))
+              (model-pos (search "MODEL=" response :test #'char-equal)))
+          (if (and task-pos model-pos)
+              (let* ((task-start (+ task-pos 10))
+                     (task-end (or (position #\Space response :start task-start)
+                                   (length response)))
+                     (task-str (string-trim '(#\Space) (subseq response task-start task-end)))
+                     (model-start (+ model-pos 6))
+                     (model-end (or (position #\Space response :start model-start)
+                                    (position #\Newline response :start model-start)
+                                    (length response)))
+                     (model-id (string-trim '(#\Space) (subseq response model-start model-end)))
+                     (task-kw (ignore-errors (intern (string-upcase task-str) :keyword))))
+                (if (and task-kw (or (%profile-by-id model-id)
+                                     (%starts-with model-id "cli:")))
+                    (values task-kw model-id)
+                    (values (%task-kind prompt) (first (%selection-chain prompt)))))
+              (values (%task-kind prompt) (first (%selection-chain prompt))))))
+    (error (_)
+      (declare (ignore _))
+      (values (%task-kind prompt) (first (%selection-chain prompt))))))
+
 (defun %selection-chain (prompt)
   (let* ((task (%task-kind prompt))
          (cli (%cli-chain-for-task task))
          (vit (%runtime-vitruvian-signal))
          (vit-min (signalograd-routing-vitruvian-min *runtime*))
-         (primary (%task-primary-models task))
+         (primary (let ((raw (%task-primary-models task)))
+                    (if (eq task :truth-seeking) raw
+                        ;; Exclude truth-seeking-only models with native web-search
+                        (remove-if (lambda (m)
+                                     (and (model-has-native-tool-p m :web-search)
+                                          (getf (getf (%profile-by-id m) :features)
+                                                :truth-seeking)))
+                                   raw))))
          (fallback (if (eq task :critical-reasoning)
                        '()
                        (%last-resort-models)))

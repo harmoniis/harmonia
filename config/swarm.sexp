@@ -1,4 +1,4 @@
-(:subagent-count 3
+(:subagent-count 1
  :tmux (:max-concurrent 5
         :poll-interval-ms 3000
         :session-prefix "harmonia-"
@@ -30,6 +30,7 @@
                                 :speed 0.05 :price 0.05)
                 :validation-gates (:compile t :test t :ffi-compat t
                                    :score-min-ratio 0.95 :size-max-ratio 1.5))
+ ;; Prompt templates consolidated into config/prompts.sexp
  :software-dev
    (:phases
      ((:name :planning

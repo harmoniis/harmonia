@@ -8,10 +8,10 @@
 (defparameter *evolution-version-file* nil)
 
 (defun %evolution-doc-root ()
-  "Resolve evolution doc root at runtime.
-   Uses HARMONIA_SYSTEM_DIR if set, otherwise falls back to
-   *boot-file* relative path for developer-local workflow."
-  (let ((sys (sb-ext:posix-getenv "HARMONIA_SYSTEM_DIR")))
+  "Resolve evolution doc root at runtime."
+  (let ((sys (or (and (fboundp 'config-get-for)
+                      (funcall 'config-get-for "evolution" "system-dir" "global"))
+                 (%boot-env "HARMONIA_SYSTEM_DIR"))))
     (if (and sys (> (length sys) 0))
         (let ((base (if (char= (char sys (1- (length sys))) #\/)
                         sys
@@ -22,7 +22,9 @@
 (defparameter *evolution-current-version* 0)
 (defparameter *evolution-latest-files-cache* '())
 (defparameter *legacy-evolution-latest-files*
-  '("current-state.md" "scorecard.md" "changelog.md" "rewrite-roadmap.md"))
+  '("current-state.sexp" "scorecard.sexp" "changelog.sexp" "rewrite-roadmap.sexp"
+    ;; Legacy fallbacks for old layouts
+    "current-state.md" "scorecard.md" "changelog.md" "rewrite-roadmap.md"))
 
 (defun %ensure-dir (dir)
   (ensure-directories-exist (merge-pathnames ".keep" dir))
@@ -53,9 +55,13 @@
     (file-length in)))
 
 (defun %latest-doc-files ()
-  (sort (directory (merge-pathnames "*.md" *evolution-latest-dir*))
-        #'string<
-        :key #'namestring))
+  "Return latest evolution doc files. Prefers .sexp; falls back to .md."
+  (let ((sexp-files (directory (merge-pathnames "*.sexp" *evolution-latest-dir*))))
+    (sort (if sexp-files
+              sexp-files
+              (directory (merge-pathnames "*.md" *evolution-latest-dir*)))
+          #'string<
+          :key #'namestring)))
 
 (defun %latest-snapshot-files ()
   (sort (append (directory (merge-pathnames "*.md" *evolution-latest-dir*))
@@ -131,49 +137,81 @@
                 (%latest-snapshot-files))))
 
 (defun %append-latest-changelog-entry (version reason note)
-  (let ((path (merge-pathnames "changelog.md" *evolution-latest-dir*)))
+  "Prepend a new entry to changelog.sexp (list of version records, newest first)."
+  (let ((path (merge-pathnames "changelog.sexp" *evolution-latest-dir*)))
     (multiple-value-bind (_sec _min _hour day month year)
         (decode-universal-time (get-universal-time))
       (declare (ignore _sec _min _hour))
-      (ensure-directories-exist path)
-      (with-open-file (out path :direction :output
-                                :if-exists :append
-                                :if-does-not-exist :create)
-        (format out "~%## v~D - ~4,'0D-~2,'0D-~2,'0D~%" version year month day)
-        (format out "- Trigger: ~A~%" (or reason :unknown))
-        (when note
-          (format out "- Note: ~A~%" note))))))
+      (let ((entry (list :version version
+                         :date (format nil "~4,'0D-~2,'0D-~2,'0D" year month day)
+                         :trigger (or reason :unknown)
+                         :note note))
+            (existing (when (probe-file path)
+                        (handler-case
+                            (with-open-file (s path :direction :input)
+                              (let ((*read-eval* nil)) (read s)))
+                          (error () nil)))))
+        (ensure-directories-exist path)
+        (with-open-file (out path :direction :output
+                                  :if-exists :supersede
+                                  :if-does-not-exist :create)
+          (let ((*print-pretty* t) (*print-right-margin* 120))
+            (prin1 (cons entry (if (listp existing) existing nil)) out)
+            (terpri out)))))))
 
 (defun %latest-changelog-max-version ()
-  (let ((path (merge-pathnames "changelog.md" *evolution-latest-dir*))
+  "Find the highest version number in the changelog.  Tries .sexp first, falls back to .md."
+  (let ((sexp-path (merge-pathnames "changelog.sexp" *evolution-latest-dir*))
+        (md-path (merge-pathnames "changelog.md" *evolution-latest-dir*))
         (max-v 0))
-    (when (probe-file path)
-      (with-open-file (in path :direction :input)
-        (loop for line = (read-line in nil nil)
-              while line do
-              (let ((pos (search "## v" line :test #'char-equal)))
-                (when pos
-                  (let* ((start (+ pos 4))
-                         (end start))
-                    (loop while (and (< end (length line))
-                                     (digit-char-p (char line end)))
-                          do (incf end))
-                    (when (> end start)
-                      (let ((parsed (ignore-errors (parse-integer line :start start :end end))))
-                        (when (and parsed (> parsed max-v))
-                          (setf max-v parsed))))))))))
+    (cond
+      ;; Sexp changelog: list of plists, each with :version
+      ((probe-file sexp-path)
+       (handler-case
+           (with-open-file (in sexp-path :direction :input)
+             (let* ((*read-eval* nil)
+                    (entries (read in nil nil)))
+               (when (listp entries)
+                 (dolist (entry entries)
+                   (let ((v (getf entry :version)))
+                     (when (and (integerp v) (> v max-v))
+                       (setf max-v v)))))))
+         (error () nil)))
+      ;; Legacy md changelog: scan for "## v<N>" headings
+      ((probe-file md-path)
+       (with-open-file (in md-path :direction :input)
+         (loop for line = (read-line in nil nil)
+               while line do
+               (let ((pos (search "## v" line :test #'char-equal)))
+                 (when pos
+                   (let* ((start (+ pos 4))
+                          (end start))
+                     (loop while (and (< end (length line))
+                                       (digit-char-p (char line end)))
+                           do (incf end))
+                     (when (> end start)
+                       (let ((parsed (ignore-errors (parse-integer line :start start :end end))))
+                         (when (and parsed (> parsed max-v))
+                           (setf max-v parsed)))))))))))
     max-v))
 
 (defun evolution-current-version ()
   *evolution-current-version*)
 
 (defun evolution-load-latest-snapshot ()
-  "Return latest evolution docs as a list of (:file ... :content ...)."
+  "Return latest evolution docs as a list of (:file ... :content ...).
+   Loads .sexp files as structured data, .md files as raw text."
   (let ((docs '()))
     (dolist (path (%latest-doc-files))
-      (push (list :file (file-namestring path)
-                  :content (%read-file-text path))
-            docs))
+      (let ((ext (pathname-type path)))
+        (push (list :file (file-namestring path)
+                    :content (if (string-equal ext "sexp")
+                                 (handler-case
+                                     (with-open-file (s path :direction :input)
+                                       (let ((*read-eval* nil)) (read s)))
+                                   (error () (%read-file-text path)))
+                                 (%read-file-text path)))
+              docs)))
     (nreverse docs)))
 
 (defun init-evolution-versioning ()

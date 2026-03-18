@@ -352,6 +352,7 @@
      :actor-stalls (getf telemetry :stalls)
      :queue-depth queue-depth
      :error-pressure (%signalograd-error-pressure)
+     :supervision (%supervision-rate)
      :prior-confidence prior-confidence
      :presentation-cleanliness (getf presentation :cleanliness)
      :presentation-verbosity (getf presentation :verbosity)

@@ -37,6 +37,10 @@ impl NodeCapabilities {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct NodeInfo {
     pub id: NodeId,
+    #[serde(default)]
+    pub label: String,
+    #[serde(default)]
+    pub role: String,
     pub capabilities: NodeCapabilities,
     pub agents: Vec<String>,
     pub last_seen_ms: u64,
@@ -51,13 +55,37 @@ impl NodeInfo {
             .collect::<Vec<_>>()
             .join(" ");
         format!(
-            "(node (id \"{}\") {} (agents {}) (last-seen-ms {}))",
+            "(node (id \"{}\") (label \"{}\") (role \"{}\") {} (agents {}) (last-seen-ms {}))",
             self.id.0,
+            self.label,
+            self.role,
             self.capabilities.to_sexp(),
             agents,
             self.last_seen_ms
         )
     }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MeshOrigin {
+    pub node_id: String,
+    #[serde(default)]
+    pub node_label: Option<String>,
+    #[serde(default)]
+    pub node_role: Option<String>,
+    #[serde(default)]
+    pub channel_class: Option<String>,
+    #[serde(default)]
+    pub node_key_id: Option<String>,
+    #[serde(default)]
+    pub transport_security: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MeshSession {
+    pub id: String,
+    #[serde(default)]
+    pub label: Option<String>,
 }
 
 /// Type tag for mesh messages.
@@ -97,6 +125,10 @@ pub struct MeshMessage {
     pub to: String,
     pub payload: String,
     pub msg_type: MeshMessageType,
+    #[serde(default)]
+    pub origin: Option<MeshOrigin>,
+    #[serde(default)]
+    pub session: Option<MeshSession>,
     /// Wave 4.2: Millisecond timestamp for replay protection.
     #[serde(default)]
     pub timestamp_ms: u64,
@@ -108,12 +140,62 @@ pub struct MeshMessage {
 
 impl MeshMessage {
     pub fn to_sexp(&self) -> String {
+        let origin = self.origin.as_ref().map(|origin| {
+            format!(
+                "(origin (node-id \"{}\"){}{}{}{}{})",
+                origin.node_id,
+                origin
+                    .node_label
+                    .as_deref()
+                    .map(|value| format!(" (node-label \"{}\")", value))
+                    .unwrap_or_default(),
+                origin
+                    .node_role
+                    .as_deref()
+                    .map(|value| format!(" (node-role \"{}\")", value))
+                    .unwrap_or_default(),
+                origin
+                    .channel_class
+                    .as_deref()
+                    .map(|value| format!(" (channel-class \"{}\")", value))
+                    .unwrap_or_default(),
+                origin
+                    .node_key_id
+                    .as_deref()
+                    .map(|value| format!(" (node-key-id \"{}\")", value))
+                    .unwrap_or_default(),
+                origin
+                    .transport_security
+                    .as_deref()
+                    .map(|value| format!(" (transport-security \"{}\")", value))
+                    .unwrap_or_default()
+            )
+        });
+        let session = self.session.as_ref().map(|session| {
+            format!(
+                "(session (id \"{}\"){})",
+                session.id,
+                session
+                    .label
+                    .as_deref()
+                    .map(|value| format!(" (label \"{}\")", value))
+                    .unwrap_or_default()
+            )
+        });
         format!(
-            "(mesh-message (from \"{}\") (to \"{}\") (type {}) (payload \"{}\"))",
+            "(mesh-message (from \"{}\") (to \"{}\") (type {}) (payload \"{}\"){}{})",
             self.from,
             self.to,
             self.msg_type.as_str(),
-            self.payload.replace('\\', "\\\\").replace('"', "\\\"")
+            self.payload.replace('\\', "\\\\").replace('"', "\\\""),
+            origin
+                .as_ref()
+                .map(|value| format!(" {}", value))
+                .unwrap_or_default(),
+            session
+                .as_ref()
+                .map(|value| format!(" {}", value))
+                .unwrap_or_default()
         )
     }
 }

@@ -10,8 +10,8 @@
   (:id "amazon/nova-pro-v1" :tier :pro :cost 4 :latency 3 :quality 5 :completion 5
    :usd-in-1k 0.0008 :usd-out-1k 0.0032
    :tags (:balanced :reasoning :tooling :tool-use))
-  (:id "qwen/qwen3-coder:free" :tier :free :cost 1 :latency 3 :quality 4 :completion 3
-   :usd-in-1k 0.0 :usd-out-1k 0.0
+  (:id "qwen/qwen3-coder" :tier :lite :cost 2 :latency 3 :quality 4 :completion 3
+   :usd-in-1k 0.00015 :usd-out-1k 0.0006
    :tags (:coding :cheap :token-efficient :codemode))
   (:id "inception/mercury-2" :tier :lite :cost 1 :latency 2 :quality 5 :completion 5
    :usd-in-1k 0.00012 :usd-out-1k 0.00048
@@ -19,14 +19,14 @@
   (:id "qwen/qwen3.5-flash-02-23" :tier :lite :cost 1 :latency 2 :quality 4 :completion 4
    :usd-in-1k 0.00010 :usd-out-1k 0.00040
    :tags (:cheap :fast :token-efficient :memory-ops :reasoning))
-  (:id "deepseek/deepseek-chat-v3.1:free" :tier :free :cost 1 :latency 3 :quality 4 :completion 3
-   :usd-in-1k 0.0 :usd-out-1k 0.0
+  (:id "deepseek/deepseek-chat-v3.1" :tier :lite :cost 2 :latency 3 :quality 4 :completion 3
+   :usd-in-1k 0.00014 :usd-out-1k 0.00028
    :tags (:reasoning :cheap :token-efficient))
   (:id "minimax/minimax-m2.5" :tier :lite :cost 2 :latency 2 :quality 4 :completion 4
    :usd-in-1k 0.0002 :usd-out-1k 0.0011
    :tags (:cheap :fast :token-efficient :memory-ops))
   (:id "google/gemini-3.1-flash-lite-preview" :tier :micro :cost 1 :latency 1 :quality 3 :completion 3
-   :usd-in-1k 0.0 :usd-out-1k 0.0
+   :usd-in-1k 0.000025 :usd-out-1k 0.0001
    :tags (:cheap :fast :token-efficient :memory-ops))
   (:id "moonshotai/kimi-k2.5" :tier :thinking :cost 6 :latency 5 :quality 7 :completion 7
    :usd-in-1k 0.002 :usd-out-1k 0.008
@@ -34,7 +34,11 @@
   (:id "x-ai/grok-4.1-fast" :tier :fast-smart :cost 5 :latency 2 :quality 7 :completion 7
    :usd-in-1k 0.0002 :usd-out-1k 0.0005
    :features (:reasoning t :web-search t :x-search t :truth-seeking t)
-   :tags (:truth-seeking :fast :strong :reasoning :web-search :x-search :realtime))
+   :native-tools
+     (:reasoning (:enabled t :effort "high" :exclude t)
+      :web-search (:plugin-id "web" :engine "native" :search-context-size "high")
+      :x-search (:plugin-id "web" :engine "native" :search-context-size "high"))
+   :tags (:truth-seeking :fast :strong :web-search :x-search :realtime))
   (:id "google/gemini-2.5-pro" :tier :pro :cost 7 :latency 5 :quality 8 :completion 8
    :usd-in-1k 0.0025 :usd-out-1k 0.015
    :tags (:reasoning :vision :codemode :software-dev))
@@ -65,7 +69,9 @@
                   :openrouter-fallback t)
   :casual (:models ("inception/mercury-2" "qwen/qwen3.5-flash-02-23"
                      "google/gemini-3.1-flash-lite-preview" "amazon/nova-lite-v1"
-                     "qwen/qwen3-coder:free")))
+                     "qwen/qwen3-coder"))
+  :general (:models ("inception/mercury-2" "minimax/minimax-m2.5"
+                      "qwen/qwen3.5-flash-02-23")))
  :evolution
  (:seed-models ()
   :active-provider "openrouter"
@@ -81,8 +87,8 @@
    :google-ai-studio ("google/gemini-3.1-flash-lite-preview" "google/gemini-2.5-pro")
    :google-vertex ("google/gemini-3.1-flash-lite-preview" "google/gemini-2.5-pro")
    :bedrock ("amazon/nova-micro-v1" "amazon/nova-lite-v1" "amazon/nova-pro-v1")
-   :groq ("qwen/qwen3-coder:free")
-   :alibaba ("qwen/qwen3-coder:free"))
+   :groq ("qwen/qwen3-coder")
+   :alibaba ("qwen/qwen3-coder"))
   :seed-weights (:price 0.35 :speed 0.20 :success 0.20 :reasoning 0.15 :vitruvian 0.10)
   :seed-min-samples 3
   :last-resort-models ("google/gemini-2.5-pro"
@@ -93,10 +99,12 @@
                            "anthropic/claude-sonnet-4.6")
   :cli-preference ("claude-code" "codex")
   :cli-task-kinds (:software-dev :coding :critical-reasoning)
-  :actor-stall-threshold 50
+  :actor-stall-threshold 180
   :cli-cooloff-seconds 3600
   :cli-quota-patterns ("quota" "rate limit" "cooldown" "usage cap" "too many requests")
   :vitruvian-signal-min 0.62
   :context-summarizer-model "qwen/qwen3.5-flash-02-23"
   :context-summarizer-threshold-chars 12000
-  :orchestrator-delegate-swarm t))
+  :orchestrator-delegate-swarm t
+  :orchestrator-model "inception/mercury-2"
+  :orchestrator-enabled t))

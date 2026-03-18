@@ -16,6 +16,7 @@
 | `src/core/signalograd.lisp` | telemetry-first reflection layer, proposal clamps, checkpoint/restore orchestration, chronicle audit bridge |
 | `src/core/rewrite.lisp` | rewrite trigger bookkeeping hooks |
 | `src/core/evolution-versioning.lisp` | evolution snapshot version state and snapshot mechanics |
+| `src/core/system-commands.lisp` | Lisp-side command handlers for gateway-delegated /commands, %gateway-dispatch-command callback entry point |
 | `src/core/conditions.lisp` | condition/error taxonomy helpers |
 | `src/core/introspection.lisp` | runtime self-knowledge: platform detection, path introspection, library tracking, error ring, self-compilation, hot-reload, diagnostic snapshots |
 | `src/core/supervision-state.lisp` | shared supervision counters loaded before readers (`*tick-error-count*`, cooldown state) |
@@ -45,7 +46,7 @@
 | `src/ports/lineage.lisp` | commit/push lineage ops | `lib/core/git-ops` |
 | `src/ports/matrix.lisp` | route constraints + telemetry | `lib/core/harmonic-matrix` |
 | `src/ports/tool-runtime.lisp` | search/voice tool dispatch | `lib/tools/*` |
-| `src/ports/baseband.lisp` | frontend registration + signal polling/sending | `lib/core/gateway` |
+| `src/ports/baseband.lisp` | unified command dispatch callback, frontend registration, signal polling/sending | `lib/core/gateway` |
 | `src/ports/swarm.lisp` | parallel agents + tmux swarm control | `lib/core/parallel-agents` |
 | `src/ports/evolution.lisp` | source-rewrite/artifact-rollout mode dispatch | `lib/core/ouroboros` + phoenix supervision model |
 | `src/ports/chronicle.lisp` | graph-native knowledge base queries, harmonic/memory/delegation recording, concept graph SQL traversal | `lib/core/chronicle` |
@@ -77,7 +78,7 @@ Based on `src/core/boot.lisp`:
 
 From `src/core/loop.lisp`, action order is:
 
-1. gateway poll
+1. gateway poll (includes unified command interception — commands handled/delegated, only agent prompts pass through)
 2. tailnet poll
 3. actor supervisor mailbox drain
 4. queued prompt processing
@@ -100,8 +101,8 @@ This deterministic order is critical for reproducibility and telemetry interpret
 
 ## Primary Canonical Cross-References
 
-1. Runtime architecture narrative: `../../../doc/agent/genesis/ARCHITECTURE.md`
-2. Gateway/baseband semantics: `../../../doc/agent/genesis/GATEWAY.md`
-3. Swarm mechanics: `../../../doc/agent/genesis/SWARM.md`
-4. Self rewrite protocol: `../../../doc/agent/genesis/SELF_REWRITE.md`
-5. Evolution policy/runtime details: `../../../doc/agent/evolution/latest/*.md`
+1. Runtime architecture: `../genesis/runtime-architecture.md`
+2. Gateway/baseband semantics: `../genesis/gateway-frontends.md`
+3. Ports and FFI: `../genesis/ports-and-ffi.md`
+4. Evolution state: `../evolution/current-state.md`
+5. Rewrite roadmap: `../evolution/rewrite-roadmap.md`

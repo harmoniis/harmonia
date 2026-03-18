@@ -20,9 +20,21 @@ fn is_admin(component: &str) -> bool {
 
 fn default_extra_read_scopes(component: &str) -> &'static [&'static str] {
     match component {
-        "parallel-agents-core" => &["openrouter-backend", "search-exa-tool", "search-brave-tool"],
+        "parallel-agents-core" => &[
+            "openrouter-backend",
+            "search-exa-tool",
+            "search-brave-tool",
+            "prompts",
+            "model-capabilities",
+        ],
+        "openrouter-backend" | "xai-backend" | "provider-protocol" => {
+            &["prompts", "model-capabilities"]
+        }
         "phoenix-core" | "ouroboros-core" | "recovery" => &["evolution"],
         "evolution" => &["s3-storage"],
+        "tailnet-core" => &["node"],
+        "gateway" => &["sender-policy"],
+        "observability" => &["global"],
         _ => &[],
     }
 }

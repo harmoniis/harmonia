@@ -50,12 +50,15 @@
   (%provider-router-string #'%provider-router-last-error))
 
 (defun backend-complete (prompt &optional model)
-  (let ((ptr (%provider-router-complete prompt (or model ""))))
-    (if (cffi:null-pointer-p ptr)
-        (error "LLM request failed: ~A" (backend-last-error))
-        (unwind-protect
-             (cffi:foreign-string-to-lisp ptr)
-          (%provider-router-free-string ptr)))))
+  (with-trace ("backend-complete" :kind :llm
+               :metadata (list :model (or model "auto")
+                               :prompt-length (length (or prompt ""))))
+    (let ((ptr (%provider-router-complete prompt (or model ""))))
+      (if (cffi:null-pointer-p ptr)
+          (error "LLM request failed: ~A" (backend-last-error))
+          (unwind-protect
+               (cffi:foreign-string-to-lisp ptr)
+            (%provider-router-free-string ptr))))))
 
 (defun backend-complete-for-task (prompt task-hint)
   (let ((ptr (%provider-router-complete-for-task prompt (or task-hint ""))))

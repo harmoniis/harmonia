@@ -12,7 +12,8 @@
          :codemode-sources-weight 0.15)
  :complexity (:density-simple-mult 3.0 :density-possible-mult 8.0)
  :vitruvian (:strength-chaos-weight 0.6 :strength-bounded-weight 0.4
-             :utility-global-weight 0.45 :utility-coherence-weight 0.30 :utility-balance-weight 0.25
+             :utility-global-weight 0.35 :utility-coherence-weight 0.25 :utility-balance-weight 0.20
+             :utility-supervision-weight 0.20
              :beauty-ratio-weight 0.50 :beauty-inter-weight 0.25 :beauty-simplicity-weight 0.25
              :signal-strength-weight 0.34 :signal-utility-weight 0.33 :signal-beauty-weight 0.33)
  :memory (:bootstrap-skill-limit 3
@@ -38,7 +39,16 @@
                             "git-commit" "self-push")
             :admin-intent-required-for
              (:harmony-policy-set :matrix-set-edge :matrix-reset-defaults))
- :signalograd (:harmony (:signal-bias-max 0.06
+ :supervision (:taxonomy-default :auditable
+               :confirmable-threshold 0.85
+               :partial-threshold 0.60
+               :auditable-threshold 0.40
+               :window 64
+               :evidence-timeout-ms 30000
+               :test-timeout-ms 60000)
+ :signalograd (:supervision (:rate-delta-max 0.06
+                              :confidence-delta-max 0.05)
+               :harmony (:signal-bias-max 0.06
                           :noise-bias-max 0.04
                           :rewrite-signal-delta-max 0.05
                           :rewrite-chaos-delta-max 0.04

@@ -40,7 +40,12 @@ fn detect_with_profile(output: &str, profile: &CliProfile) -> CliState {
         return CliState::Completed;
     }
 
-    // Priority 3: Permission prompt
+    // Priority 3: Onboarding/survey/first-run (auto-dismiss before other interactive checks)
+    if detect_onboarding(&clean, profile) {
+        return CliState::Onboarding;
+    }
+
+    // Priority 4: Permission prompt
     if let Some((tool, desc)) = detect_permission(&clean, profile) {
         return CliState::WaitingForPermission {
             tool_name: tool,
@@ -48,22 +53,27 @@ fn detect_with_profile(output: &str, profile: &CliProfile) -> CliState {
         };
     }
 
-    // Priority 4: Yes/No confirmation
+    // Priority 5: Plan mode (accept/reject)
+    if detect_plan_mode(&clean, profile) {
+        return CliState::PlanMode;
+    }
+
+    // Priority 6: Yes/No confirmation
     if let Some(question) = detect_confirmation(&clean, profile) {
         return CliState::WaitingForConfirmation { question };
     }
 
-    // Priority 5: Selection menu
+    // Priority 7: Selection menu
     if let Some(options) = detect_selection(&clean, profile) {
         return CliState::WaitingForSelection { options };
     }
 
-    // Priority 6: Processing (thinking/working)
+    // Priority 8: Processing (thinking/working)
     if detect_processing(&clean, profile) {
         return CliState::Processing;
     }
 
-    // Priority 7: Waiting for input
+    // Priority 9: Waiting for input
     if detect_input_prompt(&clean, profile) {
         return CliState::WaitingForInput;
     }
@@ -75,27 +85,42 @@ fn detect_with_profile(output: &str, profile: &CliProfile) -> CliState {
 fn detect_error(text: &str, profile: &CliProfile) -> Option<String> {
     for pattern in profile.error_patterns {
         if let Some(pos) = text.find(pattern) {
-            // Extract the error line
+            // Extract the error line, truncated to prevent partial LLM output leaking
             let rest = &text[pos..];
             let line_end = rest.find('\n').unwrap_or(rest.len());
-            return Some(rest[..line_end].to_string());
+            let line = &rest[..line_end];
+            let truncated = if line.len() > 120 {
+                format!("{}...", &line[..120])
+            } else {
+                line.to_string()
+            };
+            return Some(truncated);
         }
     }
     None
 }
 
 fn detect_completion(text: &str, all_lines: &[&str], profile: &CliProfile) -> bool {
-    // Check if the very last non-empty line matches a shell prompt
+    // Check if the very last non-empty line looks like a shell prompt.
+    // Shell prompts typically end with "$ " or "% " (possibly preceded by
+    // username, hostname, path, or other decorations).
     let last_non_empty = all_lines.iter().rev().find(|l| !l.trim().is_empty());
     if let Some(last) = last_non_empty {
-        let clean_last = strip_ansi(last);
+        let clean_last = strip_ansi(last).trim().to_string();
         for pattern in profile.completion_patterns {
-            if clean_last.contains(pattern) {
+            // For shell prompt patterns ("$ ", "% "), check that the line
+            // ends with the pattern (the shell prompt is the final thing).
+            // For other patterns ("Session ended", etc.), substring match is fine.
+            if pattern.ends_with(' ') && (*pattern == "$ " || *pattern == "% ") {
+                if clean_last.ends_with(pattern.trim()) || clean_last.ends_with(pattern) {
+                    return true;
+                }
+            } else if clean_last.contains(pattern) {
                 return true;
             }
         }
     }
-    // Also check the tail window
+    // Also check the tail window for explicit exit markers
     for pattern in profile.completion_patterns {
         if text.contains(pattern) && text.contains("exited") {
             return true;
@@ -221,6 +246,24 @@ fn detect_input_prompt(text: &str, profile: &CliProfile) -> bool {
     false
 }
 
+fn detect_onboarding(text: &str, profile: &CliProfile) -> bool {
+    for pattern in profile.onboarding_patterns {
+        if text.contains(pattern) {
+            return true;
+        }
+    }
+    false
+}
+
+fn detect_plan_mode(text: &str, profile: &CliProfile) -> bool {
+    for pattern in profile.plan_mode_patterns {
+        if text.contains(pattern) {
+            return true;
+        }
+    }
+    false
+}
+
 /// Try to extract a tool name from permission prompt text.
 fn extract_tool_name(text: &str) -> String {
     // Look for common tool name patterns in Claude Code output:
@@ -268,6 +311,214 @@ fn strip_ansi(input: &str) -> String {
     result
 }
 
+/// Extract the meaningful response content from raw CLI terminal output.
+///
+/// CLI agents (Claude Code, Codex) wrap their output in TUI chrome: prompt
+/// boxes (╭─, ╰─), status bars, tool-use headers, spinner lines, etc.
+/// This function strips all that, returning just the substantive response text.
+///
+/// Strategy:
+/// 1. Strip ANSI escape sequences
+/// 2. Remove TUI chrome lines (box-drawing, status bars, prompts)
+/// 3. Remove tool-use header lines ("Read", "Write", "Bash", etc.)
+/// 4. Trim leading/trailing whitespace
+pub(crate) fn extract_response(output: &str, cli_type: &CliType) -> String {
+    let profile = profile_for(cli_type);
+    let clean = strip_ansi(output);
+    let mut response_lines: Vec<&str> = Vec::new();
+    let mut in_response = false;
+    let mut found_any_content = false;
+
+    for line in clean.lines() {
+        let trimmed = line.trim();
+
+        // Skip empty lines at the start
+        if !found_any_content && trimmed.is_empty() {
+            continue;
+        }
+
+        // Skip TUI box-drawing chrome
+        if is_tui_chrome(trimmed) {
+            continue;
+        }
+
+        // Skip spinner/status lines
+        if is_status_line(trimmed) {
+            continue;
+        }
+
+        // Skip tool-use headers (Claude Code shows "Read file.rs", "Bash ls -la", etc.)
+        if is_tool_header(trimmed) {
+            // Tool use is part of work, not the response — skip but don't end response
+            continue;
+        }
+
+        // Skip prompt lines (❯, input boxes)
+        if is_prompt_line(trimmed, profile) {
+            if in_response {
+                // Prompt after response content means response ended
+                break;
+            }
+            continue;
+        }
+
+        // Skip processing indicators
+        if is_processing_indicator(trimmed, profile) {
+            continue;
+        }
+
+        // Skip tmux session setup commands (env sanitization, CLI launch)
+        if is_setup_command(trimmed) {
+            continue;
+        }
+
+        // Skip CLI launch commands (codex exec, claude -p, etc.)
+        if is_cli_launch_command(trimmed) {
+            continue;
+        }
+
+        // Skip shell setup lines (export, unset, source)
+        if is_shell_setup_line(trimmed) {
+            continue;
+        }
+
+        // This line is actual content
+        found_any_content = true;
+        in_response = true;
+        response_lines.push(line);
+    }
+
+    let result = response_lines.join("\n");
+    result.trim().to_string()
+}
+
+fn is_tui_chrome(line: &str) -> bool {
+    // Box-drawing characters used by CLI TUIs
+    let chrome_starts = ["╭", "╰", "├", "└", "┌", "┐", "┘", "┤", "┼", "│"];
+    for s in &chrome_starts {
+        if line.starts_with(s) {
+            return true;
+        }
+    }
+    // Lines that are entirely box-drawing / dashes / whitespace
+    if !line.is_empty()
+        && line.chars().all(|c| {
+            c == '─'
+                || c == '━'
+                || c == '═'
+                || c == '│'
+                || c == '┃'
+                || c == '╭'
+                || c == '╮'
+                || c == '╰'
+                || c == '╯'
+                || c == '├'
+                || c == '┤'
+                || c == '┬'
+                || c == '┴'
+                || c == '-'
+                || c == '='
+                || c == ' '
+        })
+    {
+        return true;
+    }
+    false
+}
+
+fn is_status_line(line: &str) -> bool {
+    // Claude Code status bar patterns
+    line.contains("tokens") && (line.contains("input") || line.contains("output"))
+        || line.contains("Cost:")
+        || line.contains("Duration:")
+        || (line.contains("Model:") && line.contains("/"))
+        || line.starts_with("Session:")
+        || line.starts_with("Context:")
+}
+
+fn is_tool_header(line: &str) -> bool {
+    // Claude Code tool-use indicators shown inline
+    let tools = [
+        "Read ",
+        "Write ",
+        "Edit ",
+        "Bash ",
+        "Glob ",
+        "Grep ",
+        "WebFetch ",
+        "WebSearch ",
+        "Agent ",
+        "NotebookEdit ",
+        "Running ",
+        "Reading ",
+        "Writing ",
+        "Editing ",
+        "Searching ",
+    ];
+    for t in &tools {
+        if line.starts_with(t) && line.len() < 200 {
+            return true;
+        }
+    }
+    false
+}
+
+fn is_prompt_line(line: &str, profile: &CliProfile) -> bool {
+    let trimmed = line.trim();
+    for p in profile.input_prompt_patterns {
+        if line.contains(p) || trimmed.contains(p) {
+            return true;
+        }
+        // Also match if the trimmed line equals the pattern with trailing space stripped
+        let pattern_trimmed = p.trim();
+        if !pattern_trimmed.is_empty() && trimmed == pattern_trimmed {
+            return true;
+        }
+    }
+    false
+}
+
+fn is_processing_indicator(line: &str, profile: &CliProfile) -> bool {
+    // Only match lines that are JUST a processing indicator (short lines)
+    if line.len() > 80 {
+        return false;
+    }
+    for p in profile.processing_patterns {
+        if line.contains(p) && line.len() < 60 {
+            return true;
+        }
+    }
+    false
+}
+
+/// Detect tmux session setup commands injected during environment sanitization.
+fn is_setup_command(line: &str) -> bool {
+    // These are injected by session::create_session to sanitize the CLI environment
+    line.starts_with("unset CLAUDECODE")
+        || line.starts_with("unset CLAUDE_CODE")
+        || line.starts_with("unset CODEX")
+        || line.starts_with("unset OPENAI_")
+        || line.starts_with("unset ANTHROPIC_")
+        || (line.starts_with("export ") && line.contains("HARMONIA"))
+}
+
+/// Detect CLI tool launch commands (codex exec, claude -p, etc.).
+fn is_cli_launch_command(line: &str) -> bool {
+    (line.starts_with("codex ") || line.starts_with("codex exec"))
+        || (line.starts_with("claude ") && line.contains(" -p "))
+        || (line.starts_with("claude ") && line.contains("--print"))
+        || line.starts_with("$(cat /tmp/harmonia-prompt-")
+}
+
+/// Detect shell setup lines (export, unset, source commands).
+fn is_shell_setup_line(line: &str) -> bool {
+    (line.starts_with("export ") && !line.contains("=''"))
+        || line.starts_with("unset ")
+        || line.starts_with("source ")
+        || line.starts_with(". ")
+        || (line.starts_with("cat ") && line.contains("/tmp/harmonia-prompt-"))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -297,5 +548,36 @@ mod tests {
         let output = "The Bash tool wants to run:\nls -la\nAllow this? (y/n)\nAllow Deny";
         let state = detect_state(output, &CliType::ClaudeCode);
         assert!(matches!(state, CliState::WaitingForPermission { .. }));
+    }
+
+    #[test]
+    fn test_extract_response_strips_chrome() {
+        let output = "╭─────────────────────────────────╮\n\
+                       │ test prompt                      │\n\
+                       ╰─────────────────────────────────╯\n\
+                       \n\
+                       This is the actual response text.\n\
+                       It spans multiple lines.\n\
+                       \n\
+                       ❯ ";
+        let extracted = extract_response(output, &CliType::ClaudeCode);
+        assert!(extracted.contains("This is the actual response text."));
+        assert!(extracted.contains("It spans multiple lines."));
+        assert!(!extracted.contains("╭"));
+        assert!(!extracted.contains("╰"));
+        assert!(!extracted.contains("❯"));
+    }
+
+    #[test]
+    fn test_extract_response_skips_tool_headers() {
+        let output = "Reading file.rs\n\
+                       Bash ls -la\n\
+                       \n\
+                       Here is the answer to your question.\n\
+                       \n\
+                       ❯ ";
+        let extracted = extract_response(output, &CliType::ClaudeCode);
+        assert!(extracted.contains("Here is the answer"));
+        assert!(!extracted.contains("Reading file.rs"));
     }
 }

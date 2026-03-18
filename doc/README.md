@@ -4,17 +4,16 @@ This directory contains developer-facing documentation for the `harmonia/` proje
 
 ## Canonical Sources
 
-Two canonical corpora exist and both matter:
+Two canonical layers exist:
 
-1. Runtime-adjacent corpus in this project:
-- `src/boot/genesis/`
-- `src/boot/evolution/`
+1. Agent-facing (loaded at boot):
+- `src/boot/genesis/*.sexp` — immutable identity and architecture
+- `src/boot/evolution/latest/*.sexp` — current evolution state
 
-2. Full long-form corpus in the parent workspace:
-- `../../doc/agent/genesis/`
-- `../../doc/agent/evolution/`
-
-The long-form `doc/agent/*` corpus carries broader concept coverage (including UI/UX, A2UI, swarm protocols, and architecture narrative). The `src/boot/*` corpus is the concise runtime-near subset.
+2. Developer-facing (this directory):
+- `doc/genesis/*.md` — markdown mirrors of boot genesis
+- `doc/evolution/*.md` — markdown mirrors of boot evolution
+- `doc/reference/` — structured reference atlas
 
 ## Reference Atlas
 
@@ -33,8 +32,8 @@ The migration map is mandatory for coverage auditing: every canonical source top
 The security architecture is documented across multiple levels:
 
 - **Reference**: `reference/security-architecture.md` — comprehensive security architecture reference.
-- **Boot genesis**: `src/boot/genesis/runtime-architecture.md` — security architecture section, typed signal dispatch, policy gate in orchestration flow.
-- **Boot genesis**: `src/boot/genesis/concepts.md` — security kernel and adaptive shell concepts.
-- **Boot evolution**: `src/boot/evolution/latest/changelog.md` — v6 SignalGuard changelog entry.
-- **Boot evolution**: `src/boot/evolution/latest/current-state.md` — security kernel runtime state.
+- **Boot genesis**: `src/boot/genesis/runtime-architecture.sexp` — security architecture section, typed signal dispatch, policy gate in orchestration flow.
+- **Boot genesis**: `src/boot/genesis/concepts.sexp` — security kernel and adaptive shell concepts.
+- **Boot evolution**: `src/boot/evolution/latest/changelog.sexp` — v6 SignalGuard changelog entry.
+- **Boot evolution**: `src/boot/evolution/latest/current-state.sexp` — security kernel runtime state.
 - **Operations**: `reference/operations-runbook.md` — security verification procedures.

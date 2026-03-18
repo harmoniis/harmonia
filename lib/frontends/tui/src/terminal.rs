@@ -31,6 +31,22 @@ fn state() -> &'static Arc<RwLock<TuiState>> {
 }
 
 fn resolve_socket_path() -> String {
+    if harmonia_config_store::init_v2().is_ok() {
+        if let Ok(Some(run_dir)) =
+            harmonia_config_store::get_config("harmonia-cli", "global", "run-dir")
+        {
+            let run_dir = std::path::PathBuf::from(run_dir);
+            let _ = std::fs::create_dir_all(&run_dir);
+            #[cfg(unix)]
+            {
+                use std::os::unix::fs::PermissionsExt;
+                let _ =
+                    std::fs::set_permissions(&run_dir, std::fs::Permissions::from_mode(0o700));
+            }
+            return format!("{}/harmonia.sock", run_dir.to_string_lossy());
+        }
+    }
+
     // Use platform-standard runtime directory, not user data dir.
     // macOS: $TMPDIR/harmonia/    Linux: $XDG_RUNTIME_DIR/harmonia/
     let run_dir = platform_run_dir();
@@ -72,7 +88,7 @@ fn platform_run_dir() -> std::path::PathBuf {
 }
 
 /// Initialize the TUI frontend.
-/// Listens on a Unix domain socket for chat client connections.
+/// Listens on a Unix domain socket for session client connections.
 pub fn init() -> Result<(), String> {
     let st = state();
     {
@@ -182,7 +198,7 @@ pub fn poll() -> Vec<(String, String)> {
     results
 }
 
-/// Send a message to all connected chat clients.
+/// Send a message to all connected session clients.
 pub fn send(sub_channel: &str, payload: &str) {
     let _ = sub_channel;
     let st = state();

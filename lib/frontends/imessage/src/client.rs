@@ -65,7 +65,23 @@ fn read_vault_secret(symbols: &[&str]) -> Result<Option<String>, String> {
 }
 
 /// Initialize the iMessage client from a config s-expression.
+/// iMessage (via BlueBubbles) only works on macOS. On other platforms, iMessage
+/// signals arrive via the Tailscale mesh from a macOS node as remote signals.
 pub fn init(config: &str) -> Result<(), String> {
+    #[cfg(not(target_os = "macos"))]
+    {
+        let _ = config;
+        return Err("imessage frontend requires macOS (BlueBubbles). On Linux, iMessage signals arrive via Tailscale mesh from a macOS node.".into());
+    }
+
+    #[cfg(target_os = "macos")]
+    {
+        init_macos(config)
+    }
+}
+
+#[cfg(target_os = "macos")]
+fn init_macos(config: &str) -> Result<(), String> {
     let st = state();
     let mut guard = st.write().map_err(|e| format!("lock poisoned: {e}"))?;
 
@@ -146,8 +162,8 @@ struct BbHandle {
 }
 
 /// Poll BlueBubbles for new messages since last_poll_ms.
-/// Returns (phone_or_email, text) pairs for inbound messages.
-pub fn poll() -> Result<Vec<(String, String)>, String> {
+/// Returns (phone_or_email, text, metadata) triples for inbound messages.
+pub fn poll() -> Result<Vec<(String, String, Option<String>)>, String> {
     let st = state();
     let (url, password, after) = {
         let guard = st.read().map_err(|e| format!("lock poisoned: {e}"))?;
@@ -191,7 +207,11 @@ pub fn poll() -> Result<Vec<(String, String)>, String> {
             .unwrap_or_else(|| "unknown".into());
         let text = msg.text.clone().unwrap_or_default();
         if !text.is_empty() {
-            results.push((address, text));
+            let metadata = format!(
+                "(:channel-class \"imessage-bridge\" :node-id \"{}\" :remote t)",
+                address.replace('\\', "\\\\").replace('"', "\\\"")
+            );
+            results.push((address, text, Some(metadata)));
         }
         if let Some(ts) = msg.date_created {
             if ts > max_ts {

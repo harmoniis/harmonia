@@ -52,6 +52,8 @@ struct SlackMessage {
     text: String,
     #[serde(default)]
     subtype: Option<String>,
+    #[serde(default)]
+    user: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -182,8 +184,8 @@ pub fn init(config: &str) -> Result<(), String> {
 
 /// Poll all monitored channels for new messages since the last timestamp.
 ///
-/// Returns a list of (channel_id, text) pairs for each new message.
-pub fn poll() -> Result<Vec<(String, String)>, String> {
+/// Returns a list of (channel_id, text, metadata) triples for each new message.
+pub fn poll() -> Result<Vec<(String, String, Option<String>)>, String> {
     let (token, channels, oldest) = {
         let s = state().read().map_err(|e| format!("lock: {}", e))?;
         if !s.initialized {
@@ -221,7 +223,12 @@ pub fn poll() -> Result<Vec<(String, String)>, String> {
                 continue;
             }
             if !msg.text.is_empty() {
-                results.push((channel.clone(), msg.text.clone()));
+                let node_id = msg.user.as_deref().unwrap_or("unknown");
+                let metadata = format!(
+                    "(:channel-class \"slack-bot\" :node-id \"{}\" :remote t)",
+                    node_id.replace('\\', "\\\\").replace('"', "\\\"")
+                );
+                results.push((channel.clone(), msg.text.clone(), Some(metadata)));
             }
             // Track the highest timestamp we've seen.
             if msg.ts > max_ts {

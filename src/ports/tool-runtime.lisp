@@ -1,4 +1,8 @@
-;;; tool-runtime.lisp — Port: search/voice tool loading and dispatch via CFFI.
+;;; tool-runtime.lisp — Port: search tool loading and dispatch via CFFI.
+;;;
+;;; NOTE: Whisper and ElevenLabs have moved to voice-runtime.lisp as proper
+;;; voice provider backends. Search tools will migrate to tool-channel.lisp
+;;; once they implement the ToolVtable contract.
 
 (in-package :harmonia)
 
@@ -12,14 +16,6 @@
 (cffi:defcfun ("harmonia_search_brave_last_error" %brave-last-error) :pointer)
 (cffi:defcfun ("harmonia_search_brave_free_string" %brave-free-string) :void (ptr :pointer))
 
-(cffi:defcfun ("harmonia_whisper_transcribe" %whisper-transcribe) :pointer (audio-path :string))
-(cffi:defcfun ("harmonia_whisper_last_error" %whisper-last-error) :pointer)
-(cffi:defcfun ("harmonia_whisper_free_string" %whisper-free-string) :void (ptr :pointer))
-
-(cffi:defcfun ("harmonia_elevenlabs_tts_to_file" %eleven-tts) :int (text :string) (voice-id :string) (out-path :string))
-(cffi:defcfun ("harmonia_elevenlabs_last_error" %eleven-last-error) :pointer)
-(cffi:defcfun ("harmonia_elevenlabs_free_string" %eleven-free-string) :void (ptr :pointer))
-
 (defun %load-tool (id file)
   (setf (gethash id *tool-libs*)
         (cffi:load-foreign-library (%release-lib-path file))))
@@ -28,8 +24,6 @@
   (ensure-cffi)
   (%load-tool "search-exa" "libharmonia_search_exa.dylib")
   (%load-tool "search-brave" "libharmonia_search_brave.dylib")
-  (%load-tool "whisper" "libharmonia_whisper.dylib")
-  (%load-tool "elevenlabs" "libharmonia_elevenlabs.dylib")
   t)
 
 (defun tool-runtime-list ()
@@ -66,12 +60,23 @@
                (%last-error-string #'%brave-last-error #'%brave-free-string)))))
 
 (defun %grok-live-search-prompt (query)
-  (format nil
-          "You are the truth-seeking search subagent. Use live web and X search when useful. Prioritize factual accuracy over style.~%~%Query: ~A~%~%Return concise markdown with these headings only: Summary, Evidence, Uncertainty. Include source links or domains when available."
-          query))
+  (let ((template (load-prompt :evolution :grok-live-search nil
+                   "You are the truth-seeking search subagent. Use live web and X search when useful. Prioritize factual accuracy over style.
+
+Query: ~A
+
+Return concise markdown with these headings only: Summary, Evidence, Uncertainty. Include source links or domains when available.")))
+    (format nil template query)))
+
+(defun %preferred-truth-seeking-model ()
+  "Return the first model with :truth-seeking feature, or fallback."
+  (or (and (fboundp '%truth-seeking-models)
+           (car (funcall '%truth-seeking-models)))
+      "x-ai/grok-4.1-fast"))
 
 (defun search-grok-live (query)
-  (backend-complete (%grok-live-search-prompt query) "x-ai/grok-4.1-fast"))
+  (backend-complete (%grok-live-search-prompt query)
+                    (%preferred-truth-seeking-model)))
 
 (defun search-web (query)
   (harmonic-matrix-route-or-error "orchestrator" "search-exa")
@@ -98,15 +103,5 @@
             (harmonic-matrix-observe-route "provider-router" "memory" t 1)
             res))))))
 
-(defun whisper-transcribe (audio-path)
-  (let ((ptr (%whisper-transcribe audio-path)))
-    (or (%ptr-string ptr #'%whisper-free-string)
-        (error "whisper transcribe failed: ~A"
-               (%last-error-string #'%whisper-last-error #'%whisper-free-string)))))
-
-(defun elevenlabs-tts-to-file (text voice-id out-path)
-  (let ((rc (%eleven-tts text voice-id out-path)))
-    (unless (zerop rc)
-      (error "elevenlabs tts failed: ~A"
-             (%last-error-string #'%eleven-last-error #'%eleven-free-string)))
-    out-path))
+;;; whisper-transcribe and elevenlabs-tts-to-file are now defined in
+;;; voice-runtime.lisp, which routes through the voice-router backend.

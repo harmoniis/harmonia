@@ -10,7 +10,6 @@ use serde_json::json;
 
 const OPENROUTER_URL: &str = "https://openrouter.ai/api/v1/chat/completions";
 const COMPONENT: &str = "openrouter-backend";
-const GROK_TRUTH_MODEL: &str = "x-ai/grok-4.1-fast";
 
 /// OpenRouter's full model catalogue available via the gateway.
 /// Prices are OpenRouter passthrough prices (may include markup).
@@ -88,7 +87,7 @@ pub static OFFERINGS: &[ModelOffering] = &[
         tags: &["thinking", "software-dev", "orchestration"],
     },
     ModelOffering {
-        id: GROK_TRUTH_MODEL,
+        id: "x-ai/grok-4.1-fast",
         tier: "fast-smart",
         usd_in_1k: 0.0002,
         usd_out_1k: 0.0005,
@@ -155,55 +154,24 @@ fn api_key() -> Result<String, String> {
         .ok_or_else(|| "openrouter key missing in vault".to_string())
 }
 
-#[derive(Debug, Clone, Copy, Default)]
-struct RequestFeatures {
-    reasoning: bool,
-    native_search: bool,
-    search_context_size: Option<&'static str>,
-}
-
-fn grok_truth_model(model: &str) -> bool {
-    let lower = model.trim().to_ascii_lowercase();
-    lower == GROK_TRUTH_MODEL || lower == "xai/grok-4.1-fast"
-}
-
-fn model_features(model: &str) -> RequestFeatures {
-    let lower = model.trim().to_ascii_lowercase();
-    if grok_truth_model(model) {
-        return RequestFeatures {
-            reasoning: true,
-            native_search: true,
-            search_context_size: Some("high"),
-        };
-    }
-    if lower.starts_with("x-ai/grok") || lower.starts_with("xai/grok") {
-        return RequestFeatures {
-            reasoning: true,
-            ..RequestFeatures::default()
-        };
-    }
-    RequestFeatures::default()
-}
-
 fn request_payload(prompt: &str, model: &str) -> serde_json::Value {
-    let features = model_features(model);
+    let caps = model_capabilities(model);
     let mut payload = json!({
         "model": model,
         "messages": [{"role": "user", "content": prompt}],
     });
-    if features.reasoning {
-        payload["reasoning"] = json!({
-            "enabled": true,
-            "effort": "high",
-            "exclude": true
-        });
-    }
-    if features.native_search {
-        // OpenRouter routes the `web` plugin to xAI-native web/X search on Grok models.
-        payload["plugins"] = json!([{ "id": "web", "engine": "native" }]);
-        if let Some(size) = features.search_context_size {
-            payload["web_search_options"] = json!({ "search_context_size": size });
+    if let Some(ref r) = caps.reasoning {
+        if r.enabled {
+            payload["reasoning"] = json!({
+                "enabled": true,
+                "effort": r.effort,
+                "exclude": r.exclude
+            });
         }
+    }
+    if let Some(ref s) = caps.web_search {
+        payload["plugins"] = json!([{ "id": &s.plugin_id, "engine": &s.engine }]);
+        payload["web_search_options"] = json!({ "search_context_size": &s.search_context_size });
     }
     payload
 }
@@ -361,7 +329,7 @@ mod tests {
     use harmonia_provider_protocol::*;
     use serde_json::json;
 
-    use super::{request_payload, select_model_for_task, GROK_TRUTH_MODEL};
+    use super::{request_payload, select_model_for_task};
 
     #[test]
     fn extract_openai_style_text() {
@@ -371,7 +339,7 @@ mod tests {
 
     #[test]
     fn grok_truth_payload_enables_reasoning_and_native_search() {
-        let payload = request_payload("verify this claim", GROK_TRUTH_MODEL);
+        let payload = request_payload("verify this claim", "x-ai/grok-4.1-fast");
         assert_eq!(payload["reasoning"]["enabled"], json!(true));
         assert_eq!(payload["plugins"][0]["id"], json!("web"));
         assert_eq!(payload["plugins"][0]["engine"], json!("native"));
@@ -382,7 +350,14 @@ mod tests {
     }
 
     #[test]
+    fn non_grok_payload_has_no_plugins() {
+        let payload = request_payload("hello", "anthropic/claude-sonnet-4.6");
+        assert!(payload.get("reasoning").is_none());
+        assert!(payload.get("plugins").is_none());
+    }
+
+    #[test]
     fn truth_seeking_pool_selects_grok() {
-        assert_eq!(select_model_for_task("truth-seeking"), GROK_TRUTH_MODEL);
+        assert_eq!(select_model_for_task("truth-seeking"), "x-ai/grok-4.1-fast");
     }
 }

@@ -48,11 +48,16 @@ fn default_component_patterns(component: &str) -> &'static [&'static str] {
         "alibaba-backend" => &["alibaba", "alibaba-api-key", "dashscope-api-key"],
         "search-exa-tool" => &["exa-api-key"],
         "search-brave-tool" => &["brave-api-key"],
-        "whisper-tool" => &["openai-api-key"],
-        "elevenlabs-tool" => &["elevenlabs-api-key"],
-        "email-frontend" => &["email-api-key"],
-        "mattermost-frontend" => &["mattermost-bot-token"],
-        "nostr-frontend" => &["nostr-private-key"],
+        "whisper-backend" => &["groq-api-key", "groq", "openai-api-key", "openai"],
+        "elevenlabs-backend" => &["elevenlabs-api-key", "elevenlabs"],
+        "email-frontend" => &[
+            "email-imap-password",
+            "email-password",
+            "email-smtp-password",
+            "email-api-key",
+        ],
+        "mattermost-frontend" => &["mattermost-bot-token", "mattermost-token"],
+        "nostr-frontend" => &["nostr-private-key", "nostr-nsec"],
         "telegram-frontend" => &["telegram-bot-token", "telegram-bot-api-token"],
         "slack-frontend" => &[
             "slack-bot-token",
@@ -96,6 +101,7 @@ fn default_component_patterns(component: &str) -> &'static [&'static str] {
             "exa-api-key",
             "brave-api-key",
         ],
+        "observability" => &["langsmith-api-key"],
         _ => &[],
     }
 }

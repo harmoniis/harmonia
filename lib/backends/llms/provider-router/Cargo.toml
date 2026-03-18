@@ -11,8 +11,16 @@ keywords = ["harmonia", "llm", "router"]
 categories = ["api-bindings"]
 
 [lib]
-crate-type = ["cdylib"]
+crate-type = ["cdylib", "rlib"]
 
 [dependencies]
 harmonia-provider-protocol = { version = "0.1.8", path = "../provider-protocol" }
 harmonia-openrouter = { version = "0.1.8", path = "../openrouter" }
+harmonia-anthropic = { version = "0.1.8", path = "../anthropic" }
+harmonia-openai = { version = "0.1.8", path = "../openai" }
+harmonia-xai = { version = "0.1.8", path = "../xai" }
+harmonia-google-ai-studio = { version = "0.1.8", path = "../google-ai-studio" }
+harmonia-google-vertex = { version = "0.1.8", path = "../google-vertex" }
+harmonia-amazon-bedrock = { version = "0.1.8", path = "../amazon-bedrock" }
+harmonia-groq = { version = "0.1.8", path = "../groq" }
+harmonia-alibaba = { version = "0.1.8", path = "../alibaba" }

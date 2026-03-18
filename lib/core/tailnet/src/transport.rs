@@ -7,6 +7,7 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use crate::mesh;
 use crate::model::MeshMessage;
+use crate::node_link;
 
 /// Actor ID assigned by the unified registry (0 = not registered yet)
 static TAILNET_ACTOR_ID: AtomicU64 = AtomicU64::new(0);
@@ -15,10 +16,10 @@ static TAILNET_ACTOR_ID: AtomicU64 = AtomicU64::new(0);
 const MAX_MESSAGE_AGE_MS: u64 = 5 * 60 * 1000; // 5 minutes
 
 fn mesh_shared_secret() -> Option<String> {
-    match std::env::var("HARMONIA_MESH_SHARED_SECRET") {
-        Ok(s) if !s.is_empty() => Some(s),
-        _ => None,
-    }
+    harmonia_config_store::get_config("tailnet-core", "tailnet-core", "shared-secret")
+        .ok()
+        .flatten()
+        .filter(|s| !s.is_empty())
 }
 
 /// Wave 4.2: Validate HMAC and timestamp on incoming messages.
@@ -239,11 +240,14 @@ pub fn send_message(to_addr: &str, message: &MeshMessage) -> Result<(), String> 
     let mut outbound = message.clone();
     sign_message_if_needed(&mut outbound);
     let json = serde_json::to_vec(&outbound).map_err(|e| format!("serialize: {}", e))?;
-    let len = json.len() as u32;
-
     let mut stream =
         TcpStream::connect(to_addr).map_err(|e| format!("connect {}: {}", to_addr, e))?;
 
+    if node_link::write_secure_message(&mut stream, to_addr, &json)? {
+        return Ok(());
+    }
+
+    let len = json.len() as u32;
     stream
         .write_all(&len.to_be_bytes())
         .map_err(|e| format!("write len: {}", e))?;
@@ -279,19 +283,13 @@ fn handle_incoming(mut stream: TcpStream) -> Result<(), String> {
     stream
         .read_exact(&mut len_buf)
         .map_err(|e| format!("read len: {}", e))?;
-    let len = u32::from_be_bytes(len_buf) as usize;
+    let (body, security) = node_link::secure_or_plain_body(&mut stream, len_buf)?;
 
-    if len > 16 * 1024 * 1024 {
-        return Err(format!("message too large: {} bytes", len));
-    }
-
-    let mut body = vec![0u8; len];
-    stream
-        .read_exact(&mut body)
-        .map_err(|e| format!("read body: {}", e))?;
-
-    let msg: MeshMessage =
+    let mut msg: MeshMessage =
         serde_json::from_slice(&body).map_err(|e| format!("deserialize: {}", e))?;
+    if let Some(security) = security.as_ref() {
+        node_link::apply_security_context(&mut msg, security);
+    }
 
     // Wave 4.2: Validate HMAC and timestamp
     validate_message(&msg)?;

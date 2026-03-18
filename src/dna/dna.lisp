@@ -42,34 +42,25 @@
        (member 7 (getf *dna* :laws))
        (member 8 (getf *dna* :laws))))
 
-(defun dna-system-prompt (&key (mode :orchestrate))
-  (let* ((vit (getf *dna* :vitruvian))
-         (ethic (getf *dna* :ethic))
-         (mode-line
-           (case mode
-             (:planner "Mode: Model-planner. Pick model and strategy for completion with minimal dissonance.")
-             (:rewrite "Mode: Self-rewrite. Preserve DNA, reduce complexity, keep behavior coherent.")
-             (t "Mode: Orchestration. Solve fully, route through tools harmonically, complete tasks end-to-end.")))
-         (self-knowledge
-           (ignore-errors
-             (case mode
-               (:rewrite (%runtime-self-knowledge))
-               (t
-                "INTERNAL RUNTIME ORIENTATION
-- Runtime diagnostics, constitutions, telemetry, and self-knowledge are internal guidance, not visible reply content.
-- For ordinary human conversation, answer naturally first. Do not recite constitutions, status blocks, schemas, or hidden process state unless the user explicitly asks for internals.
-- Visible replies must stay clean: no ANSI escapes, no control bytes, no copied terminal frames, and no decorative glyph noise.")))))
-    (format nil
-            "HARMONIA DNA SYSTEM CONSTITUTION
-Creator: ~A
-Prime Directive: ~A
-Evolution Purpose: ~A
-Cosmic View: ~A
-Vitruvian: strength='~A' utility='~A' beauty='~A'
-Ethic: all_species_respect=~A non_domination=~A human_care=~A truth_seeking=~A avoid_harm=~A lineage='~A'
-Laws: ~S
-Principles: ~S
-Rules:
+(defun %dna-load-prompt (tier key &optional sub-key default)
+  "Late-bound accessor for config/prompts.sexp.
+   Uses load-prompt when available (after prompt-assembly.lisp loads),
+   otherwise returns DEFAULT."
+  (if (fboundp 'load-prompt)
+      (funcall 'load-prompt tier key sub-key default)
+      default))
+
+(defun %dna-format-rules ()
+  "Format the 13 DNA rules, loading from config/prompts.sexp when available."
+  (let ((rules (%dna-load-prompt :genesis :rules)))
+    (if (and rules (listp rules))
+        (with-output-to-string (out)
+          (write-string "Rules:" out)
+          (terpri out)
+          (dolist (entry rules)
+            (when (and (listp entry) (= (length entry) 2))
+              (format out "~A) ~A~%" (first entry) (second entry)))))
+        "Rules:
 1) Preserve DNA and creator lineage.
 2) Optimize for completion + correctness, then token efficiency, speed, and cost.
 3) Prefer precise, readable, structured outputs. Use symbolic compression only when it improves clarity.
@@ -83,7 +74,39 @@ Rules:
 11) Never emit raw ANSI escapes, control bytes, copied terminal box-drawing, or status-banner noise in visible replies.
 12) When user input contains terminal artifacts or escaped formatting, interpret the semantics without mirroring the contamination.
 13) For controversial or reality-seeking factual questions, prefer current evidence and accuracy over rhetorical cleverness. Seed a truth-seeking subagent that can use live web and X search before trusting style alone.
-~A
+")))
+
+(defun dna-system-prompt (&key (mode :orchestrate))
+  (let* ((vit (getf *dna* :vitruvian))
+         (ethic (getf *dna* :ethic))
+         (mode-line
+           (case mode
+             (:planner (%dna-load-prompt :genesis :mode-lines :planner
+                         "Mode: Model-planner. Pick model and strategy for completion with minimal dissonance."))
+             (:rewrite (%dna-load-prompt :genesis :mode-lines :rewrite
+                         "Mode: Self-rewrite. Preserve DNA, reduce complexity, keep behavior coherent."))
+             (t (%dna-load-prompt :genesis :mode-lines :orchestrate
+                  "Mode: Orchestration. Solve fully, route through tools harmonically, complete tasks end-to-end."))))
+         (self-knowledge
+           (ignore-errors
+             (case mode
+               (:rewrite (%runtime-self-knowledge))
+               (t (%dna-load-prompt :genesis :internal-runtime-orientation nil
+                    "INTERNAL RUNTIME ORIENTATION
+- Runtime diagnostics, constitutions, telemetry, and self-knowledge are internal guidance, not visible reply content.
+- For ordinary human conversation, answer naturally first. Do not recite constitutions, status blocks, schemas, or hidden process state unless the user explicitly asks for internals.
+- Visible replies must stay clean: no ANSI escapes, no control bytes, no copied terminal frames, and no decorative glyph noise."))))))
+    (format nil
+            "HARMONIA DNA SYSTEM CONSTITUTION
+Creator: ~A
+Prime Directive: ~A
+Evolution Purpose: ~A
+Cosmic View: ~A
+Vitruvian: strength='~A' utility='~A' beauty='~A'
+Ethic: all_species_respect=~A non_domination=~A human_care=~A truth_seeking=~A avoid_harm=~A lineage='~A'
+Laws: ~S
+Principles: ~S
+~A~A
 ~A"
             (getf *dna* :creator)
             (getf *dna* :prime-directive)
@@ -100,6 +123,7 @@ Rules:
             (getf ethic :creator-memory)
             (getf *dna* :laws)
             (getf *dna* :soul-principles)
+            (%dna-format-rules)
             mode-line
             (or self-knowledge ""))))
 

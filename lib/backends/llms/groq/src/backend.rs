@@ -4,7 +4,7 @@ use serde_json::json;
 const COMPONENT: &str = "groq-backend";
 const DEFAULT_URL: &str = "https://api.groq.com/openai/v1/chat/completions";
 
-pub(crate) static OFFERINGS: &[ModelOffering] = &[
+pub static OFFERINGS: &[ModelOffering] = &[
     ModelOffering {
         id: "groq/llama-3.3-70b-versatile",
         tier: "lite",
@@ -51,13 +51,13 @@ fn request(prompt: &str, model: &str, api_key: &str) -> Result<String, String> {
     })
 }
 
-pub(crate) fn init() -> Result<(), String> {
+pub fn init() -> Result<(), String> {
     harmonia_provider_protocol::harmonia_vault::init_from_env()?;
     harmonia_provider_protocol::upsert_hardcoded_offerings(OFFERINGS, "groq");
     Ok(())
 }
 
-pub(crate) fn complete(prompt: &str, model: &str) -> Result<String, String> {
+pub fn complete(prompt: &str, model: &str) -> Result<String, String> {
     let _ = init();
     let key = api_key()?.ok_or_else(|| "groq api key missing in vault".to_string())?;
     let selected = if model.trim().is_empty() {
@@ -114,7 +114,7 @@ pub(crate) fn complete(prompt: &str, model: &str) -> Result<String, String> {
     }
 }
 
-pub(crate) fn complete_for_task(prompt: &str, task_hint: &str) -> Result<String, String> {
+pub fn complete_for_task(prompt: &str, task_hint: &str) -> Result<String, String> {
     let _ = init();
     let key = api_key()?.ok_or_else(|| "groq api key missing in vault".to_string())?;
     let selected = select_from_pool(OFFERINGS, task_hint);
@@ -167,10 +167,10 @@ pub(crate) fn complete_for_task(prompt: &str, task_hint: &str) -> Result<String,
     }
 }
 
-pub(crate) fn list_offerings() -> String {
+pub fn list_offerings() -> String {
     offerings_to_json(OFFERINGS)
 }
 
-pub(crate) fn select_model(task_hint: &str) -> String {
+pub fn select_model(task_hint: &str) -> String {
     select_from_pool(OFFERINGS, task_hint)
 }

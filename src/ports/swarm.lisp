@@ -4,6 +4,8 @@
 
 (defparameter *parallel-agents-lib* nil)
 (defparameter *parallel-subagent-count* 1)
+(defparameter *swarm-full-config* nil
+  "Full parsed swarm config plist — loaded by parallel-load-policy.")
 (defparameter *swarm-config-path*
   (merge-pathnames "../../config/swarm.sexp" *boot-file*))
 
@@ -11,9 +13,7 @@
 
 (defun %parallel-state-root ()
   (or (config-get-for "parallel-agents-core" "state-root" "global")
-      (let ((base (or (sb-ext:posix-getenv "TMPDIR")
-                      (namestring (user-homedir-pathname)))))
-        (concatenate 'string (string-right-trim "/" base) "/harmonia"))))
+      (%tmpdir-state-root)))
 
 (defun %swarm-state-path ()
       (or
@@ -45,6 +45,18 @@
 (cffi:defcfun ("harmonia_tmux_capture" %tmux-capture) :pointer
   (id :long-long) (history :int))
 (cffi:defcfun ("harmonia_tmux_swarm_poll" %tmux-swarm-poll) :pointer)
+(cffi:defcfun ("harmonia_tmux_send" %tmux-send) :int
+  (id :long-long) (input :string))
+(cffi:defcfun ("harmonia_tmux_send_key" %tmux-send-key) :int
+  (id :long-long) (key :string))
+(cffi:defcfun ("harmonia_tmux_approve" %tmux-approve) :int (id :long-long))
+(cffi:defcfun ("harmonia_tmux_deny" %tmux-deny) :int (id :long-long))
+(cffi:defcfun ("harmonia_tmux_confirm_yes" %tmux-confirm-yes) :int (id :long-long))
+(cffi:defcfun ("harmonia_tmux_confirm_no" %tmux-confirm-no) :int (id :long-long))
+(cffi:defcfun ("harmonia_tmux_select" %tmux-select) :int
+  (id :long-long) (index :int))
+(cffi:defcfun ("harmonia_tmux_interrupt" %tmux-interrupt) :int (id :long-long))
+
 ;;; --- Unified Actor Protocol CFFI bindings ---
 
 (cffi:defcfun ("harmonia_actor_register" %actor-register) :long-long (kind :string))
@@ -156,6 +168,62 @@
   "Poll all active tmux agents."
   (%ptr->string (%tmux-swarm-poll)))
 
+(defun tmux-send-input (id input)
+  "Send text input followed by Enter to a tmux CLI agent."
+  (let ((rc (%tmux-send id (or input ""))))
+    (unless (zerop rc)
+      (error "tmux send failed: ~A" (parallel-last-error)))
+    t))
+
+(defun tmux-send-key (id key)
+  "Send a special key (Enter, Tab, Escape, Up, Down, C-c, etc.) to a tmux agent."
+  (let ((rc (%tmux-send-key id (or key ""))))
+    (unless (zerop rc)
+      (error "tmux send-key failed: ~A" (parallel-last-error)))
+    t))
+
+(defun tmux-approve (id)
+  "Approve a permission prompt on a tmux CLI agent."
+  (let ((rc (%tmux-approve id)))
+    (unless (zerop rc)
+      (error "tmux approve failed: ~A" (parallel-last-error)))
+    t))
+
+(defun tmux-deny (id)
+  "Deny a permission prompt on a tmux CLI agent."
+  (let ((rc (%tmux-deny id)))
+    (unless (zerop rc)
+      (error "tmux deny failed: ~A" (parallel-last-error)))
+    t))
+
+(defun tmux-confirm-yes (id)
+  "Confirm yes on a tmux CLI agent confirmation prompt."
+  (let ((rc (%tmux-confirm-yes id)))
+    (unless (zerop rc)
+      (error "tmux confirm-yes failed: ~A" (parallel-last-error)))
+    t))
+
+(defun tmux-confirm-no (id)
+  "Confirm no on a tmux CLI agent confirmation prompt."
+  (let ((rc (%tmux-confirm-no id)))
+    (unless (zerop rc)
+      (error "tmux confirm-no failed: ~A" (parallel-last-error)))
+    t))
+
+(defun tmux-select-option (id index)
+  "Select option by INDEX (0-based) on a tmux CLI agent selection menu."
+  (let ((rc (%tmux-select id index)))
+    (unless (zerop rc)
+      (error "tmux select failed: ~A" (parallel-last-error)))
+    t))
+
+(defun tmux-interrupt (id)
+  "Send Ctrl+C interrupt to a tmux CLI agent."
+  (let ((rc (%tmux-interrupt id)))
+    (unless (zerop rc)
+      (error "tmux interrupt failed: ~A" (parallel-last-error)))
+    t))
+
 (defun actor-drain-mailbox ()
   "Drain all pending actor messages from unified actor mailbox. Returns sexp list.
    Delegates to the unified actor-drain which reads from actor-protocol registry."
@@ -239,8 +307,20 @@
                    ((probe-file *swarm-config-path*) (%parallel-read-file *swarm-config-path*))
                    (t '(:subagent-count 1))))
          (count (or (getf source :subagent-count) 1)))
+    ;; Also load the full config from config/swarm.sexp for prompt templates etc.
+    (when (probe-file *swarm-config-path*)
+      (handler-case
+          (setf *swarm-full-config* (%parallel-read-file *swarm-config-path*))
+        (error (_) (declare (ignore _)))))
     (setf *parallel-subagent-count* (max 1 count))
     *parallel-subagent-count*))
+
+(defun %swarm-prompt-template (key &optional default)
+  "Get a prompt template.  Looks in config/prompts.sexp :evolution first,
+   then falls back to config/swarm.sexp :prompts, then DEFAULT."
+  (or (load-prompt :evolution key)
+      (getf (getf *swarm-full-config* :prompts) key)
+      default))
 
 (defun parallel-save-policy ()
   (let ((path (%swarm-state-path)))
@@ -273,15 +353,115 @@
   (if (%swarm-cli-model-p model) (subseq model 4) model))
 
 (defun %swarm-actor-stall-threshold ()
-  "Ticks with zero output delta before killing an actor (progress-based, not time-based)."
-  (max 5 (or (ignore-errors (model-policy-actor-stall-threshold)) 50)))
+  "Ticks with zero output delta before killing an actor (progress-based, not time-based).
+   CLI agents (Claude Code) can work for minutes on complex tasks — 180 ticks = 3 min."
+  (max 5 (or (ignore-errors (model-policy-actor-stall-threshold)) 180)))
 
-(defun %swarm-spawn-cli-actor (model prompt &optional originating-signal orchestration-ctx)
-  "Spawn a CLI subagent as a tmux actor. Returns actor-id. Does NOT block."
+(defun %swarm-extract-user-task (prompt)
+  "Extract the raw user task from a full LLM prompt.
+   The conductor assembles prompts as: DNA + bootstrap + presentation + personality + USER_TASK.
+   CLI agents (Claude Code) have their own system prompt — they only need the task.
+
+   Priority:
+   1. If BASEBAND EXTERNAL DATA boundary markers exist → extract content between them
+   2. If USER_TASK: marker exists → extract after it, then check for nested EXTERNAL DATA
+   3. Fall back to prompt as-is"
+  (let* ((p (or prompt ""))
+         (ext-start-prefix "=== EXTERNAL DATA")
+         (ext-end "=== END EXTERNAL DATA ==="))
+    ;; Priority 1: BASEBAND envelope with EXTERNAL DATA boundaries
+    (let ((ext-start-pos (search ext-start-prefix p)))
+      (when ext-start-pos
+        (let* ((after-marker (subseq p ext-start-pos))
+               ;; Find the end of the start marker line (after "=== EXTERNAL DATA [xxx] ===")
+               (nl-pos (position #\Newline after-marker))
+               (data-start (if nl-pos (+ ext-start-pos nl-pos 1) ext-start-pos))
+               (end-pos (search ext-end p :start2 data-start)))
+          (when end-pos
+            (return-from %swarm-extract-user-task
+              (string-trim '(#\Space #\Newline #\Tab #\Return)
+                           (subseq p data-start end-pos)))))))
+    ;; Priority 2: USER_TASK: marker
+    (let* ((marker "USER_TASK:")
+           (pos (search marker p)))
+      (when pos
+        (let ((after-task (string-trim '(#\Space #\Newline #\Tab #\Return)
+                                       (subseq p (+ pos (length marker))))))
+          ;; Check for nested EXTERNAL DATA within USER_TASK content
+          (let ((nested-start (search ext-start-prefix after-task)))
+            (when nested-start
+              (let* ((after-nested (subseq after-task nested-start))
+                     (nl-pos (position #\Newline after-nested))
+                     (data-start (if nl-pos (+ nested-start nl-pos 1) nested-start))
+                     (end-pos (search ext-end after-task :start2 data-start)))
+                (when end-pos
+                  (return-from %swarm-extract-user-task
+                    (string-trim '(#\Space #\Newline #\Tab #\Return)
+                                 (subseq after-task data-start end-pos)))))))
+          (return-from %swarm-extract-user-task after-task))))
+    ;; Priority 3: no markers — prompt is already a raw task
+    p))
+
+(defun %swarm-cli-delegation-prompt (user-task)
+  "Build a concise delegation prompt for a CLI subagent.
+   Keep it short and direct — the CLI has its own intelligence.
+   Do NOT include code examples, implementation details, or architecture guidance.
+   The subagent is a capable developer that decides HOW to implement.
+
+   Defense-in-depth: strip any remaining BASEBAND/structural artifacts."
+  (let ((task (or user-task "")))
+    ;; Last-resort extraction if structural artifacts leaked through
+    (when (or (search "[BASEBAND CHANNEL]" task)
+              (search "USER_TASK:" task)
+              (search "=== EXTERNAL DATA" task))
+      (let ((ext-start (search "=== EXTERNAL DATA" task)))
+        (when ext-start
+          (let* ((after (subseq task ext-start))
+                 (nl (position #\Newline after))
+                 (data-start (if nl (+ ext-start nl 1) ext-start))
+                 (end-pos (search "=== END EXTERNAL DATA ===" task :start2 data-start)))
+            (when end-pos
+              (setf task (string-trim '(#\Space #\Newline #\Tab #\Return)
+                                      (subseq task data-start end-pos))))))))
+    (format nil "~A" task)))
+
+(defun %swarm-spawn-cli-actor (model prompt &optional originating-signal orchestration-ctx
+                                                       swarm-group-id)
+  "Spawn a CLI subagent as a tmux actor. Returns actor-id. Does NOT block.
+   Extracts user task from full LLM prompt — CLI agents don't need DNA/personality context.
+   Generates a supervision spec BEFORE spawning for closed-loop verification."
   (let* ((cli (%swarm-cli-id model))
          (workdir (or (ignore-errors (config-get-for "conductor" "workdir"))
                       (namestring (user-homedir-pathname))))
-         (actor-id (tmux-spawn cli workdir prompt)))
+         (user-task (%swarm-extract-user-task prompt))
+         ;; Generate supervision spec BEFORE spawning agent
+         (supervision (ignore-errors (%supervision-classify-task user-task)))
+         (spec-sexp (when supervision
+                      (ignore-errors
+                        (%supervision-freeze-spec nil
+                         (getf supervision :taxonomy)
+                         (getf supervision :assertions)))))
+         ;; Recall past supervision failures for similar tasks
+         (past-mistakes (ignore-errors
+                          (memory-recent :limit 3 :class :supervision)))
+         (cli-prompt (if past-mistakes
+                         (format nil "~A~%~%LEARNING FROM PAST SUPERVISION:~%~{- ~A~%~}"
+                                 (%swarm-cli-delegation-prompt user-task)
+                                 (mapcar (lambda (m)
+                                           (%clip-prompt (or (ignore-errors
+                                                               (memory-entry-content m))
+                                                             (princ-to-string m))
+                                                         150))
+                                         past-mistakes))
+                         (%swarm-cli-delegation-prompt user-task)))
+         (actor-id (tmux-spawn cli workdir cli-prompt)))
+    (trace-event "tmux-spawn" :tool
+                 :metadata (list :actor-id actor-id :cli cli :model model
+                                 :prompt-length (length (or cli-prompt ""))
+                                 :workdir workdir))
+    ;; Update spec with actual task-id
+    (when spec-sexp
+      (ignore-errors (%supervision-update-task-id spec-sexp actor-id)))
     ;; Register in actor registry
     (let ((record (make-actor-record
                    :id actor-id
@@ -294,7 +474,11 @@
                    :originating-signal originating-signal
                    :orchestration-context orchestration-ctx
                    :cost-usd 0.0
-                   :duration-ms 0)))
+                   :duration-ms 0
+                   :swarm-group-id swarm-group-id
+                   :supervision-spec spec-sexp
+                   :supervision-grade nil
+                   :supervision-confidence nil)))
       (setf (gethash actor-id (runtime-state-actor-registry *runtime*)) record)
       (push actor-id (runtime-state-actor-pending *runtime*)))
     actor-id))
@@ -335,12 +519,91 @@
               :cost-usd 0.0
               :error "")))))
 
+(defun %swarm-subagent-brief-context (model)
+  "Inject concise system context when delegating to an OpenRouter subagent.
+   Template loaded from config/swarm.sexp :prompts :subagent-context."
+  (let ((template (%swarm-prompt-template :subagent-context
+                    "[SYSTEM CONTEXT] You are a subagent in the Harmonia swarm (model: ~A).")))
+    (format nil template model)))
+
+;;; --- DAG-based task decomposition ---
+;;; For software-dev tasks: split work equally between claude-code and codex,
+;;; then cross-audit. This is a directed acyclic graph:
+;;;
+;;;   [task] → [claude-code: implement] ──→ [codex: audit claude's work]
+;;;          → [codex: implement]       ──→ [claude-code: audit codex's work]
+;;;
+;;; Equal work distribution + cross-audit pattern.
+
+(defun %swarm-dag-software-dev-p (prompt chain)
+  "Return T if this should be a DAG software-dev task with cross-audit.
+   Requires both claude-code and codex available in the chain."
+  (and (> (length (or prompt "")) 0)
+       (some (lambda (m) (%swarm-starts-with-p m "cli:claude")) chain)
+       (some (lambda (m) (%swarm-starts-with-p m "cli:codex")) chain)))
+
+(defun %swarm-dag-split-work (prompt)
+  "Split a software-dev prompt into two equal work units.
+   Extracts user task from full LLM prompt first.
+   Returns (values work-a work-b) where each is a focused subtask."
+  (let ((p (%swarm-extract-user-task prompt)))
+    ;; For now, both agents get the full task. The audit step adds the value.
+    ;; Future: use a cheap model to decompose into parallel subtasks.
+    (values p p)))
+
+(defun %swarm-dag-spawn-with-audit (prompt originating-signal orchestration-ctx group-id)
+  "Spawn a DAG: both CLI agents do the task, then cross-audit each other.
+   Returns group-id. Results delivered via actor mailbox."
+  (trace-event "dag-spawn" :agent
+               :metadata (list :group-id group-id :pattern "cross-audit"))
+  (multiple-value-bind (work-claude work-codex)
+      (%swarm-dag-split-work prompt)
+    (let* ((workdir (or (ignore-errors (config-get-for "conductor" "workdir"))
+                        (namestring (user-homedir-pathname))))
+           ;; Phase 1: Implementation (parallel) — directive from config
+           (impl-suffix (%swarm-prompt-template :dag-implementer-suffix
+                          "You are the primary implementer. Your work will be audited by a peer."))
+           (claude-prompt (format nil "~A~%~%~A" work-claude impl-suffix))
+           (codex-prompt (format nil "~A~%~%~A" work-codex impl-suffix))
+           (claude-id (tmux-spawn "claude-code" workdir claude-prompt))
+           (codex-id (tmux-spawn "codex" workdir codex-prompt)))
+      ;; Register both as actors in the same group
+      (dolist (pair (list (cons claude-id "cli:claude-code")
+                          (cons codex-id "cli:codex")))
+        (let ((record (make-actor-record
+                       :id (car pair)
+                       :model (cdr pair)
+                       :prompt prompt
+                       :state :running
+                       :spawned-at (get-universal-time)
+                       :last-heartbeat (get-universal-time)
+                       :stall-ticks 0
+                       :originating-signal originating-signal
+                       :orchestration-context
+                       (append (or orchestration-ctx '())
+                               (list :dag-phase :implement
+                                     :dag-peer-id (if (= (car pair) claude-id) codex-id claude-id)
+                                     :dag-audit-pending t))
+                       :cost-usd 0.0
+                       :duration-ms 0
+                       :swarm-group-id group-id)))
+          (setf (gethash (car pair) (runtime-state-actor-registry *runtime*)) record)
+          (push (car pair) (runtime-state-actor-pending *runtime*))))
+      group-id)))
+
+(defvar *swarm-group-counter* 0)
+
 (defun parallel-solve (prompt &key return-structured preferred-models max-subagents
                                    originating-signal orchestration-context)
   "Spawn N subagents with different model/cost profiles, then return best + report.
    CLI models are spawned as non-blocking tmux actors. If ALL models are CLI,
-   returns (values :deferred nil nil nil) — results delivered later by %tick-actor-deliver."
+   returns (values :deferred nil nil nil) — results delivered later by %tick-actor-deliver.
+   For software-dev tasks with both CLIs available, uses DAG pattern with cross-audit."
+  (trace-event "parallel-solve" :agent
+               :metadata (list :max-subagents (or max-subagents 0)
+                               :preferred-models (format nil "~{~A~^,~}" (or preferred-models '()))))
   (let* ((n (max 1 (or max-subagents (parallel-get-subagent-count))))
+         (group-id (incf *swarm-group-counter*))
          (chain (or preferred-models
                     (model-escalation-chain prompt (choose-model prompt))))
          (queue (copy-list chain))
@@ -350,6 +613,20 @@
          (cli-spawned 0)
          (used-parallel nil)
          (parallel-routed nil))
+    ;; DAG path: for software-dev tasks with both CLIs, use cross-audit pattern
+    (when (and (>= n 2) (%swarm-dag-software-dev-p prompt chain))
+      (handler-case
+          (progn
+            (%swarm-dag-spawn-with-audit prompt originating-signal
+                                         orchestration-context group-id)
+            (return-from parallel-solve
+              (if return-structured
+                  (values :deferred nil nil nil)
+                  :deferred)))
+        (error (_)
+          (declare (ignore _))
+          ;; Fall through to normal path on DAG spawn failure
+          nil)))
     (loop while (and queue (< scheduled n)) do
       (let ((m (pop queue)))
         (if (%swarm-cli-model-p m)
@@ -359,7 +636,8 @@
                   (%swarm-spawn-cli-actor m prompt originating-signal
                                           (or orchestration-context
                                               (list :chain chain
-                                                    :prepared-prompt prompt)))
+                                                    :prepared-prompt prompt))
+                                          group-id)
                   (incf scheduled)
                   (incf cli-spawned))
               (error (e)
@@ -379,7 +657,12 @@
               (unless parallel-routed
                 (harmonic-matrix-route-or-error "orchestrator" "parallel-agents")
                 (setf parallel-routed t))
-              (push (cons (parallel-submit (format nil "[subagent model=~A] ~A" m prompt) m) m) jobs)
+              (push (cons (parallel-submit
+                           (format nil "[subagent model=~A]~%~A~%~%~A"
+                                   m
+                                   (%swarm-subagent-brief-context m)
+                                   prompt)
+                           m) m) jobs)
               (setf used-parallel t)
               (incf scheduled)))))
     ;; If ALL scheduled models were CLI, return :deferred
@@ -407,7 +690,8 @@
                             :originating-signal originating-signal
                             :orchestration-context orchestration-context
                             :cost-usd 0.0
-                            :duration-ms 0)))
+                            :duration-ms 0
+                            :swarm-group-id group-id)))
               (setf (gethash actor-id (runtime-state-actor-registry *runtime*)) record)
               (push actor-id (runtime-state-actor-pending *runtime*))))))
       (return-from parallel-solve

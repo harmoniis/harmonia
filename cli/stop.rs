@@ -3,12 +3,17 @@ use console::style;
 pub fn run() -> Result<(), Box<dyn std::error::Error>> {
     let pid_path = crate::paths::pid_path()?;
     stop_broker_if_running()?;
+    let node_service_stopped = stop_node_service_if_running()?;
 
     if !pid_path.exists() {
-        eprintln!(
-            "{} Harmonia is not running (no PID file).",
-            style("!").yellow().bold()
-        );
+        if node_service_stopped {
+            eprintln!("{} Node service stopped.", style("✓").green().bold());
+        } else {
+            eprintln!(
+                "{} Harmonia is not running (no PID file).",
+                style("!").yellow().bold()
+            );
+        }
         return Ok(());
     }
 
@@ -77,6 +82,42 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
     }
 
     Ok(())
+}
+
+fn stop_node_service_if_running() -> Result<bool, Box<dyn std::error::Error>> {
+    let pid_path = crate::paths::node_service_pid_path()?;
+    if !pid_path.exists() {
+        return Ok(false);
+    }
+
+    let pid_str = std::fs::read_to_string(&pid_path)?;
+    let pid: i32 = pid_str
+        .trim()
+        .parse()
+        .map_err(|_| "invalid node-service PID file")?;
+
+    #[cfg(unix)]
+    {
+        let alive = unsafe { libc::kill(pid, 0) } == 0;
+        if alive {
+            let _ = unsafe { libc::kill(pid, libc::SIGTERM) };
+            for _ in 0..20 {
+                std::thread::sleep(std::time::Duration::from_millis(250));
+                if unsafe { libc::kill(pid, 0) } != 0 {
+                    break;
+                }
+            }
+            if unsafe { libc::kill(pid, 0) } == 0 {
+                let _ = unsafe { libc::kill(pid, libc::SIGKILL) };
+            }
+        }
+    }
+
+    let _ = std::fs::remove_file(&pid_path);
+    if let Ok(sock) = crate::paths::socket_path() {
+        let _ = std::fs::remove_file(&sock);
+    }
+    Ok(true)
 }
 
 fn stop_broker_if_running() -> Result<(), Box<dyn std::error::Error>> {

@@ -13,7 +13,7 @@ Desktop.ini
 *~
 
 # Bazel
-bazel-*/
+bazel-*
 output/
 
 # Rust / Cargo
@@ -50,6 +50,8 @@ compile_commands.json
 *.bak
 *.tmp
 *.log
+harmonia-*.tar.gz
+harmonia-*.tar.gz.sha256
 
 # Secrets
 .env

@@ -3,7 +3,10 @@ use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
 
 pub fn run(env: &str, foreground: bool) -> Result<(), Box<dyn std::error::Error>> {
-    let log_level = std::env::var("HARMONIA_LOG_LEVEL").unwrap_or_else(|_| "info".to_string());
+    let log_level = crate::paths::config_value("global", "log-level")
+        .ok()
+        .flatten()
+        .unwrap_or_else(|| "info".to_string());
     // Validate environment
     match env {
         "test" | "dev" | "prod" => {}
@@ -11,8 +14,8 @@ pub fn run(env: &str, foreground: bool) -> Result<(), Box<dyn std::error::Error>
     }
 
     // Check system workspace exists
-    let home = dirs::home_dir().ok_or("cannot determine home directory")?;
     let system_dir = crate::paths::data_dir()?;
+    let node_identity = crate::paths::current_node_identity()?;
     if !system_dir.join("vault.db").exists() {
         println!(
             "{} Harmonia is not set up yet. Run:",
@@ -36,7 +39,10 @@ pub fn run(env: &str, foreground: bool) -> Result<(), Box<dyn std::error::Error>
                             style("!").yellow().bold(),
                             pid
                         );
-                        eprintln!("  {}  to connect", style("harmonia").cyan().bold());
+                        eprintln!(
+                            "  {}  to open the current session",
+                            style("harmonia").cyan().bold()
+                        );
                         eprintln!(
                             "  {}  to restart",
                             style("harmonia stop && harmonia start").cyan().bold()
@@ -52,6 +58,8 @@ pub fn run(env: &str, foreground: bool) -> Result<(), Box<dyn std::error::Error>
 
     // Bootstrap: set STATE_ROOT so config-store/vault can find their DBs
     std::env::set_var("HARMONIA_STATE_ROOT", system_dir.to_string_lossy().as_ref());
+    std::env::set_var("HARMONIA_NODE_LABEL", &node_identity.label);
+    std::env::set_var("HARMONIA_NODE_ROLE", node_identity.role.as_str());
 
     // Initialize config-store to read stored paths
     let _ = harmonia_config_store::init_v2();
@@ -82,7 +90,8 @@ pub fn run(env: &str, foreground: bool) -> Result<(), Box<dyn std::error::Error>
 
     // Vault paths
     let vault_path = system_dir.join("vault.db");
-    let wallet_db_path = resolve_wallet_db_path(&home);
+    let wallet_root = crate::paths::wallet_root_path()?;
+    let wallet_db_path = crate::paths::wallet_db_path()?;
 
     // Write resolved paths back to config-store for runtime access
     let _ = harmonia_config_store::set_config(
@@ -96,6 +105,18 @@ pub fn run(env: &str, foreground: bool) -> Result<(), Box<dyn std::error::Error>
         "global",
         "lib-dir",
         &lib_dir.to_string_lossy(),
+    );
+    let _ = harmonia_config_store::set_config(
+        "harmonia-cli",
+        "global",
+        "wallet-root",
+        &wallet_root.to_string_lossy(),
+    );
+    let _ = harmonia_config_store::set_config(
+        "harmonia-cli",
+        "global",
+        "wallet-db",
+        &wallet_db_path.to_string_lossy(),
     );
     let _ = harmonia_config_store::set_config(
         "harmonia-cli",
@@ -124,6 +145,11 @@ pub fn run(env: &str, foreground: bool) -> Result<(), Box<dyn std::error::Error>
     println!("  wallet:    {}", wallet_db_path.display());
     println!("  config:    {}", system_dir.join("config.db").display());
     println!("  workspace: {}", system_dir.display());
+    println!(
+        "  node:      {} ({})",
+        node_identity.label,
+        node_identity.role.as_str()
+    );
     println!();
 
     let mut broker_child = if should_start_embedded_broker() {
@@ -137,9 +163,30 @@ pub fn run(env: &str, foreground: bool) -> Result<(), Box<dyn std::error::Error>
     } else {
         None
     };
+    let mut node_service_child: Option<Child> = None;
 
     if foreground {
         // Foreground mode — block until SBCL exits (old behavior)
+        if should_start_node_service(&node_identity) {
+            match spawn_node_service_process(
+                &source_dir,
+                &system_dir,
+                &vault_path,
+                &wallet_db_path,
+                &lib_dir,
+                &node_identity,
+            ) {
+                Ok(child) => node_service_child = Some(child),
+                Err(e) => {
+                    println!(
+                        "  {} node-service: {}",
+                        console::style("!").yellow().bold(),
+                        e
+                    );
+                }
+            }
+        }
+
         let status = Command::new("sbcl")
             .arg("--noinform")
             .arg("--load")
@@ -154,6 +201,8 @@ pub fn run(env: &str, foreground: bool) -> Result<(), Box<dyn std::error::Error>
                 wallet_db_path.to_string_lossy().as_ref(),
             )
             .env("HARMONIA_LIB_DIR", lib_dir.to_string_lossy().as_ref())
+            .env("HARMONIA_NODE_LABEL", &node_identity.label)
+            .env("HARMONIA_NODE_ROLE", node_identity.role.as_str())
             .env("HARMONIA_LOG_LEVEL", &log_level)
             .current_dir(&source_dir)
             .status()?;
@@ -162,6 +211,11 @@ pub fn run(env: &str, foreground: bool) -> Result<(), Box<dyn std::error::Error>
             let _ = child.kill();
             let _ = child.wait();
             let _ = std::fs::remove_file(crate::paths::broker_pid_path()?);
+        }
+        if let Some(child) = node_service_child.as_mut() {
+            let _ = child.kill();
+            let _ = child.wait();
+            let _ = std::fs::remove_file(crate::paths::node_service_pid_path()?);
         }
 
         if !status.success() {
@@ -191,6 +245,8 @@ pub fn run(env: &str, foreground: bool) -> Result<(), Box<dyn std::error::Error>
                 wallet_db_path.to_string_lossy().as_ref(),
             )
             .env("HARMONIA_LIB_DIR", lib_dir.to_string_lossy().as_ref())
+            .env("HARMONIA_NODE_LABEL", &node_identity.label)
+            .env("HARMONIA_NODE_ROLE", node_identity.role.as_str())
             .env("HARMONIA_LOG_LEVEL", &log_level)
             .current_dir(&source_dir)
             .stdin(std::process::Stdio::null())
@@ -201,6 +257,28 @@ pub fn run(env: &str, foreground: bool) -> Result<(), Box<dyn std::error::Error>
         let pid = child.id();
         std::fs::write(&pid_path, pid.to_string())?;
 
+        if should_start_node_service(&node_identity) {
+            match spawn_node_service_process(
+                &source_dir,
+                &system_dir,
+                &vault_path,
+                &wallet_db_path,
+                &lib_dir,
+                &node_identity,
+            ) {
+                Ok(_) => {}
+                Err(e) => {
+                    // Non-fatal: node-service may already be running from a prior start.
+                    // The daemon itself is already spawned — don't abort.
+                    println!(
+                        "  {} node-service: {}",
+                        console::style("!").yellow().bold(),
+                        e
+                    );
+                }
+            }
+        }
+
         println!(
             "{} Harmonia started (PID {})",
             style("✓").green().bold(),
@@ -209,7 +287,7 @@ pub fn run(env: &str, foreground: bool) -> Result<(), Box<dyn std::error::Error>
         println!("  log: {}", log_path.display());
         println!("  pid: {}", pid_path.display());
         println!();
-        println!("  {}   to chat", style("harmonia").cyan().bold());
+        println!("  {}   to open a session", style("harmonia").cyan().bold());
         println!("  {}   to stop", style("harmonia stop").cyan().bold());
         println!(
             "  {} to view logs",
@@ -219,6 +297,12 @@ pub fn run(env: &str, foreground: bool) -> Result<(), Box<dyn std::error::Error>
         );
         if should_start_embedded_broker() {
             println!("  broker: {}", crate::paths::broker_log_path()?.display());
+        }
+        if should_start_node_service(&node_identity) {
+            println!(
+                "  node-service: {}",
+                crate::paths::node_service_log_path()?.display()
+            );
         }
     }
 
@@ -231,18 +315,6 @@ fn check_command(cmd: &str) -> bool {
         .output()
         .map(|o| o.status.success())
         .unwrap_or(false)
-}
-
-fn resolve_wallet_db_path(home: &Path) -> PathBuf {
-    let master = home.join(".harmoniis").join("master.db");
-    if master.exists() {
-        return master;
-    }
-    let legacy = home.join(".harmoniis").join("rgb.db");
-    if legacy.exists() {
-        return legacy;
-    }
-    master
 }
 
 fn should_start_embedded_broker() -> bool {
@@ -291,6 +363,65 @@ fn spawn_broker_process(
             wallet_db_path.to_string_lossy().as_ref(),
         )
         .env("HARMONIA_LIB_DIR", lib_dir.to_string_lossy().as_ref())
+        .current_dir(source_dir)
+        .stdin(Stdio::null())
+        .stdout(Stdio::from(log_file))
+        .stderr(Stdio::from(err_file))
+        .spawn()?;
+
+    std::fs::write(&pid_path, child.id().to_string())?;
+    Ok(child)
+}
+
+fn should_start_node_service(node: &crate::paths::NodeIdentity) -> bool {
+    node.role == crate::paths::NodeRole::Agent
+}
+
+fn spawn_node_service_process(
+    source_dir: &Path,
+    system_dir: &Path,
+    vault_path: &Path,
+    wallet_db_path: &Path,
+    lib_dir: &Path,
+    node_identity: &crate::paths::NodeIdentity,
+) -> Result<Child, Box<dyn std::error::Error>> {
+    let pid_path = crate::paths::node_service_pid_path()?;
+    if pid_path.exists() {
+        if let Ok(pid_str) = std::fs::read_to_string(&pid_path) {
+            if let Ok(pid) = pid_str.trim().parse::<i32>() {
+                #[cfg(unix)]
+                if unsafe { libc::kill(pid, 0) } == 0 {
+                    return Err(format!("node-service already running (PID {pid})").into());
+                }
+            }
+        }
+        let _ = std::fs::remove_file(&pid_path);
+    }
+
+    let log_path = crate::paths::node_service_log_path()?;
+    let log_file = std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(&log_path)?;
+    let err_file = log_file.try_clone()?;
+    let exe = std::env::current_exe()?;
+
+    let child = Command::new(exe)
+        .arg("node-service")
+        .env("HARMONIA_STATE_ROOT", system_dir.to_string_lossy().as_ref())
+        .env("HARMONIA_SYSTEM_DIR", system_dir.to_string_lossy().as_ref())
+        .env("HARMONIA_VAULT_DB", vault_path.to_string_lossy().as_ref())
+        .env(
+            "HARMONIA_VAULT_WALLET_DB",
+            wallet_db_path.to_string_lossy().as_ref(),
+        )
+        .env("HARMONIA_LIB_DIR", lib_dir.to_string_lossy().as_ref())
+        .env("HARMONIA_NODE_LABEL", &node_identity.label)
+        .env("HARMONIA_NODE_ROLE", node_identity.role.as_str())
+        .env(
+            "HARMONIA_INSTALL_PROFILE",
+            node_identity.install_profile.as_str(),
+        )
         .current_dir(source_dir)
         .stdin(Stdio::null())
         .stdout(Stdio::from(log_file))

@@ -128,8 +128,8 @@ pub fn init(config: &str) -> Result<(), String> {
 
 /// Poll the WhatsApp bridge for new messages since last poll.
 ///
-/// Returns a vec of `(phone, text)` pairs.
-pub fn poll() -> Result<Vec<(String, String)>, String> {
+/// Returns a vec of `(phone, text, metadata)` triples.
+pub fn poll() -> Result<Vec<(String, String, Option<String>)>, String> {
     let (url, key, since) = {
         let s = state().read().map_err(|e| format!("lock: {e}"))?;
         if !s.initialized {
@@ -155,7 +155,16 @@ pub fn poll() -> Result<Vec<(String, String)>, String> {
         s.last_poll_ms = now_ms();
     }
 
-    Ok(msgs.into_iter().map(|m| (m.from, m.body)).collect())
+    Ok(msgs
+        .into_iter()
+        .map(|m| {
+            let metadata = format!(
+                "(:channel-class \"whatsapp-bridge\" :node-id \"{}\" :remote t)",
+                m.from.replace('\\', "\\\\").replace('"', "\\\"")
+            );
+            (m.from, m.body, Some(metadata))
+        })
+        .collect())
 }
 
 /// Send a text message via the WhatsApp bridge.
@@ -199,4 +208,138 @@ pub fn shutdown() {
 /// Returns true when `init` has been called successfully.
 pub fn is_initialized() -> bool {
     state().read().map(|s| s.initialized).unwrap_or(false)
+}
+
+/// Request a QR code for WhatsApp device pairing from the bridge.
+/// Most WhatsApp bridges (whatsmeow, baileys) expose a /api/pair or /api/qr endpoint.
+/// Resolve API URL and key from in-process state, falling back to config-store.
+/// This allows pair_init/pair_status to work from the CLI process where the
+/// WhatsApp frontend .so was never init()'d by the gateway.
+fn resolve_api_config() -> (String, String) {
+    // Try in-process state first (populated when loaded as gateway plugin)
+    if let Ok(s) = state().read() {
+        if !s.api_url.is_empty() {
+            return (s.api_url.clone(), s.api_key.clone());
+        }
+    }
+    // Fall back to config-store (works from CLI/TUI process)
+    let url = harmonia_config_store::get_own(COMPONENT, "api-url")
+        .ok()
+        .flatten()
+        .unwrap_or_default();
+    let key = harmonia_config_store::get_own(COMPONENT, "api-key")
+        .ok()
+        .flatten()
+        .or_else(|| {
+            WHATSAPP_API_KEY_SYMBOLS
+                .iter()
+                .find_map(|sym| {
+                    harmonia_vault::get_secret_for_component(COMPONENT, sym)
+                        .ok()
+                        .flatten()
+                })
+        })
+        .unwrap_or_default();
+    (url, key)
+}
+
+pub fn pair_init() -> Result<Option<String>, String> {
+    let (url, key) = resolve_api_config();
+
+    if url.is_empty() {
+        return Err("whatsapp api-url not configured".into());
+    }
+
+    // Try common bridge QR/pairing endpoints
+    let endpoints = [
+        format!("{url}/api/pair"),
+        format!("{url}/api/qr"),
+        format!("{url}/api/login/qr"),
+        format!("{url}/api/v1/qr"),
+    ];
+
+    for endpoint in &endpoints {
+        let req = ureq::get(endpoint);
+        let req = if !key.is_empty() {
+            req.set("Authorization", &format!("Bearer {key}"))
+        } else {
+            req
+        };
+        match req.call() {
+            Ok(resp) => {
+                let body = resp.into_string().unwrap_or_default();
+                if body.trim().is_empty() {
+                    continue;
+                }
+                // Try to extract QR data from JSON response
+                if let Ok(json) = serde_json::from_str::<serde_json::Value>(&body) {
+                    if let Some(qr) = json
+                        .get("qr")
+                        .or_else(|| json.get("qrCode"))
+                        .or_else(|| json.get("qr_code"))
+                        .or_else(|| json.get("data"))
+                        .and_then(|v| v.as_str())
+                    {
+                        return Ok(Some(qr.to_string()));
+                    }
+                }
+                // Raw text response (some bridges return just the QR data string)
+                let trimmed = body.trim();
+                if !trimmed.is_empty() && !trimmed.starts_with('<') {
+                    return Ok(Some(trimmed.to_string()));
+                }
+            }
+            Err(ureq::Error::Status(404, _)) => continue,
+            Err(e) => return Err(format!("whatsapp pair request failed: {e}")),
+        }
+    }
+
+    Err("whatsapp bridge does not expose a pairing endpoint (tried /api/pair, /api/qr, /api/login/qr, /api/v1/qr)".into())
+}
+
+/// Check if the WhatsApp bridge session is connected (paired).
+pub fn pair_status() -> Result<(bool, String), String> {
+    let (url, key) = resolve_api_config();
+
+    if url.is_empty() {
+        return Ok((false, "api-url not configured".into()));
+    }
+
+    let endpoints = [
+        format!("{url}/api/status"),
+        format!("{url}/api/v1/status"),
+        format!("{url}/api/health"),
+    ];
+
+    for endpoint in &endpoints {
+        let req = ureq::get(endpoint);
+        let req = if !key.is_empty() {
+            req.set("Authorization", &format!("Bearer {key}"))
+        } else {
+            req
+        };
+        match req.call() {
+            Ok(resp) => {
+                let body = resp.into_string().unwrap_or_default();
+                if let Ok(json) = serde_json::from_str::<serde_json::Value>(&body) {
+                    let connected = json
+                        .get("connected")
+                        .or_else(|| json.get("loggedIn"))
+                        .or_else(|| json.get("paired"))
+                        .and_then(|v| v.as_bool())
+                        .unwrap_or(false);
+                    let msg = json
+                        .get("message")
+                        .or_else(|| json.get("status"))
+                        .and_then(|v| v.as_str())
+                        .unwrap_or(if connected { "connected" } else { "not connected" });
+                    return Ok((connected, msg.to_string()));
+                }
+            }
+            Err(ureq::Error::Status(404, _)) => continue,
+            Err(_) => continue,
+        }
+    }
+
+    Ok((false, "could not determine status".into()))
 }

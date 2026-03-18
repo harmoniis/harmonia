@@ -8,28 +8,28 @@ It is not a replacement for canonical long-form docs. It is the structured map t
 
 | Source | Scope | Purpose |
 |---|---|---|
-| `../../../doc/agent/genesis/*.md` | full genesis architecture corpus | authoritative concept and architecture narrative |
-| `../../../doc/agent/evolution/latest/*.md` | current evolution state | authoritative current policy/runtime behavior |
-| `../../../doc/agent/evolution/EVOLUTION.md` | versioning workflow | authoritative snapshot process |
-| `../../src/boot/genesis/*.md` | runtime-adjacent genesis subset | concise bootstrap knowledge used near runtime |
-| `../../src/boot/evolution/*` | runtime snapshot state | versioned evolution memory loaded by Lisp boot |
+| `../../src/boot/genesis/*.sexp` | genesis architecture (agent-facing) | authoritative concept and architecture narrative |
+| `../../src/boot/evolution/latest/*.sexp` | current evolution state (agent-facing) | authoritative current policy/runtime behavior |
+| `../genesis/*.md` | genesis docs (developer-facing) | markdown mirrors of boot genesis |
+| `../evolution/*.md` | evolution docs (developer-facing) | markdown mirrors of boot evolution |
+| `../../config/*.sexp` | runtime configuration | policies, topology, prompts, model routing |
 
 ## Reference Documents In This Folder
 
 | File | What It Covers | Primary Sources |
 |---|---|---|
-| `system-map.md` | end-to-end architecture and flow topology | genesis `CONTEXT.md`, `ARCHITECTURE.md`, `GATEWAY.md`, `SWARM.md` |
-| `signalograd-architecture.md` | chaos-computing adaptive kernel, learning rules, actor integration, persistence, audit boundaries | `lib/core/signalograd`, `src/core/signalograd.lisp`, evolution snapshot docs |
-| `src-runtime-reference.md` | Lisp runtime modules, boot order, port boundaries | `src/core/*`, `src/orchestrator/*`, `src/ports/*`, genesis `ARCHITECTURE.md` |
-| `lib-crate-reference.md` | Rust crate inventory by pillar | `Cargo.toml`, evolution `TOOLS.md`, genesis `ARCHITECTURE.md` |
-| `policy-and-state-reference.md` | config/state files, env overrides, persistence boundaries | `config/*.sexp`, core/port policy loaders, evolution `HARMONIC_MATRIX.md` |
-| `evolution-reference.md` | rewrite model, versioning model, safety gates | genesis `SELF_REWRITE.md`, evolution `EVOLUTION.md`, `RECOVERY.md`, `GENOMIC_MODEL.md` |
-| `operations-runbook.md` | startup checks, verification commands, recovery workflow | scripts, evolution `PROD_READINESS.md`, genesis `GENESIS_DEV_FLOW.md` |
+| `system-map.md` | end-to-end architecture and flow topology | `../genesis/runtime-architecture.md`, `../genesis/gateway-frontends.md`, `../genesis/concepts.md` |
+| `signalograd-architecture.md` | chaos-computing adaptive kernel, learning rules, actor integration, persistence, audit boundaries | `lib/core/signalograd`, `src/core/signalograd.lisp` |
+| `src-runtime-reference.md` | Lisp runtime modules, boot order, port boundaries | `src/core/*`, `src/orchestrator/*`, `src/ports/*` |
+| `lib-crate-reference.md` | Rust crate inventory by pillar | `Cargo.toml`, `config/tools.sexp` |
+| `policy-and-state-reference.md` | config/state files, env overrides, persistence boundaries | `config/*.sexp`, core/port policy loaders |
+| `evolution-reference.md` | rewrite model, versioning model, safety gates | `../evolution/*.md`, `../../src/boot/evolution/latest/*.sexp` |
+| `operations-runbook.md` | startup checks, verification commands, recovery workflow | `../evolution/scorecard.md` |
 | `security-architecture.md` | comprehensive security architecture reference | security kernel, adaptive shell, transport security, threat model |
 | `distributed-evolution-todo.md` | publish/subscribe algorithm backlog for org-wide evolution | evolution ports, swarm policy, s3 storage model |
 | `concepts-glossary.md` | normalized vocabulary across docs | genesis and evolution corpora |
-| `migration-map.md` | explicit source-to-reference coverage matrix | `doc/agent/genesis/*`, `doc/agent/evolution/latest/*` |
-| `source-section-coverage.md` | generated heading-level coverage index | generated from canonical docs + `migration-map.md` |
+| `migration-map.md` | source-to-reference coverage matrix | `../genesis/*`, `../evolution/*` |
+| `source-section-coverage.md` | heading-level coverage index | generated from canonical docs |
 
 ## Coverage Domains Guaranteed
 
@@ -55,7 +55,7 @@ This reference set explicitly covers:
 
 ## Maintenance Rules
 
-1. If a concept exists in `doc/agent/genesis` or `doc/agent/evolution/latest`, it must appear in `migration-map.md`.
+1. If a concept exists in `doc/genesis` or `doc/evolution`, it must appear in `migration-map.md`.
 2. Never reference non-existent paths.
 3. Keep source links explicit; do not paraphrase away critical constraints.
 4. Update this reference whenever new evolution topic files are added.

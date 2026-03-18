@@ -11,6 +11,7 @@
 //! - Metrics are logged for every interaction (harmonic telemetry)
 
 use super::cli_profiles::profile_for;
+use super::detector;
 use super::detector::detect_state;
 use super::session;
 use crate::actor_core::{self, ActorKind, MessagePayload};
@@ -54,22 +55,48 @@ pub(crate) fn spawn(
     // which runs the task and exits — minimal token usage, no session overhead.
     // If no prompt, launch interactive mode so the conductor can send prompts later.
     if !initial_prompt.is_empty() {
-        let (cmd, args) = cli_type.launch_command_noninteractive(initial_prompt);
+        // For long prompts, write to temp file to avoid shell escaping issues
+        // and command length limits. The temp file is cleaned up in kill().
+        let prompt_file = if initial_prompt.len() > 2000 {
+            let path = format!("/tmp/harmonia-prompt-{}.txt", id);
+            std::fs::write(&path, initial_prompt)
+                .map_err(|e| format!("failed to write prompt file: {e}"))?;
+            Some(path)
+        } else {
+            None
+        };
+
+        let effective_prompt = if let Some(ref pf) = prompt_file {
+            // Use a sentinel that launch_command_noninteractive will receive;
+            // we'll substitute $(cat ...) in the shell command below.
+            format!("$(cat {})", pf)
+        } else {
+            initial_prompt.to_string()
+        };
+
+        let (cmd, args) = cli_type.launch_command_noninteractive(
+            if prompt_file.is_some() { &effective_prompt } else { initial_prompt }
+        );
         let full_cmd = if args.is_empty() {
             cmd
         } else {
-            // Shell-escape single quotes in args for safe tmux send
-            let escaped_args: Vec<String> = args
-                .iter()
-                .map(|a| {
-                    if a.contains(' ') || a.contains('\'') || a.contains('"') {
-                        format!("'{}'", a.replace('\'', "'\\''"))
-                    } else {
-                        a.clone()
-                    }
-                })
-                .collect();
-            format!("{} {}", cmd, escaped_args.join(" "))
+            if prompt_file.is_some() {
+                // When using temp file, don't shell-escape the $(cat ...) substitution
+                format!("{} {}", cmd, args.join(" "))
+            } else {
+                // Shell-escape single quotes in args for safe tmux send
+                let escaped_args: Vec<String> = args
+                    .iter()
+                    .map(|a| {
+                        if a.contains(' ') || a.contains('\'') || a.contains('"') {
+                            format!("'{}'", a.replace('\'', "'\\''"))
+                        } else {
+                            a.clone()
+                        }
+                    })
+                    .collect();
+                format!("{} {}", cmd, escaped_args.join(" "))
+            }
         };
         session::send_line(&sess, &full_cmd)?;
     } else {
@@ -200,8 +227,16 @@ pub(crate) fn poll(id: u64) -> Result<CliState, String> {
 
                     match &detected {
                         CliState::Completed => {
+                            // Extract meaningful response from raw terminal capture.
+                            // Raw output includes TUI chrome, tool headers, prompts, etc.
+                            let extracted = detector::extract_response(&output, &cli_type);
+                            let final_output = if extracted.is_empty() {
+                                output.clone() // fallback to raw if extraction yields nothing
+                            } else {
+                                extracted
+                            };
                             pending_payloads.push(MessagePayload::TaskCompleted {
-                                output: output.clone(),
+                                output: final_output,
                                 exit_code: 0,
                                 duration_ms: dur,
                             });
@@ -265,12 +300,21 @@ pub(crate) fn send_key(id: u64, key: &str) -> Result<(), String> {
     Ok(())
 }
 
-/// Approve a permission prompt — sends the profile's approve key.
+/// Approve a permission prompt.
+/// For TUI selector CLIs (Claude Code): press Enter to accept the default "Allow once".
+/// For y/n CLIs (Codex): send the approve key + Enter.
 pub(crate) fn approve(id: u64) -> Result<(), String> {
     let (sess, cli_type) = get_session_and_type(id)?;
     let profile = profile_for(&cli_type);
-    session::send_keys(&sess, profile.approve_key)?;
-    session::send_special(&sess, "Enter")?;
+
+    if profile.permission_is_selector {
+        // TUI selector: "Allow once" is the default (first) option — just Enter
+        session::send_special(&sess, "Enter")?;
+    } else {
+        // y/n text prompt
+        session::send_keys(&sess, profile.approve_key)?;
+        session::send_special(&sess, "Enter")?;
+    }
 
     {
         let mut st = state()
@@ -285,12 +329,24 @@ pub(crate) fn approve(id: u64) -> Result<(), String> {
     Ok(())
 }
 
-/// Deny a permission prompt — sends the profile's deny key.
+/// Deny a permission prompt.
+/// For TUI selector CLIs (Claude Code): navigate Down to "Deny" option, press Enter.
+/// For y/n CLIs (Codex): send the deny key + Enter.
 pub(crate) fn deny(id: u64) -> Result<(), String> {
     let (sess, cli_type) = get_session_and_type(id)?;
     let profile = profile_for(&cli_type);
-    session::send_keys(&sess, profile.deny_key)?;
-    session::send_special(&sess, "Enter")?;
+
+    if profile.permission_is_selector {
+        // TUI selector: navigate to "Deny" (typically 3rd option: Allow once, Allow always, Deny)
+        session::send_special(&sess, "Down")?;
+        session::wait_ms(50);
+        session::send_special(&sess, "Down")?;
+        session::wait_ms(50);
+        session::send_special(&sess, "Enter")?;
+    } else {
+        session::send_keys(&sess, profile.deny_key)?;
+        session::send_special(&sess, "Enter")?;
+    }
 
     {
         let mut st = state()
@@ -358,6 +414,10 @@ pub(crate) fn kill(id: u64) -> Result<(), String> {
         session::kill_session(&sess)?;
     }
 
+    // Clean up temp prompt file if it exists
+    let prompt_file = format!("/tmp/harmonia-prompt-{}.txt", id);
+    let _ = std::fs::remove_file(&prompt_file);
+
     {
         let mut st = state()
             .write()
@@ -418,7 +478,9 @@ pub(crate) fn swarm_poll() -> Result<String, String> {
                     CliState::WaitingForInput
                     | CliState::WaitingForPermission { .. }
                     | CliState::WaitingForConfirmation { .. }
-                    | CliState::WaitingForSelection { .. } => needs_input += 1,
+                    | CliState::WaitingForSelection { .. }
+                    | CliState::Onboarding
+                    | CliState::PlanMode => needs_input += 1,
                     CliState::Processing | CliState::Launching => processing += 1,
                     CliState::Completed | CliState::Terminated => completed += 1,
                     CliState::Error(_) => errors += 1,
@@ -430,7 +492,7 @@ pub(crate) fn swarm_poll() -> Result<String, String> {
                 results.push(format!(
                     "(:id {} :state (:error \"{}\"))",
                     id,
-                    crate::model::json_escape(&e)
+                    crate::model::sexp_escape(&e)
                 ));
             }
         }
@@ -486,6 +548,8 @@ fn state_label(state: &CliState) -> &'static str {
         CliState::WaitingForPermission { .. } => "waiting-permission",
         CliState::WaitingForConfirmation { .. } => "waiting-confirmation",
         CliState::WaitingForSelection { .. } => "waiting-selection",
+        CliState::Onboarding => "onboarding",
+        CliState::PlanMode => "plan-mode",
         CliState::Completed => "completed",
         CliState::Error(_) => "error",
         CliState::Terminated => "terminated",

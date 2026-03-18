@@ -35,6 +35,8 @@ pub mod macros;
 pub mod mcp;
 pub mod sandbox;
 pub mod security;
+pub mod session;
+pub mod stealth;
 
 // Re-export FFI functions at crate root for cdylib symbol visibility.
 pub use ffi::*;

@@ -12,7 +12,19 @@ fn tool_allowed(st: &State, node_id: &str) -> bool {
     st.plugged.get(node_id).copied().unwrap_or(true)
 }
 
+fn validate_node_kind(kind: &str) -> Result<(), String> {
+    match kind {
+        "core" | "backend" | "tool" => Ok(()),
+        _ => Err(format!(
+            "invalid node kind: {} (must be core, backend, or tool)",
+            kind
+        )),
+    }
+}
+
 pub(crate) fn register_node(node_id: &str, kind: &str) -> Result<(), String> {
+    validate_node_kind(kind)?;
+
     let mut st = state()
         .write()
         .map_err(|_| "harmonic matrix state lock poisoned".to_string())?;

@@ -11,7 +11,7 @@ keywords = ["harmonia", "push"]
 categories = ["web-programming"]
 
 [lib]
-crate-type = ["rlib"]
+crate-type = ["cdylib", "rlib"]
 
 [dependencies]
 harmonia-config-store = { version = "0.1.8", path = "../../core/config-store" }

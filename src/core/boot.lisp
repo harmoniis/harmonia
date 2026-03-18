@@ -116,6 +116,12 @@
            :evolution-load-latest-snapshot
            :evolution-snapshot-latest
            :reset-test-genesis
+           :trace-start
+           :trace-end
+           :trace-event
+           :with-trace
+           :trace-flush
+           :trace-shutdown
            :*runtime*))
 
 (in-package :harmonia)
@@ -123,10 +129,18 @@
 (defparameter *runtime* nil)
 (defparameter *boot-file* *load-truename*)
 
+;;; ─── Early env helper (before introspection.lisp loads) ──────────────
+
+(unless (fboundp '%boot-env)
+  (defun %boot-env (name &optional default)
+    "Read an environment variable. Early definition; introspection.lisp provides the canonical one."
+    (let ((val (sb-ext:posix-getenv name)))
+      (if (and val (plusp (length val))) val default))))
+
 ;;; ─── Logging ──────────────────────────────────────────────────────────
 
 (defparameter *log-level*
-  (let ((env (or (sb-ext:posix-getenv "HARMONIA_LOG_LEVEL") "info")))
+  (let ((env (or (%boot-env "HARMONIA_LOG_LEVEL") "info")))
     (cond
       ((string-equal env "debug") :debug)
       ((string-equal env "warn")  :warn)
@@ -156,12 +170,12 @@
   (merge-pathnames name (make-pathname :name nil :type nil :defaults *boot-file*)))
 
 (defun %environment ()
-  (or (sb-ext:posix-getenv "HARMONIA_ENV") "test"))
+  (or (%boot-env "HARMONIA_ENV") "test"))
 
 (defun %enforce-genesis-safety ()
   (let ((env (string-downcase (%environment))))
     (when (string= env "prod")
-      (unless (string= (or (sb-ext:posix-getenv "HARMONIA_ALLOW_PROD_GENESIS") "") "1")
+      (unless (string= (or (%boot-env "HARMONIA_ALLOW_PROD_GENESIS") "") "1")
         (error "Production genesis is blocked. Set HARMONIA_ALLOW_PROD_GENESIS=1 explicitly to override.")))))
 
 (defun %ensure-ffi-deps ()
@@ -205,10 +219,13 @@
 (%load-module (%core-path "harmony-policy.lisp"))
 (%load-module (%core-path "signalograd.lisp") "signalograd")
 (%load-module (%core-path "../orchestrator/prompt-assembly.lisp") "prompt-assembly")
+(load-prompts-config)
+(load-security-patterns-config)
 (%load-module (%core-path "model-policy.lisp"))
 (%load-module (%core-path "harmonic-machine.lisp"))
 (%load-module (%core-path "evolution-versioning.lisp"))
 (%ensure-ffi-deps)
+(%load-module (%core-path "../ports/observability.lisp") "port/observability")
 (%load-module (%core-path "../ports/vault.lisp") "port/vault")
 (%load-module (%core-path "../ports/store.lisp") "port/store")
 (%load-module (%core-path "../ports/router.lisp") "port/router")
@@ -221,12 +238,48 @@
 (%load-module (%core-path "../ports/evolution.lisp") "port/evolution")
 (%load-module (%core-path "../ports/chronicle.lisp") "port/chronicle")
 (%load-module (%core-path "../ports/signalograd.lisp") "port/signalograd")
+(%load-module (%core-path "supervisor.lisp") "supervisor")
 (%load-module (%core-path "system-commands.lisp") "system-commands")
 (%load-module (%core-path "../orchestrator/conductor.lisp") "conductor")
 (%load-module (%core-path "rewrite.lisp"))
 (%load-module (%core-path "loop.lisp"))
 
 (%log :info "boot" "All modules loaded.")
+
+(defun %seed-rust-config ()
+  "Write prompt templates, keywords, and model capabilities to config-store for Rust."
+  (handler-case
+      (progn
+        ;; Grok verification prompt template
+        (let ((v (load-prompt :evolution :grok-verification)))
+          (when v (config-set-for "conductor" "grok-verification" v "prompts")))
+        ;; Truth-seeking keywords as pipe-separated string
+        (let ((kw (load-security-pattern :truth-seeking-keywords)))
+          (when kw (config-set-for "conductor" "truth-seeking-keywords"
+                                   (format nil "~{~A~^|~}" kw) "prompts")))
+        ;; Preferred truth-seeking model
+        (let ((models (remove-if-not
+                       (lambda (p) (getf (getf p :features) :truth-seeking))
+                       *model-profiles*)))
+          (when models
+            (config-set-for "conductor" "truth-seeking-model"
+                            (getf (first models) :id) "prompts")))
+        ;; Model native-tools manifests (serialized sexp for Rust to parse)
+        (dolist (profile *model-profiles*)
+          (let ((id (getf profile :id))
+                (tools (getf profile :native-tools)))
+            (when tools
+              (config-set-for "conductor" id
+                              (format nil "~S" tools) "model-capabilities"))))
+        ;; Seed bootstrap env values so post-init code can use config-get-for
+        (let ((env (%environment)))
+          (when env (config-set-for "conductor" "env" env "global")))
+        (when *log-level*
+          (config-set-for "conductor" "log-level"
+                          (string-downcase (symbol-name *log-level*)) "global"))
+        (%log :debug "boot" "Rust config seeded."))
+    (error (e)
+      (%log :warn "boot" "Failed to seed Rust config: ~A" e))))
 
 (defun reset-test-genesis ()
   (let ((env (string-downcase (%environment))))
@@ -271,14 +324,15 @@
   (register-default-tools *runtime*)
   (memory-seed-soul-from-dna)
   (%log :info "boot" "Initializing subsystems...")
-  (init-evolution-versioning)
   (init-vault-port)
   (%log :info "vault" "Initialized.")
   (init-admin-intent-port)
   (init-store-port)
   (%log :info "config-store" "Initialized.")
+  (init-evolution-versioning)
   (harmony-policy-load)
   (model-policy-load)
+  (%seed-rust-config)
   (init-router-port)
   (%log :info "router" "Initialized.")
   (init-lineage-port)
@@ -291,6 +345,9 @@
   (init-swarm-port)
   (init-evolution-port)
   (init-chronicle-port)
+  (handler-case (init-observability-port)
+    (error (e)
+      (%log :warn "boot" "Observability init failed (non-fatal): ~A" e)))
   (init-signalograd-port)
   (ignore-errors
     (signalograd-restore-for-current-evolution :runtime *runtime*))

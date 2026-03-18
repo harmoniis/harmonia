@@ -77,7 +77,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Tailscale mesh networking for inter-node communication
 - Browser tool v2.0 with 3-layer security, Chrome CDP support, SSRF-safe controlled fetch
 - 11 extraction macros including audio source extraction
-- 7 frontend channels: TUI, MQTT, iMessage, WhatsApp, Telegram, Slack, Tailscale
+- 13 frontend channels: TUI, MQTT, iMessage, WhatsApp, Telegram, Slack, Discord, Signal, Mattermost, Nostr, Email, Tailscale, Push
 - Interactive setup wizard (`harmonia setup`)
 - Cross-platform install script (macOS, Linux, FreeBSD, Windows)
 - Vault-based secret management (SQLite)

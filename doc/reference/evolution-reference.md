@@ -8,14 +8,14 @@ Harmonia evolution is the combination of:
 2. `Epigenetic mutation` (runtime policies, routes, swarm behavior, rewrite outputs).
 3. `Versioned memory` (snapshots and changelog/score trajectories).
 
-Primary conceptual source: `../../../doc/agent/evolution/latest/GENOMIC_MODEL.md`.
+Primary conceptual source: `../genesis/concepts.md`.
 
 ## Evolution Modes
 
 | Mode | Meaning | Runtime Surface |
 |---|---|---|
-| `:source-rewrite` | patch/code self-modification path (Ouroboros) | `src/ports/evolution.lisp`, genesis `SELF_REWRITE.md` |
-| `:artifact-rollout` | binary rollout signaling path under Phoenix supervision | `src/ports/evolution.lisp`, genesis `ARCHITECTURE.md` |
+| `:source-rewrite` | patch/code self-modification path (Ouroboros) | `src/ports/evolution.lisp` |
+| `:artifact-rollout` | binary rollout signaling path under Phoenix supervision | `src/ports/evolution.lisp` |
 
 ## Runtime Components Involved
 
@@ -36,8 +36,8 @@ Primary conceptual source: `../../../doc/agent/evolution/latest/GENOMIC_MODEL.md
 
 Two parallel documentation tracks are active and both matter:
 
-1. `../../../doc/agent/evolution/*`
-- long-form evolving architecture and historical changelog/score files
+1. `doc/evolution/` and `doc/genesis/`
+- developer-facing markdown docs
 
 2. `src/boot/evolution/*`
 - runtime-adjacent snapshots loaded by Lisp boot (`version.sexp`, `latest/`, `versions/vN/`)
@@ -58,10 +58,9 @@ Evolution decisions must remain bounded by:
 
 Primary sources:
 
-- `../../../doc/agent/genesis/SELF_REWRITE.md`
-- `../../../doc/agent/evolution/latest/RECOVERY.md`
-- `../../../doc/agent/evolution/latest/PROD_READINESS.md`
-- `../../../doc/agent/evolution/latest/TOKEN_HARMONY.md`
+- `../evolution/rewrite-roadmap.md`
+- `../evolution/scorecard.md`
+- `../../config/harmony-policy.sexp`
 
 ## Evolution Portability
 
@@ -73,16 +72,15 @@ Primary sources:
 
 | Topic | Source |
 |---|---|
-| versioning workflow | `../../../doc/agent/evolution/EVOLUTION.md` |
-| current tools/runtime state | `../../../doc/agent/evolution/latest/TOOLS.md` |
-| harmonic matrix policy/runtime ops | `../../../doc/agent/evolution/latest/HARMONIC_MATRIX.md` |
-| swarm/model policy | `../../../doc/agent/evolution/latest/SWARM_POLICY.md` |
-| memory schema | `../../../doc/agent/evolution/latest/MEMORY_SCHEMA.md` |
-| recovery role split | `../../../doc/agent/evolution/latest/RECOVERY.md` |
-| genomic/epigenetic framing | `../../../doc/agent/evolution/latest/GENOMIC_MODEL.md` |
-| token harmony extensions | `../../../doc/agent/evolution/latest/TOKEN_HARMONY.md` |
-| production gate evidence | `../../../doc/agent/evolution/latest/PROD_READINESS.md` |
+| versioning workflow | `../evolution/changelog.md` |
+| current runtime state | `../evolution/current-state.md` |
+| harmonic matrix topology | `../../config/matrix-topology.sexp` |
+| swarm/model policy | `../../config/swarm.sexp`, `../../config/model-policy.sexp` |
+| rewrite roadmap | `../evolution/rewrite-roadmap.md` |
+| scoring and quality gates | `../evolution/scorecard.md` |
+| genomic/epigenetic framing | `../genesis/concepts.md` |
+| harmony policy | `../../config/harmony-policy.sexp` |
 
 ## Operational Rule
 
-Any new evolution concept added under `doc/agent/evolution/latest/` must be reflected in this file and in `migration-map.md`.
+Any new evolution concept must be reflected in this file and in `migration-map.md`.

@@ -11,7 +11,7 @@ keywords = ["harmonia", "s3"]
 categories = ["filesystem"]
 
 [lib]
-crate-type = ["cdylib"]
+crate-type = ["cdylib", "rlib"]
 
 [dependencies]
 harmonia-config-store = { version = "0.1.8", path = "../../../core/config-store" }

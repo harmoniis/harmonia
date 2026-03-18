@@ -111,9 +111,9 @@ harmonia uninstall
 
 **Core** — vault, memory, HTTP, S3, git, cron, recovery, filesystem, gateway, mesh networking
 
-**Tools** — browser (Chrome CDP), web search (Exa/Brave), speech (Whisper/ElevenLabs), social
+**Tools** — browser (Chrome CDP with stealth engine), web search (Exa/Brave), hfetch (secure HTTP), zoom (meeting automation)
 
-**Backends** — multi-provider LLM routing (OpenRouter + native provider adapters)
+**Backends** — multi-provider LLM routing (OpenRouter + native provider adapters), voice routing (STT via Whisper, TTS via ElevenLabs)
 
 **Frontends** — hot-pluggable messaging channels loaded at runtime via `dlopen`
 
@@ -155,17 +155,20 @@ harmonia uninstall
 | `harmonia-amazon-bedrock` | Amazon Bedrock / Nova backend |
 | `harmonia-groq` | Groq backend |
 | `harmonia-alibaba` | Alibaba / DashScope (Qwen) backend |
+| `harmonia-voice-protocol` | Shared voice provider protocol and HTTP helpers |
+| `harmonia-voice-router` | Voice backend routing (STT + TTS provider dispatch) |
+| `harmonia-whisper` | Speech-to-text via Whisper (Groq primary, OpenAI fallback) |
+| `harmonia-elevenlabs` | Text-to-speech via ElevenLabs |
 
 ### Tools
 
 | Crate | Description |
 |-------|-------------|
-| `harmonia-browser` | Headless browser with Chrome CDP support |
+| `harmonia-browser` | Headless browser with Chrome CDP and stealth anti-detection |
 | `harmonia-search-exa` | Exa neural search |
 | `harmonia-search-brave` | Brave web search |
-| `harmonia-whisper` | Speech-to-text via Whisper |
-| `harmonia-elevenlabs` | Text-to-speech via ElevenLabs |
-| `harmonia-social` | Social media integrations |
+| `harmonia-hfetch` | Secure HTTP client with SSRF protection and injection detection |
+| `harmonia-zoom` | Zoom meeting automation via browser |
 
 ### Frontends
 

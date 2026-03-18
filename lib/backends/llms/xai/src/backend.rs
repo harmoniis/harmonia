@@ -3,11 +3,10 @@ use serde_json::json;
 
 const COMPONENT: &str = "xai-backend";
 const DEFAULT_URL: &str = "https://api.x.ai/v1/chat/completions";
-const GROK_TRUTH_MODEL: &str = "x-ai/grok-4.1-fast";
 
-pub(crate) static OFFERINGS: &[ModelOffering] = &[
+pub static OFFERINGS: &[ModelOffering] = &[
     ModelOffering {
-        id: GROK_TRUTH_MODEL,
+        id: "x-ai/grok-4.1-fast",
         tier: "fast-smart",
         usd_in_1k: 0.0002,
         usd_out_1k: 0.0005,
@@ -42,44 +41,32 @@ fn base_url() -> String {
         .unwrap_or_else(|_| DEFAULT_URL.to_string())
 }
 
-/// Return the feature set for a normalised model name.
-fn model_features(native_model: &str) -> Vec<&'static str> {
-    let mut features = Vec::new();
-    let lower = native_model.to_ascii_lowercase();
-    if lower.starts_with("grok") {
-        features.push("reasoning");
-    }
-    if native_model.eq_ignore_ascii_case("grok-4.1-fast") {
-        features.push("web-search");
-        features.push("x-search");
-    }
-    features
-}
-
 fn request(prompt: &str, model: &str, api_key: &str) -> Result<String, String> {
     let timeout = get_timeout(COMPONENT, "HARMONIA_XAI", 10, 60);
     let native_model = strip_provider_prefix(model);
-    let features = model_features(&native_model);
+    let caps = model_capabilities(model);
 
     let mut payload = json!({
         "model": native_model,
         "messages": [{"role": "user", "content": prompt}],
     });
 
-    if features.contains(&"reasoning") {
-        payload.as_object_mut().unwrap().insert(
-            "reasoning".to_string(),
-            json!({"enabled": true, "effort": "high", "exclude": true}),
-        );
+    if let Some(ref r) = caps.reasoning {
+        if r.enabled {
+            payload.as_object_mut().unwrap().insert(
+                "reasoning".to_string(),
+                json!({"enabled": true, "effort": r.effort, "exclude": r.exclude}),
+            );
+        }
     }
-    if features.contains(&"web-search") {
+    if let Some(ref s) = caps.web_search {
         payload.as_object_mut().unwrap().insert(
             "plugins".to_string(),
-            json!([{"id": "web", "engine": "native"}]),
+            json!([{"id": &s.plugin_id, "engine": &s.engine}]),
         );
         payload.as_object_mut().unwrap().insert(
             "web_search_options".to_string(),
-            json!({"search_context_size": "high"}),
+            json!({"search_context_size": &s.search_context_size}),
         );
     }
 
@@ -93,13 +80,13 @@ fn request(prompt: &str, model: &str, api_key: &str) -> Result<String, String> {
     })
 }
 
-pub(crate) fn init() -> Result<(), String> {
+pub fn init() -> Result<(), String> {
     harmonia_provider_protocol::harmonia_vault::init_from_env()?;
     harmonia_provider_protocol::upsert_hardcoded_offerings(OFFERINGS, "xai");
     Ok(())
 }
 
-pub(crate) fn complete(prompt: &str, model: &str) -> Result<String, String> {
+pub fn complete(prompt: &str, model: &str) -> Result<String, String> {
     let _ = init();
     let key = api_key()?.ok_or_else(|| "xai api key missing in vault".to_string())?;
     let selected = if model.trim().is_empty() {
@@ -156,7 +143,7 @@ pub(crate) fn complete(prompt: &str, model: &str) -> Result<String, String> {
     }
 }
 
-pub(crate) fn complete_for_task(prompt: &str, task_hint: &str) -> Result<String, String> {
+pub fn complete_for_task(prompt: &str, task_hint: &str) -> Result<String, String> {
     let _ = init();
     let key = api_key()?.ok_or_else(|| "xai api key missing in vault".to_string())?;
     let selected = select_from_pool(OFFERINGS, task_hint);
@@ -209,10 +196,10 @@ pub(crate) fn complete_for_task(prompt: &str, task_hint: &str) -> Result<String,
     }
 }
 
-pub(crate) fn list_offerings() -> String {
+pub fn list_offerings() -> String {
     offerings_to_json(OFFERINGS)
 }
 
-pub(crate) fn select_model(task_hint: &str) -> String {
+pub fn select_model(task_hint: &str) -> String {
     select_from_pool(OFFERINGS, task_hint)
 }

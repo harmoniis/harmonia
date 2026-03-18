@@ -12,13 +12,59 @@ DIM='\033[2m'
 RESET='\033[0m'
 
 SCRIPT_DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+INSTALL_PROFILE="${HARMONIA_INSTALL_PROFILE:-full-agent}"
 
 info()  { printf "${CYAN}→${RESET} %s\n" "$1"; }
 ok()    { printf "${GREEN}✓${RESET} %s\n" "$1"; }
 warn()  { printf "${YELLOW}!${RESET} %s\n" "$1"; }
 err()   { printf "${RED}✗${RESET} %s\n" "$1"; }
 
+validate_install_profile() {
+    case "$INSTALL_PROFILE" in
+        full-agent|tui-client) ;;
+        *)
+            err "Invalid install profile: $INSTALL_PROFILE"
+            printf "  use: full-agent or tui-client\n"
+            exit 1
+            ;;
+    esac
+}
+
+parse_args() {
+    while [ "$#" -gt 0 ]; do
+        case "$1" in
+            --profile)
+                [ "$#" -ge 2 ] || { err "--profile requires a value"; exit 1; }
+                INSTALL_PROFILE="$2"
+                shift 2
+                ;;
+            --profile=*)
+                INSTALL_PROFILE="${1#*=}"
+                shift
+                ;;
+            --version)
+                [ "$#" -ge 2 ] || { err "--version requires a value"; exit 1; }
+                HARMONIA_VERSION="$2"
+                export HARMONIA_VERSION
+                shift 2
+                ;;
+            --version=*)
+                HARMONIA_VERSION="${1#*=}"
+                export HARMONIA_VERSION
+                shift
+                ;;
+            *)
+                err "Unknown option: $1"
+                exit 1
+                ;;
+        esac
+    done
+    export HARMONIA_INSTALL_PROFILE="$INSTALL_PROFILE"
+    validate_install_profile
+}
+
 main() {
+    parse_args "$@"
     printf "\n"
     printf "${BOLD}${CYAN}"
     printf "  _   _                                  _       \n"
@@ -31,8 +77,12 @@ main() {
 
     detect_platform
     check_rust
-    check_sbcl
-    check_quicklisp
+    if [ "$INSTALL_PROFILE" = "full-agent" ]; then
+        check_sbcl
+        check_quicklisp
+    else
+        info "Install profile: tui-client (skipping local SBCL/Quicklisp bootstrap)"
+    fi
     install_harmonia
     print_next_steps
 }
@@ -168,9 +218,9 @@ share_root() {
 run_local_repo_installer() {
     INSTALLER="$1"
     if [ -n "${HARMONIA_VERSION:-}" ]; then
-        HARMONIA_VERSION="$HARMONIA_VERSION" sh "$INSTALLER"
+        HARMONIA_VERSION="$HARMONIA_VERSION" HARMONIA_INSTALL_PROFILE="$INSTALL_PROFILE" bash "$INSTALLER"
     else
-        sh "$INSTALLER"
+        HARMONIA_INSTALL_PROFILE="$INSTALL_PROFILE" bash "$INSTALLER"
     fi
 }
 
@@ -267,10 +317,19 @@ install_harmonia() {
 print_next_steps() {
     printf "\n"
     printf "${BOLD}  What's next${RESET}\n\n"
-    printf "  Configure your agent (API keys, frontends, evolution mode):\n\n"
-    printf "    ${CYAN}${BOLD}harmonia setup${RESET}\n\n"
-    printf "  Then start the agent:\n\n"
-    printf "    ${CYAN}${BOLD}harmonia start${RESET}\n\n"
+    if [ "$INSTALL_PROFILE" = "tui-client" ]; then
+        printf "  On the remote agent node, print a pairing code:\n\n"
+        printf "    ${CYAN}${BOLD}harmonia pairing invite${RESET}\n\n"
+        printf "  Then open the local Harmonia session client and paste that code:\n\n"
+        printf "    ${CYAN}${BOLD}harmonia${RESET}\n\n"
+        printf "  Node/session state will be stored under:\n\n"
+        printf "    ${CYAN}${BOLD}%s/nodes/${RESET}<node-label>\n\n" "${HARMONIA_DATA_DIR:-$HOME/.harmoniis/harmonia}"
+    else
+        printf "  Configure your agent (API keys, frontends, evolution mode):\n\n"
+        printf "    ${CYAN}${BOLD}harmonia setup${RESET}\n\n"
+        printf "  Then start the agent:\n\n"
+        printf "    ${CYAN}${BOLD}harmonia start${RESET}\n\n"
+    fi
 }
 
 main "$@"

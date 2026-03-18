@@ -14,9 +14,7 @@
                      (config-get-for "harmony-policy" "path"))
                 (let ((root (or (and (fboundp 'config-get-for)
                                      (config-get-for "harmony-policy" "state-root" "global"))
-                                (let ((base (or (sb-ext:posix-getenv "TMPDIR")
-                                                (namestring (user-homedir-pathname)))))
-                                  (concatenate 'string (string-right-trim "/" base) "/harmonia")))))
+                                (%tmpdir-state-root))))
                   (concatenate 'string root "/harmony-policy.sexp"))))))
 (defparameter *harmony-policy* '())
 

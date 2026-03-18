@@ -92,12 +92,16 @@ pub extern "C" fn harmonia_frontend_poll(buf: *mut c_char, buf_len: usize) -> i3
         return 0;
     }
 
-    // Format: sub_channel\tpayload\n per signal
+    // Format: sub_channel\tpayload[\tmetadata]\n per signal
     let mut output = String::new();
-    for (sub, payload) in &signals {
+    for (sub, payload, metadata) in &signals {
         output.push_str(sub);
         output.push('\t');
         output.push_str(payload);
+        if let Some(meta) = metadata {
+            output.push('\t');
+            output.push_str(meta);
+        }
         output.push('\n');
     }
 

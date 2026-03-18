@@ -124,8 +124,8 @@ pub fn init(config: &str) -> Result<(), String> {
 /// Poll Telegram for new updates via `getUpdates`.
 ///
 /// Uses a 1-second long-poll timeout so the call is non-blocking in practice.
-/// Returns a vec of `(chat_id_string, text)` pairs.
-pub fn poll() -> Result<Vec<(String, String)>, String> {
+/// Returns a vec of `(chat_id_string, text, metadata)` triples.
+pub fn poll() -> Result<Vec<(String, String, Option<String>)>, String> {
     let (token, offset) = {
         let s = state().read().map_err(|e| format!("lock: {e}"))?;
         if !s.initialized {
@@ -161,7 +161,12 @@ pub fn poll() -> Result<Vec<(String, String)>, String> {
         }
         if let Some(ref msg) = u.message {
             if let Some(ref text) = msg.text {
-                results.push((msg.chat.id.to_string(), text.clone()));
+                let chat_id = msg.chat.id.to_string();
+                let metadata = format!(
+                    "(:channel-class \"telegram-bot\" :node-id \"{}\" :remote t)",
+                    chat_id
+                );
+                results.push((chat_id, text.clone(), Some(metadata)));
             }
         }
     }

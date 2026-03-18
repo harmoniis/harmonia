@@ -180,7 +180,10 @@ FROM models WHERE usd_per_tok_in > 0 GROUP BY provider ORDER BY cheapest_in ASC
 ```
 
 ### Tools
-browser (Chrome CDP, sandboxed), search-exa (neural), search-brave, whisper (STT), elevenlabs (TTS), social.
+browser (Chrome CDP with stealth anti-detection), search-exa (neural), search-brave, hfetch (secure HTTP), zoom (meeting automation).
+
+### Voice Backends
+voice-router dispatches to: whisper (STT via Groq/OpenAI), elevenlabs (TTS).
 
 ### Frontends (hot-pluggable via dlopen)
 TUI (always on), MQTT, Telegram, Slack, Discord, Signal (signal-cli bridge), WhatsApp, iMessage (BlueBubbles), Mattermost, Nostr, Email (IMAP/SMTP), Tailscale mesh.

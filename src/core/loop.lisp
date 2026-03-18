@@ -53,6 +53,8 @@
 (defun %make-harmonia-signal-from-envelope (envelope)
   (let* ((channel (getf envelope :channel))
          (peer (getf envelope :peer))
+         (origin (getf envelope :origin))
+         (session (getf envelope :session))
          (body (getf envelope :body))
          (security (getf envelope :security))
          (audit (getf envelope :audit)))
@@ -81,6 +83,19 @@
      :conversation-id (or (getf (getf envelope :conversation) :id)
                           (getf channel :label)
                           "default")
+     :origin (when (listp origin)
+               (make-harmonia-origin
+                :node-id (getf origin :node-id)
+                :node-label (getf origin :node-label)
+                :node-role (getf origin :node-role)
+                :channel-class (getf origin :channel-class)
+                :node-key-id (getf origin :node-key-id)
+                :transport-security (getf origin :transport-security)
+                :remote-p (not (null (getf origin :remote)))))
+     :session (when (listp session)
+                (make-harmonia-session
+                 :id (getf session :id)
+                 :label (getf session :label)))
      :body (make-harmonia-body
             :format (or (getf body :format) "text")
             :text (or (getf body :text) "")
@@ -164,6 +179,8 @@
 
 (defun %tick-gateway-poll (runtime)
   "Poll gateway for inbound signals. Parses sexp batch and enqueues.
+   The gateway intercepts /commands before they reach us — only agent prompts
+   arrive here. Also checks the gateway's pending-exit flag for /exit handling.
    Returns T on success (including idle polls with no signals)."
   (%supervised-action "gateway-poll"
     (lambda ()
@@ -172,6 +189,10 @@
           (dolist (envelope envelopes)
             (let* ((signal-struct (%make-harmonia-signal-from-envelope envelope))
                    (dissonance (harmonia-signal-dissonance signal-struct)))
+              (trace-event "gateway-poll" :chain
+                           :metadata (list :frontend (ignore-errors (harmonia-signal-frontend signal-struct))
+                                           :channel-kind (ignore-errors (harmonia-signal-channel-kind signal-struct))
+                                           :dissonance (or dissonance 0.0)))
               (when (and (numberp dissonance) (> dissonance 0.0))
                 (ignore-errors
                   (security-note-event
@@ -179,7 +200,48 @@
                    :injection-count (%dissonance->injection-count dissonance))))
               (setf (runtime-state-prompt-queue runtime)
                     (nconc (runtime-state-prompt-queue runtime)
-                           (list signal-struct))))))))))
+                           (list signal-struct)))))))
+      ;; Check if the gateway intercepted /exit
+      (when (= (%gateway-pending-exit) 1)
+        (stop runtime)))))
+
+(defun %tick-tmux-poll (runtime)
+  "Poll all active tmux CLI agents via Rust swarm-poll.
+   This triggers terminal capture, state detection, and posts heartbeat/state
+   messages to the unified actor mailbox. Must run BEFORE actor-supervisor
+   so messages are available for drain.
+   Returns T on success, NIL on error."
+  (declare (ignore runtime))
+  (%supervised-action "tmux-poll"
+    (lambda ()
+      ;; tmux-swarm-poll calls Rust controller::swarm_poll() which:
+      ;; 1. Captures each tmux agent's terminal output
+      ;; 2. Runs detection (processing/permission/confirmation/selection/completed)
+      ;; 3. Posts ProgressHeartbeat + StateChanged messages to unified mailbox
+      (trace-event "tmux-capture" :tool)
+      (ignore-errors (tmux-swarm-poll))
+      t)))
+
+(defun %actor-state-interactive-p (state)
+  "Return T if STATE represents an interactive prompt (waiting for human/conductor input).
+   Interactive actors must NOT accumulate stall-ticks — they're waiting for us, not stalled."
+  (or (eq state :waiting-for-permission)
+      (eq state :waiting-for-confirmation)
+      (eq state :waiting-for-selection)
+      (eq state :waiting-for-input)
+      (eq state :onboarding)
+      (eq state :plan-mode)))
+
+(defun %parse-actor-state-changed (to)
+  "Parse a state-changed :to value from the actor mailbox.
+   The Rust side sends keyword for simple states (:completed, :processing, etc.)
+   and sexp lists for interactive states ((:waiting-for-permission :tool ...)).
+   Returns (values state-keyword detail-plist)."
+  (cond
+    ((keywordp to) (values to nil))
+    ((and (listp to) (keywordp (car to)))
+     (values (car to) (cdr to)))
+    (t (values :running nil))))
 
 (defun %tick-actor-supervisor (runtime)
   "Drain unified actor mailbox and update actor records. Detect stalls.
@@ -217,8 +279,17 @@
                           (setf (actor-record-last-heartbeat record) (get-universal-time)))
                          ((eq payload-kind :state-changed)
                           (let ((to (getf payload :to)))
-                            (when (keywordp to)
-                              (setf (actor-record-state record) to))))
+                            (multiple-value-bind (state-kw detail)
+                                (%parse-actor-state-changed to)
+                              (declare (ignore detail))
+                              (trace-event "actor-state-change" :agent
+                                           :metadata (list :actor-id actor-id
+                                                           :from (actor-record-state record)
+                                                           :to state-kw))
+                              (setf (actor-record-state record) state-kw)
+                              ;; Interactive states reset stall counter — actor is alive, waiting for us
+                              (when (%actor-state-interactive-p state-kw)
+                                (setf (actor-record-stall-ticks record) 0)))))
                          ((eq payload-kind :completed)
                           (setf (actor-record-state record) :completed)
                           (setf (actor-record-result record) (or (getf payload :output) ""))
@@ -248,118 +319,301 @@
                   ;; Chronicle ack — informational
                   ((eq actor-kind :chronicle) nil))))))
         ;; Increment stall-ticks for actors that received NO messages this tick
+        ;; Skip actors in interactive states — they're waiting for conductor, not stalled
         (maphash (lambda (id record)
                    (unless (gethash id seen-ids)
-                     (when (eq (actor-record-state record) :running)
-                       (incf (actor-record-stall-ticks record))
-                       ;; Kill stalled actors
-                       (when (>= (actor-record-stall-ticks record) stall-threshold)
-                         (ignore-errors (tmux-kill id))
-                         (setf (actor-record-state record) :failed)
-                         (setf (actor-record-error-text record)
-                               (format nil "actor stalled: ~D ticks with no output"
-                                       (actor-record-stall-ticks record)))
-                         (%log :warn "actor-supervisor"
-                               "Killed stalled actor ~D (~A) after ~D ticks"
-                               id (actor-record-model record)
-                               (actor-record-stall-ticks record))))))
+                     (let ((state (actor-record-state record)))
+                       (when (and (eq state :running)
+                                  (not (%actor-state-interactive-p state)))
+                         (incf (actor-record-stall-ticks record))
+                         ;; Kill stalled actors
+                         (when (>= (actor-record-stall-ticks record) stall-threshold)
+                           (trace-event "actor-stall-kill" :agent
+                                        :metadata (list :actor-id id
+                                                        :model (actor-record-model record)
+                                                        :stall-ticks (actor-record-stall-ticks record)))
+                           (ignore-errors (tmux-kill id))
+                           (setf (actor-record-state record) :failed)
+                           (setf (actor-record-error-text record)
+                                 (format nil "actor stalled: ~D ticks with no output"
+                                         (actor-record-stall-ticks record)))
+                           (%log :warn "actor-supervisor"
+                                 "Killed stalled actor ~D (~A) after ~D ticks"
+                                 id (actor-record-model record)
+                                 (actor-record-stall-ticks record)))))))
                  registry))
       t)))
 
+(defun %tick-actor-interact (runtime)
+  "Handle interactive CLI agent prompts: permissions, confirmations, selections.
+   Scans actor registry for actors in interactive states and auto-responds.
+   Policy: auto-approve permissions, auto-confirm yes, select first option.
+   Runs AFTER actor-supervisor so states are up-to-date.
+   Returns T on success, NIL on error."
+  (%supervised-action "actor-interact"
+    (lambda ()
+      (let ((registry (runtime-state-actor-registry runtime)))
+        (maphash
+         (lambda (id record)
+           (let ((state (actor-record-state record)))
+             (handler-case
+                 (cond
+                   ;; Permission prompt → auto-approve
+                   ;; Claude Code launched with --dangerously-skip-permissions should
+                   ;; not normally reach here, but some prompts still leak through.
+                   ((eq state :waiting-for-permission)
+                    (%log :info "actor-interact"
+                          "Auto-approving permission for actor ~D (~A)"
+                          id (actor-record-model record))
+                    (tmux-approve id)
+                    (setf (actor-record-state record) :running)
+                    (setf (actor-record-stall-ticks record) 0))
+                   ;; Confirmation prompt → auto-confirm yes
+                   ((eq state :waiting-for-confirmation)
+                    (%log :info "actor-interact"
+                          "Auto-confirming for actor ~D (~A)"
+                          id (actor-record-model record))
+                    (tmux-confirm-yes id)
+                    (setf (actor-record-state record) :running)
+                    (setf (actor-record-stall-ticks record) 0))
+                   ;; Selection menu → select first option
+                   ((eq state :waiting-for-selection)
+                    (%log :info "actor-interact"
+                          "Auto-selecting first option for actor ~D (~A)"
+                          id (actor-record-model record))
+                    (tmux-select-option id 0)
+                    (setf (actor-record-state record) :running)
+                    (setf (actor-record-stall-ticks record) 0))
+                   ;; Onboarding/survey/first-run → dismiss with Enter
+                   ((eq state :onboarding)
+                    (%log :info "actor-interact"
+                          "Auto-dismissing onboarding for actor ~D (~A)"
+                          id (actor-record-model record))
+                    (tmux-send-key id "Enter")
+                    (setf (actor-record-state record) :running)
+                    (setf (actor-record-stall-ticks record) 0))
+                   ;; Plan mode → auto-accept plan
+                   ((eq state :plan-mode)
+                    (%log :info "actor-interact"
+                          "Auto-accepting plan for actor ~D (~A)"
+                          id (actor-record-model record))
+                    (tmux-confirm-yes id)
+                    (setf (actor-record-state record) :running)
+                    (setf (actor-record-stall-ticks record) 0))
+                   ;; WaitingForInput in non-interactive mode likely means task finished
+                   ;; but completion wasn't detected. Don't interfere — let stall detection
+                   ;; handle it if output truly stops.
+                   )
+               (error (e)
+                 (%log :warn "actor-interact"
+                       "Failed to interact with actor ~D: ~A" id e)))))
+         registry))
+      t)))
+
+(defparameter *swarm-group-timeout-ticks* 10
+  "Max ticks to wait after first completion in a group before delivering best available.")
+
 (defun %tick-actor-deliver (runtime)
   "Deliver completed actor results to outbound queue and record outcomes.
+   Group-aware: actors sharing a swarm-group-id are delivered as one (best by harmony score).
+   Singletons (nil group-id) deliver immediately (legacy behavior).
    Runs AFTER process-prompt.
    Returns T on success, NIL on error."
   (%supervised-action "actor-deliver"
     (lambda ()
       (let ((registry (runtime-state-actor-registry runtime))
-            (remaining '()))
+            (remaining '())
+            (groups (make-hash-table :test 'eql)))
+        ;; Pass 1: partition pending actors into groups and singletons
         (dolist (actor-id (runtime-state-actor-pending runtime))
           (let ((record (gethash actor-id registry)))
-            (cond
-              ;; Completed: score, record, deliver
-              ((and record (eq (actor-record-state record) :completed))
-               (let* ((prompt (actor-record-prompt record))
-                      (result (or (actor-record-result record) ""))
-                      (trimmed (string-trim '(#\Space #\Newline #\Tab) result))
-                      (visible (if (> (length trimmed) 0)
-                                   (%presentation-sanitize-visible-text trimmed)
-                                   "[actor completed with empty output]"))
-                      (model (actor-record-model record))
-                      (duration (or (actor-record-duration-ms record) 0))
-                      (score (if (> (length trimmed) 0)
-                                 (ignore-errors (harmonic-score prompt visible))
-                                 0.0))
-                      (cost (or (actor-record-cost-usd record) 0.0)))
-                 ;; Record outcome
-                 (ignore-errors
-                   (model-policy-record-outcome
-                    :model model :success t :latency-ms duration
-                    :harmony-score (or score 0.0) :cost-usd cost))
-                 ;; Record chronicle delegation
-                 (ignore-errors
-                   (chronicle-record-delegation
-                    :task-hint "actor" :model model :backend "tmux-actor"
-                    :reason "non-blocking CLI actor" :escalated nil
-                    :cost-usd cost :latency-ms duration :success t
-                    :tokens-in 0 :tokens-out 0))
-                 (ignore-errors
-                   (%presentation-record-response prompt
-                                                  trimmed
-                                                  :visible-response visible
-                                                  :origin :actor
-                                                  :model model
-                                                  :score score
-                                                  :harmony (list :mode :actor
-                                                                 :llm-calls 1
-                                                                 :tool-calls 0
-                                                                 :datasource-count 1
-                                                                 :intermediate-tokens 0)
-                                                  :runtime runtime))
-                 ;; Deliver to gateway if originating signal exists
-                 (let ((signal (actor-record-originating-signal record)))
-                   (when (harmonia-signal-p signal)
-                     (push (list :frontend (harmonia-signal-frontend signal)
-                                 :channel (harmonia-signal-sub-channel signal)
-                                 :payload visible)
-                           *gateway-outbound-queue*))))
-               ;; Remove from registry
-               (remhash actor-id registry))
-
-              ;; Failed: log and remove
-              ((and record (eq (actor-record-state record) :failed))
-               (let ((model (actor-record-model record))
-                     (error-text (or (actor-record-error-text record) "unknown"))
-                     (prompt (actor-record-prompt record)))
-                 (ignore-errors
-                   (model-policy-record-outcome
-                    :model model :success nil :latency-ms 0
-                    :harmony-score 0.0 :cost-usd 0.0))
-                 (ignore-errors (model-policy-mark-cli-cooloff (%swarm-cli-id model)))
-                 (ignore-errors
-                   (%presentation-record-response prompt
-                                                  (format nil "[actor failed: ~A]" error-text)
-                                                  :visible-response (format nil "[actor failed: ~A]"
-                                                                            (%presentation-sanitize-visible-text error-text))
-                                                  :origin :actor
-                                                  :model model
-                                                  :score 0.0
-                                                  :harmony (list :mode :actor-failure)
-                                                  :runtime runtime))
-                 ;; Deliver error to gateway if originating signal exists
-                 (let ((signal (actor-record-originating-signal record)))
-                   (when (harmonia-signal-p signal)
-                     (push (list :frontend (harmonia-signal-frontend signal)
-                                 :channel (harmonia-signal-sub-channel signal)
-                                 :payload (format nil "[actor failed: ~A]"
-                                                  (%presentation-sanitize-visible-text error-text)))
-                           *gateway-outbound-queue*))))
-               (remhash actor-id registry))
-
-              ;; Still running — keep in pending list
-              (t (push actor-id remaining)))))
+            (when record
+              (let ((gid (actor-record-swarm-group-id record)))
+                (if gid
+                    (push actor-id (gethash gid groups))
+                    ;; Singleton: deliver immediately (legacy behavior)
+                    (%deliver-singleton-actor runtime registry actor-id record remaining))))))
+        ;; Pass 2: process groups — deliver best when all terminal or timed out
+        (maphash
+         (lambda (gid actor-ids)
+           (let ((all-terminal t)
+                 (any-completed nil)
+                 (first-completion-at nil)
+                 (completed '())
+                 (failed '()))
+             ;; Classify group members
+             (dolist (aid actor-ids)
+               (let ((rec (gethash aid registry)))
+                 (when rec
+                   (case (actor-record-state rec)
+                     (:completed
+                      (push (cons aid rec) completed)
+                      (setf any-completed t)
+                      (let ((spawned (actor-record-spawned-at rec)))
+                        (when (or (null first-completion-at)
+                                  (< spawned first-completion-at))
+                          (setf first-completion-at spawned))))
+                     (:failed
+                      (push (cons aid rec) failed))
+                     (otherwise
+                      (setf all-terminal nil))))))
+             (let* ((ticks-since-first
+                      (if first-completion-at
+                          (- (runtime-state-cycle runtime)
+                             (or first-completion-at (runtime-state-cycle runtime)))
+                          0))
+                    (timed-out (>= ticks-since-first *swarm-group-timeout-ticks*))
+                    (should-deliver (or all-terminal (and any-completed timed-out))))
+               (if should-deliver
+                   ;; Score all completed, deliver ONLY the best
+                   (let ((best-aid nil)
+                         (best-rec nil)
+                         (best-score -1.0))
+                     (dolist (pair completed)
+                       (let* ((aid (car pair))
+                              (rec (cdr pair))
+                              (prompt (actor-record-prompt rec))
+                              (result (or (actor-record-result rec) ""))
+                              (trimmed (string-trim '(#\Space #\Newline #\Tab) result))
+                              (score (if (> (length trimmed) 0)
+                                         (or (ignore-errors (harmonic-score prompt trimmed)) 0.0)
+                                         0.0)))
+                         (when (> score best-score)
+                           (setf best-score score
+                                 best-aid aid
+                                 best-rec rec))))
+                     ;; Deliver best
+                     (when best-rec
+                       (%deliver-completed-actor runtime registry best-aid best-rec))
+                     ;; Record outcomes for non-best completed actors and remove
+                     (dolist (pair completed)
+                       (unless (eql (car pair) best-aid)
+                         (%record-actor-outcome (cdr pair))
+                         (remhash (car pair) registry)))
+                     ;; Record failed actors and remove
+                     (dolist (pair failed)
+                       (%record-failed-actor runtime registry (car pair) (cdr pair)))
+                     ;; Kill any still-running actors in the group
+                     (dolist (aid actor-ids)
+                       (let ((rec (gethash aid registry)))
+                         (when (and rec
+                                    (not (member (actor-record-state rec) '(:completed :failed))))
+                           (ignore-errors (tmux-kill aid))
+                           (remhash aid registry)))))
+                   ;; Not ready yet — keep all in pending
+                   (dolist (aid actor-ids)
+                     (push aid remaining))))))
+         groups)
         (setf (runtime-state-actor-pending runtime) (nreverse remaining)))
       t)))
+
+(defun %deliver-singleton-actor (runtime registry actor-id record remaining)
+  "Deliver a singleton actor (no group-id) immediately. Legacy behavior."
+  (cond
+    ((eq (actor-record-state record) :completed)
+     (%deliver-completed-actor runtime registry actor-id record))
+    ((eq (actor-record-state record) :failed)
+     (%record-failed-actor runtime registry actor-id record))
+    (t (push actor-id remaining))))
+
+(defun %deliver-completed-actor (runtime registry actor-id record)
+  "Score, record, and deliver a completed actor result to the gateway."
+  (let* ((prompt (actor-record-prompt record))
+         (result (or (actor-record-result record) ""))
+         (trimmed (string-trim '(#\Space #\Newline #\Tab) result))
+         (visible (if (> (length trimmed) 0)
+                      (%presentation-sanitize-visible-text trimmed)
+                      "[actor completed with empty output]"))
+         (model (actor-record-model record))
+         (duration (or (actor-record-duration-ms record) 0))
+         (score (if (> (length trimmed) 0)
+                    (ignore-errors (harmonic-score prompt visible))
+                    0.0))
+         (cost (or (actor-record-cost-usd record) 0.0)))
+    ;; Record outcome
+    (ignore-errors
+      (model-policy-record-outcome
+       :model model :success t :latency-ms duration
+       :harmony-score (or score 0.0) :cost-usd cost))
+    ;; Record chronicle delegation (includes supervision if available)
+    (let ((sv-grade (actor-record-supervision-grade record))
+          (sv-confidence (or (actor-record-supervision-confidence record) 0.0)))
+      (ignore-errors
+        (chronicle-record-delegation
+         :task-hint "actor" :model model :backend "tmux-actor"
+         :reason (if sv-grade
+                     (format nil "non-blocking CLI actor [supervision: ~A ~,2F]"
+                             (string-downcase (symbol-name sv-grade)) sv-confidence)
+                     "non-blocking CLI actor")
+         :escalated nil
+         :cost-usd cost :latency-ms duration :success t
+         :tokens-in 0 :tokens-out 0)))
+    (ignore-errors
+      (%presentation-record-response prompt
+                                     trimmed
+                                     :visible-response visible
+                                     :origin :actor
+                                     :model model
+                                     :score score
+                                     :harmony (list :mode :actor
+                                                    :llm-calls 1
+                                                    :tool-calls 0
+                                                    :datasource-count 1
+                                                    :intermediate-tokens 0)
+                                     :runtime runtime))
+    ;; Deliver to gateway if originating signal exists
+    (let ((signal (actor-record-originating-signal record)))
+      (when (harmonia-signal-p signal)
+        (push (list :frontend (harmonia-signal-frontend signal)
+                    :channel (harmonia-signal-sub-channel signal)
+                    :payload visible)
+              *gateway-outbound-queue*))))
+  ;; Remove from registry
+  (remhash actor-id registry))
+
+(defun %record-actor-outcome (record)
+  "Record outcome metrics for a non-delivered actor (non-best in a group)."
+  (let ((model (actor-record-model record))
+        (duration (or (actor-record-duration-ms record) 0))
+        (cost (or (actor-record-cost-usd record) 0.0)))
+    (ignore-errors
+      (model-policy-record-outcome
+       :model model :success t :latency-ms duration
+       :harmony-score 0.0 :cost-usd cost))))
+
+(defun %record-failed-actor (runtime registry actor-id record)
+  "Record and deliver a failed actor result."
+  (let* ((model (actor-record-model record))
+         (raw-error (or (actor-record-error-text record) "unknown"))
+         ;; Clip error text to 80 chars — prevents partial LLM output from leaking
+         (error-text (if (> (length raw-error) 80)
+                         (concatenate 'string (subseq raw-error 0 80) "...")
+                         raw-error))
+         (prompt (actor-record-prompt record)))
+    (ignore-errors
+      (model-policy-record-outcome
+       :model model :success nil :latency-ms 0
+       :harmony-score 0.0 :cost-usd 0.0))
+    (ignore-errors (model-policy-mark-cli-cooloff (%swarm-cli-id model)))
+    (ignore-errors
+      (%presentation-record-response prompt
+                                     (format nil "[actor failed: ~A]" error-text)
+                                     :visible-response (format nil "[actor failed: ~A]"
+                                                               (%presentation-sanitize-visible-text error-text))
+                                     :origin :actor
+                                     :model model
+                                     :score 0.0
+                                     :harmony (list :mode :actor-failure)
+                                     :runtime runtime))
+    ;; Deliver error to gateway if originating signal exists
+    (let ((signal (actor-record-originating-signal record)))
+      (when (harmonia-signal-p signal)
+        (push (list :frontend (harmonia-signal-frontend signal)
+                    :channel (harmonia-signal-sub-channel signal)
+                    :payload (format nil "[actor failed: ~A]"
+                                     (%presentation-sanitize-visible-text error-text)))
+              *gateway-outbound-queue*))))
+  (remhash actor-id registry))
 
 (defun %tick-process-prompt (runtime)
   "Pop one prompt and process it. Routes responses back to originating frontend.
@@ -428,7 +682,11 @@
                     ((string-equal type "delegation")
                      (apply #'chronicle-record-delegation (getf record :args)))
                     ((string-equal type "memory")
-                     (apply #'chronicle-record-memory-event (getf record :args)))))
+                     (apply #'chronicle-record-memory-event (getf record :args)))
+                    ((string-equal type "supervision-spec")
+                     (%chronicle-flush-supervision-spec (getf record :args)))
+                    ((string-equal type "supervision-verdict")
+                     (%chronicle-flush-supervision-verdict (getf record :args)))))
               (error (e)
                 (declare (ignore e))
                 nil))))
@@ -448,9 +706,15 @@
             (setf *gateway-outbound-queue* '())
             (dolist (msg batch)
               (handler-case
-                  (gateway-send (getf msg :frontend)
-                                (getf msg :channel)
-                                (%presentation-sanitize-visible-text (getf msg :payload)))
+                  ;; Payload may already be sanitized (by %deliver-completed-actor or
+                  ;; %tick-process-prompt). Only sanitize if marked :raw or if no
+                  ;; :sanitized flag is present — use the payload directly when
+                  ;; it comes from the actor delivery path or process-prompt path,
+                  ;; both of which already call %presentation-sanitize-visible-text.
+                  (let ((payload (or (getf msg :payload) "")))
+                    (gateway-send (getf msg :frontend)
+                                  (getf msg :channel)
+                                  payload))
                 (error (e)
                   (%log :warn "gateway-flush"
                         "Send to ~A/~A failed: ~A"
@@ -470,9 +734,20 @@
   (incf (runtime-state-cycle runtime))
 
   ;; Run actions directly in order — no planner list, no dispatch overhead
-  (let ((ok1 (%tick-gateway-poll runtime))
+  ;; Phase 0: Poll tmux agents (triggers Rust-side detection + heartbeats)
+  ;; Phase 1: Poll gateway + tailnet for inbound signals
+  ;; Phase 1b: Drain actor mailbox, update states, detect stalls
+  ;; Phase 1c: Auto-respond to interactive CLI prompts (permissions, confirmations)
+  ;; Phase 1d: Supervision — evaluate completed actors against frozen specs
+  ;; Phase 2: Process one prompt from queue
+  ;; Phase 2b: Deliver completed actor results
+  ;; Phase 3-5: Memory, harmonic, chronicle, gateway flush
+  (let ((ok0 (%tick-tmux-poll runtime))
+        (ok1 (%tick-gateway-poll runtime))
         (ok1a (%tick-tailnet-poll runtime))
         (ok1b (%tick-actor-supervisor runtime))
+        (ok1c (%tick-actor-interact runtime))
+        (ok1d (%tick-supervision runtime))
         (ok2 (%tick-process-prompt runtime))
         (ok2b (%tick-actor-deliver runtime))
         (ok3 (%supervised-action "memory-heartbeat"
@@ -482,7 +757,7 @@
         (ok4b (%tick-chronicle-flush runtime))
         (ok5 (%tick-gateway-flush))
         (ok5b (%tick-tailnet-flush runtime)))
-    (if (and ok1 ok1a ok1b ok2 ok2b ok3 ok4 ok4b ok5 ok5b)
+    (if (and ok0 ok1 ok1a ok1b ok1c ok1d ok2 ok2b ok3 ok4 ok4b ok5 ok5b)
         (setf *consecutive-tick-errors* 0)
         (incf *consecutive-tick-errors*)))
 

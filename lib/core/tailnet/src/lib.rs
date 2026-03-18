@@ -1,6 +1,7 @@
 mod ffi;
 pub mod mesh;
 pub mod model;
+mod node_link;
 pub mod transport;
 
 pub use mesh::{discover_peers, register_node};
