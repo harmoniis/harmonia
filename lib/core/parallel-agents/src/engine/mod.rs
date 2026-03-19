@@ -12,7 +12,7 @@ use self::clients::{request_openrouter, verify_with_search};
 use self::metrics::{estimate_cost, render_report};
 
 #[allow(dead_code)]
-pub(crate) fn set_model_price(
+pub fn set_model_price(
     model: &str,
     usd_per_1k_input: f64,
     usd_per_1k_output: f64,
@@ -33,7 +33,7 @@ pub(crate) fn set_model_price(
 }
 
 #[allow(dead_code)]
-pub(crate) fn submit(prompt: &str, model: &str) -> Result<i64, String> {
+pub fn submit(prompt: &str, model: &str) -> Result<i64, String> {
     let mut st = state()
         .write()
         .map_err(|_| "parallel state lock poisoned".to_string())?;
@@ -61,7 +61,7 @@ pub(crate) fn submit(prompt: &str, model: &str) -> Result<i64, String> {
 }
 
 #[allow(dead_code)]
-pub(crate) fn run_pending(max_parallel: i32) -> Result<(), String> {
+pub fn run_pending(max_parallel: i32) -> Result<(), String> {
     init_from_env().map_err(|e| e.to_string())?;
 
     let pending: Vec<Task> = {
@@ -183,7 +183,7 @@ pub(crate) fn run_pending(max_parallel: i32) -> Result<(), String> {
 /// Returns a list of `(task_id, actor_id, model)` tuples so the Lisp
 /// supervisor can create tracking records BEFORE workers finish.
 #[allow(dead_code)]
-pub(crate) fn run_pending_async(max_parallel: i32) -> Result<Vec<(u64, u64, String)>, String> {
+pub fn run_pending_async(max_parallel: i32) -> Result<Vec<(u64, u64, String)>, String> {
     init_from_env().map_err(|e| e.to_string())?;
 
     let pending: Vec<Task> = {
@@ -307,7 +307,7 @@ pub(crate) fn run_pending_async(max_parallel: i32) -> Result<Vec<(u64, u64, Stri
 }
 
 #[allow(dead_code)]
-pub(crate) fn task_result(task_id: i64) -> Result<String, String> {
+pub fn task_result(task_id: i64) -> Result<String, String> {
     let st = state()
         .read()
         .map_err(|_| "parallel state lock poisoned".to_string())?;
@@ -332,7 +332,7 @@ pub(crate) fn task_result(task_id: i64) -> Result<String, String> {
 }
 
 #[allow(dead_code)]
-pub(crate) fn report() -> Result<String, String> {
+pub fn report() -> Result<String, String> {
     Ok(render_report())
 }
 
@@ -344,13 +344,13 @@ use crate::model::CliType;
 use crate::tmux::controller;
 
 #[allow(dead_code)]
-pub(crate) fn tmux_spawn(cli_type_str: &str, workdir: &str, prompt: &str) -> Result<i64, String> {
+pub fn tmux_spawn(cli_type_str: &str, workdir: &str, prompt: &str) -> Result<i64, String> {
     let cli_type = CliType::from_str(cli_type_str)?;
     controller::spawn(&cli_type, workdir, prompt).map(|id| id as i64)
 }
 
 #[allow(dead_code)]
-pub(crate) fn tmux_spawn_custom(
+pub fn tmux_spawn_custom(
     command: &str,
     args: &str,
     workdir: &str,
@@ -369,73 +369,73 @@ pub(crate) fn tmux_spawn_custom(
 }
 
 #[allow(dead_code)]
-pub(crate) fn tmux_poll(id: i64) -> Result<String, String> {
+pub fn tmux_poll(id: i64) -> Result<String, String> {
     let state = controller::poll(id as u64)?;
     Ok(state.to_sexp())
 }
 
 #[allow(dead_code)]
-pub(crate) fn tmux_send(id: i64, input: &str) -> Result<(), String> {
+pub fn tmux_send(id: i64, input: &str) -> Result<(), String> {
     controller::send_input(id as u64, input)
 }
 
 #[allow(dead_code)]
-pub(crate) fn tmux_send_key(id: i64, key: &str) -> Result<(), String> {
+pub fn tmux_send_key(id: i64, key: &str) -> Result<(), String> {
     controller::send_key(id as u64, key)
 }
 
 #[allow(dead_code)]
-pub(crate) fn tmux_approve(id: i64) -> Result<(), String> {
+pub fn tmux_approve(id: i64) -> Result<(), String> {
     controller::approve(id as u64)
 }
 
 #[allow(dead_code)]
-pub(crate) fn tmux_deny(id: i64) -> Result<(), String> {
+pub fn tmux_deny(id: i64) -> Result<(), String> {
     controller::deny(id as u64)
 }
 
 #[allow(dead_code)]
-pub(crate) fn tmux_confirm_yes(id: i64) -> Result<(), String> {
+pub fn tmux_confirm_yes(id: i64) -> Result<(), String> {
     controller::confirm_yes(id as u64)
 }
 
 #[allow(dead_code)]
-pub(crate) fn tmux_confirm_no(id: i64) -> Result<(), String> {
+pub fn tmux_confirm_no(id: i64) -> Result<(), String> {
     controller::confirm_no(id as u64)
 }
 
 #[allow(dead_code)]
-pub(crate) fn tmux_select(id: i64, index: i32) -> Result<(), String> {
+pub fn tmux_select(id: i64, index: i32) -> Result<(), String> {
     controller::select_option(id as u64, index as usize)
 }
 
 #[allow(dead_code)]
-pub(crate) fn tmux_capture(id: i64, history: i32) -> Result<String, String> {
+pub fn tmux_capture(id: i64, history: i32) -> Result<String, String> {
     let h = if history <= 0 { 200 } else { history as u32 };
     controller::capture(id as u64, h)
 }
 
 #[allow(dead_code)]
-pub(crate) fn tmux_kill(id: i64) -> Result<(), String> {
+pub fn tmux_kill(id: i64) -> Result<(), String> {
     controller::kill(id as u64)
 }
 
 #[allow(dead_code)]
-pub(crate) fn tmux_interrupt(id: i64) -> Result<(), String> {
+pub fn tmux_interrupt(id: i64) -> Result<(), String> {
     controller::interrupt(id as u64)
 }
 
 #[allow(dead_code)]
-pub(crate) fn tmux_status(id: i64) -> Result<String, String> {
+pub fn tmux_status(id: i64) -> Result<String, String> {
     controller::agent_status(id as u64)
 }
 
 #[allow(dead_code)]
-pub(crate) fn tmux_list() -> Result<String, String> {
+pub fn tmux_list() -> Result<String, String> {
     controller::list()
 }
 
 #[allow(dead_code)]
-pub(crate) fn tmux_swarm_poll() -> Result<String, String> {
+pub fn tmux_swarm_poll() -> Result<String, String> {
     controller::swarm_poll()
 }

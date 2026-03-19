@@ -88,8 +88,10 @@
                  (format nil ":from \"~A\" :to \"~A\" :signal ~F :noise ~F"
                          (sexp-escape-lisp from) (sexp-escape-lisp to)
                          (coerce signal 'double-float) (coerce noise 'double-float)))))
-    (and reply (ipc-reply-ok-p reply)
-         (search ":result 1" reply))))
+    (let ((ok (and reply (ipc-reply-ok-p reply) (search ":allowed t" reply))))
+      (unless ok
+        (%log :warn "matrix" "route-allowed ~A -> ~A reply=~A" from to (or reply "nil")))
+      ok)))
 
 (defun harmonic-matrix-route-or-error (from to &key (signal *harmonic-route-default-signal*) (noise *harmonic-route-default-noise*))
   (unless (harmonic-matrix-route-allowed-p from to :signal signal :noise noise)
@@ -102,13 +104,13 @@
                                            (security-weight 1.0d0)
                                            (dissonance 0.0d0))
   "Wave 3.2: Security-aware routing with dissonance and security weight."
-  (let ((reply (%hm-ipc-call "route-allowed-with-context"
+  (let ((reply (%hm-ipc-call "route-allowed-ctx"
                  (format nil ":from \"~A\" :to \"~A\" :signal ~F :noise ~F :security-weight ~F :dissonance ~F"
                          (sexp-escape-lisp from) (sexp-escape-lisp to)
                          (coerce signal 'double-float) (coerce noise 'double-float)
                          (coerce security-weight 'double-float) (coerce dissonance 'double-float)))))
     (and reply (ipc-reply-ok-p reply)
-         (search ":result 1" reply))))
+         (search ":allowed t" reply))))
 
 (defun harmonic-matrix-route-with-context-or-error (from to &key
                                                     (signal *harmonic-route-default-signal*)

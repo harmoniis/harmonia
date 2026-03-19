@@ -85,7 +85,7 @@
                          (sexp-escape-lisp cli-type)
                          (sexp-escape-lisp workdir)
                          (sexp-escape-lisp (or prompt "")))))
-         (id (when reply (ipc-extract-u64 reply ":id"))))
+         (id (when reply (ipc-extract-u64 reply ":task-id"))))
     (unless (and id (>= id 0))
       (error "tmux spawn failed: ~A" (or reply "no reply")))
     id))
@@ -199,7 +199,7 @@
   (let* ((reply (ipc-call
                  (format nil "(:component \"parallel\" :op \"submit\" :prompt \"~A\" :model \"~A\")"
                          (sexp-escape-lisp prompt) (sexp-escape-lisp model))))
-         (id (when reply (ipc-extract-u64 reply ":id"))))
+         (id (when reply (ipc-extract-u64 reply ":task-id"))))
     (unless (and id (>= id 0))
       (error "parallel submit failed: ~A" (or reply "no reply")))
     id))

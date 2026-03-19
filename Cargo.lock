@@ -2520,6 +2520,7 @@ dependencies = [
  "harmonia-mqtt-client",
  "harmonia-nostr",
  "harmonia-observability",
+ "harmonia-parallel-agents",
  "harmonia-provider-router",
  "harmonia-push",
  "harmonia-s3",

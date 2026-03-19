@@ -15,7 +15,7 @@ pub struct LangSmithClient {
 /// Flush result — distinguishes rate limits from other errors.
 pub enum FlushResult {
     Ok,
-    RateLimited,
+    RateLimited(String), // response body — may contain plan/quota details
     Error(String),
 }
 
@@ -52,7 +52,14 @@ impl LangSmithClient {
             .send_json(body)
         {
             Ok(_) => FlushResult::Ok,
-            Err(ureq::Error::Status(429, _)) => FlushResult::RateLimited,
+            Err(ureq::Error::Status(code, response)) => {
+                let body = response.into_string().unwrap_or_default();
+                if code == 429 {
+                    FlushResult::RateLimited(body)
+                } else {
+                    FlushResult::Error(format!("status {code}: {body}"))
+                }
+            }
             Err(e) => FlushResult::Error(format!("{e}")),
         }
     }

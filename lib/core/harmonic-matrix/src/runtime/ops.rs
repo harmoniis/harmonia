@@ -102,10 +102,12 @@ pub fn route_allowed_with_context(
         .read()
         .map_err(|_| "harmonic matrix state lock poisoned".to_string())?;
 
-    let edge = st
-        .edges
-        .get(&(from.to_string(), to.to_string()))
-        .ok_or_else(|| format!("route denied: edge missing {} -> {}", from, to))?;
+    // Open policy: if no edge is registered, allow by default.
+    // The matrix enforces constraints only when topology is explicitly configured.
+    let edge = match st.edges.get(&(from.to_string(), to.to_string())) {
+        Some(e) => e,
+        None => return Ok(true),
+    };
 
     if !tool_allowed(&st, from) || !tool_allowed(&st, to) {
         return Err(format!(

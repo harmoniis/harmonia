@@ -149,6 +149,7 @@
     (restart-case
         (handler-bind
             ((error (lambda (c)
+                      (%log :error "orchestrate" "~A" c)
                       (record-runtime-error c :prompt log-prompt)
                       (let ((r (find-restart 'continue-with-error)))
                         (when r (invoke-restart r))))))

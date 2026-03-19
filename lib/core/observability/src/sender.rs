@@ -180,23 +180,33 @@ fn do_flush(
             creates.clear();
             updates.clear();
         }
-        FlushResult::RateLimited => {
+        FlushResult::RateLimited(body) => {
             *backoff = if backoff.is_zero() {
                 BACKOFF_INITIAL
             } else {
                 (*backoff * 2).min(BACKOFF_MAX)
             };
             *backoff_until = Instant::now() + *backoff;
-            // Log once per backoff escalation, not on every attempt
-            if !*backoff_logged || *backoff > BACKOFF_INITIAL {
+            if !*backoff_logged {
+                // Log response body once — shows plan limits, quota details
+                let detail = if body.is_empty() {
+                    String::new()
+                } else {
+                    let clipped = if body.len() > 200 {
+                        &body[..200]
+                    } else {
+                        &body
+                    };
+                    format!(" ({})", clipped)
+                };
                 eprintln!(
-                    "[WARN] [observability] LangSmith 429 — backing off {}s ({} items buffered)",
+                    "[WARN] [observability] LangSmith 429 — backing off {}s ({} items buffered){}",
                     backoff.as_secs(),
-                    creates.len() + updates.len()
+                    creates.len() + updates.len(),
+                    detail
                 );
                 *backoff_logged = true;
             }
-            // Keep buffer — retry after backoff
         }
         FlushResult::Error(e) => {
             eprintln!("[WARN] [observability] LangSmith flush error: {e}");

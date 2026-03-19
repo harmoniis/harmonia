@@ -1,3 +1,3 @@
-mod engine;
-mod model;
-mod tmux;
+pub mod engine;
+pub mod model;
+pub mod tmux;

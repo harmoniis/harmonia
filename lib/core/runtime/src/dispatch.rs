@@ -191,6 +191,7 @@ pub fn dispatch(component: &str, sexp: &str) -> String {
         "harmonic-matrix" => dispatch_matrix(sexp),
         "observability" => dispatch_observability(sexp),
         "provider-router" => dispatch_provider_router(sexp),
+        "parallel" => dispatch_parallel(sexp),
         _ => format!("(:error \"unknown component: {}\")", component),
     }
 }
@@ -261,6 +262,81 @@ fn dispatch_provider_router(sexp: &str) -> String {
         }
         _ => format!(
             "(:error \"unknown provider-router op: {}\")",
+            op.unwrap_or_default()
+        ),
+    }
+}
+
+// ── Parallel Agents ──────────────────────────────────────────────────
+
+fn dispatch_parallel(sexp: &str) -> String {
+    let op = extract_keyword(sexp, ":op");
+    match op.as_deref() {
+        Some("init") => {
+            // Already initialized via init_all
+            "(:ok)".to_string()
+        }
+        Some("submit") => {
+            let prompt = extract_string(sexp, ":prompt").unwrap_or_default();
+            let model = extract_string(sexp, ":model").unwrap_or_default();
+            match harmonia_parallel_agents::engine::submit(&prompt, &model) {
+                Ok(task_id) => format!("(:ok :task-id {})", task_id),
+                Err(e) => format!("(:error \"{}\")", esc(&e)),
+            }
+        }
+        Some("run-pending") => {
+            let max = extract_string(sexp, ":max-parallel")
+                .and_then(|s| s.parse::<i32>().ok())
+                .unwrap_or(3);
+            match harmonia_parallel_agents::engine::run_pending(max) {
+                Ok(()) => "(:ok)".to_string(),
+                Err(e) => format!("(:error \"{}\")", esc(&e)),
+            }
+        }
+        Some("run-pending-async") => {
+            let max = extract_string(sexp, ":max-parallel")
+                .and_then(|s| s.parse::<i32>().ok())
+                .unwrap_or(3);
+            match harmonia_parallel_agents::engine::run_pending_async(max) {
+                Ok(assignments) => {
+                    let items: Vec<String> = assignments
+                        .iter()
+                        .map(|(tid, aid, model)| {
+                            format!(
+                                "(:task-id {} :actor-id {} :model \"{}\")",
+                                tid,
+                                aid,
+                                esc(model)
+                            )
+                        })
+                        .collect();
+                    format!("(:ok :assignments ({}))", items.join(" "))
+                }
+                Err(e) => format!("(:error \"{}\")", esc(&e)),
+            }
+        }
+        Some("task-result") => {
+            let id = extract_string(sexp, ":task-id")
+                .and_then(|s| s.parse::<i64>().ok())
+                .unwrap_or(0);
+            match harmonia_parallel_agents::engine::task_result(id) {
+                Ok(result) => format!("(:ok :result \"{}\")", esc(&result)),
+                Err(e) => format!("(:error \"{}\")", esc(&e)),
+            }
+        }
+        Some("report") => match harmonia_parallel_agents::engine::report() {
+            Ok(r) => format!("(:ok :result \"{}\")", esc(&r)),
+            Err(e) => format!("(:error \"{}\")", esc(&e)),
+        },
+        Some("set-model-price") => {
+            let model = extract_string(sexp, ":model").unwrap_or_default();
+            let in_price = parse_f64(sexp, ":in-price");
+            let out_price = parse_f64(sexp, ":out-price");
+            let _ = harmonia_parallel_agents::engine::set_model_price(&model, in_price, out_price);
+            "(:ok)".to_string()
+        }
+        _ => format!(
+            "(:error \"unknown parallel op: {}\")",
             op.unwrap_or_default()
         ),
     }

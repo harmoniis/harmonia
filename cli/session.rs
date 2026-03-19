@@ -1,7 +1,9 @@
 use crate::start;
 use console::{style, Term};
 use crossterm::{
-    cursor::{self, Hide, MoveTo, MoveToColumn, RestorePosition, SavePosition, Show},
+    cursor::{
+        self, Hide, MoveTo, MoveToColumn, RestorePosition, SavePosition, SetCursorStyle, Show,
+    },
     event::{self, Event, KeyCode, KeyEvent, KeyModifiers},
     queue,
     style::Print,
@@ -29,17 +31,24 @@ const LOGO: &str = r#"
 "#;
 
 // ── Colors ────────────────────────────────────────────────────────────
+// Harmonia gradient: violet → dark blue → cyan → cyan-green
 
 const CYAN: &str = "\x1b[36m";
 const BOLD_CYAN: &str = "\x1b[1;36m";
 const GREEN: &str = "\x1b[32m";
-const BOLD_GREEN: &str = "\x1b[1;32m";
 const DIM: &str = "\x1b[2m";
 const BOLD: &str = "\x1b[1m";
 const RESET: &str = "\x1b[0m";
 const RED: &str = "\x1b[31m";
 const YELLOW: &str = "\x1b[33m";
 const BOLD_WHITE: &str = "\x1b[1;37m";
+
+// Harmonia brand gradient (256-color / true-color)
+const VIOLET: &str = "\x1b[38;2;138;92;246m"; // #8A5CF6
+const DARK_BLUE: &str = "\x1b[38;2;79;108;220m"; // #4F6CDC
+const TEAL: &str = "\x1b[38;2;45;160;200m"; // #2DA0C8
+const CYAN_GREEN: &str = "\x1b[38;2;52;211;178m"; // #34D3B2
+const DIM_VIOLET: &str = "\x1b[2;38;2;138;92;246m"; // dimmed violet
 
 pub fn run() -> Result<(), Box<dyn std::error::Error>> {
     let term = Term::stderr();
@@ -135,7 +144,7 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
                         let _ = queue!(err, MoveToColumn(0), Clear(ClearType::CurrentLine));
                         let _ = err.flush();
                         eprintln!();
-                        eprintln!("  {BOLD_CYAN}╭─{RESET} {DIM}{assistant_label}{RESET}");
+                        eprintln!("  {VIOLET}╭─{RESET} {DIM}{assistant_label}{RESET}");
                         in_response = true;
                     }
 
@@ -157,7 +166,7 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
                         let mut err = std::io::stderr();
                         let _ = queue!(err, MoveToColumn(0), Clear(ClearType::CurrentLine));
                         let _ = err.flush();
-                        eprintln!("  {BOLD_CYAN}╰─{RESET}");
+                        eprintln!("  {VIOLET}╰─{RESET}");
                         eprintln!();
                         in_response = false;
                         let _ = std::io::stderr().flush();
@@ -171,7 +180,7 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
 
         // Clean up if we were mid-response when connection dropped
         if in_response {
-            eprintln!("  {BOLD_CYAN}╰─{RESET}");
+            eprintln!("  {VIOLET}╰─{RESET}");
             eprintln!();
             let _ = std::io::stderr().flush();
             waiting_reader.store(false, Ordering::Release);
@@ -196,8 +205,11 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
     let _ = writer_stream.shutdown(std::net::Shutdown::Both);
     let _ = reader_handle.join();
 
+    // Restore default cursor style
+    let _ = std::io::stderr().execute(SetCursorStyle::DefaultUserShape);
+
     eprintln!();
-    eprintln!("  {BOLD_CYAN}◆{RESET} Goodbye.");
+    eprintln!("  {VIOLET}◆{RESET} Goodbye.");
     eprintln!();
 
     result
@@ -328,14 +340,14 @@ fn dispatch_input(
     // Print user message echo
     eprintln!();
     eprintln!(
-        "  {BOLD_GREEN}╭─{RESET} {DIM}you@{}{RESET}",
+        "  {CYAN_GREEN}╭─{RESET} {DIM}you@{}{RESET}",
         session.identity.node_label
     );
-    let user_prefix = format!("  {GREEN}│{RESET} ");
+    let user_prefix = format!("  {CYAN_GREEN}│{RESET} ");
     for line in trimmed.lines() {
         print_wrapped(line, &user_prefix, &user_prefix, "");
     }
-    eprintln!("  {BOLD_GREEN}╰─{RESET}");
+    eprintln!("  {CYAN_GREEN}╰─{RESET}");
 
     // Send to daemon
     send_to_daemon(writer, trimmed, waiting, running)?;
@@ -924,6 +936,36 @@ fn term_width() -> u16 {
     crossterm::terminal::size().map(|(w, _)| w).unwrap_or(80)
 }
 
+/// Build a gradient line of repeated `ch` across `count` columns.
+/// Colors: violet → dark blue → teal → cyan-green
+fn gradient_line(ch: &str, count: usize) -> String {
+    if count == 0 {
+        return String::new();
+    }
+    // Gradient stops: (r, g, b) at position 0.0 .. 1.0
+    const STOPS: [(f32, f32, f32); 4] = [
+        (138.0, 92.0, 246.0), // violet   #8A5CF6
+        (79.0, 108.0, 220.0), // dark blue #4F6CDC
+        (45.0, 160.0, 200.0), // teal     #2DA0C8
+        (52.0, 211.0, 178.0), // cyan-green #34D3B2
+    ];
+    let mut out = String::with_capacity(count * 20);
+    for i in 0..count {
+        let t = i as f32 / (count.max(1) - 1).max(1) as f32;
+        let seg = t * (STOPS.len() - 1) as f32;
+        let idx = (seg as usize).min(STOPS.len() - 2);
+        let frac = seg - idx as f32;
+        let (r1, g1, b1) = STOPS[idx];
+        let (r2, g2, b2) = STOPS[idx + 1];
+        let r = (r1 + (r2 - r1) * frac) as u8;
+        let g = (g1 + (g2 - g1) * frac) as u8;
+        let b = (b1 + (b2 - b1) * frac) as u8;
+        out.push_str(&format!("\x1b[38;2;{r};{g};{b}m{ch}"));
+    }
+    out.push_str(RESET);
+    out
+}
+
 fn char_len(input: &str) -> usize {
     input.chars().count()
 }
@@ -1137,22 +1179,23 @@ fn draw_prompt(
 ) -> Result<u16, Box<dyn std::error::Error>> {
     let mut err = std::io::stderr();
     let width = term_width() as usize;
-    let inner = if width > 8 { width - 6 } else { 40 };
-    let view_w = if inner > 2 { inner - 2 } else { inner };
+    let content_width = if width > 4 { width - 4 } else { 40 }; // 2 left margin + 2 right margin
+    let view_w = content_width;
 
     let (lines, cursor_line, cursor_col) = wrap_input(input, cursor_pos, view_w);
     let num_lines = lines.len();
-    let box_height = 2 + num_lines as u16;
-    let bar = "─".repeat(inner);
+    let box_height = 2 + num_lines as u16; // top bar + content lines + bottom bar
+    let bar_width = width.saturating_sub(2);
+    let gradient_bar = gradient_line("─", bar_width);
 
     queue!(err, Hide)?;
 
-    // Top border
+    // Top border — full width, gradient
     queue!(
         err,
         MoveTo(0, box_row),
         Clear(ClearType::CurrentLine),
-        Print(format!("  {DIM}╭{bar}╮{RESET}"))
+        Print(format!(" {gradient_bar}{RESET}"))
     )?;
 
     // Content lines
@@ -1162,19 +1205,17 @@ fn draw_prompt(
             err,
             MoveTo(0, box_row + 1 + i as u16),
             Clear(ClearType::CurrentLine),
-            Print(format!(
-                "  {DIM}│{RESET} {BOLD_WHITE}{line}{RESET}{pad} {DIM}│{RESET}"
-            ))
+            Print(format!("  {BOLD_WHITE}{line}{RESET}{pad}"))
         )?;
     }
 
-    // Bottom border
+    // Bottom border — full width, gradient
     let bottom_row = box_row + 1 + num_lines as u16;
     queue!(
         err,
         MoveTo(0, bottom_row),
         Clear(ClearType::CurrentLine),
-        Print(format!("  {DIM}╰{bar}╯{RESET}"))
+        Print(format!(" {gradient_bar}{RESET}"))
     )?;
 
     // Clear leftover rows when box shrinks
@@ -1184,20 +1225,22 @@ fn draw_prompt(
         }
     }
 
-    // Position cursor
+    // Position cursor inside content area — steady block style
     queue!(
         err,
+        SetCursorStyle::SteadyBlock,
         Show,
-        MoveTo(4 + cursor_col as u16, box_row + 1 + cursor_line as u16)
+        MoveTo(2 + cursor_col as u16, box_row + 1 + cursor_line as u16)
     )?;
 
     err.flush()?;
     Ok(box_height)
 }
 
-/// Show thinking spinner while allowing the user to type ahead.
+/// Show thinking spinner with a persistent input box below it.
+/// The input box stays visible and functional — user can type ahead.
 /// Returns Some(text) if the user submitted input during thinking, None otherwise.
-/// Empty-enter (no text) is silently ignored — no duplicate spinners.
+/// Empty-enter (no text) is silently ignored.
 fn show_thinking_spinner_with_input(
     waiting: &Arc<AtomicBool>,
     running: &Arc<AtomicBool>,
@@ -1205,28 +1248,44 @@ fn show_thinking_spinner_with_input(
     let dots = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
     let mut i = 0;
     let mut input_buf = String::new();
-    let mut typing = false;
+    let mut cursor_pos: usize = 0;
 
     let _ = terminal::enable_raw_mode();
 
-    while waiting.load(Ordering::Acquire) && running.load(Ordering::Relaxed) {
-        // Show spinner (or spinner + partial input)
-        if typing {
-            eprint!(
-                "\r  {CYAN}{}{RESET} {DIM}thinking...{RESET}  {BOLD_WHITE}{}{RESET}\x1b[K",
-                dots[i % dots.len()],
-                input_buf
-            );
-        } else {
-            eprint!(
-                "\r  {CYAN}{}{RESET} {DIM}thinking...{RESET}\x1b[K",
-                dots[i % dots.len()]
-            );
+    // Reserve space: 1 row for spinner + 3 rows for input box (top border, content, bottom border)
+    let (_, term_h) = terminal::size().unwrap_or((80, 24));
+    let (_, cur_row) = cursor::position().unwrap_or((0, 0));
+    let needed: u16 = 4; // spinner + 3-line box minimum
+    let spinner_row = if cur_row + needed >= term_h {
+        // Scroll up to make space
+        let deficit = (cur_row + needed) - term_h + 1;
+        let mut err = std::io::stderr();
+        for _ in 0..deficit {
+            let _ = write!(err, "\n");
         }
-        let _ = std::io::stderr().flush();
+        let _ = err.flush();
+        term_h.saturating_sub(needed).saturating_sub(1)
+    } else {
+        cur_row
+    };
+    let box_row = spinner_row + 1;
+    let mut box_height: u16 = 3;
+
+    // Initial draw
+    let _ = draw_spinner_line(spinner_row, dots[0], false);
+    let _ = draw_prompt(&input_buf, cursor_pos, box_row, box_height);
+
+    while waiting.load(Ordering::Acquire) && running.load(Ordering::Relaxed) {
+        // Animate spinner
+        let _ = draw_spinner_line(spinner_row, dots[i % dots.len()], !input_buf.is_empty());
+
+        // Redraw input box with current content
+        if let Ok(h) = draw_prompt(&input_buf, cursor_pos, box_row, box_height) {
+            box_height = h;
+        }
         i += 1;
 
-        // Poll for keyboard input (non-blocking, 80ms timeout for spinner animation)
+        // Poll for keyboard input (80ms = spinner frame rate)
         if event::poll(std::time::Duration::from_millis(80)).unwrap_or(false) {
             if let Ok(Event::Key(key)) = event::read() {
                 match key {
@@ -1235,6 +1294,7 @@ fn show_thinking_spinner_with_input(
                         modifiers: KeyModifiers::CONTROL,
                         ..
                     } => {
+                        clear_spinner_and_box(spinner_row, box_row, box_height);
                         running.store(false, Ordering::Relaxed);
                         let _ = terminal::disable_raw_mode();
                         let _ = std::io::stderr().execute(Show);
@@ -1245,26 +1305,65 @@ fn show_thinking_spinner_with_input(
                         modifiers,
                         ..
                     } if !modifiers.contains(KeyModifiers::CONTROL) => {
-                        input_buf.push(ch);
-                        typing = true;
+                        let byte_idx = byte_index_for_char(&input_buf, cursor_pos);
+                        input_buf.insert(byte_idx, ch);
+                        cursor_pos += 1;
                     }
                     KeyEvent {
                         code: KeyCode::Backspace,
                         ..
                     } => {
-                        input_buf.pop();
-                        typing = !input_buf.is_empty();
+                        if cursor_pos > 0 {
+                            cursor_pos -= 1;
+                            let byte_idx = byte_index_for_char(&input_buf, cursor_pos);
+                            let end_idx = byte_index_for_char(&input_buf, cursor_pos + 1);
+                            input_buf.drain(byte_idx..end_idx);
+                        }
+                    }
+                    KeyEvent {
+                        code: KeyCode::Left,
+                        ..
+                    } => {
+                        if cursor_pos > 0 {
+                            cursor_pos -= 1;
+                        }
+                    }
+                    KeyEvent {
+                        code: KeyCode::Right,
+                        ..
+                    } => {
+                        if cursor_pos < char_len(&input_buf) {
+                            cursor_pos += 1;
+                        }
+                    }
+                    KeyEvent {
+                        code: KeyCode::Home,
+                        ..
+                    }
+                    | KeyEvent {
+                        code: KeyCode::Char('a'),
+                        modifiers: KeyModifiers::CONTROL,
+                        ..
+                    } => {
+                        cursor_pos = 0;
+                    }
+                    KeyEvent {
+                        code: KeyCode::End, ..
+                    }
+                    | KeyEvent {
+                        code: KeyCode::Char('e'),
+                        modifiers: KeyModifiers::CONTROL,
+                        ..
+                    } => {
+                        cursor_pos = char_len(&input_buf);
                     }
                     KeyEvent {
                         code: KeyCode::Enter,
                         ..
                     } => {
-                        // Empty enter while thinking = ignore (no duplicate spinner)
                         if !input_buf.trim().is_empty() {
-                            // User submitted text — clear spinner line and return it
-                            let mut err = std::io::stderr();
-                            let _ = queue!(err, MoveToColumn(0), Clear(ClearType::CurrentLine));
-                            let _ = err.flush();
+                            // User submitted — clear spinner + box, return text
+                            clear_spinner_and_box(spinner_row, box_row, box_height);
                             let _ = terminal::disable_raw_mode();
                             return Some(input_buf);
                         }
@@ -1276,7 +1375,7 @@ fn show_thinking_spinner_with_input(
                         ..
                     } => {
                         input_buf.clear();
-                        typing = false;
+                        cursor_pos = 0;
                     }
                     _ => {}
                 }
@@ -1284,12 +1383,10 @@ fn show_thinking_spinner_with_input(
         }
     }
 
+    // Thinking finished — clear spinner line, leave box area clean
+    clear_spinner_and_box(spinner_row, box_row, box_height);
     let _ = terminal::disable_raw_mode();
-    let mut err = std::io::stderr();
-    let _ = queue!(err, MoveToColumn(0), Clear(ClearType::CurrentLine));
-    let _ = err.flush();
 
-    // If user was typing when response arrived, return the queued text
     if !input_buf.trim().is_empty() {
         Some(input_buf)
     } else {
@@ -1297,10 +1394,40 @@ fn show_thinking_spinner_with_input(
     }
 }
 
+fn draw_spinner_line(row: u16, dot: &str, has_queued: bool) {
+    let mut err = std::io::stderr();
+    let status = if has_queued {
+        format!("  {VIOLET}{dot}{RESET} {DIM_VIOLET}thinking...{RESET}  {DIM}(queued){RESET}")
+    } else {
+        format!("  {VIOLET}{dot}{RESET} {DIM_VIOLET}thinking...{RESET}")
+    };
+    let _ = queue!(
+        err,
+        SavePosition,
+        MoveTo(0, row),
+        Clear(ClearType::CurrentLine),
+        Print(status),
+        RestorePosition
+    );
+    let _ = err.flush();
+}
+
+fn clear_spinner_and_box(spinner_row: u16, box_row: u16, box_height: u16) {
+    let mut err = std::io::stderr();
+    // Clear spinner line
+    let _ = queue!(err, MoveTo(0, spinner_row), Clear(ClearType::CurrentLine));
+    // Clear box lines
+    for r in 0..box_height {
+        let _ = queue!(err, MoveTo(0, box_row + r), Clear(ClearType::CurrentLine));
+    }
+    let _ = queue!(err, MoveTo(0, spinner_row));
+    let _ = err.flush();
+}
+
 fn print_agent_line(line: &str) {
     // Prefix: "  │ " = 4 visible columns (2 margin + border + space)
     let prefix_col = "│";
-    let cont_prefix = format!("  {CYAN}│{RESET} ");
+    let cont_prefix = format!("  {DARK_BLUE}{prefix_col}{RESET} ");
 
     if line.starts_with("[ERROR]") || line.starts_with("Error:") {
         print_wrapped(
@@ -1324,26 +1451,26 @@ fn print_agent_line(line: &str) {
             DIM,
         );
     } else if line.starts_with("```") {
-        eprintln!("  {CYAN}{prefix_col}{RESET} {DIM}{line}{RESET}");
+        eprintln!("  {DARK_BLUE}{prefix_col}{RESET} {DIM}{line}{RESET}");
     } else if line.starts_with("# ") || line.starts_with("## ") || line.starts_with("### ") {
         print_wrapped(
             line,
-            &format!("  {CYAN}{prefix_col}{RESET} {BOLD_WHITE}"),
+            &format!("  {DARK_BLUE}{prefix_col}{RESET} {BOLD_WHITE}"),
             &cont_prefix,
             "",
         );
     } else if line.starts_with("- ") || line.starts_with("* ") {
         print_wrapped(
             &line[2..],
-            &format!("  {CYAN}{prefix_col}{RESET} {CYAN}•{RESET} "),
-            &format!("  {CYAN}{prefix_col}{RESET}   "),
+            &format!("  {DARK_BLUE}{prefix_col}{RESET} {TEAL}•{RESET} "),
+            &format!("  {DARK_BLUE}{prefix_col}{RESET}   "),
             "",
         );
     } else if line.starts_with("> ") {
         print_wrapped(
             &line[2..],
-            &format!("  {CYAN}{prefix_col}{RESET} {DIM}▎"),
-            &format!("  {CYAN}{prefix_col}{RESET} {DIM} "),
+            &format!("  {DARK_BLUE}{prefix_col}{RESET} {DIM}▎"),
+            &format!("  {DARK_BLUE}{prefix_col}{RESET} {DIM} "),
             DIM,
         );
     } else {
@@ -1395,15 +1522,18 @@ fn print_wrapped(text: &str, first_prefix: &str, cont_prefix: &str, color: &str)
 fn print_banner(term: &Term, node_label: &str, session_id: &str) {
     let width = term.size().1 as usize;
     let bar_width = width.min(56);
-    let bar = "─".repeat(bar_width);
+    let gradient_bar = gradient_line("─", bar_width);
 
     eprintln!();
 
-    // ASCII art logo in cyan
-    for line in LOGO.lines() {
-        if !line.is_empty() {
-            eprintln!("{BOLD_CYAN}{}{RESET}", line);
-        }
+    // ASCII art logo with gradient — each line shifts through the palette
+    let logo_lines: Vec<&str> = LOGO.lines().filter(|l| !l.is_empty()).collect();
+    for (i, line) in logo_lines.iter().enumerate() {
+        let t = i as f32 / logo_lines.len().max(1) as f32;
+        let r = (138.0 + (52.0 - 138.0) * t) as u8;
+        let g = (92.0 + (211.0 - 92.0) * t) as u8;
+        let b = (246.0 + (178.0 - 246.0) * t) as u8;
+        eprintln!("\x1b[1;38;2;{r};{g};{b}m{}{RESET}", line);
     }
 
     eprintln!();
@@ -1411,17 +1541,17 @@ fn print_banner(term: &Term, node_label: &str, session_id: &str) {
         "  {DIM}v{VERSION} — Distributed evolutionary homoiconic self-improving agent{RESET}"
     );
     eprintln!(
-        "  {DIM}node:{RESET} {CYAN}{node_label}{RESET}  {DIM}session:{RESET} {CYAN}{session_id}{RESET}"
+        "  {DIM}node:{RESET} {TEAL}{node_label}{RESET}  {DIM}session:{RESET} {TEAL}{session_id}{RESET}"
     );
     eprintln!();
-    eprintln!("  {DIM}{bar}{RESET}");
+    eprintln!("  {gradient_bar}");
     eprintln!();
     eprintln!("  {DIM}Type a message to continue this session with Harmonia.{RESET}");
     eprintln!(
-        "  {DIM}Use {RESET}{CYAN}/help{RESET}{DIM} for commands, {RESET}{CYAN}/exit{RESET}{DIM} to quit.{RESET}"
+        "  {DIM}Use {RESET}{TEAL}/help{RESET}{DIM} for commands, {RESET}{TEAL}/exit{RESET}{DIM} to quit.{RESET}"
     );
     eprintln!();
-    eprintln!("  {DIM}{bar}{RESET}");
+    eprintln!("  {gradient_bar}");
     eprintln!();
 }
 
