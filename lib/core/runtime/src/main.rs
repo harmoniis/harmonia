@@ -1,6 +1,7 @@
 mod actors;
 mod bridge;
 mod dispatch;
+mod init;
 mod ipc;
 mod msg;
 mod supervisor;
@@ -24,10 +25,10 @@ fn state_root() -> String {
 
 #[tokio::main]
 async fn main() {
-    // 1. Init chronicle
-    let _ = harmonia_chronicle::init();
-
     eprintln!("[INFO] [runtime] harmonia-runtime starting");
+
+    // 1. Initialize all components (frontends, backends, tools, core)
+    let (init_ok, init_total) = init::init_all();
 
     // 2. Determine socket path
     let socket_path = env::var("HARMONIA_RUNTIME_SOCKET")
@@ -120,13 +121,9 @@ async fn main() {
     ));
     let _ = supervisor_ref.cast(msg::RuntimeMsg::RegisterMatrixActor(matrix_for_supervisor));
 
-    // Start TUI session socket (harmonia.sock for CLI session connections)
-    match harmonia_tui::terminal::init() {
-        Ok(()) => eprintln!("[INFO] [runtime] TUI session listener started"),
-        Err(e) => eprintln!("[WARN] [runtime] TUI session listener failed: {e}"),
-    }
-
-    eprintln!("[INFO] [runtime] All actors spawned, starting IPC server");
+    eprintln!(
+        "[INFO] [runtime] All actors spawned ({init_ok}/{init_total} components), starting IPC server"
+    );
 
     // 6. Spawn IPC listener
     let ipc_sup = supervisor_ref.clone();

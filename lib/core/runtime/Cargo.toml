@@ -15,6 +15,7 @@ name = "harmonia-runtime"
 path = "src/main.rs"
 
 [dependencies]
+# Core infrastructure
 harmonia-actor-protocol = { version = "0.1.9", path = "../actor-protocol" }
 harmonia-config-store = { version = "0.1.9", path = "../config-store" }
 harmonia-chronicle = { version = "0.1.9", path = "../chronicle" }
@@ -24,7 +25,38 @@ harmonia-tailnet = { version = "0.1.9", path = "../tailnet" }
 harmonia-signalograd = { version = "0.1.1", path = "../signalograd" }
 harmonia-harmonic-matrix = { version = "0.1.9", path = "../harmonic-matrix" }
 harmonia-observability = { version = "0.1.9", path = "../observability" }
+harmonia-memory = { version = "0.1.9", path = "../memory" }
+
+# Frontends
 harmonia-tui = { version = "0.1.9", path = "../../frontends/tui" }
+harmonia-mqtt-client = { version = "0.1.9", path = "../../frontends/mqtt-client" }
+harmonia-http2-mtls = { version = "0.1.9", path = "../../frontends/http2-mtls" }
+harmonia-telegram = { version = "0.1.9", path = "../../frontends/telegram" }
+harmonia-slack = { version = "0.1.9", path = "../../frontends/slack" }
+harmonia-signal = { version = "0.1.1", path = "../../frontends/signal" }
+harmonia-discord = { version = "0.1.1", path = "../../frontends/discord" }
+harmonia-mattermost = { version = "0.1.9", path = "../../frontends/mattermost" }
+harmonia-nostr = { version = "0.1.9", path = "../../frontends/nostr" }
+harmonia-email-client = { version = "0.1.9", path = "../../frontends/email-client" }
+harmonia-whatsapp = { version = "0.1.9", path = "../../frontends/whatsapp" }
+harmonia-imessage = { version = "0.1.9", path = "../../frontends/imessage" }
+harmonia-tailscale-frontend = { version = "0.1.9", path = "../../frontends/tailscale" }
+harmonia-push = { version = "0.1.9", path = "../../frontends/push" }
+
+# Backends
+harmonia-provider-router = { version = "0.1.9", path = "../../backends/llms/provider-router" }
+harmonia-voice-router = { version = "0.1.9", path = "../../backends/voice/voice-router" }
+harmonia-http = { version = "0.1.9", path = "../../backends/http" }
+harmonia-s3 = { version = "0.1.9", path = "../../backends/storage/s3" }
+
+# Tools
+harmonia-browser = { version = "2.1.0", path = "../../tools/browser" }
+harmonia-search-exa = { version = "0.1.9", path = "../../tools/search-exa" }
+harmonia-search-brave = { version = "0.1.9", path = "../../tools/search-brave" }
+harmonia-hfetch = { version = "0.1.9", path = "../../tools/hfetch" }
+harmonia-zoom = { version = "0.1.1", path = "../../tools/zoom" }
+
+# Actor framework
 ractor = "0.15"
 tokio = { version = "1.44", features = ["rt-multi-thread", "macros", "process", "signal", "time", "sync", "net", "io-util"] }
 serde_json = "1"
