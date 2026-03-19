@@ -1078,9 +1078,17 @@ Delegation chain: ~{~A~^, ~}~%~%TASK: ~A"
                       ;; === SMART DELEGATION GATE ===
                       ;; Internal questions about the system → answer directly (no swarm)
                       ;; Action tasks (coding, writing, etc.) → delegate to swarm
-                      (when (and (not *current-originating-signal*)
-                                 (%internal-question-p prompt)
-                                 (not (%task-needs-delegation-p prompt)))
+                      (when (or
+                             ;; Internal/TUI prompts: answer internal questions directly
+                             (and (not *current-originating-signal*)
+                                  (%internal-question-p prompt)
+                                  (not (%task-needs-delegation-p prompt)))
+                             ;; Owner signals (TUI): use direct answer for everything
+                             ;; (parallel-agents swarm not yet stable over IPC)
+                             (and *current-originating-signal*
+                                  (eq :owner (ignore-errors
+                                               (harmonia-signal-security-label
+                                                *current-originating-signal*)))))
                         (when (%trace-level-p :standard)
                           (trace-event "delegation-direct" :chain
                                        :metadata (list :model (model-policy-orchestrator-model)

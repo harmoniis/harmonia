@@ -186,8 +186,11 @@
   (%supervised-action "gateway-poll"
     (lambda ()
       (let ((envelopes (gateway-poll)))
+        (when envelopes
+          (%log :info "tick" "Processing ~D envelopes" (length envelopes)))
         (when (listp envelopes)
           (dolist (envelope envelopes)
+            (%log :info "tick" "Envelope: ~A" (write-to-string envelope :length 200))
             (let* ((signal-struct (%make-harmonia-signal-from-envelope envelope))
                    (dissonance (harmonia-signal-dissonance signal-struct))
                    (frontend (ignore-errors (harmonia-signal-frontend signal-struct)))
@@ -207,6 +210,8 @@
                   (security-note-event
                    :frontend (or channel-kind "unknown")
                    :injection-count (%dissonance->injection-count dissonance))))
+              (%log :info "tick" "Enqueuing signal from ~A payload-len=~D"
+                    (or frontend "?") (or payload-length 0))
               (setf (runtime-state-prompt-queue runtime)
                     (nconc (runtime-state-prompt-queue runtime)
                            (list signal-struct)))))))
@@ -442,6 +447,24 @@
       (let ((registry (runtime-state-actor-registry runtime))
             (remaining '())
             (groups (make-hash-table :test 'eql)))
+        ;; Pass 0: poll Rust engine for completed tasks and update records
+        (dolist (actor-id (runtime-state-actor-pending runtime))
+          (let ((record (gethash actor-id registry)))
+            (when (and record (eq (actor-record-state record) :running))
+              (ignore-errors
+                (let ((result (parallel-task-result actor-id)))
+                  (when (and result (stringp result) (> (length result) 0)
+                             (not (search "pending" result))
+                             (not (search "running" result)))
+                    (let ((parsed (%swarm-parse-task-result result (actor-record-model record))))
+                      (when parsed
+                        (setf (actor-record-state record)
+                              (if (getf parsed :success) :completed :failed))
+                        (setf (actor-record-result record) (getf parsed :text))
+                        (setf (actor-record-duration-ms record)
+                              (or (getf parsed :latency-ms) 0))
+                        (setf (actor-record-cost-usd record)
+                              (or (getf parsed :cost-usd) 0.0))))))))))
         ;; Pass 1: partition pending actors into groups and singletons
         (dolist (actor-id (runtime-state-actor-pending runtime))
           (let ((record (gethash actor-id registry)))

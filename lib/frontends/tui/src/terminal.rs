@@ -127,9 +127,7 @@ pub fn init() -> Result<(), String> {
     // Accept connections in background thread
     let handle = Arc::clone(st);
     thread::spawn(move || {
-        eprintln!("[DEBUG] [tui] Listener thread started, waiting for connections");
         for stream in listener.incoming() {
-            eprintln!("[DEBUG] [tui] Incoming connection");
             // Check if we should stop
             {
                 let guard = match handle.read() {
@@ -142,7 +140,6 @@ pub fn init() -> Result<(), String> {
             }
             match stream {
                 Ok(stream) => {
-                    eprintln!("[DEBUG] [tui] Client connected, spawning reader");
                     let reader_stream = match stream.try_clone() {
                         Ok(s) => s,
                         Err(_) => continue,
@@ -158,15 +155,10 @@ pub fn init() -> Result<(), String> {
                     let queue_handle = Arc::clone(&handle);
                     let writer_for_cleanup = Arc::clone(&writer);
                     thread::spawn(move || {
-                        eprintln!("[DEBUG] [tui] Reader thread started");
                         let reader = BufReader::new(reader_stream);
                         for line_result in reader.lines() {
                             match line_result {
                                 Ok(line) => {
-                                    eprintln!(
-                                        "[DEBUG] [tui] Received line: {}",
-                                        &line[..line.len().min(50)]
-                                    );
                                     if let Ok(mut guard) = queue_handle.write() {
                                         guard.inbound_queue.push_back(line);
                                     }
