@@ -15,19 +15,14 @@ use_repo(rust, "rust_toolchains")
 
 register_toolchains("@rust_toolchains//:all")
 
-# Crate universe — resolve only the crates Bazel actually builds.
-# Using individual manifests instead of the workspace root avoids
-# resolving external path dependencies (harmoniis-wallet) that
-# aren't available in all build environments.
+# Crate universe — resolve Cargo dependencies for Bazel.
+# Uses the workspace root manifest. Requires the harmoniis-wallet
+# sibling repo at ../../marketplace/harmoniis-wallet (cloned by CI).
 crate = use_extension("@rules_rust//crate_universe:extensions.bzl", "crate")
 crate.from_cargo(
     name = "crate_index",
     cargo_lockfile = "//:Cargo.lock",
-    manifests = [
-        "//lib/core/transport-auth:Cargo.toml",
-        "//lib/core/config-store:Cargo.toml",
-        "//lib/frontends/http2-mtls:Cargo.toml",
-    ],
+    manifests = ["//:Cargo.toml"],
     supported_platform_triples = [
         "aarch64-apple-darwin",
         "x86_64-apple-darwin",

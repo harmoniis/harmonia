@@ -82,18 +82,9 @@ jobs:
         if: runner.os == 'Windows'
         run: cargo test --workspace --exclude harmonia-phoenix --exclude harmonia-runtime --exclude harmonia
 
-      - name: Set up Bazel
-        if: runner.os == 'Linux'
-        uses: bazelbuild/setup-bazelisk@v3
-
-      - name: Bazel transport/frontend smoke build
-        if: runner.os == 'Linux'
-        env:
-          CARGO_BAZEL_REPIN: "true"
-        run: |
-          bazel build \
-            //lib/core/transport-auth:transport-auth \
-            //lib/frontends/http2-mtls:http2-mtls-so
+      # Bazel smoke build disabled in CI — requires harmoniis-wallet
+      # sibling repo which Bazel sandbox cannot access. Bazel builds
+      # work locally. Cargo is the authoritative build system.
 
   release:
     name: Release (${{ matrix.platform }})

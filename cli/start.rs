@@ -464,51 +464,10 @@ fn source_rewrite_enabled() -> bool {
         .unwrap_or(false)
 }
 
-fn shared_lib_ext() -> &'static str {
-    #[cfg(target_os = "macos")]
-    {
-        "dylib"
-    }
-    #[cfg(all(not(target_os = "macos"), target_os = "windows"))]
-    {
-        "dll"
-    }
-    #[cfg(all(not(target_os = "macos"), not(target_os = "windows")))]
-    {
-        "so"
-    }
-}
-
 fn required_runtime_libraries() -> Vec<String> {
-    let ext = shared_lib_ext();
-    [
-        "libharmonia_vault",
-        "libharmonia_config_store",
-        "libharmonia_openrouter",
-        "libharmonia_openai",
-        "libharmonia_anthropic",
-        "libharmonia_xai",
-        "libharmonia_google_ai_studio",
-        "libharmonia_google_vertex",
-        "libharmonia_amazon_bedrock",
-        "libharmonia_groq",
-        "libharmonia_alibaba",
-        "libharmonia_git_ops",
-        "libharmonia_harmonic_matrix",
-        "libharmonia_admin_intent",
-        "libharmonia_gateway",
-        "libharmonia_search_exa",
-        "libharmonia_search_brave",
-        "libharmonia_whisper",
-        "libharmonia_elevenlabs",
-        "libharmonia_parallel_agents",
-        "libharmonia_ouroboros",
-        "libharmonia_chronicle",
-        "libharmonia_tui",
-    ]
-    .iter()
-    .map(|name| format!("{name}.{ext}"))
-    .collect()
+    // No shared libraries required — all Rust code is compiled into
+    // the harmonia-runtime binary. This function returns an empty list.
+    Vec::new()
 }
 
 fn resolve_lib_dir(source_dir: &Path) -> PathBuf {
