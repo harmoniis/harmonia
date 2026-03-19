@@ -224,90 +224,71 @@
       (when (and result (stringp result))
         result))))
 
-(defun %phoenix-health-formatted ()
-  "Query Phoenix health and return formatted string for TUI display."
-  (let ((raw (%phoenix-health)))
-    (if raw
-        (format nil "  ~A" raw)
-        "  Phoenix health endpoint unreachable (127.0.0.1:9100)")))
-
 (defun %phoenix-identity-block ()
-  "Compact Phoenix identity block injected into ALL DNA prompt modes.
-   Prevents hallucination about Elixir Phoenix."
+  "Self-knowledge about the process architecture.
+   Injected into every DNA prompt so the agent knows its own shape."
   "
-PHOENIX PROCESS SUPERVISOR (CRITICAL — READ THIS)
-'Phoenix' in Harmonia means YOUR OWN process supervisor (harmonia-phoenix),
-NOT the Elixir/Erlang web framework. Never confuse them.
-Phoenix is the root daemon that supervises all Harmonia processes:
-  Phoenix (ractor supervisor, health HTTP at 127.0.0.1:9100)
-    +-- harmonia-runtime (Rust binary, ractor actors, IPC via Unix socket)
-    +-- sbcl-agent (you — this SBCL process)
+SELF-KNOWLEDGE: PROCESS ARCHITECTURE
+You are the SBCL orchestrator within a supervised process tree.
+Your supervisor is Phoenix (harmonia-phoenix), a ractor-based daemon
+that manages your lifecycle and the lifecycle of all sibling processes.
+
+  Phoenix (process supervisor, health at 127.0.0.1:9100)
+    +-- harmonia-runtime (Rust actors, IPC via Unix socket)
+    +-- sbcl-agent (you)
     +-- provision-server
-To check your own health status: use hfetch on http://127.0.0.1:9100/health
-The response is JSON with: mode (Full/Starting/Degraded/CoreOnly), uptime, subsystem states.
-The /status command shows Phoenix health. The /diagnose command runs deep self-diagnosis.
-When asked about your health, crashes, or Phoenix — ALWAYS query the real endpoint first.
-Never fabricate health data. If the endpoint is unreachable, say so honestly.")
+
+Self-diagnosis commands (run from your own TUI or shell):
+  /status     — system overview including Phoenix daemon health
+  /diagnose   — deep self-diagnosis: daemon, modules, errors, runtime
+
+CLI equivalents (the operator can also run these externally):
+  harmonia status    — queries Phoenix health endpoint, prints daemon mode
+  harmonia diagnose  — same as /diagnose but from the command line
+
+Phoenix daemon modes:
+  Full     — all subsystems healthy
+  Starting — subsystems coming up
+  Degraded — a non-core subsystem failed, core intact
+  CoreOnly — a core subsystem failed
+
+When you need to understand your own state — whether after an error,
+a restart, or simply to answer a question about your health — use
+/status or /diagnose. These give you real data. Do not guess.")
 
 (defun %runtime-self-knowledge ()
-  "Generate a block of self-knowledge text for the DNA system prompt.
-   Tells the agent what it is, where things are, and how to fix itself."
+  "Full self-knowledge for :rewrite mode. Includes paths, capabilities, debugging."
   (format nil
 "RUNTIME SELF-KNOWLEDGE
-CRITICAL: 'Phoenix' means YOUR process supervisor (harmonia-phoenix at 127.0.0.1:9100), NOT the Elixir web framework.
-Platform: ~A
-Source: ~A
-State: ~A
-Logs: ~A
+Platform: ~A | Source: ~A | State: ~A | Logs: ~A
 
 PROCESS ARCHITECTURE
-You (SBCL) are supervised by Phoenix, which manages all Harmonia processes.
-Phoenix is the root process (PID 1 of the agent) that reads phoenix.toml
-and supervises: harmonia-runtime, sbcl-agent (you), and provision-server.
-
-  Phoenix (ractor supervisor, writes phoenix.pid, health HTTP at 127.0.0.1:9100)
-    ├─ harmonia-runtime (Rust binary, all ractor actors, IPC via Unix socket)
-    ├─ sbcl-agent (you — this SBCL process)
-    └─ provision-server
-
+Phoenix (harmonia-phoenix) is your process supervisor.
+It reads phoenix.toml and manages: harmonia-runtime, sbcl-agent (you), provision-server.
 You communicate with Rust actors via IPC (Unix domain socket at $STATE_ROOT/runtime.sock).
-All Rust crates are compiled as rlib into harmonia-runtime — no more cdylib/FFI/dlopen.
 
-PHOENIX HEALTH ENDPOINT
-  GET http://127.0.0.1:9100/health     → JSON: mode, uptime, all subsystem states
-  GET http://127.0.0.1:9100/health/ready → 200 if Full, 503 otherwise
+SELF-DIAGNOSIS
+  /status     — overview with Phoenix health, runtime state, frontends, tools
+  /diagnose   — deep report: daemon health, modules, errors, security, signalograd
+  CLI: harmonia status | harmonia diagnose (same data, from operator shell)
 
-  Daemon modes:
-    Full     — all subsystems running, system healthy
-    Starting — subsystems still coming up
-    Degraded — non-core subsystem failed, core OK
-    CoreOnly — a core subsystem failed
+SELF-REPAIR
+- (introspect-runtime)          — full diagnostic snapshot including Phoenix health
+- (introspect-recent-errors N)  — last N errors with context
+- (introspect-libs)             — loaded modules and crash counts
+- (%cargo-build-component name) — recompile a single crate
+- (%record-lib-crash name msg)  — log a module failure
+- ouroboros: write patch, validate with rust-forge, snapshot, reload
 
-  To check your own status: (hfetch \"http://127.0.0.1:9100/health\")
-  The health endpoint is localhost-only (127.0.0.1), PIDs are redacted.
+CORE LOOP (src/core/loop.lisp)
+Tick-based, never crashes, all actions wrapped in handler-case.
+Each tick: gateway-poll -> process-prompt -> memory-heartbeat -> harmonic-step -> gateway-flush
 
-SELF-REPAIR CAPABILITIES
-- Check Phoenix health: (hfetch \"http://127.0.0.1:9100/health\") — your daemon status
-- Read logs: (introspect-runtime) returns full diagnostic snapshot
-- View errors: (introspect-recent-errors N) returns last N errors with context
-- Library status: (introspect-libs) shows loaded modules and crash counts
-- Rebuild component: (%cargo-build-component \"crate-name\") compiles a single crate
-- Record crash: (%record-lib-crash \"name\" \"detail\") logs a module failure
-- Source rewrite via ouroboros: write patch, validate with rust-forge, snapshot version
-
-CORE LOOP
-- src/core/loop.lisp — tick-based, never crashes, all actions wrapped in handler-case
-- Each tick: gateway-poll -> process-prompt -> memory-heartbeat -> harmonic-step -> gateway-flush
-
-DEBUGGING GUIDE
-- Check Phoenix status: (hfetch \"http://127.0.0.1:9100/health\") — JSON with mode + subsystems
-- Check logs: tail -f ~A
-- Check library health: (introspect-libs)
-- Check recent errors: (introspect-recent-errors 10)
-- If orchestration fails: check (introspect-recent-errors) for backend errors
-- If memory/config issues: check state-root ~A for vault.db, config.db
-- To recompile: (%cargo-build-component \"harmonia-runtime\") from source root
-- If Phoenix shows Degraded/CoreOnly: operator should run 'harmonia status' from CLI"
+DEBUGGING
+- /status and /diagnose for live system state
+- tail -f ~A for logs
+- state-root ~A for vault.db, config.db
+- (%cargo-build-component \"harmonia-runtime\") to recompile"
           (%platform-name)
           (or (%source-root) "unknown")
           (or (%state-root) "unknown")

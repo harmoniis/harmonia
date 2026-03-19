@@ -920,17 +920,16 @@ CONTEXT END")))
 - context-summarizer: ~A~%~
 - active actors: ~A~%~
 - swarm tmux status: ~A~%~
-- phoenix-health: ~A~%~
+- phoenix daemon: ~A~%~
 - signalograd projection: ~A~%~
-- capabilities: ~A~%~
-NOTE: 'Phoenix' = your process supervisor (harmonia-phoenix), NOT the Elixir framework.~%"
+- capabilities: ~A~%"
             orch-model provider
             cli-prefs
             seed-models
             (model-policy-context-summarizer-model)
             (or actors "(none)")
             (or swarm-status "(none)")
-            (or (ignore-errors (%phoenix-health)) "(unreachable — Phoenix at 127.0.0.1:9100)")
+            (or (ignore-errors (%phoenix-health)) "(unreachable)")
             (or (ignore-errors (signalograd-current-projection *runtime*)) "(not loaded)")
             (let ((caps (load-prompt :evolution :system-capabilities)))
               (if (listp caps)
