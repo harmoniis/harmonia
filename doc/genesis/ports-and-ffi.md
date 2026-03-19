@@ -31,6 +31,8 @@ SBCL communicates with `harmonia-runtime` via a Unix domain socket at `$STATE_RO
 - Messages are length-prefixed s-expressions.
 - Socket permissions are restricted to owner-only (0600).
 - The `SbclBridgeActor` inside `harmonia-runtime` handles the Rust side of the socket, with drain-queue semantics.
+- `dispatch.rs` (689 lines, 50+ ops) routes IPC messages to 7 component domains: **vault**, **config**, **chronicle**, **gateway**, **signalograd**, **tailnet**, **harmonic-matrix**.
+- SBCL side: `ipc-client.lisp` (socket transport, auto-reconnect), `ipc-ports.lisp` (typed port accessors for `ipc-vault-*`, `ipc-config-*`, etc.), and all 14 port files use IPC exclusively.
 
 ## Core Contract Rule
 

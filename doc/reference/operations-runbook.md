@@ -9,23 +9,34 @@
 
 ### 1.0 Phoenix Lifecycle
 
-Phoenix is the ractor-based process supervisor managing all child processes. CLI lifecycle commands:
+Phoenix is the ractor-based process supervisor managing all child processes.
 
 ```bash
-# Start Phoenix (and all child processes)
+# Start: Phoenix spawns harmonia-runtime + sbcl-agent + provision-server
 harmonia start
 
-# Stop Phoenix (graceful shutdown of all children)
+# Stop: SIGTERM to Phoenix → graceful shutdown cascade of all children
 harmonia stop
 
-# Restart Phoenix
+# Restart: stop + start
 harmonia restart
 
-# Query Phoenix health endpoint (GET 127.0.0.1:9100/health)
+# Status: queries Phoenix health endpoint at 127.0.0.1:9100
 harmonia status
 ```
 
-Phoenix writes a pidfile and manages: `harmonia-runtime` (Rust binary), `sbcl-agent` (Lisp orchestrator), and `provision-server`.
+Phoenix writes a pidfile and manages: `harmonia-runtime` (Rust binary, 7 ractor actors), `sbcl-agent` (Lisp orchestrator), and `provision-server`.
+
+### 1.0.1 Health Endpoint
+
+- `GET /health` — JSON response with subsystem status (PIDs redacted).
+- `GET /health/ready` — returns 200 when all subsystems are healthy, 503 otherwise.
+- Binds to `127.0.0.1:9100` only (localhost, no remote access).
+
+### 1.0.2 Self-Diagnosis (TUI)
+
+- `/status` — shows Phoenix health + runtime subsystem status + loaded modules + recent errors.
+- `/diagnose` — extended diagnostic with runtime introspection snapshot.
 
 ## 1.1 Setup And Seed Reconfiguration
 

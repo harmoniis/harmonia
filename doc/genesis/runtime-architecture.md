@@ -11,18 +11,41 @@ Harmonia runtime is Lisp-first orchestration with Rust execution ports.
 ### Process Topology
 
 ```
-Phoenix (PID 1, ractor supervisor, writes phoenix.pid)
-  |-- harmonia-runtime (one Rust binary, all ractor actors)
-  |     |-- RuntimeSupervisor (actor registry, message routing)
-  |     |-- SbclBridgeActor (Unix socket <-> SBCL, drain queue)
-  |     +-- IPC listener (runtime.sock, length-prefixed sexp)
-  |-- sbcl-agent (Lisp orchestrator, connects via runtime.sock)
-  +-- provision-server (existing)
+Phoenix (harmonia-phoenix, ractor supervisor, health at 127.0.0.1:9100)
+  ├─ harmonia-runtime (single Rust binary, all ractor actors)
+  │     ├─ RuntimeSupervisor      (actor registry, IPC component dispatch)
+  │     ├─ SbclBridgeActor        (drain queue for SBCL)
+  │     ├─ GatewayActor           (poll_baseband, route signals)
+  │     ├─ ChronicleActor         (DB init, periodic GC)
+  │     ├─ TailnetActor           (mesh listener, poll, route)
+  │     ├─ SignalogradActor       (kernel init, observe, status)
+  │     ├─ ObservabilityActor     (trace batch management)
+  │     └─ IPC listener (Unix socket, length-prefixed sexp)
+  │           └─ dispatch.rs routes to: vault, config, chronicle, gateway,
+  │              signalograd, tailnet, harmonic-matrix (689 lines, 50+ ops)
+  │
+  ├─ sbcl-agent (SBCL/Common Lisp orchestrator)
+  │     ├─ ipc-client.lisp        (socket transport, auto-reconnect)
+  │     ├─ ipc-ports.lisp         (ipc-vault-*, ipc-config-*, etc.)
+  │     └─ 14 port files (all CFFI removed, all use IPC)
+  │
+  └─ provision-server
 ```
 
-Phoenix (`lib/core/phoenix/`) is a ractor-based multi-subsystem process supervisor with a health HTTP endpoint at `127.0.0.1:9100`. It writes a pidfile and manages all child processes.
+Data flow: SBCL → ipc-call → Unix socket → dispatch.rs → crate API → reply → SBCL
 
-CLI lifecycle commands: `harmonia start`, `harmonia stop`, `harmonia restart`, `harmonia status` (queries `GET /health`).
+Tick loop: gateway-poll → process-prompt → memory-heartbeat → harmonic-step → gateway-flush
+
+Harmonic state: signalograd observe/feedback → harmonic-machine state transitions → chronicle record
+
+Phoenix (`lib/core/phoenix/`) is a ractor-based process supervisor with a health HTTP endpoint at `127.0.0.1:9100`. It writes a pidfile and manages all child processes.
+
+CLI lifecycle commands:
+- `harmonia start` → Phoenix → spawns runtime + sbcl-agent + provision-server
+- `harmonia stop` → SIGTERM to Phoenix → graceful shutdown cascade
+- `harmonia status` → queries Phoenix health at `127.0.0.1:9100`
+- Self-diagnosis: `/status` (TUI) or `/diagnose` (TUI) — shows Phoenix health + runtime + modules + errors
+- Health endpoint: `GET /health` (JSON), `GET /health/ready` (200/503)
 
 ## Boot Flow
 
