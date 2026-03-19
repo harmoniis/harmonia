@@ -12,6 +12,39 @@
 
 (in-package #:harmonia)
 
+;;; ─── Portable helpers (replace UIOP dependency) ─────────────────────
+
+(defun %absolute-path-p (path)
+  "True if PATH is absolute (starts with /)."
+  (let ((s (namestring path)))
+    (and (> (length s) 0) (char= (char s 0) #\/))))
+
+(defun %read-file-string (path)
+  "Read entire file as a string."
+  (with-open-file (in path :direction :input :if-does-not-exist nil)
+    (when in
+      (let ((buf (make-string (file-length in))))
+        (read-sequence buf in)
+        buf))))
+
+(defun %run-command (command &key directory)
+  "Run a shell command, return (values output exit-code).
+   Portable replacement for uiop:run-program using sb-ext:run-program."
+  (let* ((cmd (if (listp command)
+                  (format nil "~{~A~^ ~}" command)
+                  command))
+         (proc (sb-ext:run-program "/bin/sh" (list "-c" cmd)
+                                   :directory directory
+                                   :output :stream
+                                   :error :output
+                                   :wait t))
+         (out (with-output-to-string (s)
+                (let ((stream (sb-ext:process-output proc)))
+                  (loop for line = (read-line stream nil nil)
+                        while line do (write-line line s)))))
+         (code (sb-ext:process-exit-code proc)))
+    (values out code)))
+
 ;;; ─── Heuristic patterns ──────────────────────────────────────────────
 ;;;
 ;;; Each pattern matches prompt text and produces typed assertions.
@@ -197,7 +230,7 @@
 
 (defun %supervision-collect-evidence (spec output workdir)
   "Evaluate assertions against concrete evidence.
-   Uses probe-file for file existence, uiop:run-program for git/test,
+   Uses probe-file for file existence, %run-command for git/test,
    string matching for output checks. Returns evidence list."
   (let* ((assertions (getf spec :assertions))
          (evidence '())
@@ -254,7 +287,7 @@
 
 (defun %supervision-evaluate-file-exists (path workdir)
   "Check if file exists. Returns (:passed T/NIL :evidence description)."
-  (let* ((full-path (if (uiop:absolute-pathname-p path)
+  (let* ((full-path (if (%absolute-path-p path)
                         path
                         (merge-pathnames path workdir)))
          (exists (probe-file full-path)))
@@ -266,7 +299,7 @@
 
 (defun %supervision-evaluate-file-absent (path workdir)
   "Check if file does NOT exist."
-  (let* ((full-path (if (uiop:absolute-pathname-p path)
+  (let* ((full-path (if (%absolute-path-p path)
                         path
                         (merge-pathnames path workdir)))
          (exists (probe-file full-path)))
@@ -278,14 +311,14 @@
 
 (defun %supervision-evaluate-file-contains (path pattern workdir)
   "Grep file for pattern. Returns (:passed T/NIL :evidence matched-line)."
-  (let* ((full-path (if (uiop:absolute-pathname-p path)
+  (let* ((full-path (if (%absolute-path-p path)
                         path
                         (merge-pathnames path workdir))))
     (if (not (probe-file full-path))
         (list :passed nil :evidence (format nil "file not found: ~A" full-path) :duration 0)
         (let* ((start (get-internal-real-time))
                (content (ignore-errors
-                          (uiop:read-file-string full-path)))
+                          (%read-file-string full-path)))
                (found (and content (search pattern content)))
                (elapsed (round (* 1000 (/ (- (get-internal-real-time) start)
                                            internal-time-units-per-second)))))
@@ -297,17 +330,14 @@
 
 (defun %supervision-evaluate-file-modified (path workdir)
   "Check git diff for file. Returns (:passed T/NIL :evidence diff-summary)."
-  (let* ((full-path (if (uiop:absolute-pathname-p path)
+  (let* ((full-path (if (%absolute-path-p path)
                         path
                         (namestring (merge-pathnames path workdir))))
          (start (get-internal-real-time))
          (diff (ignore-errors
-                 (uiop:run-program
+                 (%run-command
                   (list "git" "diff" "--stat" "--" full-path)
-                  :directory workdir
-                  :output :string
-                  :error-output nil
-                  :ignore-error-status t)))
+                  :directory workdir)))
          (elapsed (round (* 1000 (/ (- (get-internal-real-time) start)
                                      internal-time-units-per-second))))
          (modified (and diff (> (length (string-trim '(#\Space #\Newline) diff)) 0))))
@@ -324,14 +354,8 @@
          (output "")
          (exit-code 1))
     (ignore-errors
-      (multiple-value-bind (out err code)
-          (uiop:run-program
-           command
-           :directory workdir
-           :output :string
-           :error-output :string
-           :ignore-error-status t)
-        (declare (ignore err))
+      (multiple-value-bind (out code)
+          (%run-command command :directory workdir)
         (setf output (or out ""))
         (setf exit-code (or code 1))))
     (let ((elapsed (round (* 1000 (/ (- (get-internal-real-time) start)
@@ -346,14 +370,9 @@
   (let* ((start (get-internal-real-time))
          (exit-code 1))
     (ignore-errors
-      (multiple-value-bind (out err code)
-          (uiop:run-program
-           command
-           :directory workdir
-           :output :string
-           :error-output :string
-           :ignore-error-status t)
-        (declare (ignore out err))
+      (multiple-value-bind (_out code)
+          (%run-command command :directory workdir)
+        (declare (ignore _out))
         (setf exit-code (or code 1))))
     (let ((elapsed (round (* 1000 (/ (- (get-internal-real-time) start)
                                       internal-time-units-per-second)))))
