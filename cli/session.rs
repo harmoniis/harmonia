@@ -36,19 +36,13 @@ const LOGO: &str = r#"
 const CYAN: &str = "\x1b[36m";
 const BOLD_CYAN: &str = "\x1b[1;36m";
 const GREEN: &str = "\x1b[32m";
+const BOLD_GREEN: &str = "\x1b[1;32m";
 const DIM: &str = "\x1b[2m";
 const BOLD: &str = "\x1b[1m";
 const RESET: &str = "\x1b[0m";
 const RED: &str = "\x1b[31m";
 const YELLOW: &str = "\x1b[33m";
 const BOLD_WHITE: &str = "\x1b[1;37m";
-
-// Harmonia brand gradient (256-color / true-color)
-const VIOLET: &str = "\x1b[38;2;138;92;246m"; // #8A5CF6
-const DARK_BLUE: &str = "\x1b[38;2;79;108;220m"; // #4F6CDC
-const TEAL: &str = "\x1b[38;2;45;160;200m"; // #2DA0C8
-const CYAN_GREEN: &str = "\x1b[38;2;52;211;178m"; // #34D3B2
-const DIM_VIOLET: &str = "\x1b[2;38;2;138;92;246m"; // dimmed violet
 
 pub fn run() -> Result<(), Box<dyn std::error::Error>> {
     let term = Term::stderr();
@@ -166,7 +160,7 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
                         let mut err = std::io::stderr();
                         let _ = queue!(err, MoveToColumn(0), Clear(ClearType::CurrentLine));
                         let _ = err.flush();
-                        eprintln!("  {VIOLET}╰─{RESET}");
+                        eprintln!("  {BOLD_CYAN}╰─{RESET}");
                         eprintln!();
                         in_response = false;
                         let _ = std::io::stderr().flush();
@@ -180,7 +174,7 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
 
         // Clean up if we were mid-response when connection dropped
         if in_response {
-            eprintln!("  {VIOLET}╰─{RESET}");
+            eprintln!("  {BOLD_CYAN}╰─{RESET}");
             eprintln!();
             let _ = std::io::stderr().flush();
             waiting_reader.store(false, Ordering::Release);
@@ -209,7 +203,7 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
     let _ = std::io::stderr().execute(SetCursorStyle::DefaultUserShape);
 
     eprintln!();
-    eprintln!("  {VIOLET}◆{RESET} Goodbye.");
+    eprintln!("  {BOLD_CYAN}◆{RESET} Goodbye.");
     eprintln!();
 
     result
@@ -340,14 +334,14 @@ fn dispatch_input(
     // Print user message echo
     eprintln!();
     eprintln!(
-        "  {CYAN_GREEN}╭─{RESET} {DIM}you@{}{RESET}",
+        "  {BOLD_GREEN}╭─{RESET} {DIM}you@{}{RESET}",
         session.identity.node_label
     );
-    let user_prefix = format!("  {CYAN_GREEN}│{RESET} ");
+    let user_prefix = format!("  {GREEN}│{RESET} ");
     for line in trimmed.lines() {
         print_wrapped(line, &user_prefix, &user_prefix, "");
     }
-    eprintln!("  {CYAN_GREEN}╰─{RESET}");
+    eprintln!("  {BOLD_GREEN}╰─{RESET}");
 
     // Send to daemon
     send_to_daemon(writer, trimmed, waiting, running)?;
@@ -936,36 +930,6 @@ fn term_width() -> u16 {
     crossterm::terminal::size().map(|(w, _)| w).unwrap_or(80)
 }
 
-/// Build a gradient line of repeated `ch` across `count` columns.
-/// Colors: violet → dark blue → teal → cyan-green
-fn gradient_line(ch: &str, count: usize) -> String {
-    if count == 0 {
-        return String::new();
-    }
-    // Gradient stops: (r, g, b) at position 0.0 .. 1.0
-    const STOPS: [(f32, f32, f32); 4] = [
-        (138.0, 92.0, 246.0), // violet   #8A5CF6
-        (79.0, 108.0, 220.0), // dark blue #4F6CDC
-        (45.0, 160.0, 200.0), // teal     #2DA0C8
-        (52.0, 211.0, 178.0), // cyan-green #34D3B2
-    ];
-    let mut out = String::with_capacity(count * 20);
-    for i in 0..count {
-        let t = i as f32 / (count.max(1) - 1).max(1) as f32;
-        let seg = t * (STOPS.len() - 1) as f32;
-        let idx = (seg as usize).min(STOPS.len() - 2);
-        let frac = seg - idx as f32;
-        let (r1, g1, b1) = STOPS[idx];
-        let (r2, g2, b2) = STOPS[idx + 1];
-        let r = (r1 + (r2 - r1) * frac) as u8;
-        let g = (g1 + (g2 - g1) * frac) as u8;
-        let b = (b1 + (b2 - b1) * frac) as u8;
-        out.push_str(&format!("\x1b[38;2;{r};{g};{b}m{ch}"));
-    }
-    out.push_str(RESET);
-    out
-}
-
 fn char_len(input: &str) -> usize {
     input.chars().count()
 }
@@ -1179,22 +1143,22 @@ fn draw_prompt(
 ) -> Result<u16, Box<dyn std::error::Error>> {
     let mut err = std::io::stderr();
     let width = term_width() as usize;
-    let content_width = if width > 4 { width - 4 } else { 40 }; // 2 left margin + 2 right margin
-    let view_w = content_width;
+    let inner = if width > 8 { width - 6 } else { 40 };
+    let view_w = if inner > 2 { inner - 2 } else { inner };
 
     let (lines, cursor_line, cursor_col) = wrap_input(input, cursor_pos, view_w);
     let num_lines = lines.len();
-    let box_height = 2 + num_lines as u16; // top bar + content lines + bottom bar
-    let bar = "─".repeat(width.saturating_sub(2));
+    let box_height = 2 + num_lines as u16;
+    let bar = "─".repeat(inner);
 
     queue!(err, Hide)?;
 
-    // Top border — full width
+    // Top border
     queue!(
         err,
         MoveTo(0, box_row),
         Clear(ClearType::CurrentLine),
-        Print(format!(" {DIM}{bar}{RESET}"))
+        Print(format!("  {DIM}╭{bar}╮{RESET}"))
     )?;
 
     // Content lines
@@ -1204,17 +1168,19 @@ fn draw_prompt(
             err,
             MoveTo(0, box_row + 1 + i as u16),
             Clear(ClearType::CurrentLine),
-            Print(format!("  {BOLD_WHITE}{line}{RESET}{pad}"))
+            Print(format!(
+                "  {DIM}│{RESET} {BOLD_WHITE}{line}{RESET}{pad} {DIM}│{RESET}"
+            ))
         )?;
     }
 
-    // Bottom border — full width
+    // Bottom border
     let bottom_row = box_row + 1 + num_lines as u16;
     queue!(
         err,
         MoveTo(0, bottom_row),
         Clear(ClearType::CurrentLine),
-        Print(format!(" {DIM}{bar}{RESET}"))
+        Print(format!("  {DIM}╰{bar}╯{RESET}"))
     )?;
 
     // Clear leftover rows when box shrinks
@@ -1224,12 +1190,12 @@ fn draw_prompt(
         }
     }
 
-    // Position cursor inside content area — steady block style
+    // Position cursor — steady block style
     queue!(
         err,
         SetCursorStyle::SteadyBlock,
         Show,
-        MoveTo(2 + cursor_col as u16, box_row + 1 + cursor_line as u16)
+        MoveTo(4 + cursor_col as u16, box_row + 1 + cursor_line as u16)
     )?;
 
     err.flush()?;
@@ -1396,9 +1362,9 @@ fn show_thinking_spinner_with_input(
 fn draw_spinner_line(row: u16, dot: &str, has_queued: bool) {
     let mut err = std::io::stderr();
     let status = if has_queued {
-        format!("  {VIOLET}{dot}{RESET} {DIM_VIOLET}thinking...{RESET}  {DIM}(queued){RESET}")
+        format!("  {CYAN}{dot}{RESET} {DIM}thinking...{RESET}  {DIM}(queued){RESET}")
     } else {
-        format!("  {VIOLET}{dot}{RESET} {DIM_VIOLET}thinking...{RESET}")
+        format!("  {CYAN}{dot}{RESET} {DIM}thinking...{RESET}")
     };
     let _ = queue!(
         err,
@@ -1426,7 +1392,7 @@ fn clear_spinner_and_box(spinner_row: u16, box_row: u16, box_height: u16) {
 fn print_agent_line(line: &str) {
     // Prefix: "  │ " = 4 visible columns (2 margin + border + space)
     let prefix_col = "│";
-    let cont_prefix = format!("  {DARK_BLUE}{prefix_col}{RESET} ");
+    let cont_prefix = format!("  {CYAN}{prefix_col}{RESET} ");
 
     if line.starts_with("[ERROR]") || line.starts_with("Error:") {
         print_wrapped(
@@ -1450,26 +1416,26 @@ fn print_agent_line(line: &str) {
             DIM,
         );
     } else if line.starts_with("```") {
-        eprintln!("  {DARK_BLUE}{prefix_col}{RESET} {DIM}{line}{RESET}");
+        eprintln!("  {CYAN}{prefix_col}{RESET} {DIM}{line}{RESET}");
     } else if line.starts_with("# ") || line.starts_with("## ") || line.starts_with("### ") {
         print_wrapped(
             line,
-            &format!("  {DARK_BLUE}{prefix_col}{RESET} {BOLD_WHITE}"),
+            &format!("  {CYAN}{prefix_col}{RESET} {BOLD_WHITE}"),
             &cont_prefix,
             "",
         );
     } else if line.starts_with("- ") || line.starts_with("* ") {
         print_wrapped(
             &line[2..],
-            &format!("  {DARK_BLUE}{prefix_col}{RESET} {TEAL}•{RESET} "),
-            &format!("  {DARK_BLUE}{prefix_col}{RESET}   "),
+            &format!("  {CYAN}{prefix_col}{RESET} {CYAN}•{RESET} "),
+            &format!("  {CYAN}{prefix_col}{RESET}   "),
             "",
         );
     } else if line.starts_with("> ") {
         print_wrapped(
             &line[2..],
-            &format!("  {DARK_BLUE}{prefix_col}{RESET} {DIM}▎"),
-            &format!("  {DARK_BLUE}{prefix_col}{RESET} {DIM} "),
+            &format!("  {CYAN}{prefix_col}{RESET} {DIM}▎"),
+            &format!("  {CYAN}{prefix_col}{RESET} {DIM} "),
             DIM,
         );
     } else {

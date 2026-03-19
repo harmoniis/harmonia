@@ -48,8 +48,8 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
             return Err(format!("failed to send SIGTERM to PID {}", pid).into());
         }
 
-        // Wait up to 10 seconds for shutdown
-        for i in 0..20 {
+        // Wait up to 8 seconds for Phoenix to stop children and exit
+        for i in 0..16 {
             std::thread::sleep(std::time::Duration::from_millis(500));
             let still_alive = unsafe { libc::kill(pid, 0) } == 0;
             if !still_alive {
@@ -60,7 +60,7 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
                 eprintln!("{} Harmonia stopped.", style("✓").green().bold());
                 return Ok(());
             }
-            if i == 10 {
+            if i == 4 {
                 eprintln!("  waiting for graceful shutdown...");
             }
         }
