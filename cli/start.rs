@@ -165,8 +165,38 @@ pub fn run(env: &str, foreground: bool) -> Result<(), Box<dyn std::error::Error>
     };
     let mut node_service_child: Option<Child> = None;
 
+    // Generate phoenix.toml with correct paths for this installation
+    let phoenix_config_path = system_dir.join("phoenix.toml");
+    let phoenix_bin = find_phoenix_binary(&source_dir)?;
+    let runtime_bin = find_sibling_binary(&phoenix_bin, "harmonia-runtime");
+    write_phoenix_config(&phoenix_config_path, &runtime_bin, &boot_file, &source_dir)?;
+
+    // Common env vars inherited by all Phoenix children
+    let env_vars: Vec<(&str, String)> = vec![
+        ("HARMONIA_STATE_ROOT", system_dir.to_string_lossy().into()),
+        ("HARMONIA_SYSTEM_DIR", system_dir.to_string_lossy().into()),
+        ("HARMONIA_VAULT_DB", vault_path.to_string_lossy().into()),
+        (
+            "HARMONIA_VAULT_WALLET_DB",
+            wallet_db_path.to_string_lossy().into(),
+        ),
+        ("HARMONIA_LIB_DIR", lib_dir.to_string_lossy().into()),
+        ("HARMONIA_SOURCE_DIR", source_dir.to_string_lossy().into()),
+        ("HARMONIA_NODE_LABEL", node_identity.label.clone()),
+        (
+            "HARMONIA_NODE_ROLE",
+            node_identity.role.as_str().to_string(),
+        ),
+        ("HARMONIA_LOG_LEVEL", log_level.clone()),
+        ("HARMONIA_ENV", env.to_string()),
+        (
+            "PHOENIX_CONFIG_PATH",
+            phoenix_config_path.to_string_lossy().into(),
+        ),
+    ];
+
     if foreground {
-        // Foreground mode — block until SBCL exits (old behavior)
+        // Foreground mode — block until Phoenix exits
         if should_start_node_service(&node_identity) {
             match spawn_node_service_process(
                 &source_dir,
@@ -187,25 +217,11 @@ pub fn run(env: &str, foreground: bool) -> Result<(), Box<dyn std::error::Error>
             }
         }
 
-        let status = Command::new("sbcl")
-            .arg("--noinform")
-            .arg("--load")
-            .arg(&boot_file)
-            .arg("--eval")
-            .arg("(harmonia:start)")
-            .env("HARMONIA_STATE_ROOT", system_dir.to_string_lossy().as_ref())
-            .env("HARMONIA_SYSTEM_DIR", system_dir.to_string_lossy().as_ref())
-            .env("HARMONIA_VAULT_DB", vault_path.to_string_lossy().as_ref())
-            .env(
-                "HARMONIA_VAULT_WALLET_DB",
-                wallet_db_path.to_string_lossy().as_ref(),
-            )
-            .env("HARMONIA_LIB_DIR", lib_dir.to_string_lossy().as_ref())
-            .env("HARMONIA_NODE_LABEL", &node_identity.label)
-            .env("HARMONIA_NODE_ROLE", node_identity.role.as_str())
-            .env("HARMONIA_LOG_LEVEL", &log_level)
-            .current_dir(&source_dir)
-            .status()?;
+        let mut cmd = Command::new(&phoenix_bin);
+        for (k, v) in &env_vars {
+            cmd.env(k, v);
+        }
+        let status = cmd.current_dir(&source_dir).status()?;
 
         if let Some(child) = broker_child.as_mut() {
             let _ = child.kill();
@@ -219,10 +235,10 @@ pub fn run(env: &str, foreground: bool) -> Result<(), Box<dyn std::error::Error>
         }
 
         if !status.success() {
-            return Err("SBCL exited with error".into());
+            return Err("Phoenix exited with error".into());
         }
     } else {
-        // Daemon mode — spawn SBCL in background, redirect to log, write PID
+        // Daemon mode — spawn Phoenix in background
         let log_path = crate::paths::log_path()?;
         let log_file = std::fs::OpenOptions::new()
             .create(true)
@@ -230,28 +246,15 @@ pub fn run(env: &str, foreground: bool) -> Result<(), Box<dyn std::error::Error>
             .open(&log_path)?;
         let err_file = log_file.try_clone()?;
 
-        let child = Command::new("sbcl")
-            .arg("--noinform")
-            .arg("--disable-debugger")
-            .arg("--load")
-            .arg(&boot_file)
-            .arg("--eval")
-            .arg("(harmonia:start)")
-            .env("HARMONIA_STATE_ROOT", system_dir.to_string_lossy().as_ref())
-            .env("HARMONIA_SYSTEM_DIR", system_dir.to_string_lossy().as_ref())
-            .env("HARMONIA_VAULT_DB", vault_path.to_string_lossy().as_ref())
-            .env(
-                "HARMONIA_VAULT_WALLET_DB",
-                wallet_db_path.to_string_lossy().as_ref(),
-            )
-            .env("HARMONIA_LIB_DIR", lib_dir.to_string_lossy().as_ref())
-            .env("HARMONIA_NODE_LABEL", &node_identity.label)
-            .env("HARMONIA_NODE_ROLE", node_identity.role.as_str())
-            .env("HARMONIA_LOG_LEVEL", &log_level)
+        let mut cmd = Command::new(&phoenix_bin);
+        for (k, v) in &env_vars {
+            cmd.env(k, v);
+        }
+        let child = cmd
             .current_dir(&source_dir)
-            .stdin(std::process::Stdio::null())
-            .stdout(std::process::Stdio::from(log_file))
-            .stderr(std::process::Stdio::from(err_file))
+            .stdin(Stdio::null())
+            .stdout(Stdio::from(log_file))
+            .stderr(Stdio::from(err_file))
             .spawn()?;
 
         let pid = child.id();
@@ -549,6 +552,81 @@ fn ensure_runtime_artifacts(
         )
         .into());
     }
+    Ok(())
+}
+
+fn find_phoenix_binary(source_dir: &Path) -> Result<PathBuf, Box<dyn std::error::Error>> {
+    // 1. Same directory as the running harmonia binary
+    if let Ok(exe) = std::env::current_exe() {
+        let sibling = exe.with_file_name("harmonia-phoenix");
+        if sibling.exists() {
+            return Ok(sibling);
+        }
+    }
+    // 2. In PATH
+    if check_command("harmonia-phoenix") {
+        return Ok(PathBuf::from("harmonia-phoenix"));
+    }
+    // 3. Dev mode: target/release/phoenix
+    let dev = source_dir.join("target").join("release").join("phoenix");
+    if dev.exists() {
+        return Ok(dev);
+    }
+    Err("harmonia-phoenix binary not found — run install script".into())
+}
+
+fn find_sibling_binary(phoenix_bin: &Path, name: &str) -> String {
+    // Try sibling of phoenix binary first
+    if let Some(dir) = phoenix_bin.parent() {
+        let sibling = dir.join(name);
+        if sibling.exists() {
+            return sibling.to_string_lossy().into();
+        }
+    }
+    // Fallback: assume it's in PATH
+    name.to_string()
+}
+
+fn write_phoenix_config(
+    config_path: &Path,
+    runtime_bin: &str,
+    boot_file: &Path,
+    _source_dir: &Path,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let sbcl_command = format!(
+        "sbcl --noinform --disable-debugger --load {} --eval '(harmonia:start)'",
+        boot_file.display()
+    );
+    let config = format!(
+        r#"[phoenix]
+health_port = 9100
+shutdown_timeout_secs = 30
+
+[[subsystem]]
+name = "harmonia-runtime"
+command = "{runtime_bin}"
+restart_policy = "always"
+max_restarts = 10
+backoff_base_ms = 500
+backoff_max_ms = 60000
+core = true
+
+[[subsystem]]
+name = "sbcl-agent"
+command = "{sbcl_command}"
+restart_policy = "always"
+max_restarts = 10
+backoff_base_ms = 2000
+backoff_max_ms = 120000
+startup_delay_ms = 2000
+core = true
+"#
+    );
+
+    if let Some(parent) = config_path.parent() {
+        std::fs::create_dir_all(parent)?;
+    }
+    std::fs::write(config_path, config)?;
     Ok(())
 }
 

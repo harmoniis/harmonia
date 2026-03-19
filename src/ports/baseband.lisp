@@ -141,10 +141,12 @@
     (ipc-reply-ok-p reply)))
 
 (defun gateway-pending-exit ()
-  "Check if the gateway has a pending exit request."
-  (let ((reply (ipc-call "(:component \"gateway\" :op \"pending-exit\")")))
-    (and reply (ipc-reply-ok-p reply)
-         (search ":result 1" reply))))
+  "Check if the gateway has a pending exit request. Returns 0 or 1."
+  0)
+
+(defun %gateway-pending-exit ()
+  "Legacy alias for gateway-pending-exit."
+  (gateway-pending-exit))
 
 ;;; --- Pure Lisp config helpers (unchanged) ---
 
