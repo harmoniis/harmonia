@@ -120,6 +120,12 @@ async fn main() {
     ));
     let _ = supervisor_ref.cast(msg::RuntimeMsg::RegisterMatrixActor(matrix_for_supervisor));
 
+    // Start TUI session socket (harmonia.sock for CLI session connections)
+    match harmonia_tui::terminal::init() {
+        Ok(()) => eprintln!("[INFO] [runtime] TUI session listener started"),
+        Err(e) => eprintln!("[WARN] [runtime] TUI session listener failed: {e}"),
+    }
+
     eprintln!("[INFO] [runtime] All actors spawned, starting IPC server");
 
     // 6. Spawn IPC listener
