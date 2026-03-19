@@ -56,7 +56,7 @@ Do not edit manually.
   - L253: `### Security Config`
   - L261: `## Erlang-Style Fault Tolerance (v7)`
   - L265: `### Supervision Architecture`
-  - L273: `### Gateway FFI Hardening`
+  - L273: `### Gateway Hardening`
   - L279: `### Runtime Self-Knowledge`
   - L292: `### Platform Path Structure`
   - L305: `### Evolution Portability`
@@ -137,14 +137,14 @@ Do not edit manually.
   - L164: `## Signal Security`
 
 ## `../genesis/ports-and-ffi.md`
-- Migration map targets: port model, C-ABI surface, CFFI loading
+- Migration map targets: port model, IPC transport, Unix domain socket
 - Headings:
-  - L6: `## Port Map`
-  - L25: `## Shared Port Infrastructure`
-  - L34: `## Core Contract Rule`
+  - L8: `## Port Map`
+  - L27: `## IPC Transport`
+  - L33: `## Core Contract Rule`
 
 ## `../genesis/runtime-architecture.md`
-- Migration map targets: full architecture, FFI surfaces, deployment safety
+- Migration map targets: full architecture, IPC surfaces, Phoenix topology, deployment safety
 - Headings:
   - L3: `## Runtime Topology`
   - L10: `## Boot Flow`

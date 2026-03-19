@@ -1,8 +1,6 @@
 mod dashboard;
 mod db;
-mod ffi;
 mod query;
-mod state;
 pub mod tables;
 
 // Public Rust API (for rlib consumers like Phoenix / Ouroboros)

@@ -11,7 +11,6 @@ keywords = ["harmonia", "observability", "tracing", "langsmith"]
 categories = ["development-tools::profiling"]
 
 [lib]
-crate-type = ["cdylib", "rlib"]
 
 [dependencies]
 harmonia-config-store = { version = "0.1.9", path = "../config-store" }

@@ -11,4 +11,3 @@ keywords = ["harmonia", "actor"]
 categories = ["concurrency"]
 
 [lib]
-crate-type = ["cdylib", "rlib"]

@@ -12,11 +12,13 @@ use super::cli_profiles::{profile_for, CliProfile};
 use crate::model::{CliState, CliType};
 
 /// Detect the current state of a CLI agent from its terminal output.
+#[allow(dead_code)]
 pub(crate) fn detect_state(output: &str, cli_type: &CliType) -> CliState {
     let profile = profile_for(cli_type);
     detect_with_profile(output, profile)
 }
 
+#[allow(dead_code)]
 fn detect_with_profile(output: &str, profile: &CliProfile) -> CliState {
     let lines: Vec<&str> = output.lines().collect();
     let window_start = if lines.len() > profile.detection_window {
@@ -82,6 +84,7 @@ fn detect_with_profile(output: &str, profile: &CliProfile) -> CliState {
     CliState::Processing
 }
 
+#[allow(dead_code)]
 fn detect_error(text: &str, profile: &CliProfile) -> Option<String> {
     for pattern in profile.error_patterns {
         if let Some(pos) = text.find(pattern) {
@@ -100,6 +103,7 @@ fn detect_error(text: &str, profile: &CliProfile) -> Option<String> {
     None
 }
 
+#[allow(dead_code)]
 fn detect_completion(text: &str, all_lines: &[&str], profile: &CliProfile) -> bool {
     // Check if the very last non-empty line looks like a shell prompt.
     // Shell prompts typically end with "$ " or "% " (possibly preceded by
@@ -129,6 +133,7 @@ fn detect_completion(text: &str, all_lines: &[&str], profile: &CliProfile) -> bo
     false
 }
 
+#[allow(dead_code)]
 fn detect_permission(text: &str, profile: &CliProfile) -> Option<(String, String)> {
     let mut score = 0;
     let mut best_line = String::new();
@@ -157,6 +162,7 @@ fn detect_permission(text: &str, profile: &CliProfile) -> Option<(String, String
     }
 }
 
+#[allow(dead_code)]
 fn detect_confirmation(text: &str, profile: &CliProfile) -> Option<String> {
     for pattern in profile.confirmation_patterns {
         if text.contains(pattern) {
@@ -173,6 +179,7 @@ fn detect_confirmation(text: &str, profile: &CliProfile) -> Option<String> {
     None
 }
 
+#[allow(dead_code)]
 fn detect_selection(text: &str, profile: &CliProfile) -> Option<Vec<String>> {
     let mut is_selection = false;
     for pattern in profile.selection_patterns {
@@ -218,6 +225,7 @@ fn detect_selection(text: &str, profile: &CliProfile) -> Option<Vec<String>> {
     }
 }
 
+#[allow(dead_code)]
 fn detect_processing(text: &str, profile: &CliProfile) -> bool {
     for pattern in profile.processing_patterns {
         if text.contains(pattern) {
@@ -227,6 +235,7 @@ fn detect_processing(text: &str, profile: &CliProfile) -> bool {
     false
 }
 
+#[allow(dead_code)]
 fn detect_input_prompt(text: &str, profile: &CliProfile) -> bool {
     // Check the last few non-empty lines for prompt patterns
     let last_lines: Vec<&str> = text
@@ -246,6 +255,7 @@ fn detect_input_prompt(text: &str, profile: &CliProfile) -> bool {
     false
 }
 
+#[allow(dead_code)]
 fn detect_onboarding(text: &str, profile: &CliProfile) -> bool {
     for pattern in profile.onboarding_patterns {
         if text.contains(pattern) {
@@ -255,6 +265,7 @@ fn detect_onboarding(text: &str, profile: &CliProfile) -> bool {
     false
 }
 
+#[allow(dead_code)]
 fn detect_plan_mode(text: &str, profile: &CliProfile) -> bool {
     for pattern in profile.plan_mode_patterns {
         if text.contains(pattern) {
@@ -265,6 +276,7 @@ fn detect_plan_mode(text: &str, profile: &CliProfile) -> bool {
 }
 
 /// Try to extract a tool name from permission prompt text.
+#[allow(dead_code)]
 fn extract_tool_name(text: &str) -> String {
     // Look for common tool name patterns in Claude Code output:
     // "Bash", "Read", "Write", "Edit", "Glob", "Grep", etc.
@@ -289,6 +301,7 @@ fn extract_tool_name(text: &str) -> String {
 }
 
 /// Strip ANSI escape sequences from text.
+#[allow(dead_code)]
 fn strip_ansi(input: &str) -> String {
     let mut result = String::with_capacity(input.len());
     let mut chars = input.chars().peekable();
@@ -322,6 +335,7 @@ fn strip_ansi(input: &str) -> String {
 /// 2. Remove TUI chrome lines (box-drawing, status bars, prompts)
 /// 3. Remove tool-use header lines ("Read", "Write", "Bash", etc.)
 /// 4. Trim leading/trailing whitespace
+#[allow(dead_code)]
 pub(crate) fn extract_response(output: &str, cli_type: &CliType) -> String {
     let profile = profile_for(cli_type);
     let clean = strip_ansi(output);
@@ -392,6 +406,7 @@ pub(crate) fn extract_response(output: &str, cli_type: &CliType) -> String {
     result.trim().to_string()
 }
 
+#[allow(dead_code)]
 fn is_tui_chrome(line: &str) -> bool {
     // Box-drawing characters used by CLI TUIs
     let chrome_starts = ["╭", "╰", "├", "└", "┌", "┐", "┘", "┤", "┼", "│"];
@@ -426,6 +441,7 @@ fn is_tui_chrome(line: &str) -> bool {
     false
 }
 
+#[allow(dead_code)]
 fn is_status_line(line: &str) -> bool {
     // Claude Code status bar patterns
     line.contains("tokens") && (line.contains("input") || line.contains("output"))
@@ -436,6 +452,7 @@ fn is_status_line(line: &str) -> bool {
         || line.starts_with("Context:")
 }
 
+#[allow(dead_code)]
 fn is_tool_header(line: &str) -> bool {
     // Claude Code tool-use indicators shown inline
     let tools = [
@@ -463,6 +480,7 @@ fn is_tool_header(line: &str) -> bool {
     false
 }
 
+#[allow(dead_code)]
 fn is_prompt_line(line: &str, profile: &CliProfile) -> bool {
     let trimmed = line.trim();
     for p in profile.input_prompt_patterns {
@@ -478,6 +496,7 @@ fn is_prompt_line(line: &str, profile: &CliProfile) -> bool {
     false
 }
 
+#[allow(dead_code)]
 fn is_processing_indicator(line: &str, profile: &CliProfile) -> bool {
     // Only match lines that are JUST a processing indicator (short lines)
     if line.len() > 80 {
@@ -492,6 +511,7 @@ fn is_processing_indicator(line: &str, profile: &CliProfile) -> bool {
 }
 
 /// Detect tmux session setup commands injected during environment sanitization.
+#[allow(dead_code)]
 fn is_setup_command(line: &str) -> bool {
     // These are injected by session::create_session to sanitize the CLI environment
     line.starts_with("unset CLAUDECODE")
@@ -503,6 +523,7 @@ fn is_setup_command(line: &str) -> bool {
 }
 
 /// Detect CLI tool launch commands (codex exec, claude -p, etc.).
+#[allow(dead_code)]
 fn is_cli_launch_command(line: &str) -> bool {
     (line.starts_with("codex ") || line.starts_with("codex exec"))
         || (line.starts_with("claude ") && line.contains(" -p "))
@@ -511,6 +532,7 @@ fn is_cli_launch_command(line: &str) -> bool {
 }
 
 /// Detect shell setup lines (export, unset, source commands).
+#[allow(dead_code)]
 fn is_shell_setup_line(line: &str) -> bool {
     (line.starts_with("export ") && !line.contains("=''"))
         || line.starts_with("unset ")

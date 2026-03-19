@@ -6,6 +6,7 @@ use crate::model::{Edge, MatrixEvent, RouteSample, State, StoreConfig};
 
 use super::super::shared::{history_limit, push_limited};
 
+#[allow(dead_code)]
 fn sqlite_conn(path: &str) -> Result<Connection, String> {
     let db_path = PathBuf::from(path);
     if let Some(parent) = db_path.parent() {
@@ -70,6 +71,7 @@ fn sqlite_conn(path: &str) -> Result<Connection, String> {
     Ok(conn)
 }
 
+#[allow(dead_code)]
 pub(super) fn persist_state_sqlite(st: &State, cfg: &StoreConfig) -> Result<(), String> {
     let conn = sqlite_conn(&cfg.path)?;
     let tx = conn
@@ -174,6 +176,7 @@ pub(super) fn persist_state_sqlite(st: &State, cfg: &StoreConfig) -> Result<(), 
     Ok(())
 }
 
+#[allow(dead_code)]
 pub(super) fn load_state_sqlite(cfg: &StoreConfig) -> Result<Option<State>, String> {
     let conn = sqlite_conn(&cfg.path)?;
 

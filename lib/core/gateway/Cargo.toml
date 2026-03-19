@@ -11,7 +11,6 @@ keywords = ["harmonia", "gateway"]
 categories = ["network-programming"]
 
 [lib]
-crate-type = ["cdylib", "rlib"]
 
 [dependencies]
 libloading = "0.8"
@@ -20,7 +19,6 @@ parking_lot = "0.12"
 harmonia-baseband-channel-protocol = { version = "0.1.9", path = "../baseband-channel-protocol" }
 harmonia-payment-auth = { version = "0.1.9", path = "../payment-auth" }
 harmonia-signal-integrity = { version = "0.1.9", path = "../signal-integrity" }
-harmonia-actor-protocol = { version = "0.1.9", path = "../actor-protocol" }
 harmonia-tool-channel-protocol = { version = "0.1.9", path = "../tool-channel-protocol" }
 harmonia-vault = { version = "0.1.9", path = "../vault" }
 harmonia-config-store = { version = "0.1.9", path = "../config-store" }

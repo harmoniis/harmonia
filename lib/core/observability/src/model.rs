@@ -1,15 +1,6 @@
 //! Core types and global state for observability.
 
-use std::sync::{OnceLock, RwLock};
 use std::time::{SystemTime, UNIX_EPOCH};
-
-// ─── Global state ────────────────────────────────────────────────────
-
-static STATE: OnceLock<RwLock<ObservabilityState>> = OnceLock::new();
-
-pub(crate) fn global_state() -> &'static RwLock<ObservabilityState> {
-    STATE.get_or_init(|| RwLock::new(ObservabilityState::default()))
-}
 
 // ─── State ───────────────────────────────────────────────────────────
 
@@ -48,7 +39,11 @@ impl ObservabilityState {
         }
         // Probabilistic sampling at root span level
         if self.sample_rate < 1.0 {
-            let r: f64 = (now_nanos() % 10000) as f64 / 10000.0;
+            let nanos = SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .map(|d| d.as_nanos() as u64)
+                .unwrap_or(0);
+            let r: f64 = (nanos % 10000) as f64 / 10000.0;
             if r > self.sample_rate {
                 return 0;
             }
@@ -134,17 +129,6 @@ pub enum TraceMessage {
     Shutdown,
 }
 
-// ─── Handle-to-span mapping ─────────────────────────────────────────
-
-use std::collections::HashMap;
-use std::sync::Mutex;
-
-static HANDLE_MAP: OnceLock<Mutex<HashMap<i64, TraceSpan>>> = OnceLock::new();
-
-pub(crate) fn handle_map() -> &'static Mutex<HashMap<i64, TraceSpan>> {
-    HANDLE_MAP.get_or_init(|| Mutex::new(HashMap::new()))
-}
-
 // ─── Helpers ─────────────────────────────────────────────────────────
 
 pub fn now_iso() -> String {
@@ -197,22 +181,3 @@ fn is_leap(y: u64) -> bool {
     (y % 4 == 0 && y % 100 != 0) || y % 400 == 0
 }
 
-pub(crate) fn now_nanos() -> u64 {
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map(|d| d.as_nanos() as u64)
-        .unwrap_or(0)
-}
-
-pub(crate) fn new_uuid() -> String {
-    uuid::Uuid::new_v4().to_string()
-}
-
-/// Build dotted_order for LangSmith trace tree ordering.
-pub(crate) fn dotted_order_root() -> String {
-    format!("{}", now_nanos())
-}
-
-pub(crate) fn dotted_order_child(parent_order: &str) -> String {
-    format!("{}.{}", parent_order, now_nanos())
-}

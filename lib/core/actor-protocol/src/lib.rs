@@ -1,16 +1,9 @@
-//! Unified actor protocol for the Harmonia agent.
+//! Unified actor protocol types for the Harmonia agent.
 //!
-//! This crate provides **types only** — no global state, no statics.
-//! The single `ActorRegistry` instance lives in `harmonia-parallel-agents`
-//! (the `actor_core` module), which exports the FFI functions.
-//!
-//! Other crates (gateway, tailnet, chronicle) use the `client` module
-//! to call those FFI functions via `dlsym(RTLD_DEFAULT, ...)` at runtime,
-//! so all crates share the ONE registry owned by parallel-agents.
+//! This crate provides **types only** — no global state, no statics, no FFI.
+//! The actor registry now lives in `harmonia-runtime` as a ractor actor.
+//! SBCL communicates via IPC (Unix domain socket) instead of dlsym.
 
-pub mod client;
-
-use std::collections::{HashMap, VecDeque};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 // ─── Actor identity ─────────────────────────────────────────────────────
@@ -321,158 +314,8 @@ pub struct ActorRegistration {
     pub message_count: u64,
 }
 
-pub struct ActorRegistry {
-    next_id: u64,
-    pub actors: HashMap<ActorId, ActorRegistration>,
-    pub mailbox: VecDeque<HarmoniaMessage>,
-    next_msg_id: u64,
-}
-
-impl ActorRegistry {
-    pub fn new() -> Self {
-        Self {
-            next_id: 1,
-            actors: HashMap::new(),
-            mailbox: VecDeque::new(),
-            next_msg_id: 1,
-        }
-    }
-
-    pub fn register(&mut self, kind: ActorKind) -> ActorId {
-        let id = self.next_id;
-        self.next_id += 1;
-        let now = now_unix();
-        self.actors.insert(
-            id,
-            ActorRegistration {
-                id,
-                kind,
-                state: ActorState::Starting,
-                registered_at: now,
-                last_heartbeat: now,
-                stall_ticks: 0,
-                message_count: 0,
-            },
-        );
-        id
-    }
-
-    pub fn deregister(&mut self, id: ActorId) -> bool {
-        self.actors.remove(&id).is_some()
-    }
-
-    pub fn heartbeat(&mut self, id: ActorId, bytes_delta: u64) -> bool {
-        let kind = if let Some(reg) = self.actors.get_mut(&id) {
-            reg.last_heartbeat = now_unix();
-            reg.stall_ticks = 0;
-            reg.state = ActorState::Running;
-            if bytes_delta > 0 {
-                Some(reg.kind.clone())
-            } else {
-                None
-            }
-        } else {
-            return false;
-        };
-        if let Some(kind) = kind {
-            let msg_id = self.next_msg_id();
-            self.post(HarmoniaMessage {
-                id: msg_id,
-                source: id,
-                target: 0,
-                kind,
-                timestamp: now_unix(),
-                payload: MessagePayload::ProgressHeartbeat { bytes_delta },
-            });
-        }
-        true
-    }
-
-    pub fn post(&mut self, msg: HarmoniaMessage) {
-        if let Some(reg) = self.actors.get_mut(&msg.source) {
-            reg.message_count += 1;
-        }
-        self.mailbox.push_back(msg);
-    }
-
-    pub fn post_from(
-        &mut self,
-        source: ActorId,
-        target: ActorId,
-        kind: ActorKind,
-        payload: MessagePayload,
-    ) {
-        let msg = HarmoniaMessage {
-            id: self.next_msg_id(),
-            source,
-            target,
-            kind,
-            timestamp: now_unix(),
-            payload,
-        };
-        self.post(msg);
-    }
-
-    pub fn drain(&mut self) -> Vec<HarmoniaMessage> {
-        self.mailbox.drain(..).collect()
-    }
-
-    pub fn drain_sexp(&mut self) -> String {
-        if self.mailbox.is_empty() {
-            return "()".to_string();
-        }
-        let messages: Vec<String> = self.mailbox.drain(..).map(|m| m.to_sexp()).collect();
-        format!("({})", messages.join(" "))
-    }
-
-    pub fn set_state(&mut self, id: ActorId, state: ActorState) {
-        if let Some(reg) = self.actors.get_mut(&id) {
-            reg.state = state;
-        }
-    }
-
-    pub fn actor_state_sexp(&self, id: ActorId) -> String {
-        match self.actors.get(&id) {
-            Some(reg) => format!(
-                "(:id {} :kind :{} :state :{} :registered-at {} :last-heartbeat {} :stall-ticks {} :message-count {})",
-                reg.id,
-                reg.kind.as_str(),
-                reg.state.as_str(),
-                reg.registered_at,
-                reg.last_heartbeat,
-                reg.stall_ticks,
-                reg.message_count,
-            ),
-            None => format!("(:error \"actor {} not found\")", id),
-        }
-    }
-
-    pub fn list_sexp(&self) -> String {
-        if self.actors.is_empty() {
-            return "()".to_string();
-        }
-        let mut entries: Vec<String> = self
-            .actors
-            .values()
-            .map(|reg| {
-                format!(
-                    "(:id {} :kind :{} :state :{})",
-                    reg.id,
-                    reg.kind.as_str(),
-                    reg.state.as_str()
-                )
-            })
-            .collect();
-        entries.sort();
-        format!("({})", entries.join(" "))
-    }
-
-    fn next_msg_id(&mut self) -> u64 {
-        let id = self.next_msg_id;
-        self.next_msg_id += 1;
-        id
-    }
-}
+// ActorRegistry has been removed — it now lives in harmonia-runtime
+// as the RuntimeSupervisor actor (lib/core/runtime/src/supervisor.rs).
 
 // ─── Helpers ────────────────────────────────────────────────────────────
 
@@ -495,71 +338,6 @@ pub fn sexp_escape(input: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn register_and_list() {
-        let mut reg = ActorRegistry::new();
-        let id1 = reg.register(ActorKind::Gateway);
-        let id2 = reg.register(ActorKind::CliAgent);
-        assert_eq!(id1, 1);
-        assert_eq!(id2, 2);
-        assert_eq!(reg.actors.len(), 2);
-        let sexp = reg.list_sexp();
-        assert!(sexp.contains(":gateway"));
-        assert!(sexp.contains(":cli-agent"));
-    }
-
-    #[test]
-    fn post_and_drain() {
-        let mut reg = ActorRegistry::new();
-        let id = reg.register(ActorKind::CliAgent);
-        reg.post_from(
-            id,
-            0,
-            ActorKind::CliAgent,
-            MessagePayload::TaskCompleted {
-                output: "hello".to_string(),
-                exit_code: 0,
-                duration_ms: 100,
-            },
-        );
-        reg.post_from(
-            id,
-            0,
-            ActorKind::CliAgent,
-            MessagePayload::ProgressHeartbeat { bytes_delta: 42 },
-        );
-        assert_eq!(reg.mailbox.len(), 2);
-        let drained = reg.drain_sexp();
-        assert!(drained.contains(":completed"));
-        assert!(drained.contains(":progress-heartbeat"));
-        assert!(reg.mailbox.is_empty());
-    }
-
-    #[test]
-    fn deregister() {
-        let mut reg = ActorRegistry::new();
-        let id = reg.register(ActorKind::Tailnet);
-        assert!(reg.deregister(id));
-        assert!(!reg.deregister(id)); // already removed
-        assert!(reg.actors.is_empty());
-    }
-
-    #[test]
-    fn heartbeat_updates_state() {
-        let mut reg = ActorRegistry::new();
-        let id = reg.register(ActorKind::Gateway);
-        assert_eq!(reg.actors[&id].state, ActorState::Starting);
-        reg.heartbeat(id, 100);
-        assert_eq!(reg.actors[&id].state, ActorState::Running);
-        assert_eq!(reg.actors[&id].stall_ticks, 0);
-    }
-
-    #[test]
-    fn drain_empty_returns_parens() {
-        let mut reg = ActorRegistry::new();
-        assert_eq!(reg.drain_sexp(), "()");
-    }
 
     #[test]
     fn message_sexp_format() {

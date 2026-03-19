@@ -19,7 +19,7 @@
 
 ---
 
-Harmonia is a recursive self-improving agent built on SBCL Common Lisp with a modular Rust tool ecosystem. The Lisp core handles orchestration, reasoning, memory, and self-rewriting. All I/O — messaging, search, storage, LLM calls — flows through hot-pluggable Rust `.so` libraries loaded via CFFI.
+Harmonia is a recursive self-improving agent built on SBCL Common Lisp with a modular Rust tool ecosystem. The Lisp core handles orchestration, reasoning, memory, and self-rewriting. All I/O — messaging, search, storage, LLM calls — flows through `harmonia-runtime`, a single Rust binary containing all ractor actors, communicating with SBCL via IPC over a Unix domain socket.
 
 ## Install
 
@@ -93,20 +93,19 @@ harmonia uninstall
 ## Architecture
 
 ```
-┌─────────────────────────────────────────────────┐
-│                  SBCL Common Lisp                │
-│  ┌───────────┐ ┌──────────┐ ┌────────────────┐  │
-│  │ Conductor  │ │  Memory  │ │  Self-Rewrite  │  │
-│  │ (Planner)  │ │ (Store)  │ │  (Ouroboros)   │  │
-│  └─────┬─────┘ └────┬─────┘ └───────┬────────┘  │
-│        └─────────────┴───────────────┘           │
-│                      │ CFFI                      │
-├──────────────────────┼───────────────────────────┤
-│                Rust .so Libraries                │
-│  ┌──────┐ ┌───────┐ ┌────────┐ ┌─────────────┐  │
-│  │ Core │ │ Tools │ │Backend │ │  Frontends   │  │
-│  └──────┘ └───────┘ └────────┘ └─────────────┘  │
-└─────────────────────────────────────────────────┘
+Phoenix (process supervisor, writes phoenix.pid)
+  |
+  |-- harmonia-runtime (single Rust binary, all ractor actors)
+  |     |-- RuntimeSupervisor (actor registry, message routing)
+  |     |-- SbclBridgeActor (Unix socket <-> SBCL)
+  |     +-- IPC listener (runtime.sock)
+  |
+  |-- sbcl-agent (Lisp orchestrator)
+  |     |-- Conductor (planner)
+  |     |-- Memory (store)
+  |     +-- Self-Rewrite (Ouroboros)
+  |
+  +-- provision-server
 ```
 
 **Core** — vault, memory, HTTP, S3, git, cron, recovery, filesystem, gateway, mesh networking
@@ -115,7 +114,7 @@ harmonia uninstall
 
 **Backends** — multi-provider LLM routing (OpenRouter + native provider adapters), voice routing (STT via Whisper, TTS via ElevenLabs)
 
-**Frontends** — hot-pluggable messaging channels loaded at runtime via `dlopen`
+**Frontends** — rlib crates compiled into `harmonia-runtime`
 
 ## Crate map
 
@@ -145,7 +144,7 @@ harmonia uninstall
 
 | Crate | Description |
 |-------|-------------|
-| `harmonia-provider-protocol` | Shared model pool protocol, metrics, and FFI helpers |
+| `harmonia-provider-protocol` | Shared model pool protocol, metrics, and helpers |
 | `harmonia-openrouter` | Universal LLM gateway via OpenRouter |
 | `harmonia-openai` | OpenAI native backend |
 | `harmonia-anthropic` | Anthropic Messages API backend |

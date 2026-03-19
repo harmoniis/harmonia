@@ -10,6 +10,7 @@
 
 use crate::model::CliType;
 
+#[allow(dead_code)]
 #[derive(Clone, Debug)]
 pub(crate) struct CliProfile {
     #[allow(dead_code)]
@@ -65,6 +66,7 @@ pub(crate) struct CliProfile {
 }
 
 /// Claude Code CLI profile.
+#[allow(dead_code)]
 pub(crate) static CLAUDE_CODE_PROFILE: CliProfile = CliProfile {
     name: "claude-code",
     input_prompt_patterns: &[
@@ -192,6 +194,7 @@ pub(crate) static CLAUDE_CODE_PROFILE: CliProfile = CliProfile {
 };
 
 /// OpenAI Codex CLI profile.
+#[allow(dead_code)]
 pub(crate) static CODEX_PROFILE: CliProfile = CliProfile {
     name: "codex",
     input_prompt_patterns: &["❯", "> ", "Enter a prompt", "What would you like"],
@@ -219,6 +222,7 @@ pub(crate) static CODEX_PROFILE: CliProfile = CliProfile {
 };
 
 /// Get the profile for a known CLI type.
+#[allow(dead_code)]
 pub(crate) fn profile_for(cli_type: &CliType) -> &'static CliProfile {
     match cli_type {
         CliType::ClaudeCode => &CLAUDE_CODE_PROFILE,

@@ -1,6 +1,5 @@
 mod baseband;
 mod command_dispatch;
-mod ffi;
 mod frontend_ffi;
 mod model;
 mod payment_auth;

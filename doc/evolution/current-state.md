@@ -1,6 +1,6 @@
 # Current State
 
-Snapshot date: 2026-03-12
+Snapshot date: 2026-03-19
 
 ## Active Evolution Mode
 
@@ -127,7 +127,7 @@ Security enforcement at gateway:
 
 Exit handling: gateway sets `pending_exit` flag → Lisp checks via `harmonia_gateway_pending_exit` after each poll → calls `(stop runtime)`.
 
-All crate `Cargo.toml` files unified to `["cdylib", "rlib"]` for dual loading (dynamic + static).
+All crates are compiled as rlib and linked into `harmonia-runtime`. No cdylib shared libraries are produced.
 
 ## Matrix Enforcement State
 
@@ -270,11 +270,9 @@ The core control loop never crashes. Every tick action is individually supervise
 - Consecutive error tracking with adaptive cooldown: 5x sleep after 10 consecutive error ticks.
 - Outer `handler-case` in `run-loop` — even if tick-level supervision somehow fails, the loop survives.
 
-### Gateway FFI Hardening
+### Gateway Hardening
 
-All unsafe FFI calls to frontend cdylibs are wrapped in `catch_unwind` — a panicking frontend cannot crash the gateway. Panic payloads are captured and returned as `Err(String)`.
-
-Gateway supports hot-reload: `gateway-reload` shuts down a frontend, drops the library, reloads from disk, and re-initializes. Per-frontend crash counts tracked via atomic counter.
+Frontend operations within `harmonia-runtime` are wrapped in `catch_unwind` — a panicking frontend cannot crash the runtime. Panic payloads are captured and returned as `Err(String)`. Per-frontend crash counts tracked via atomic counter.
 
 ### Runtime Self-Knowledge
 
@@ -282,10 +280,9 @@ Gateway supports hot-reload: `gateway-reload` shuts down a frontend, drops the l
 
 - **Platform detection**: macOS, Linux, FreeBSD, Windows
 - **Path introspection**: state root, source root, lib dir, log path, runtime dir
-- **Library tracking**: `*loaded-libs*` hash table — path, load time, crash count, status (:running/:crashed)
+- **Library tracking**: module status and crash counts
 - **Error ring**: circular 64-entry buffer of recent errors for self-diagnosis
 - **Self-compilation**: `%cargo-build-component` runs cargo build for a single crate
-- **Hot-reload**: `%hot-reload-frontend` rebuilds crate, copies dylib, unregisters + re-registers
 - **Diagnostic snapshot**: `introspect-runtime` returns everything in one call
 - **DNA integration**: `%runtime-self-knowledge` injects self-awareness into LLM system prompt
 
@@ -296,11 +293,11 @@ System artifacts separated from user data:
 | Category | Path | Contents |
 |---|---|---|
 | User data | `~/.harmoniis/harmonia/` | vault.db, config.db, metrics.db, config/, frontends/, state/ |
-| Libraries | `~/.local/lib/harmonia/` | cdylibs (47 files) |
+| Libraries | `~/.local/lib/harmonia/` | runtime support files |
 | App data | `~/.local/share/harmonia/` | Lisp source, docs, genesis, evolution knowledge |
 | Binary | `~/.local/bin/harmonia` | CLI binary |
 | Logs | `~/Library/Logs/Harmonia/` (macOS) | harmonia.log |
-| Runtime | `$TMPDIR/harmonia/` (macOS) | PID file, Unix socket |
+| Runtime | `$TMPDIR/harmonia/` (macOS) | phoenix.pid, runtime.sock (IPC socket, 0600 permissions) |
 
 ### Evolution Portability
 

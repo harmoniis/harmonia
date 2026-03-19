@@ -10,19 +10,21 @@ Harmonia is layered as a constrained orchestration system:
 
 2. `Lisp Runtime Layer` (`src/`)
 - `core/`: boot, loop, policy, harmony machine, evolution versioning
-  - `introspection`: runtime self-knowledge, self-compilation, hot-reload, error ring, library tracking
+  - `introspection`: runtime self-knowledge, self-compilation, error ring, library tracking
 - `dna/`: constitutional prompt and identity guardrails
 - `orchestrator/`: prompt assembly + conductor planning/coordination (swarm-first execution)
 - `memory/`: state, concept map, compression
-- `ports/`: capability boundaries to Rust C-ABI
-- Supervision: Erlang-style `%supervised-action` wrapping every tick action, error ring, adaptive cooldown, gateway FFI catch_unwind
+- `ports/`: capability boundaries to Rust via IPC (Unix domain socket)
+- Supervision: Erlang-style `%supervised-action` wrapping every tick action, error ring, adaptive cooldown
 
 3. `Rust Capability Layer` (`lib/`)
+- `core/runtime`: single Rust binary (`harmonia-runtime`) containing all ractor actors, IPC listener (`runtime.sock`)
+- `core/phoenix`: ractor-based process supervisor, health endpoint (`127.0.0.1:9100`), pidfile management
 - `core/`: vault, gateway, matrix, recovery, forge, etc.
 - `signalograd`: tiny chaotic advisory kernel with local online learning and evolution checkpoints.
 - `backends/`: llm/storage/http adapters
 - `tools/`: search, browser, voice tools
-- `frontends/`: channels loaded via gateway/baseband
+- `frontends/`: rlib crates compiled into `harmonia-runtime`
 
 4. `Signal/Channel Layer`
 - Gateway/baseband polls frontends and emits capability-enriched, metadata-annotated signals.
@@ -83,9 +85,9 @@ Harmonia is layered as a constrained orchestration system:
 | Concept Family | Primary Source Docs |
 |---|---|
 | Harmonic philosophy, laws, attractors | `../genesis/concepts.md` |
-| Architecture and FFI contract | `../genesis/runtime-architecture.md` |
+| Architecture and IPC contract | `../genesis/runtime-architecture.md` |
 | Gateway/baseband and signal semantics | `../genesis/gateway-frontends.md` |
-| Ports and FFI mapping | `../genesis/ports-and-ffi.md` |
+| Ports and IPC mapping | `../genesis/ports-and-ffi.md` |
 | A2UI component catalog | `../../config/a2ui-catalog.sexp` |
 | Runtime matrix topology | `../../config/matrix-topology.sexp` |
 | Swarm/model policy | `../../config/swarm.sexp`, `../../config/model-policy.sexp` |

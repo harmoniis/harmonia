@@ -12,7 +12,7 @@
 ## Runtime And Orchestration
 
 - `Conductor`: Lisp orchestration engine that routes prompts and tool ops.
-- `Port`: Lisp capability boundary backed by Rust C-ABI.
+- `Port`: Lisp capability boundary backed by Rust IPC (Unix domain socket).
 - `Baseband`: unified signal ingress/egress processor (gateway) with command dispatch.
 - `Unified Command Dispatch`: gateway-level interception of ALL /commands from ALL frontends. Native Rust handlers for wallet/identity/help; Lisp callback delegation for runtime-state commands.
 - `Router`: LLM completion boundary used by orchestration.

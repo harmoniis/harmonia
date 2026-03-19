@@ -9,7 +9,6 @@ authors.workspace = true
 description = "Ed25519 admin intent verification for privileged Harmonia mutations"
 
 [lib]
-crate-type = ["cdylib", "rlib"]
 
 [dependencies]
 ed25519-dalek = { version = "2", features = ["rand_core"] }

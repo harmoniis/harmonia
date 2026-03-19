@@ -1,4 +1,3 @@
-pub mod frontend_ffi;
 #[cfg(unix)]
 pub mod terminal;
 #[cfg(not(unix))]

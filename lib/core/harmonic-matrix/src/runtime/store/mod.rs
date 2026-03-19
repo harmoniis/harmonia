@@ -4,6 +4,7 @@ use crate::model::{State, StoreKind};
 
 use super::shared::{reset_state, state, store_config};
 
+#[allow(dead_code)]
 pub(super) fn persist_if_needed(st: &State) -> Result<(), String> {
     let cfg = store_config()
         .read()
@@ -16,6 +17,7 @@ pub(super) fn persist_if_needed(st: &State) -> Result<(), String> {
     }
 }
 
+#[allow(dead_code)]
 pub(crate) fn set_store(kind: &str, path_override: Option<&str>) -> Result<(), String> {
     let parsed = if kind.eq_ignore_ascii_case("memory") {
         StoreKind::Memory
@@ -60,6 +62,7 @@ pub(crate) fn set_store(kind: &str, path_override: Option<&str>) -> Result<(), S
     Ok(())
 }
 
+#[allow(dead_code)]
 pub(crate) fn init() -> Result<(), String> {
     let cfg = store_config()
         .read()
@@ -84,6 +87,7 @@ pub(crate) fn init() -> Result<(), String> {
     Ok(())
 }
 
+#[allow(dead_code)]
 pub(crate) fn store_summary() -> Result<String, String> {
     let cfg = store_config()
         .read()

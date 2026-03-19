@@ -1,7 +1,9 @@
 use std::collections::HashMap;
 
+#[allow(dead_code)]
 const COMPONENT: &str = "harmonic-matrix";
 
+#[allow(dead_code)]
 fn state_root() -> String {
     let default = std::env::temp_dir()
         .join("harmonia")
@@ -11,11 +13,13 @@ fn state_root() -> String {
         .unwrap_or_else(|_| default)
 }
 
+#[allow(dead_code)]
 fn default_matrix_db() -> String {
     format!("{}/harmonic-matrix.db", state_root())
 }
 
 #[derive(Clone, Debug)]
+#[allow(dead_code)]
 pub(crate) struct Edge {
     pub(crate) weight: f64,
     pub(crate) min_harmony: f64,
@@ -26,6 +30,7 @@ pub(crate) struct Edge {
 }
 
 #[derive(Clone, Debug)]
+#[allow(dead_code)]
 pub(crate) struct RouteSample {
     pub(crate) ts: u64,
     pub(crate) success: bool,
@@ -34,6 +39,7 @@ pub(crate) struct RouteSample {
 }
 
 #[derive(Clone, Debug)]
+#[allow(dead_code)]
 pub(crate) struct MatrixEvent {
     pub(crate) ts: u64,
     pub(crate) component: String,
@@ -45,6 +51,7 @@ pub(crate) struct MatrixEvent {
 }
 
 #[derive(Default, Clone)]
+#[allow(dead_code)]
 pub(crate) struct State {
     pub(crate) nodes: HashMap<String, String>,
     pub(crate) edges: HashMap<(String, String), Edge>,
@@ -56,6 +63,7 @@ pub(crate) struct State {
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[allow(dead_code)]
 pub(crate) enum StoreKind {
     Memory,
     Sqlite,
@@ -63,6 +71,7 @@ pub(crate) enum StoreKind {
 }
 
 #[derive(Clone, Debug)]
+#[allow(dead_code)]
 pub(crate) struct StoreConfig {
     pub(crate) kind: StoreKind,
     pub(crate) path: String,
@@ -96,6 +105,7 @@ impl Default for StoreConfig {
 }
 
 impl StoreConfig {
+    #[allow(dead_code)]
     pub(crate) fn kind_name(&self) -> &'static str {
         match self.kind {
             StoreKind::Memory => "memory",

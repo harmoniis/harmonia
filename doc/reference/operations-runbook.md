@@ -2,10 +2,30 @@
 
 ## 1. Bootstrap Checks
 
-1. Ensure SBCL + Quicklisp/CFFI are available.
+1. Ensure SBCL + Quicklisp are available.
 2. Validate required `config/*.sexp` files parse.
 3. Ensure vault is initialized and required symbols exist.
-4. Start runtime and verify bootstrap completion.
+4. Start runtime via `harmonia start` and verify bootstrap completion.
+
+### 1.0 Phoenix Lifecycle
+
+Phoenix is the ractor-based process supervisor managing all child processes. CLI lifecycle commands:
+
+```bash
+# Start Phoenix (and all child processes)
+harmonia start
+
+# Stop Phoenix (graceful shutdown of all children)
+harmonia stop
+
+# Restart Phoenix
+harmonia restart
+
+# Query Phoenix health endpoint (GET 127.0.0.1:9100/health)
+harmonia status
+```
+
+Phoenix writes a pidfile and manages: `harmonia-runtime` (Rust binary), `sbcl-agent` (Lisp orchestrator), and `provision-server`.
 
 ## 1.1 Setup And Seed Reconfiguration
 
@@ -60,7 +80,7 @@ Run through runtime APIs/tool ops:
 From `scripts/`:
 
 1. `./scripts/test-all.sh` - aggregate checks.
-2. `./scripts/test-ffi-live.sh` - core FFI live checks.
+2. `./scripts/test-ipc-live.sh` - core IPC live checks.
 3. `./scripts/test-frontends.sh` - communication/search/voice checks.
 4. `./scripts/test-mqtt-tls.sh` - MQTT TLS flow.
 5. `./scripts/test-mqtt-wallet-derived-tls.sh` - wallet-derived MQTT TLS identities + typed gateway ingress.
@@ -172,7 +192,7 @@ Monitor `*security-posture*` during normal operation. Should be `:nominal`. Afte
 
 1. `introspect-runtime` — full diagnostic snapshot (platform, paths, libs, errors, frontends).
 2. `introspect-recent-errors` — last N errors with context from error ring buffer.
-3. `introspect-libs` — all loaded cdylibs with crash counts and status.
+3. `introspect-libs` — all loaded library modules with status.
 4. `%cargo-build-component <crate-name>` — rebuild a single crate from within the agent.
-5. `%hot-reload-frontend <frontend-name>` — rebuild crate, copy dylib, re-register.
-6. `gateway-crash-count <frontend-name>` — check per-frontend crash counter.
+5. `harmonia restart` — restart Phoenix and all child processes.
+6. `harmonia status` — query Phoenix health endpoint for subsystem health.

@@ -391,26 +391,7 @@ pub fn poll_baseband(registry: &Registry) -> ChannelBatch {
     // Lisp orchestrator only receives agent-level prompts.
     let all_envelopes = crate::command_dispatch::intercept_commands(registry, all_envelopes);
 
-    // Post each remaining envelope as InboundSignal to the unified actor mailbox
-    let gw_actor_id = crate::state::actor_id();
-    if gw_actor_id > 0 && !all_envelopes.is_empty() {
-        if harmonia_actor_protocol::client::is_available() {
-            for env in &all_envelopes {
-                let envelope_sexp = env.to_sexp();
-                let _ = harmonia_actor_protocol::client::post(
-                    gw_actor_id,
-                    0,
-                    &format!(
-                        "(:inbound-signal :envelope \"{}\")",
-                        harmonia_actor_protocol::sexp_escape(&envelope_sexp)
-                    ),
-                );
-            }
-            // Heartbeat with envelope count
-            let _ =
-                harmonia_actor_protocol::client::heartbeat(gw_actor_id, all_envelopes.len() as u64);
-        }
-    }
+    // Actor mailbox posting is now handled by the runtime IPC system.
 
     ChannelBatch {
         envelopes: all_envelopes,

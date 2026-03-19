@@ -287,12 +287,7 @@ fn to_c_string(value: String) -> *mut c_char {
 }
 
 fn ensure_actor_registered() {
-    if ACTOR_ID.load(Ordering::SeqCst) > 0 || !harmonia_actor_protocol::client::is_available() {
-        return;
-    }
-    if let Ok(id) = harmonia_actor_protocol::client::register("signalograd") {
-        ACTOR_ID.store(id, Ordering::SeqCst);
-    }
+    // Actor registration is now handled by the runtime IPC system.
 }
 
 fn default_state_root() -> String {
@@ -523,6 +518,7 @@ fn projection_body_sexp(proj: &Projection) -> String {
     )
 }
 
+#[allow(dead_code)]
 fn projection_to_sexp(proj: &Projection) -> String {
     format!("(:signalograd-proposal {})", projection_body_sexp(proj))
 }
@@ -1121,17 +1117,8 @@ fn apply_feedback(state: &mut KernelState, feedback: &Feedback) {
     state.last_feedback = feedback.clone();
 }
 
-fn post_projection_signal(projection: &Projection) {
-    ensure_actor_registered();
-    let actor_id = ACTOR_ID.load(Ordering::SeqCst);
-    if actor_id == 0 || !harmonia_actor_protocol::client::is_available() {
-        return;
-    }
-
-    let proposal = projection_to_sexp(projection);
-    let bytes = proposal.len() as u64;
-    let _ = harmonia_actor_protocol::client::post(actor_id, 0, &proposal);
-    let _ = harmonia_actor_protocol::client::heartbeat(actor_id, bytes);
+fn post_projection_signal(_projection: &Projection) {
+    // Actor mailbox posting is now handled by the runtime IPC system.
 }
 
 fn parse_observation(raw: &str) -> Result<Observation, String> {

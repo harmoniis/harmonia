@@ -11,6 +11,5 @@ keywords = ["harmonia", "memory"]
 categories = ["database"]
 
 [lib]
-crate-type = ["cdylib", "rlib"]
 
 [dependencies]

@@ -1,4 +1,3 @@
-mod ffi;
 pub mod mesh;
 pub mod model;
 mod node_link;

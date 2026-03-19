@@ -11,14 +11,15 @@
 //! - Metrics are logged for every interaction (harmonic telemetry)
 
 use super::cli_profiles::profile_for;
-use super::detector;
 use super::detector::detect_state;
 use super::session;
-use crate::actor_core::{self, ActorKind, MessagePayload};
+// Actor mailbox posting now handled by harmonia-runtime via IPC.
 use crate::model::{append_tmux_metric_line, now_unix, state, CliState, CliType, TmuxAgent};
 
+#[allow(dead_code)]
 const SESSION_PREFIX: &str = "harmonia-";
 
+#[allow(dead_code)]
 fn session_name(id: u64) -> String {
     format!("{SESSION_PREFIX}{id}")
 }
@@ -27,6 +28,7 @@ fn session_name(id: u64) -> String {
 ///
 /// Creates a tmux session, launches the CLI tool, and optionally sends
 /// an initial prompt. Returns the agent ID.
+#[allow(dead_code)]
 pub(crate) fn spawn(
     cli_type: &CliType,
     workdir: &str,
@@ -152,6 +154,7 @@ pub(crate) fn spawn(
 
 /// Poll the current state of a tmux agent by capturing its terminal output
 /// and running detection.
+#[allow(dead_code)]
 pub(crate) fn poll(id: u64) -> Result<CliState, String> {
     let (sess, cli_type) = {
         let st = state()
@@ -176,18 +179,7 @@ pub(crate) fn poll(id: u64) -> Result<CliState, String> {
                 append_tmux_metric_line(agent, "terminated");
             }
         }
-        // Push failed message to unified mailbox
-        if let Ok(mut reg) = actor_core::registry().write() {
-            reg.post_from(
-                id,
-                0,
-                ActorKind::CliAgent,
-                MessagePayload::TaskFailed {
-                    error: "tmux session terminated unexpectedly".to_string(),
-                    duration_ms: 0,
-                },
-            );
-        }
+        // Actor mailbox posting now handled by harmonia-runtime via IPC.
         return Ok(CliState::Terminated);
     }
 
@@ -195,90 +187,37 @@ pub(crate) fn poll(id: u64) -> Result<CliState, String> {
     let detected = detect_state(&output, &cli_type);
 
     {
-        // Collect messages to post to unified mailbox after releasing state lock
-        let mut pending_payloads: Vec<MessagePayload> = Vec::new();
+        let mut st = state()
+            .write()
+            .map_err(|_| "parallel state lock poisoned".to_string())?;
 
-        {
-            let mut st = state()
-                .write()
-                .map_err(|_| "parallel state lock poisoned".to_string())?;
+        if let Some(agent) = st.tmux_agents.get_mut(&id) {
+            let prev_state = agent.state.clone();
+            agent.state = detected.clone();
+            agent.last_output = output.clone();
+            agent.last_poll_at = now_unix();
+            agent.interaction_count += 1;
 
-            if let Some(agent) = st.tmux_agents.get_mut(&id) {
-                let prev_state = agent.state.clone();
-                let prev_output_len = agent.last_output.len();
-                agent.state = detected.clone();
-                agent.last_output = output.clone();
-                agent.last_poll_at = now_unix();
-                agent.interaction_count += 1;
-
-                // Accumulate cost and duration tracking
-                agent.duration_ms = (now_unix() - agent.created_at) * 1000;
-                if matches!(detected, CliState::Processing) {
-                    agent.estimated_cost_usd += agent.cli_type.estimated_cost_per_interaction();
-                }
-
-                let dur = agent.duration_ms;
-
-                // Log state transitions and collect mailbox messages
-                if std::mem::discriminant(&prev_state) != std::mem::discriminant(&detected) {
-                    append_tmux_metric_line(agent, &format!("state:{}", state_label(&detected)));
-
-                    pending_payloads.push(MessagePayload::StateChanged {
-                        to: detected.to_sexp(),
-                    });
-
-                    match &detected {
-                        CliState::Completed => {
-                            // Extract meaningful response from raw terminal capture.
-                            // Raw output includes TUI chrome, tool headers, prompts, etc.
-                            let extracted = detector::extract_response(&output, &cli_type);
-                            let final_output = if extracted.is_empty() {
-                                output.clone() // fallback to raw if extraction yields nothing
-                            } else {
-                                extracted
-                            };
-                            pending_payloads.push(MessagePayload::TaskCompleted {
-                                output: final_output,
-                                exit_code: 0,
-                                duration_ms: dur,
-                            });
-                        }
-                        CliState::Error(e) => {
-                            pending_payloads.push(MessagePayload::TaskFailed {
-                                error: e.clone(),
-                                duration_ms: dur,
-                            });
-                        }
-                        _ => {}
-                    }
-                }
-
-                // Progress heartbeat if output changed
-                let bytes_delta = if output.len() > prev_output_len {
-                    (output.len() - prev_output_len) as u64
-                } else {
-                    0
-                };
-                if bytes_delta > 0 {
-                    pending_payloads.push(MessagePayload::ProgressHeartbeat { bytes_delta });
-                }
+            // Accumulate cost and duration tracking
+            agent.duration_ms = (now_unix() - agent.created_at) * 1000;
+            if matches!(detected, CliState::Processing) {
+                agent.estimated_cost_usd += agent.cli_type.estimated_cost_per_interaction();
             }
-        }
 
-        // Post all collected messages to unified mailbox
-        if !pending_payloads.is_empty() {
-            if let Ok(mut reg) = actor_core::registry().write() {
-                for payload in pending_payloads {
-                    reg.post_from(id, 0, ActorKind::CliAgent, payload);
-                }
+            // Log state transitions
+            if std::mem::discriminant(&prev_state) != std::mem::discriminant(&detected) {
+                append_tmux_metric_line(agent, &format!("state:{}", state_label(&detected)));
             }
         }
     }
+
+    // Actor mailbox posting now handled by harmonia-runtime via IPC.
 
     Ok(detected)
 }
 
 /// Send free-text input to a tmux agent (types text + Enter).
+#[allow(dead_code)]
 pub(crate) fn send_input(id: u64, input: &str) -> Result<(), String> {
     let sess = get_session_name(id)?;
     session::send_line(&sess, input)?;
@@ -296,6 +235,7 @@ pub(crate) fn send_input(id: u64, input: &str) -> Result<(), String> {
 }
 
 /// Send a special key to a tmux agent (Enter, Tab, Escape, Up, Down, etc.).
+#[allow(dead_code)]
 pub(crate) fn send_key(id: u64, key: &str) -> Result<(), String> {
     let sess = get_session_name(id)?;
     session::send_special(&sess, key)?;
@@ -305,6 +245,7 @@ pub(crate) fn send_key(id: u64, key: &str) -> Result<(), String> {
 /// Approve a permission prompt.
 /// For TUI selector CLIs (Claude Code): press Enter to accept the default "Allow once".
 /// For y/n CLIs (Codex): send the approve key + Enter.
+#[allow(dead_code)]
 pub(crate) fn approve(id: u64) -> Result<(), String> {
     let (sess, cli_type) = get_session_and_type(id)?;
     let profile = profile_for(&cli_type);
@@ -334,6 +275,7 @@ pub(crate) fn approve(id: u64) -> Result<(), String> {
 /// Deny a permission prompt.
 /// For TUI selector CLIs (Claude Code): navigate Down to "Deny" option, press Enter.
 /// For y/n CLIs (Codex): send the deny key + Enter.
+#[allow(dead_code)]
 pub(crate) fn deny(id: u64) -> Result<(), String> {
     let (sess, cli_type) = get_session_and_type(id)?;
     let profile = profile_for(&cli_type);
@@ -364,6 +306,7 @@ pub(crate) fn deny(id: u64) -> Result<(), String> {
 }
 
 /// Confirm (yes) a confirmation prompt.
+#[allow(dead_code)]
 pub(crate) fn confirm_yes(id: u64) -> Result<(), String> {
     let (sess, cli_type) = get_session_and_type(id)?;
     let profile = profile_for(&cli_type);
@@ -374,6 +317,7 @@ pub(crate) fn confirm_yes(id: u64) -> Result<(), String> {
 }
 
 /// Deny a confirmation prompt.
+#[allow(dead_code)]
 pub(crate) fn confirm_no(id: u64) -> Result<(), String> {
     let (sess, cli_type) = get_session_and_type(id)?;
     let profile = profile_for(&cli_type);
@@ -384,6 +328,7 @@ pub(crate) fn confirm_no(id: u64) -> Result<(), String> {
 }
 
 /// Select an option by index (0-based) using arrow keys + Enter.
+#[allow(dead_code)]
 pub(crate) fn select_option(id: u64, index: usize) -> Result<(), String> {
     let sess = get_session_name(id)?;
     // Move down to the desired option
@@ -397,6 +342,7 @@ pub(crate) fn select_option(id: u64, index: usize) -> Result<(), String> {
 }
 
 /// Interrupt the CLI agent (Ctrl+C).
+#[allow(dead_code)]
 pub(crate) fn interrupt(id: u64) -> Result<(), String> {
     let sess = get_session_name(id)?;
     session::send_interrupt(&sess)?;
@@ -404,12 +350,14 @@ pub(crate) fn interrupt(id: u64) -> Result<(), String> {
 }
 
 /// Capture the current terminal output of a tmux agent.
+#[allow(dead_code)]
 pub(crate) fn capture(id: u64, history: u32) -> Result<String, String> {
     let sess = get_session_name(id)?;
     session::capture_pane(&sess, history)
 }
 
 /// Kill a tmux agent, destroying its session.
+#[allow(dead_code)]
 pub(crate) fn kill(id: u64) -> Result<(), String> {
     let sess = get_session_name(id)?;
     if session::session_exists(&sess) {
@@ -433,6 +381,7 @@ pub(crate) fn kill(id: u64) -> Result<(), String> {
 }
 
 /// List all active tmux agents as an s-expression.
+#[allow(dead_code)]
 pub(crate) fn list() -> Result<String, String> {
     let st = state()
         .read()
@@ -444,6 +393,7 @@ pub(crate) fn list() -> Result<String, String> {
 }
 
 /// Get a full status report of a specific tmux agent as s-expression.
+#[allow(dead_code)]
 pub(crate) fn agent_status(id: u64) -> Result<String, String> {
     let st = state()
         .read()
@@ -457,6 +407,7 @@ pub(crate) fn agent_status(id: u64) -> Result<String, String> {
 
 /// Poll ALL active tmux agents and return their collective state as s-expression.
 /// This is the swarm heartbeat — called periodically by the conductor.
+#[allow(dead_code)]
 pub(crate) fn swarm_poll() -> Result<String, String> {
     let agent_ids: Vec<u64> = {
         let st = state()
@@ -511,6 +462,7 @@ pub(crate) fn swarm_poll() -> Result<String, String> {
 // Internal helpers
 // ---------------------------------------------------------------------------
 
+#[allow(dead_code)]
 fn get_session_name(id: u64) -> Result<String, String> {
     let st = state()
         .read()
@@ -522,6 +474,7 @@ fn get_session_name(id: u64) -> Result<String, String> {
     Ok(agent.session_name.clone())
 }
 
+#[allow(dead_code)]
 fn get_session_and_type(id: u64) -> Result<(String, CliType), String> {
     let st = state()
         .read()
@@ -533,6 +486,7 @@ fn get_session_and_type(id: u64) -> Result<(String, CliType), String> {
     Ok((agent.session_name.clone(), agent.cli_type.clone()))
 }
 
+#[allow(dead_code)]
 fn increment_input(id: u64, event: &str) {
     if let Ok(mut st) = state().write() {
         if let Some(agent) = st.tmux_agents.get_mut(&id) {
@@ -542,6 +496,7 @@ fn increment_input(id: u64, event: &str) {
     }
 }
 
+#[allow(dead_code)]
 fn state_label(state: &CliState) -> &'static str {
     match state {
         CliState::Launching => "launching",

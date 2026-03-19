@@ -11,7 +11,6 @@ keywords = ["harmonia", "mqtt"]
 categories = ["network-programming"]
 
 [lib]
-crate-type = ["cdylib", "rlib"]
 
 [dependencies]
 rumqttc = "0.24"

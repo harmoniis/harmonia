@@ -11,7 +11,6 @@ keywords = ["harmonia", "llm", "router"]
 categories = ["api-bindings"]
 
 [lib]
-crate-type = ["cdylib", "rlib"]
 
 [dependencies]
 harmonia-provider-protocol = { version = "0.1.9", path = "../provider-protocol" }

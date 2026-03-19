@@ -18,7 +18,7 @@
 | `src/core/evolution-versioning.lisp` | evolution snapshot version state and snapshot mechanics |
 | `src/core/system-commands.lisp` | Lisp-side command handlers for gateway-delegated /commands, %gateway-dispatch-command callback entry point |
 | `src/core/conditions.lisp` | condition/error taxonomy helpers |
-| `src/core/introspection.lisp` | runtime self-knowledge: platform detection, path introspection, library tracking, error ring, self-compilation, hot-reload, diagnostic snapshots |
+| `src/core/introspection.lisp` | runtime self-knowledge: platform detection, path introspection, library tracking, error ring, self-compilation, diagnostic snapshots |
 | `src/core/supervision-state.lisp` | shared supervision counters loaded before readers (`*tick-error-count*`, cooldown state) |
 
 ## Orchestration (`src/orchestrator`)
@@ -50,7 +50,7 @@
 | `src/ports/swarm.lisp` | parallel agents + tmux swarm control | `lib/core/parallel-agents` |
 | `src/ports/evolution.lisp` | source-rewrite/artifact-rollout mode dispatch | `lib/core/ouroboros` + phoenix supervision model |
 | `src/ports/chronicle.lisp` | graph-native knowledge base queries, harmonic/memory/delegation recording, concept graph SQL traversal | `lib/core/chronicle` |
-| `src/ports/signalograd.lisp` | chaotic advisory kernel FFI (`observe`, `feedback`, `checkpoint`, `restore`, `status`) | `lib/core/signalograd` |
+| `src/ports/signalograd.lisp` | chaotic advisory kernel IPC (`observe`, `feedback`, `checkpoint`, `restore`, `status`) | `lib/core/signalograd` |
 
 ## Boot Knowledge (`src/boot`)
 
@@ -103,6 +103,6 @@ This deterministic order is critical for reproducibility and telemetry interpret
 
 1. Runtime architecture: `../genesis/runtime-architecture.md`
 2. Gateway/baseband semantics: `../genesis/gateway-frontends.md`
-3. Ports and FFI: `../genesis/ports-and-ffi.md`
+3. Ports and IPC: `../genesis/ports-and-ffi.md`
 4. Evolution state: `../evolution/current-state.md`
 5. Rewrite roadmap: `../evolution/rewrite-roadmap.md`

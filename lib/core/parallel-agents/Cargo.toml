@@ -10,12 +10,8 @@ description = "Multi-agent parallel execution with tmux orchestration"
 keywords = ["harmonia", "parallel"]
 categories = ["concurrency"]
 
-[lib]
-crate-type = ["cdylib", "rlib"]
-
 [dependencies]
 harmonia-config-store = { version = "0.1.9", path = "../config-store" }
 harmonia-vault = { version = "0.1.9", path = "../vault" }
 harmonia-provider-protocol = { version = "0.1.9", path = "../../backends/llms/provider-protocol" }
-harmonia-actor-protocol = { version = "0.1.9", path = "../actor-protocol" }
 serde_json = "1"

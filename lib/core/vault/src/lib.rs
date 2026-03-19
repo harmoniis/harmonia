@@ -1,5 +1,4 @@
 mod api;
-mod ffi;
 mod ingest;
 mod state;
 mod store;

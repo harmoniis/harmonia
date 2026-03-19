@@ -1095,25 +1095,29 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
 
     // Build and install to platform-standard locations
     if let Ok(source_dir) = find_source_dir() {
-        // Copy genesis docs to share dir
+        // Copy genesis docs to share dir (skip self-copy)
         let genesis_src = source_dir.join("doc").join("genesis");
-        if genesis_src.exists() {
-            copy_dir_recursive(&genesis_src, &share_dir.join("genesis"))?;
+        let genesis_dst = share_dir.join("genesis");
+        if genesis_src.exists() && genesis_src != genesis_dst {
+            copy_dir_recursive(&genesis_src, &genesis_dst)?;
             println!(
                 "    {} Evolution knowledge installed",
                 style("✓").green().bold()
             );
         }
 
-        // Copy Lisp source to share dir
+        // Copy Lisp source to share dir (skip if source IS the share dir to avoid self-copy)
         let lisp_src = source_dir.join("src");
         if lisp_src.exists() {
             let share_src = crate::paths::source_dir()?;
-            copy_dir_recursive(&lisp_src, &share_src)?;
-            // Copy config/ for baseband.sexp fallback
+            if lisp_src != share_src {
+                copy_dir_recursive(&lisp_src, &share_src)?;
+            }
+            // Copy config/ for baseband.sexp fallback (skip self-copy)
             let config_src = source_dir.join("config");
-            if config_src.exists() {
-                copy_dir_recursive(&config_src, &share_dir.join("config"))?;
+            let config_dst = share_dir.join("config");
+            if config_src.exists() && config_src != config_dst {
+                copy_dir_recursive(&config_src, &config_dst)?;
             }
             cs("global", "source-dir", &share_dir.to_string_lossy())?;
             println!(

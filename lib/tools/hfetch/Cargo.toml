@@ -12,7 +12,6 @@ categories = ["command-line-utilities", "web-programming::http-client"]
 
 [lib]
 name = "harmonia_hfetch"
-crate-type = ["cdylib", "rlib"]
 
 [[bin]]
 name = "hfetch"

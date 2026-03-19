@@ -30,15 +30,17 @@ Security enforcement happens at the gateway before dispatch:
 - Read-restricted commands require Owner or Authenticated security label.
 - `/exit` is TUI-only.
 
-The Lisp callback (`CommandQueryFn`) is registered during `init-baseband-port` via `harmonia_gateway_set_command_query`. The gateway calls it for delegated commands and frees the malloc'd result string.
+The Lisp callback for delegated commands is registered during `init-baseband-port`. The gateway calls it for delegated commands via IPC.
 
-For `/exit`: the gateway sets a `pending_exit` flag. Lisp checks this via `harmonia_gateway_pending_exit` after each poll and stops the run-loop.
+For `/exit`: the gateway sets a `pending_exit` flag. Lisp checks this after each poll and stops the run-loop.
 
 Lisp never sees command envelopes — only agent-level prompts pass through to the orchestrator.
 
 ## Frontend Contract
 
-Most frontends implement the standard `harmonia_frontend_*` C-ABI contract:
+Frontends are rlib crates compiled directly into `harmonia-runtime`. They are no longer separate shared libraries loaded via dlopen.
+
+Each frontend implements a standard trait contract providing:
 
 - version
 - healthcheck
@@ -47,9 +49,8 @@ Most frontends implement the standard `harmonia_frontend_*` C-ABI contract:
 - send
 - last_error
 - shutdown
-- free_string
 
-Frontends are hot-loaded via gateway from `config/baseband.sexp`.
+Frontend configuration is declared in `config/baseband.sexp`.
 
 ## Frontend Capabilities
 

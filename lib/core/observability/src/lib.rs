@@ -6,8 +6,5 @@
 //! is disabled or not yet initialized.
 
 pub mod client;
-pub mod config;
 pub mod context;
-pub mod ffi;
 pub mod model;
-pub mod sender;

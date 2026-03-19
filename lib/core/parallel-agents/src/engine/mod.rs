@@ -7,16 +7,13 @@ use std::thread;
 use harmonia_vault::{get_secret_for_component, init_from_env};
 
 use crate::model::{
-    append_metric_line, clear_error, now_unix, set_error, sexp_escape, state, ModelPrice, Task,
+    append_metric_line, now_unix, sexp_escape, state, ModelPrice, Task,
 };
 
 use self::clients::{request_openrouter, verify_with_search};
 use self::metrics::{estimate_cost, render_report};
 
-pub(crate) fn init_backend() -> Result<(), String> {
-    init_from_env().map_err(|e| e.to_string())
-}
-
+#[allow(dead_code)]
 pub(crate) fn set_model_price(
     model: &str,
     usd_per_1k_input: f64,
@@ -37,6 +34,7 @@ pub(crate) fn set_model_price(
     }
 }
 
+#[allow(dead_code)]
 pub(crate) fn submit(prompt: &str, model: &str) -> Result<i64, String> {
     let mut st = state()
         .write()
@@ -64,6 +62,7 @@ pub(crate) fn submit(prompt: &str, model: &str) -> Result<i64, String> {
     Ok(id as i64)
 }
 
+#[allow(dead_code)]
 pub(crate) fn run_pending(max_parallel: i32) -> Result<(), String> {
     init_from_env().map_err(|e| e.to_string())?;
 
@@ -185,6 +184,7 @@ pub(crate) fn run_pending(max_parallel: i32) -> Result<(), String> {
 ///
 /// Returns a list of `(task_id, actor_id, model)` tuples so the Lisp
 /// supervisor can create tracking records BEFORE workers finish.
+#[allow(dead_code)]
 pub(crate) fn run_pending_async(max_parallel: i32) -> Result<Vec<(u64, u64, String)>, String> {
     init_from_env().map_err(|e| e.to_string())?;
 
@@ -220,23 +220,12 @@ pub(crate) fn run_pending_async(max_parallel: i32) -> Result<Vec<(u64, u64, Stri
         max_parallel as usize
     };
 
-    // Pre-register ALL tasks as actors before spawning workers.
-    // This lets Lisp create tracking records immediately.
-    let mut actor_assignments: Vec<(u64, u64, String)> = Vec::with_capacity(pending.len());
-    {
-        let mut reg = crate::actor_core::registry()
-            .write()
-            .map_err(|_| "actor registry lock poisoned".to_string())?;
-        for t in &pending {
-            let aid = reg.register(crate::actor_core::ActorKind::LlmTask);
-            reg.set_state(aid, crate::actor_core::ActorState::Running);
-            actor_assignments.push((t.id, aid, t.model.clone()));
-        }
-    }
-
-    // Build a map from task index → actor_id for workers
-    let actor_ids: Arc<Vec<u64>> =
-        Arc::new(actor_assignments.iter().map(|(_, aid, _)| *aid).collect());
+    // Actor registration now handled by harmonia-runtime via IPC.
+    // Build placeholder assignments for return value compatibility.
+    let actor_assignments: Vec<(u64, u64, String)> = pending
+        .iter()
+        .map(|t| (t.id, 0u64, t.model.clone()))
+        .collect();
 
     let tasks = Arc::new(pending);
     let cursor = Arc::new(RwLock::new(0usize));
@@ -257,7 +246,6 @@ pub(crate) fn run_pending_async(max_parallel: i32) -> Result<Vec<(u64, u64, Stri
         let tasks = Arc::clone(&tasks);
         let cursor = Arc::clone(&cursor);
         let key = key.clone();
-        let actor_ids = Arc::clone(&actor_ids);
 
         // Each worker is a fire-and-forget thread
         thread::spawn(move || loop {
@@ -279,7 +267,6 @@ pub(crate) fn run_pending_async(max_parallel: i32) -> Result<Vec<(u64, u64, Stri
                 None => break,
             };
             let mut t = tasks[i].clone();
-            let actor_id = actor_ids[i];
 
             let start = std::time::Instant::now();
             match request_openrouter(&t.prompt, &t.model, &key) {
@@ -314,36 +301,14 @@ pub(crate) fn run_pending_async(max_parallel: i32) -> Result<Vec<(u64, u64, Stri
                 append_metric_line(&t);
             }
 
-            // Post result to unified mailbox
-            if let Ok(mut reg) = crate::actor_core::registry().write() {
-                let payload = if t.success {
-                    crate::actor_core::MessagePayload::TaskCompleted {
-                        output: t.response.clone(),
-                        exit_code: 0,
-                        duration_ms: t.latency_ms,
-                    }
-                } else {
-                    crate::actor_core::MessagePayload::TaskFailed {
-                        error: t.error.clone(),
-                        duration_ms: t.latency_ms,
-                    }
-                };
-                reg.post_from(actor_id, 0, crate::actor_core::ActorKind::LlmTask, payload);
-                reg.set_state(
-                    actor_id,
-                    if t.success {
-                        crate::actor_core::ActorState::Completed
-                    } else {
-                        crate::actor_core::ActorState::Failed(t.error.clone())
-                    },
-                );
-            }
+            // Actor mailbox posting now handled by harmonia-runtime via IPC.
         });
     }
 
     Ok(actor_assignments)
 }
 
+#[allow(dead_code)]
 pub(crate) fn task_result(task_id: i64) -> Result<String, String> {
     let st = state()
         .read()
@@ -368,6 +333,7 @@ pub(crate) fn task_result(task_id: i64) -> Result<String, String> {
     ))
 }
 
+#[allow(dead_code)]
 pub(crate) fn report() -> Result<String, String> {
     Ok(render_report())
 }
@@ -379,11 +345,13 @@ pub(crate) fn report() -> Result<String, String> {
 use crate::model::CliType;
 use crate::tmux::controller;
 
+#[allow(dead_code)]
 pub(crate) fn tmux_spawn(cli_type_str: &str, workdir: &str, prompt: &str) -> Result<i64, String> {
     let cli_type = CliType::from_str(cli_type_str)?;
     controller::spawn(&cli_type, workdir, prompt).map(|id| id as i64)
 }
 
+#[allow(dead_code)]
 pub(crate) fn tmux_spawn_custom(
     command: &str,
     args: &str,
@@ -402,94 +370,75 @@ pub(crate) fn tmux_spawn_custom(
     controller::spawn(&cli_type, workdir, prompt).map(|id| id as i64)
 }
 
+#[allow(dead_code)]
 pub(crate) fn tmux_poll(id: i64) -> Result<String, String> {
     let state = controller::poll(id as u64)?;
     Ok(state.to_sexp())
 }
 
+#[allow(dead_code)]
 pub(crate) fn tmux_send(id: i64, input: &str) -> Result<(), String> {
     controller::send_input(id as u64, input)
 }
 
+#[allow(dead_code)]
 pub(crate) fn tmux_send_key(id: i64, key: &str) -> Result<(), String> {
     controller::send_key(id as u64, key)
 }
 
+#[allow(dead_code)]
 pub(crate) fn tmux_approve(id: i64) -> Result<(), String> {
     controller::approve(id as u64)
 }
 
+#[allow(dead_code)]
 pub(crate) fn tmux_deny(id: i64) -> Result<(), String> {
     controller::deny(id as u64)
 }
 
+#[allow(dead_code)]
 pub(crate) fn tmux_confirm_yes(id: i64) -> Result<(), String> {
     controller::confirm_yes(id as u64)
 }
 
+#[allow(dead_code)]
 pub(crate) fn tmux_confirm_no(id: i64) -> Result<(), String> {
     controller::confirm_no(id as u64)
 }
 
+#[allow(dead_code)]
 pub(crate) fn tmux_select(id: i64, index: i32) -> Result<(), String> {
     controller::select_option(id as u64, index as usize)
 }
 
+#[allow(dead_code)]
 pub(crate) fn tmux_capture(id: i64, history: i32) -> Result<String, String> {
     let h = if history <= 0 { 200 } else { history as u32 };
     controller::capture(id as u64, h)
 }
 
+#[allow(dead_code)]
 pub(crate) fn tmux_kill(id: i64) -> Result<(), String> {
     controller::kill(id as u64)
 }
 
+#[allow(dead_code)]
 pub(crate) fn tmux_interrupt(id: i64) -> Result<(), String> {
     controller::interrupt(id as u64)
 }
 
+#[allow(dead_code)]
 pub(crate) fn tmux_status(id: i64) -> Result<String, String> {
     controller::agent_status(id as u64)
 }
 
+#[allow(dead_code)]
 pub(crate) fn tmux_list() -> Result<String, String> {
     controller::list()
 }
 
+#[allow(dead_code)]
 pub(crate) fn tmux_swarm_poll() -> Result<String, String> {
     controller::swarm_poll()
 }
 
-// ---------------------------------------------------------------------------
-// Actor mailbox (unified — delegates to actor-protocol registry)
-// ---------------------------------------------------------------------------
-
-/// Drain all pending actor messages from the unified mailbox.
-/// Returns s-expression list of messages.
-pub(crate) fn actor_drain_mailbox() -> Result<String, String> {
-    let mut reg = crate::actor_core::registry()
-        .write()
-        .map_err(|_| "actor registry lock poisoned".to_string())?;
-    Ok(reg.drain_sexp())
-}
-
-// ---------------------------------------------------------------------------
-// Core infrastructure
-// ---------------------------------------------------------------------------
-
-pub(crate) fn healthcheck() -> i32 {
-    1
-}
-
-pub(crate) fn init_ffi() -> i32 {
-    match init_backend() {
-        Ok(()) => {
-            clear_error();
-            0
-        }
-        Err(e) => {
-            set_error(e);
-            -1
-        }
-    }
-}

@@ -5,7 +5,24 @@
 Harmonia runtime is Lisp-first orchestration with Rust execution ports.
 
 - Lisp coordinates prompts, memory, model selection, routing, and loop control.
-- Rust crates provide external capabilities through C-ABI and CFFI.
+- Rust crates provide external capabilities via `harmonia-runtime`, a single Rust binary containing all ractor actors.
+- SBCL communicates with `harmonia-runtime` over IPC (Unix domain socket at `$STATE_ROOT/runtime.sock`, length-prefixed s-expressions).
+
+### Process Topology
+
+```
+Phoenix (PID 1, ractor supervisor, writes phoenix.pid)
+  |-- harmonia-runtime (one Rust binary, all ractor actors)
+  |     |-- RuntimeSupervisor (actor registry, message routing)
+  |     |-- SbclBridgeActor (Unix socket <-> SBCL, drain queue)
+  |     +-- IPC listener (runtime.sock, length-prefixed sexp)
+  |-- sbcl-agent (Lisp orchestrator, connects via runtime.sock)
+  +-- provision-server (existing)
+```
+
+Phoenix (`lib/core/phoenix/`) is a ractor-based multi-subsystem process supervisor with a health HTTP endpoint at `127.0.0.1:9100`. It writes a pidfile and manages all child processes.
+
+CLI lifecycle commands: `harmonia start`, `harmonia stop`, `harmonia restart`, `harmonia status` (queries `GET /health`).
 
 ## Boot Flow
 
@@ -129,9 +146,8 @@ Runtime self-knowledge (`src/core/introspection.lisp`) provides:
 - Platform and path introspection for autonomous debugging.
 - `introspect-runtime` — full diagnostic snapshot.
 - `introspect-recent-errors` — last N errors with context.
-- `introspect-libs` — all loaded cdylibs with crash counts.
+- `introspect-libs` — all loaded library modules with crash counts.
 - `%cargo-build-component` — self-compilation of individual crates.
-- `%hot-reload-frontend` — rebuild, copy, and re-register a frontend cdylib.
 
 This knowledge is injected into the DNA system prompt via `%runtime-self-knowledge`.
 

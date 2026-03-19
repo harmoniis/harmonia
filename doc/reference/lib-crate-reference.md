@@ -4,16 +4,17 @@ This inventory follows the current Cargo workspace members in `../../Cargo.toml`
 
 ## Pillar Layout
 
-1. `lib/core` - always-on infrastructure.
+1. `lib/core` - always-on infrastructure (includes `harmonia-runtime`).
 2. `lib/backends` - provider/storage/http adapters.
 3. `lib/tools` - capability plugins.
-4. `lib/frontends` - communication channels loaded by gateway/baseband.
+4. `lib/frontends` - communication channels compiled into `harmonia-runtime` as rlib crates.
 
 ## Core (`lib/core`)
 
 | Path | Purpose |
 |---|---|
-| `lib/core/phoenix` | supervisor binary for restart/rollout lifecycle |
+| `lib/core/runtime` | single Rust binary with all ractor actors, IPC via Unix domain socket (`$STATE_ROOT/runtime.sock`) |
+| `lib/core/phoenix` | ractor-based multi-subsystem process supervisor with health HTTP endpoint at `127.0.0.1:9100`, pidfile management |
 | `lib/core/ouroboros` | crash history + patch artifact subsystem |
 | `lib/core/vault` | zero-knowledge secret store with encryption at rest and audit logging |
 | `lib/core/memory` | memory storage primitives |
@@ -41,7 +42,7 @@ This inventory follows the current Cargo workspace members in `../../Cargo.toml`
 
 | Path | Purpose |
 |---|---|
-| `lib/backends/llms/provider-protocol` | Shared model pool protocol, metrics DB, FFI helpers for all LLM backends |
+| `lib/backends/llms/provider-protocol` | Shared model pool protocol, metrics DB, helpers for all LLM backends |
 | `lib/backends/llms/provider-router` | Generic provider router surface consumed by Lisp; currently serves OpenRouter-backed dispatch |
 | `lib/backends/llms/openrouter` | Universal LLM gateway via OpenRouter with background model catalogue sync |
 | `lib/backends/llms/openai` | OpenAI native backend |
@@ -90,6 +91,6 @@ This inventory follows the current Cargo workspace members in `../../Cargo.toml`
 
 ## Cross-Reference To Canonical Docs
 
-1. Detailed architecture and FFI narrative: `../genesis/runtime-architecture.md`
+1. Detailed architecture narrative: `../genesis/runtime-architecture.md`
 2. Gateway/frontend contract: `../genesis/gateway-frontends.md`
-3. Ports and FFI mapping: `../genesis/ports-and-ffi.md`
+3. Ports and IPC mapping: `../genesis/ports-and-ffi.md`

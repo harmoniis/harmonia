@@ -5,7 +5,7 @@
 //! Uses std::sync::mpsc — no tokio needed.
 
 use crate::client::LangSmithClient;
-use crate::model::{dotted_order_root, new_uuid, now_iso, TraceMessage};
+use crate::model::{dotted_order_child, dotted_order_for, new_uuid, now_iso, TraceMessage};
 use serde_json::{json, Value};
 use std::sync::mpsc::{self, Receiver, SyncSender};
 use std::sync::OnceLock;
@@ -85,7 +85,9 @@ fn sender_loop(rx: Receiver<TraceMessage>, client: LangSmithClient, _project: &s
                 let run_id = new_uuid();
                 let now = now_iso();
                 let trace_id = event.trace_id.unwrap_or_else(|| run_id.clone());
-                let dotted = event.dotted_order.unwrap_or_else(dotted_order_root);
+                let dotted = event.dotted_order
+                    .map(|d| dotted_order_child(&d, &run_id))
+                    .unwrap_or_else(|| dotted_order_for(&run_id));
                 let mut run = json!({
                     "id": run_id,
                     "name": event.name,
@@ -134,8 +136,10 @@ fn do_flush(client: &LangSmithClient, creates: &mut Vec<Value>, updates: &mut Ve
         return;
     }
 
-    // Silently drop on error — observability must never block the agent
-    let _ = client.post_runs_batch(creates, updates);
+    // Log errors but never block the agent
+    if let Err(e) = client.post_runs_batch(creates, updates) {
+        eprintln!("[WARN] [observability] LangSmith batch flush failed: {}", e);
+    }
 
     creates.clear();
     updates.clear();

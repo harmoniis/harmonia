@@ -252,7 +252,7 @@ Primary implementation files:
 
 - Rust kernel: [lib.rs](/Users/george/workspace/harmoniis/agent/harmonia/lib/core/signalograd/src/lib.rs#L1)
 - Lisp reflection and policy boundary: [signalograd.lisp](/Users/george/workspace/harmoniis/agent/harmonia/src/core/signalograd.lisp#L1)
-- CFFI port: [signalograd.lisp](/Users/george/workspace/harmoniis/agent/harmonia/src/ports/signalograd.lisp#L1)
+- IPC port: [signalograd.lisp](/Users/george/workspace/harmoniis/agent/harmonia/src/ports/signalograd.lisp#L1)
 - Harmonic cycle integration: [harmonic-machine.lisp](/Users/george/workspace/harmoniis/agent/harmonia/src/core/harmonic-machine.lisp#L332)
 - Boot restore path: [boot.lisp](/Users/george/workspace/harmoniis/agent/harmonia/src/core/boot.lisp#L289)
 - Evolution snapshot integration: [evolution-versioning.lisp](/Users/george/workspace/harmoniis/agent/harmonia/src/core/evolution-versioning.lisp#L216)

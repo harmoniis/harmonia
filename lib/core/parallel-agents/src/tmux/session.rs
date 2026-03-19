@@ -11,6 +11,7 @@ const TMUX: &str = "tmux";
 /// CLI agents to spawn without nesting-protection errors.
 /// Discovered via live testing: Claude Code sets CLAUDECODE=1 and
 /// CLAUDE_CODE_ENTRYPOINT in parent shells, then refuses to nest.
+#[allow(dead_code)]
 const SANITIZE_ENV_VARS: &[&str] = &["CLAUDECODE", "CLAUDE_CODE_ENTRYPOINT"];
 
 fn run(args: &[&str]) -> Result<String, String> {
@@ -29,6 +30,7 @@ fn run(args: &[&str]) -> Result<String, String> {
 /// and initial window size suitable for CLI agent capture.
 /// After creation, sanitizes the environment by unsetting variables that
 /// would prevent CLI agents from launching (e.g. CLAUDECODE nesting guard).
+#[allow(dead_code)]
 pub(crate) fn create_session(name: &str, workdir: &str) -> Result<(), String> {
     run(&[
         "new-session",
@@ -56,11 +58,13 @@ pub(crate) fn create_session(name: &str, workdir: &str) -> Result<(), String> {
 }
 
 /// Check whether a tmux session with the given name exists.
+#[allow(dead_code)]
 pub(crate) fn session_exists(name: &str) -> bool {
     run(&["has-session", "-t", name]).is_ok()
 }
 
 /// Kill (destroy) a tmux session.
+#[allow(dead_code)]
 pub(crate) fn kill_session(name: &str) -> Result<(), String> {
     run(&["kill-session", "-t", name])?;
     Ok(())
@@ -68,12 +72,14 @@ pub(crate) fn kill_session(name: &str) -> Result<(), String> {
 
 /// Send a sequence of literal keys to the session pane.
 /// This is the raw `send-keys` — caller decides whether to append Enter.
+#[allow(dead_code)]
 pub(crate) fn send_keys(name: &str, keys: &str) -> Result<(), String> {
     run(&["send-keys", "-t", name, keys])?;
     Ok(())
 }
 
 /// Send text followed by Enter — the most common input pattern.
+#[allow(dead_code)]
 pub(crate) fn send_line(name: &str, text: &str) -> Result<(), String> {
     // Use -l (literal) to prevent tmux from interpreting special chars,
     // then send Enter separately.
@@ -83,12 +89,14 @@ pub(crate) fn send_line(name: &str, text: &str) -> Result<(), String> {
 }
 
 /// Send a special key (Enter, Tab, Escape, Up, Down, etc.).
+#[allow(dead_code)]
 pub(crate) fn send_special(name: &str, key: &str) -> Result<(), String> {
     run(&["send-keys", "-t", name, key])?;
     Ok(())
 }
 
 /// Capture the visible pane content plus `history` lines of scrollback.
+#[allow(dead_code)]
 pub(crate) fn capture_pane(name: &str, history_lines: u32) -> Result<String, String> {
     let start = format!("-{}", history_lines);
     run(&["capture-pane", "-t", name, "-p", "-S", &start])
@@ -121,12 +129,14 @@ pub(crate) fn list_sessions_with_prefix(prefix: &str) -> Result<Vec<String>, Str
 }
 
 /// Send Ctrl+C (interrupt) to a session.
+#[allow(dead_code)]
 pub(crate) fn send_interrupt(name: &str) -> Result<(), String> {
     run(&["send-keys", "-t", name, "C-c"])?;
     Ok(())
 }
 
 /// Wait for a given duration (milliseconds) — utility for polling loops.
+#[allow(dead_code)]
 pub(crate) fn wait_ms(ms: u64) {
     std::thread::sleep(std::time::Duration::from_millis(ms));
 }

@@ -162,6 +162,14 @@ Applied to:
 - Each live stream maps to a canonical route key `<identity-fingerprint>/<session-id>/<channel>`, so multiple sessions from the same authenticated client can proceed in parallel.
 - Gateway metadata includes `:origin-fp`, `:tls-cert-fp`, `:session-id`, `:http2-path`, `:transport-security "mtls"`, `:trusted-origin t`, and `:remote t`.
 
+### IPC Socket Security
+
+The Unix domain socket at `$STATE_ROOT/runtime.sock` used for SBCL-to-Rust IPC has owner-only permissions (0600), preventing other users on the system from connecting.
+
+### Health Endpoint Security
+
+The Phoenix health endpoint binds to `127.0.0.1:9100` only (localhost), preventing remote access. PID values are redacted from the JSON health response to avoid information leakage.
+
 ### Shared Transport Trust
 
 `lib/core/transport-auth` centralises:

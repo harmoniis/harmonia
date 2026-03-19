@@ -22,7 +22,7 @@ This scorecard tracks the quality dimensions that matter for Harmonia rewrites.
 - Security posture state (`*security-posture*`, injection counts, policy gate denials)
 - Per-frontend dissonance scores and anomaly rates
 - Supervision health: `*tick-error-count*`, `*consecutive-tick-errors*` (error storm detection)
-- Library health: `introspect-libs` crash counts and status per loaded cdylib
+- Library health: `introspect-libs` crash counts and module status
 - Error ring: `introspect-recent-errors` for last N errors with context
 - Full diagnostic: `introspect-runtime` snapshot (platform, paths, libs, errors, frontends)
 - Chronicle harmonic snapshots: full vitruvian + chaos + lorenz + lambdoma per cycle (`chronicle-query`)

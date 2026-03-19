@@ -1,0 +1,33 @@
+[phoenix]
+health_port = 9100
+shutdown_timeout_secs = 30
+
+[[subsystem]]
+name = "harmonia-runtime"
+command = "./target/release/harmonia-runtime"
+restart_policy = "always"
+max_restarts = 10
+backoff_base_ms = 500
+backoff_max_ms = 60000
+core = true
+
+[[subsystem]]
+name = "sbcl-agent"
+command = "sbcl --script ${HARMONIA_SOURCE_DIR}/agent.lisp"
+restart_policy = "always"
+max_restarts = 10
+backoff_base_ms = 2000
+backoff_max_ms = 120000
+startup_delay_ms = 3000
+core = true
+env = { HARMONIA_ENV = "${HARMONIA_ENV}" }
+
+[[subsystem]]
+name = "provision-server"
+command = "./target/release/provision-server"
+restart_policy = "on_failure"
+max_restarts = 5
+backoff_base_ms = 1000
+backoff_max_ms = 30000
+core = false
+env = { PROVISION_SHARED_SECRET = "${PROVISION_SHARED_SECRET}" }

@@ -24,6 +24,7 @@ members = [
     "lib/core/admin-intent",
     "lib/core/chronicle",
     "lib/core/actor-protocol",
+    "lib/core/runtime",
     "lib/core/observability",
     "lib/core/node-rpc",
     "lib/core/qr-terminal",

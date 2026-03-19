@@ -3,17 +3,22 @@ use serde_json::{json, Value};
 
 use crate::model::json_escape;
 
+#[allow(dead_code)]
 const COMPONENT: &str = "parallel-agents-core";
 
+#[allow(dead_code)]
 const FALLBACK_TRUTH_KEYWORDS: &str = "truth|reality|accurate|accuracy|fact check|fact-check|verify|verification|debunk|controvers|what actually|what is really|real-time|realtime|current event|harmonic truth";
 
+#[allow(dead_code)]
 const FALLBACK_VERIFY_TEMPLATE: &str = "You are the truth-seeking verification subagent. Use live web and X search when useful. Prioritize factual accuracy over style.\n\nOriginal user prompt:\n{PROMPT}\n\nCandidate answer:\n{RESPONSE}\n\nReply exactly in this format:\nVERIFY: yes|no|uncertain\nSOURCE: web|x|web+x|unknown\nNOTES: one concise sentence";
 
+#[allow(dead_code)]
 fn extract_content_from_response(payload: &[u8]) -> Option<String> {
     let parsed: Value = serde_json::from_slice(payload).ok()?;
     harmonia_provider_protocol::extract_openai_like_content(&parsed)
 }
 
+#[allow(dead_code)]
 fn extract_error_message(payload: &[u8]) -> Option<String> {
     let parsed: Value = serde_json::from_slice(payload).ok()?;
     parsed
@@ -29,6 +34,7 @@ fn extract_error_message(payload: &[u8]) -> Option<String> {
         })
 }
 
+#[allow(dead_code)]
 fn preferred_truth_seeking_model() -> String {
     harmonia_config_store::get_config(COMPONENT, "prompts", "truth-seeking-model")
         .ok()
@@ -36,6 +42,7 @@ fn preferred_truth_seeking_model() -> String {
         .unwrap_or_else(|| "x-ai/grok-4.1-fast".to_string())
 }
 
+#[allow(dead_code)]
 fn truth_seeking_prompt(prompt: &str) -> bool {
     let lower = prompt.to_ascii_lowercase();
     let keywords =
@@ -46,6 +53,7 @@ fn truth_seeking_prompt(prompt: &str) -> bool {
     keywords.split('|').any(|kw| lower.contains(kw.trim()))
 }
 
+#[allow(dead_code)]
 fn openrouter_payload(prompt: &str, model: &str) -> Value {
     let caps = harmonia_provider_protocol::model_capabilities(model);
     let mut payload = json!({
@@ -68,6 +76,7 @@ fn openrouter_payload(prompt: &str, model: &str) -> Value {
     payload
 }
 
+#[allow(dead_code)]
 fn clip_text(text: &str, limit: usize) -> String {
     let mut clipped = String::new();
     for ch in text.chars().take(limit) {
@@ -76,6 +85,7 @@ fn clip_text(text: &str, limit: usize) -> String {
     clipped
 }
 
+#[allow(dead_code)]
 fn openrouter_api_key() -> Result<Option<String>, String> {
     match get_secret_for_component("openrouter-backend", "openrouter-api-key") {
         Ok(Some(key)) => Ok(Some(key)),
@@ -85,6 +95,7 @@ fn openrouter_api_key() -> Result<Option<String>, String> {
     }
 }
 
+#[allow(dead_code)]
 fn make_grok_verify_prompt(prompt: &str, response: &str) -> String {
     let template = harmonia_config_store::get_config(COMPONENT, "prompts", "grok-verification")
         .ok()
@@ -98,6 +109,7 @@ fn make_grok_verify_prompt(prompt: &str, response: &str) -> String {
         .replacen("~A", response, 1)
 }
 
+#[allow(dead_code)]
 fn grok_verify_result(report: &str) -> (bool, String, String) {
     let lower = report.to_ascii_lowercase();
     let ok =
@@ -105,6 +117,7 @@ fn grok_verify_result(report: &str) -> (bool, String, String) {
     (ok, "grok-live".to_string(), clip_text(report.trim(), 240))
 }
 
+#[allow(dead_code)]
 fn verify_with_grok(prompt: &str, response: &str) -> Result<(bool, String, String), String> {
     let key = openrouter_api_key()?.ok_or_else(|| {
         "missing secret: openrouter-api-key (vault component: openrouter-backend)".to_string()
@@ -114,6 +127,7 @@ fn verify_with_grok(prompt: &str, response: &str) -> Result<(bool, String, Strin
     Ok(grok_verify_result(&report))
 }
 
+#[allow(dead_code)]
 pub(super) fn request_openrouter(
     prompt: &str,
     model: &str,
@@ -177,6 +191,7 @@ pub(super) fn request_openrouter(
     })
 }
 
+#[allow(dead_code)]
 fn request_exa(query: &str, api_key: &str) -> Result<String, String> {
     let endpoint = harmonia_config_store::get_config(COMPONENT, "search-exa-tool", "api-url")
         .ok()
@@ -205,6 +220,7 @@ fn request_exa(query: &str, api_key: &str) -> Result<String, String> {
     Ok(String::from_utf8_lossy(&out.stdout).to_string())
 }
 
+#[allow(dead_code)]
 fn request_brave(query: &str, api_key: &str) -> Result<String, String> {
     let endpoint = harmonia_config_store::get_config(COMPONENT, "search-brave-tool", "api-url")
         .ok()
@@ -229,12 +245,14 @@ fn request_brave(query: &str, api_key: &str) -> Result<String, String> {
     Ok(String::from_utf8_lossy(&out.stdout).to_string())
 }
 
+#[allow(dead_code)]
 fn make_verify_query(prompt: &str, response: &str) -> String {
     let p = prompt.chars().take(120).collect::<String>();
     let r = response.chars().take(180).collect::<String>();
     format!("verify this answer against the web: prompt={p} answer={r}")
 }
 
+#[allow(dead_code)]
 pub(super) fn verify_with_search(prompt: &str, response: &str) -> (bool, String, String) {
     let _ = init_from_env();
     if response.trim().is_empty() {

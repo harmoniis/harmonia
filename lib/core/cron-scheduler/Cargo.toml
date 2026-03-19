@@ -11,7 +11,6 @@ keywords = ["harmonia", "cron"]
 categories = ["date-and-time"]
 
 [lib]
-crate-type = ["cdylib"]
 
 [dependencies]
 # Add as needed: cron, tokio, etc.

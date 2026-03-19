@@ -1,9 +1,8 @@
 use std::collections::HashMap;
-use std::ffi::{CStr, CString};
-use std::os::raw::c_char;
 use std::sync::{OnceLock, RwLock};
 use std::time::{SystemTime, UNIX_EPOCH};
 
+#[allow(dead_code)]
 #[derive(Clone, Debug)]
 pub(crate) struct Task {
     pub(crate) id: u64,
@@ -22,6 +21,7 @@ pub(crate) struct Task {
     pub(crate) created_at: u64,
 }
 
+#[allow(dead_code)]
 #[derive(Clone, Copy, Debug, Default)]
 pub(crate) struct ModelPrice {
     pub(crate) usd_per_1k_input: f64,
@@ -32,6 +32,7 @@ pub(crate) struct ModelPrice {
 // Tmux CLI Agent types — distinct operational tier from OpenRouter agents
 // ---------------------------------------------------------------------------
 
+#[allow(dead_code)]
 #[derive(Clone, Debug, PartialEq)]
 pub(crate) enum CliType {
     ClaudeCode,
@@ -42,6 +43,7 @@ pub(crate) enum CliType {
     },
 }
 
+#[allow(dead_code)]
 impl CliType {
     pub(crate) fn estimated_cost_per_interaction(&self) -> f64 {
         match self {
@@ -121,6 +123,7 @@ impl CliType {
     }
 }
 
+#[allow(dead_code)]
 #[derive(Clone, Debug, PartialEq)]
 pub(crate) enum CliState {
     /// Session created, CLI launching
@@ -150,6 +153,7 @@ pub(crate) enum CliState {
     Terminated,
 }
 
+#[allow(dead_code)]
 impl CliState {
     pub(crate) fn to_sexp(&self) -> String {
         match self {
@@ -201,6 +205,7 @@ impl CliState {
     }
 }
 
+#[allow(dead_code)]
 #[derive(Clone, Debug)]
 pub(crate) struct TmuxAgent {
     pub(crate) id: u64,
@@ -221,6 +226,7 @@ pub(crate) struct TmuxAgent {
     pub(crate) duration_ms: u64,
 }
 
+#[allow(dead_code)]
 impl TmuxAgent {
     pub(crate) fn to_sexp(&self) -> String {
         format!(
@@ -250,6 +256,7 @@ impl TmuxAgent {
 // Global state — unified for both OpenRouter tasks and Tmux agents
 // ---------------------------------------------------------------------------
 
+#[allow(dead_code)]
 #[derive(Default)]
 pub(crate) struct State {
     pub(crate) next_id: u64,
@@ -258,9 +265,10 @@ pub(crate) struct State {
     pub(crate) tmux_agents: HashMap<u64, TmuxAgent>,
 }
 
+#[allow(dead_code)]
 static STATE: OnceLock<RwLock<State>> = OnceLock::new();
-static LAST_ERROR: OnceLock<RwLock<String>> = OnceLock::new();
 
+#[allow(dead_code)]
 pub(crate) fn state() -> &'static RwLock<State> {
     STATE.get_or_init(|| {
         RwLock::new(State {
@@ -270,43 +278,7 @@ pub(crate) fn state() -> &'static RwLock<State> {
     })
 }
 
-fn last_error() -> &'static RwLock<String> {
-    LAST_ERROR.get_or_init(|| RwLock::new(String::new()))
-}
-
-pub(crate) fn set_error(msg: impl Into<String>) {
-    if let Ok(mut slot) = last_error().write() {
-        *slot = msg.into();
-    }
-}
-
-pub(crate) fn clear_error() {
-    if let Ok(mut slot) = last_error().write() {
-        slot.clear();
-    }
-}
-
-pub(crate) fn last_error_message() -> String {
-    last_error()
-        .read()
-        .map(|v| v.clone())
-        .unwrap_or_else(|_| "parallel error lock poisoned".to_string())
-}
-
-pub(crate) fn cstr_to_string(ptr: *const c_char) -> Result<String, String> {
-    if ptr.is_null() {
-        return Err("null pointer".to_string());
-    }
-    let c = unsafe { CStr::from_ptr(ptr) };
-    Ok(c.to_string_lossy().into_owned())
-}
-
-pub(crate) fn to_c_string(value: String) -> *mut c_char {
-    CString::new(value)
-        .map(|v| v.into_raw())
-        .unwrap_or(std::ptr::null_mut())
-}
-
+#[allow(dead_code)]
 pub(crate) fn now_unix() -> u64 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
@@ -314,6 +286,7 @@ pub(crate) fn now_unix() -> u64 {
         .unwrap_or(0)
 }
 
+#[allow(dead_code)]
 pub(crate) fn json_escape(input: &str) -> String {
     // Used for actual JSON contexts (HTTP payloads).
     input
@@ -323,12 +296,14 @@ pub(crate) fn json_escape(input: &str) -> String {
         .replace('\r', "\\r")
 }
 
+#[allow(dead_code)]
 pub(crate) fn sexp_escape(input: &str) -> String {
     // CL's reader handles literal newlines inside strings natively — do NOT
     // escape them. Only backslash and double-quote need escaping.
     input.replace('\\', "\\\\").replace('"', "\\\"")
 }
 
+#[allow(dead_code)]
 pub(crate) fn append_tmux_metric_line(agent: &TmuxAgent, event: &str) {
     harmonia_provider_protocol::record_tmux_event(
         agent.id,
@@ -343,6 +318,7 @@ pub(crate) fn append_tmux_metric_line(agent: &TmuxAgent, event: &str) {
     );
 }
 
+#[allow(dead_code)]
 pub(crate) fn append_metric_line(task: &Task) {
     harmonia_provider_protocol::record_parallel_task(
         task.id,

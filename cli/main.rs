@@ -338,7 +338,7 @@ fn main() {
         Some(Commands::Version) => {
             println!("harmonia {}", VERSION);
             println!("runtime: SBCL (Steel Bank Common Lisp)");
-            println!("tools:   Rust cdylib (.so/.dylib)");
+            println!("tools:   Rust rlib (compiled into harmonia-runtime)");
             if check_sbcl() {
                 println!("sbcl:    installed");
             } else {
@@ -389,6 +389,15 @@ fn status() -> Result<(), Box<dyn std::error::Error>> {
                 println!("  socket: {}", sock_path.display());
             }
             println!("  log:    {}", log_path.display());
+            // Query Phoenix health endpoint
+            match query_phoenix_health() {
+                Ok(json) => {
+                    println!("  health: {}", json);
+                }
+                Err(_) => {
+                    println!("  health: unavailable (Phoenix health endpoint not responding)");
+                }
+            }
             if node_service_pid_path.exists() {
                 if let Ok(pid_str) = std::fs::read_to_string(&node_service_pid_path) {
                     println!("  node-service pid: {}", pid_str.trim());
@@ -420,4 +429,11 @@ fn status() -> Result<(), Box<dyn std::error::Error>> {
     }
 
     Ok(())
+}
+
+fn query_phoenix_health() -> Result<String, Box<dyn std::error::Error>> {
+    let health_port = 9100u16; // convention, matches phoenix.toml default
+    let url = format!("http://127.0.0.1:{}/health", health_port);
+    let resp = ureq::get(&url).timeout(std::time::Duration::from_secs(3)).call()?;
+    Ok(resp.into_string()?)
 }

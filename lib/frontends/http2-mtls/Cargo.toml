@@ -11,7 +11,6 @@ keywords = ["harmonia", "http2", "mtls"]
 categories = ["network-programming"]
 
 [lib]
-crate-type = ["cdylib", "rlib"]
 doctest = false
 
 [dependencies]

@@ -1,9 +1,11 @@
-use std::env;
-use std::fs::{self, OpenOptions};
-use std::io::Write;
-use std::process::Command;
-use std::thread;
-use std::time::Duration;
+mod config;
+mod health;
+mod msg;
+mod subsystem;
+mod supervisor;
+mod trauma;
+
+use ractor::Actor;
 
 const COMPONENT: &str = "phoenix-core";
 
@@ -15,85 +17,12 @@ fn config_bool(key: &str, default: bool) -> bool {
         .unwrap_or(default)
 }
 
-fn state_root() -> String {
-    let default = env::temp_dir()
-        .join("harmonia")
-        .to_string_lossy()
-        .to_string();
-    harmonia_config_store::get_config_or(COMPONENT, "global", "state-root", &default)
-        .unwrap_or_else(|_| default)
-}
+#[tokio::main]
+async fn main() {
+    // 1. Init chronicle
+    let _ = harmonia_chronicle::init();
 
-fn chronicle_record(
-    event_type: &str,
-    exit_code: Option<i32>,
-    attempt: Option<i32>,
-    max_attempts: Option<i32>,
-    detail: Option<&str>,
-) {
-    let _ = harmonia_chronicle::phoenix::record(
-        event_type,
-        exit_code,
-        attempt,
-        max_attempts,
-        None,
-        detail,
-    );
-}
-
-fn append_trauma(line: &str) {
-    let default_trauma = format!("{}/trauma.log", state_root());
-    let trauma_path = harmonia_config_store::get_own_or(COMPONENT, "trauma-log", &default_trauma)
-        .unwrap_or(default_trauma);
-    if let Some(parent) = std::path::Path::new(&trauma_path).parent() {
-        let _ = fs::create_dir_all(parent);
-    }
-    if let Ok(mut f) = OpenOptions::new()
-        .create(true)
-        .append(true)
-        .open(&trauma_path)
-    {
-        let _ = writeln!(f, "{line}");
-    }
-
-    let recovery_path = harmonia_config_store::get_config(COMPONENT, "global", "recovery-log")
-        .ok()
-        .flatten()
-        .unwrap_or_else(|| format!("{}/recovery.log", state_root()));
-    if let Some(parent) = std::path::Path::new(&recovery_path).parent() {
-        let _ = fs::create_dir_all(parent);
-    }
-    if let Ok(mut f) = OpenOptions::new()
-        .create(true)
-        .append(true)
-        .open(&recovery_path)
-    {
-        let ts = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap_or_default()
-            .as_secs();
-        let _ = writeln!(f, "{}\t{}\t{}", ts, "phoenix/restart", line);
-    }
-}
-
-fn run_child_once(cmdline: &str) -> i32 {
-    let output = Command::new("sh").arg("-lc").arg(cmdline).output();
-    match output {
-        Ok(out) if out.status.success() => 0,
-        Ok(out) => {
-            let code = out.status.code().unwrap_or(-1);
-            let stderr = String::from_utf8_lossy(&out.stderr);
-            append_trauma(&format!("child-exit={code} stderr={stderr}"));
-            code
-        }
-        Err(e) => {
-            append_trauma(&format!("child-exec-failed: {e}"));
-            -1
-        }
-    }
-}
-
-fn main() {
+    // 2. Prod-genesis guard
     let env_mode = harmonia_config_store::get_config_or(COMPONENT, "global", "env", "test")
         .unwrap_or_else(|_| "test".to_string());
     if env_mode.eq_ignore_ascii_case("prod") && !config_bool("allow-prod-genesis", false) {
@@ -103,80 +32,84 @@ fn main() {
         std::process::exit(2);
     }
 
-    let mut heartbeat_secs = 5_u64;
-    if let Some(raw) = env::args().nth(1) {
-        if let Ok(parsed) = raw.parse::<u64>() {
-            heartbeat_secs = parsed.max(1);
+    // 3. Load config
+    let cfg = match config::load_or_legacy() {
+        Ok(c) => c,
+        Err(e) => {
+            eprintln!("[WARN] [phoenix] No subsystem config: {e}");
+            trauma::chronicle_record(
+                "start",
+                None,
+                None,
+                None,
+                Some(&format!("env={env_mode} mode=heartbeat-only")),
+            );
+            eprintln!("[INFO] [phoenix] Running in heartbeat-only mode (no subsystems configured)");
+            loop {
+                tokio::time::sleep(std::time::Duration::from_secs(5)).await;
+                eprintln!("[DEBUG] [phoenix] Heartbeat");
+            }
         }
-    }
+    };
 
-    let _ = harmonia_chronicle::init();
-    chronicle_record(
+    let health_port = cfg.health_port;
+    let n_subsystems = cfg.subsystems.len();
+
+    trauma::chronicle_record(
         "start",
         None,
         None,
         None,
-        Some(&format!("env={} heartbeat={}s", env_mode, heartbeat_secs)),
+        Some(&format!(
+            "env={env_mode} subsystems={n_subsystems} health_port={health_port}"
+        )),
     );
-
     eprintln!(
-        "[INFO] [phoenix] Supervisor online (env={}, heartbeat={}s)",
-        env_mode, heartbeat_secs
+        "[INFO] [phoenix] Supervisor online (env={env_mode}, subsystems={n_subsystems}, health=:{health_port})"
     );
 
-    if let Some(child_cmd) = harmonia_config_store::get_own(COMPONENT, "child-cmd")
-        .ok()
-        .flatten()
-    {
-        let max_restarts = harmonia_config_store::get_own(COMPONENT, "max-restarts")
-            .ok()
-            .flatten()
-            .and_then(|v| v.parse::<u32>().ok())
-            .unwrap_or(3);
-        for attempt in 0..=max_restarts {
-            let rc = run_child_once(&child_cmd);
-            if rc == 0 {
-                chronicle_record(
-                    "child_exit",
-                    Some(0),
-                    Some(attempt as i32),
-                    Some(max_restarts as i32),
-                    None,
-                );
-                eprintln!("[INFO] [phoenix] Child exited successfully.");
-                return;
+    // 4. Spawn supervisor actor
+    let (supervisor_ref, supervisor_handle) =
+        Actor::spawn(Some("phoenix-supervisor".to_string()), supervisor::PhoenixSupervisor, cfg)
+            .await
+            .expect("failed to spawn PhoenixSupervisor actor");
+
+    // 5. Spawn health server
+    let health_sup = supervisor_ref.clone();
+    tokio::spawn(async move {
+        health::serve(health_port, health_sup).await;
+    });
+
+    // Write pidfile
+    let pidfile_path = format!("{}/phoenix.pid", trauma::state_root());
+    if let Some(parent) = std::path::Path::new(&pidfile_path).parent() {
+        let _ = std::fs::create_dir_all(parent);
+    }
+    let _ = std::fs::write(&pidfile_path, std::process::id().to_string());
+
+    // 6. Wait for SIGTERM/SIGINT → send Shutdown
+    let shutdown_sup = supervisor_ref.clone();
+    tokio::spawn(async move {
+        let mut sigterm =
+            tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate()).unwrap();
+        let sigint = tokio::signal::ctrl_c();
+
+        tokio::select! {
+            _ = sigterm.recv() => {
+                eprintln!("[INFO] [phoenix] Received SIGTERM");
             }
-            chronicle_record(
-                "child_exit",
-                Some(rc),
-                Some(attempt as i32),
-                Some(max_restarts as i32),
-                Some(&format!("rc={}", rc)),
-            );
-            eprintln!(
-                "[WARN] [phoenix] Child failed rc={} attempt={}/{}",
-                rc,
-                attempt + 1,
-                max_restarts + 1
-            );
-            if attempt == max_restarts {
-                chronicle_record(
-                    "max_restarts",
-                    Some(rc),
-                    Some(attempt as i32),
-                    Some(max_restarts as i32),
-                    None,
-                );
-                eprintln!("[ERROR] [phoenix] Max restarts exceeded.");
-                std::process::exit(1);
+            _ = sigint => {
+                eprintln!("[INFO] [phoenix] Received SIGINT");
             }
         }
-    }
 
-    loop {
-        thread::sleep(Duration::from_secs(heartbeat_secs));
-        eprintln!("[DEBUG] [phoenix] Heartbeat");
-    }
+        let _ = shutdown_sup.cast(msg::SupervisorMsg::Shutdown);
+    });
+
+    // 7. Await supervisor exit
+    supervisor_handle.await.unwrap();
+    let _ = std::fs::remove_file(&pidfile_path);
+    eprintln!("[INFO] [phoenix] Supervisor exited, shutting down");
 }
 
 #[cfg(test)]

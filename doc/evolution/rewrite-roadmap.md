@@ -7,7 +7,7 @@ This roadmap defines high-leverage evolution targets while preserving genesis al
 - [DONE v7] Erlang-style supervision: every tick action wrapped in `%supervised-action`, never crashes.
 - [DONE v7] Error ring buffer (64 entries) for self-diagnosis via `introspect-recent-errors`.
 - [DONE v7] Library crash tracking with per-library crash counts, status, timestamps.
-- [DONE v7] `catch_unwind` on all gateway FFI calls — panicking cdylibs cannot crash the process.
+- [DONE v7] `catch_unwind` on all gateway calls — panicking frontends cannot crash the runtime.
 - [DONE v7] Adaptive cooldown: 5x sleep after 10 consecutive error ticks.
 - [DONE v7] Runtime self-knowledge injected into DNA system prompt for autonomous debugging.
 - [DONE v8] Chronicle knowledge base: graph-native SQLite store with 9 tables for harmonic, memory, delegation, recovery, and concept graph data.
@@ -36,7 +36,6 @@ This roadmap defines high-leverage evolution targets while preserving genesis al
 
 - [DONE v7] Evolution export/import: `harmonia uninstall evolution-export` / `evolution-import --merge`.
 - [DONE v7] Uninstall safety gate: checks git push status and distributed propagation before allowing removal.
-- [DONE v7] Hot-reload: `%hot-reload-frontend` rebuilds crate, copies dylib, re-registers via gateway.
 - [DONE v7] Self-compilation: `%cargo-build-component` builds individual crates from within the agent.
 - Standardize rewrite preflight checks.
 - Require explicit rollback plans in automated patch proposals.
@@ -50,7 +49,11 @@ This roadmap defines high-leverage evolution targets while preserving genesis al
 - [DONE v5] MQTT device registry with offline queue and push.
 - [DONE v5] A2UI component catalog (`config/a2ui-catalog.sexp`).
 - [DONE v10] Unified command dispatch: gateway as single interception point for all /commands from all frontends.
-- [DONE v10] All crate Cargo.toml unified to `["cdylib", "rlib"]` for dual loading.
+- [DONE v10] All cdylib crate-types removed. Frontends are rlib crates compiled into `harmonia-runtime`.
+- [DONE v11] FFI layer fully removed. SBCL communicates with Rust via IPC (Unix domain socket).
+- [DONE v11] `harmonia-runtime` crate (`lib/core/runtime/`): single Rust binary with all ractor actors.
+- [DONE v11] Phoenix supervisor (`lib/core/phoenix/`): ractor-based multi-subsystem process supervisor with health endpoint.
+- [DONE v11] CLI lifecycle: `harmonia start/stop/restart/status` managing Phoenix.
 - Extend capabilities model to non-A2UI features (e.g., `:voice`, `:location`, `:accessibility`).
 - Frontend capability negotiation at connect time (dynamic capability update).
 - A2UI catalog versioning for forward/backward component compatibility.
@@ -81,6 +84,7 @@ This roadmap defines high-leverage evolution targets while preserving genesis al
 - [DONE v7] Platform-specific runtime dirs: macOS `$TMPDIR`, Linux `$XDG_RUNTIME_DIR`.
 - [DONE v7] Platform-specific log dirs: macOS `~/Library/Logs/Harmonia/`, Linux `~/.local/state/harmonia/`.
 - [DONE v7] Library path fallback chain with env override support.
+- [DONE v11] Single-binary Rust runtime eliminates shared library deployment complexity.
 - Windows support testing (paths defined but untested).
 - FreeBSD service file (rc.d script template exists but untested).
 

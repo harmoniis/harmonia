@@ -1,16 +1,13 @@
 use std::collections::VecDeque;
 use std::io::{Read, Write};
 use std::net::{TcpListener, TcpStream};
-use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{OnceLock, RwLock};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use crate::mesh;
 use crate::model::MeshMessage;
 use crate::node_link;
-
-/// Actor ID assigned by the unified registry (0 = not registered yet)
-static TAILNET_ACTOR_ID: AtomicU64 = AtomicU64::new(0);
 
 /// Wave 4.2: Maximum age of a mesh message before it's rejected (replay protection).
 const MAX_MESSAGE_AGE_MS: u64 = 5 * 60 * 1000; // 5 minutes
@@ -178,20 +175,7 @@ pub fn start_listener() -> Result<(), String> {
 
     STOP_FLAG.store(false, Ordering::SeqCst);
 
-    // Register as tailnet actor in the unified registry (via dlsym)
-    if TAILNET_ACTOR_ID.load(Ordering::SeqCst) == 0
-        && harmonia_actor_protocol::client::is_available()
-    {
-        match harmonia_actor_protocol::client::register("tailnet") {
-            Ok(id) => {
-                TAILNET_ACTOR_ID.store(id, Ordering::SeqCst);
-                log::info!("tailnet registered as actor {}", id);
-            }
-            Err(e) => {
-                log::warn!("tailnet actor registration failed: {}", e);
-            }
-        }
-    }
+    // Actor registration is now handled by the runtime IPC system.
 
     {
         let mut state = transport().write().map_err(|e| format!("lock: {}", e))?;
@@ -294,17 +278,7 @@ fn handle_incoming(mut stream: TcpStream) -> Result<(), String> {
     // Wave 4.2: Validate HMAC and timestamp
     validate_message(&msg)?;
 
-    // Post MeshInbound to unified actor mailbox (via dlsym)
-    let actor_id = TAILNET_ACTOR_ID.load(Ordering::SeqCst);
-    if actor_id > 0 && harmonia_actor_protocol::client::is_available() {
-        let payload_sexp = format!(
-            "(:mesh-inbound :from-node \"{}\" :msg-type \"{}\" :payload \"{}\")",
-            harmonia_actor_protocol::sexp_escape(&msg.from),
-            harmonia_actor_protocol::sexp_escape(msg.msg_type.as_str()),
-            harmonia_actor_protocol::sexp_escape(&msg.payload),
-        );
-        let _ = harmonia_actor_protocol::client::post(actor_id, 0, &payload_sexp);
-    }
+    // Actor mailbox posting is now handled by the runtime IPC system.
 
     let mut state = transport().write().map_err(|e| format!("lock: {}", e))?;
     state.inbound_queue.push_back(msg);

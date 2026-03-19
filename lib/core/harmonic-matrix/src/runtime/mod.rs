@@ -3,22 +3,16 @@ mod reports;
 mod shared;
 mod store;
 
-pub(crate) use ops::{
-    log_event, observe_route, register_edge, register_node, route_allowed,
-    route_allowed_with_context, set_tool_enabled,
-};
-pub(crate) use reports::{report, route_timeseries, time_report};
-pub(crate) use shared::{clear_last_error, last_error_message, set_last_error};
-pub(crate) use store::{init, set_store, store_summary};
 
 #[cfg(test)]
 mod tests {
     use std::sync::{Mutex, MutexGuard, OnceLock};
 
-    use super::{
-        init, log_event, observe_route, register_edge, register_node, report, set_store,
-        set_tool_enabled, store_summary,
+    use super::ops::{
+        log_event, observe_route, register_edge, register_node, set_tool_enabled,
     };
+    use super::reports::report;
+    use super::store::{init, set_store, store_summary};
 
     fn test_guard() -> MutexGuard<'static, ()> {
         static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
