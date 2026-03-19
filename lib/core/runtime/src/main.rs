@@ -1,3 +1,4 @@
+mod actors;
 mod bridge;
 mod ipc;
 mod msg;
@@ -6,6 +7,8 @@ mod supervisor;
 use std::env;
 
 use ractor::Actor;
+
+use actors::ComponentMsg;
 
 const COMPONENT: &str = "harmonia-runtime";
 
@@ -35,7 +38,45 @@ async fn main() {
             .await
             .expect("failed to spawn SbclBridgeActor");
 
-    // 4. Spawn RuntimeSupervisor (linked to bridge)
+    // 4. Spawn component actors (all linked to supervisor later)
+    let (chronicle_ref, _) =
+        Actor::spawn(Some("chronicle".to_string()), actors::ChronicleActor, ())
+            .await
+            .expect("failed to spawn ChronicleActor");
+
+    let (gateway_ref, _) = Actor::spawn(
+        Some("gateway".to_string()),
+        actors::GatewayActor,
+        bridge_ref.clone(),
+    )
+    .await
+    .expect("failed to spawn GatewayActor");
+
+    let (tailnet_ref, _) = Actor::spawn(
+        Some("tailnet".to_string()),
+        actors::TailnetActor,
+        bridge_ref.clone(),
+    )
+    .await
+    .expect("failed to spawn TailnetActor");
+
+    let (signalograd_ref, _) = Actor::spawn(
+        Some("signalograd".to_string()),
+        actors::SignalogradActor,
+        bridge_ref.clone(),
+    )
+    .await
+    .expect("failed to spawn SignalogradActor");
+
+    let (observability_ref, _) = Actor::spawn(
+        Some("observability".to_string()),
+        actors::ObservabilityActor,
+        (),
+    )
+    .await
+    .expect("failed to spawn ObservabilityActor");
+
+    // 5. Spawn RuntimeSupervisor
     let (supervisor_ref, supervisor_handle) = Actor::spawn(
         Some("runtime-supervisor".to_string()),
         supervisor::RuntimeSupervisor,
@@ -44,17 +85,42 @@ async fn main() {
     .await
     .expect("failed to spawn RuntimeSupervisor");
 
-    eprintln!("[INFO] [runtime] Actors spawned, starting IPC server");
+    eprintln!("[INFO] [runtime] All actors spawned, starting IPC server");
 
-    // 5. Spawn IPC listener
+    // 6. Spawn IPC listener
     let ipc_sup = supervisor_ref.clone();
     let ipc_path = socket_path.clone();
     tokio::spawn(async move {
         ipc::serve(&ipc_path, ipc_sup).await;
     });
 
-    // 6. Wait for SIGTERM/SIGINT → send Shutdown
+    // 7. Spawn tick loop — drives periodic polling for all component actors
+    let tick_actors = vec![
+        chronicle_ref.clone(),
+        gateway_ref.clone(),
+        tailnet_ref.clone(),
+        signalograd_ref.clone(),
+        observability_ref.clone(),
+    ];
+    tokio::spawn(async move {
+        let mut interval = tokio::time::interval(std::time::Duration::from_secs(5));
+        loop {
+            interval.tick().await;
+            for actor in &tick_actors {
+                let _ = actor.cast(ComponentMsg::Tick);
+            }
+        }
+    });
+
+    // 8. Wait for SIGTERM/SIGINT → send Shutdown to all actors
     let shutdown_sup = supervisor_ref.clone();
+    let shutdown_actors = vec![
+        chronicle_ref,
+        gateway_ref,
+        tailnet_ref,
+        signalograd_ref,
+        observability_ref,
+    ];
     tokio::spawn(async move {
         let mut sigterm =
             tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate()).unwrap();
@@ -69,13 +135,18 @@ async fn main() {
             }
         }
 
+        // Shutdown all component actors first
+        for actor in &shutdown_actors {
+            let _ = actor.cast(ComponentMsg::Shutdown);
+        }
+        // Then shutdown the supervisor (which drains bridge)
         let _ = shutdown_sup.cast(msg::RuntimeMsg::Shutdown);
     });
 
-    // 7. Await supervisor exit
+    // 9. Await supervisor exit
     supervisor_handle.await.unwrap();
 
-    // 8. Clean up socket file
+    // 10. Clean up socket file
     let _ = std::fs::remove_file(&socket_path);
     eprintln!("[INFO] [runtime] harmonia-runtime exited");
 }

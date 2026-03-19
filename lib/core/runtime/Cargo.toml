@@ -18,6 +18,10 @@ path = "src/main.rs"
 harmonia-actor-protocol = { version = "0.1.9", path = "../actor-protocol" }
 harmonia-config-store = { version = "0.1.9", path = "../config-store" }
 harmonia-chronicle = { version = "0.1.9", path = "../chronicle" }
+harmonia-gateway = { version = "0.1.9", path = "../gateway" }
+harmonia-tailnet = { version = "0.1.9", path = "../tailnet" }
+harmonia-signalograd = { version = "0.1.1", path = "../signalograd" }
+harmonia-observability = { version = "0.1.9", path = "../observability" }
 ractor = "0.15"
 tokio = { version = "1.44", features = ["rt-multi-thread", "macros", "process", "signal", "time", "sync", "net", "io-util"] }
 serde_json = "1"
