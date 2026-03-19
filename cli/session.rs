@@ -1619,7 +1619,7 @@ fn run_menu_flow(
                     send_to_daemon(writer, &cmd, waiting, running)?;
 
                     // Wait for response (reader thread renders the full block)
-                    show_thinking_spinner(waiting, running);
+                    let _ = show_thinking_spinner_with_input(waiting, running);
                 }
 
                 // Stay in menu for another selection

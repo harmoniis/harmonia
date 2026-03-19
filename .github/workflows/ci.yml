@@ -93,7 +93,6 @@ jobs:
         run: |
           bazel build \
             //lib/core/transport-auth:transport-auth \
-            //lib/frontends/mqtt-client:mqtt-client \
             //lib/frontends/http2-mtls:http2-mtls-so
 
   release:

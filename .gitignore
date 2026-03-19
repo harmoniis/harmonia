@@ -66,3 +66,4 @@ lcov.info
 tarpaulin-report.html
 cobertura.xml
 scripts/__pycache__/
+MODULE.bazel.lock
