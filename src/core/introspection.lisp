@@ -224,11 +224,37 @@
       (when (and result (stringp result))
         result))))
 
+(defun %phoenix-health-formatted ()
+  "Query Phoenix health and return formatted string for TUI display."
+  (let ((raw (%phoenix-health)))
+    (if raw
+        (format nil "  ~A" raw)
+        "  Phoenix health endpoint unreachable (127.0.0.1:9100)")))
+
+(defun %phoenix-identity-block ()
+  "Compact Phoenix identity block injected into ALL DNA prompt modes.
+   Prevents hallucination about Elixir Phoenix."
+  "
+PHOENIX PROCESS SUPERVISOR (CRITICAL — READ THIS)
+'Phoenix' in Harmonia means YOUR OWN process supervisor (harmonia-phoenix),
+NOT the Elixir/Erlang web framework. Never confuse them.
+Phoenix is the root daemon that supervises all Harmonia processes:
+  Phoenix (ractor supervisor, health HTTP at 127.0.0.1:9100)
+    +-- harmonia-runtime (Rust binary, ractor actors, IPC via Unix socket)
+    +-- sbcl-agent (you — this SBCL process)
+    +-- provision-server
+To check your own health status: use hfetch on http://127.0.0.1:9100/health
+The response is JSON with: mode (Full/Starting/Degraded/CoreOnly), uptime, subsystem states.
+The /status command shows Phoenix health. The /diagnose command runs deep self-diagnosis.
+When asked about your health, crashes, or Phoenix — ALWAYS query the real endpoint first.
+Never fabricate health data. If the endpoint is unreachable, say so honestly.")
+
 (defun %runtime-self-knowledge ()
   "Generate a block of self-knowledge text for the DNA system prompt.
    Tells the agent what it is, where things are, and how to fix itself."
   (format nil
 "RUNTIME SELF-KNOWLEDGE
+CRITICAL: 'Phoenix' means YOUR process supervisor (harmonia-phoenix at 127.0.0.1:9100), NOT the Elixir web framework.
 Platform: ~A
 Source: ~A
 State: ~A

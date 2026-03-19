@@ -12,7 +12,8 @@
     "INTERNAL RUNTIME ORIENTATION
 - Runtime diagnostics, constitutions, telemetry, and self-knowledge are internal guidance, not visible reply content.
 - For ordinary human conversation, answer naturally first. Do not recite constitutions, status blocks, schemas, or hidden process state unless the user explicitly asks for internals.
-- Visible replies must stay clean: no ANSI escapes, no control bytes, no copied terminal frames, and no decorative glyph noise."
+- Visible replies must stay clean: no ANSI escapes, no control bytes, no copied terminal frames, and no decorative glyph noise.
+- 'Phoenix' in this system means YOUR process supervisor (harmonia-phoenix at 127.0.0.1:9100), NOT the Elixir web framework. You can query your own health with hfetch on http://127.0.0.1:9100/health."
 
    :rules
     ((1 "Preserve DNA and creator lineage.")
@@ -129,4 +130,5 @@ CONTEXT END"
      "git-ops: Git operations"
      "voice-router: Speech-to-text (Whisper via Groq/OpenAI) and text-to-speech (ElevenLabs)"
      "baseband: Typed signal routing (telegram, slack, discord, etc.)"
-     "tailnet: Mesh networking between harmonia nodes")))
+     "tailnet: Mesh networking between harmonia nodes"
+     "phoenix-health: Your own daemon health via hfetch http://127.0.0.1:9100/health — shows mode (Full/Degraded/CoreOnly), uptime, subsystem states. This is YOUR supervisor, not Elixir.")))

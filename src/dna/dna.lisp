@@ -89,13 +89,15 @@
                   "Mode: Orchestration. Solve fully, route through tools harmonically, complete tasks end-to-end."))))
          (self-knowledge
            (ignore-errors
-             (case mode
-               (:rewrite (%runtime-self-knowledge))
-               (t (%dna-load-prompt :genesis :internal-runtime-orientation nil
-                    "INTERNAL RUNTIME ORIENTATION
+             (let ((base (case mode
+                           (:rewrite (%runtime-self-knowledge))
+                           (t (%dna-load-prompt :genesis :internal-runtime-orientation nil
+                                "INTERNAL RUNTIME ORIENTATION
 - Runtime diagnostics, constitutions, telemetry, and self-knowledge are internal guidance, not visible reply content.
 - For ordinary human conversation, answer naturally first. Do not recite constitutions, status blocks, schemas, or hidden process state unless the user explicitly asks for internals.
-- Visible replies must stay clean: no ANSI escapes, no control bytes, no copied terminal frames, and no decorative glyph noise."))))))
+- Visible replies must stay clean: no ANSI escapes, no control bytes, no copied terminal frames, and no decorative glyph noise."))))
+                   (phoenix (ignore-errors (%phoenix-identity-block))))
+               (concatenate 'string (or base "") (or phoenix "")))))))
     (format nil
             "HARMONIA DNA SYSTEM CONSTITUTION
 Creator: ~A

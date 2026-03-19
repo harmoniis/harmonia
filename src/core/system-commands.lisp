@@ -71,6 +71,7 @@
     (handler-case
         (cond
           ((string= command "/status")     (%syscmd-status))
+          ((string= command "/diagnose")   (%syscmd-diagnose))
           ((string= command "/backends")   (%syscmd-backends args-str))
           ((string= command "/frontends")  (%syscmd-frontends args-str))
           ((string= command "/tools")      (%syscmd-tools))
@@ -164,7 +165,7 @@
 ;;; handles it. In the unified architecture, this should never trigger.
 
 (defparameter *system-commands*
-  '("/help" "/exit" "/status"
+  '("/help" "/exit" "/status" "/diagnose"
     "/backends" "/frontends" "/tools"
     "/chronicle" "/metrics" "/security"
     "/feedback" "/wallet" "/identity")
@@ -226,7 +227,16 @@
     (flet ((add (text) (push text lines)))
       (add "System Status")
       (add (make-string 40 :initial-element #\-))
+      ;; Phoenix supervisor
+      (add "")
+      (add "Phoenix Supervisor:")
+      (let ((health (ignore-errors (%phoenix-health))))
+        (if health
+            (add (format nil "  ~A" health))
+            (add "  Phoenix health endpoint unreachable (127.0.0.1:9100)")))
       ;; Runtime
+      (add "")
+      (add "SBCL Runtime:")
       (if *runtime*
           (progn
             (add (%syscmd-kv "Cycle:" (or (ignore-errors (runtime-state-cycle *runtime*)) "?")))
@@ -252,6 +262,68 @@
         (add (%syscmd-kv "Native tools loaded:" (length (or tools '()))))
         (when *runtime*
           (add (%syscmd-kv "Registered tools:" (ignore-errors (hash-table-count (runtime-state-tools *runtime*))))))))
+    (format nil "~{~A~%~}" (nreverse lines))))
+
+;;; ─── /diagnose ──────────────────────────────────────────────────────
+
+(defun %syscmd-diagnose ()
+  "Deep self-diagnosis: Phoenix health, libraries, recent errors, runtime snapshot."
+  (let ((lines '()))
+    (flet ((add (text) (push text lines)))
+      (add "Self-Diagnosis Report")
+      (add (make-string 40 :initial-element #\=))
+      ;; Phoenix supervisor health
+      (add "")
+      (add "Phoenix Supervisor:")
+      (add (make-string 40 :initial-element #\-))
+      (let ((health (ignore-errors (%phoenix-health))))
+        (if health
+            (add (format nil "  ~A" health))
+            (add "  UNREACHABLE — Phoenix health endpoint at 127.0.0.1:9100 not responding.")))
+      ;; Runtime snapshot
+      (add "")
+      (add "SBCL Runtime:")
+      (add (make-string 40 :initial-element #\-))
+      (if *runtime*
+          (progn
+            (add (%syscmd-kv "Cycle:" (or (ignore-errors (runtime-state-cycle *runtime*)) "?")))
+            (add (%syscmd-kv "Phase:" (or (ignore-errors (runtime-state-harmonic-phase *runtime*)) "?")))
+            (add (%syscmd-kv "Environment:" (or (ignore-errors (runtime-state-environment *runtime*)) "?")))
+            (add (%syscmd-kv "Uptime (s):" (or (ignore-errors
+                                                 (- (get-universal-time) (runtime-state-started-at *runtime*))) "?")))
+            (add (%syscmd-kv "Queue depth:" (or (ignore-errors (length (runtime-state-prompt-queue *runtime*))) "?")))
+            (add (%syscmd-kv "Tool count:" (or (ignore-errors (hash-table-count (runtime-state-tools *runtime*))) "?"))))
+          (add "  Runtime not initialized."))
+      ;; Libraries
+      (add "")
+      (add "Loaded Modules:")
+      (add (make-string 40 :initial-element #\-))
+      (let ((libs (ignore-errors (introspect-libs))))
+        (if libs
+            (dolist (lib libs)
+              (add (format nil "  ~A  status=~A  crashes=~A"
+                           (getf lib :name)
+                           (or (getf lib :status) "?")
+                           (or (getf lib :crash-count) 0))))
+            (add "  No modules registered.")))
+      ;; Recent errors
+      (add "")
+      (add "Recent Errors (last 10):")
+      (add (make-string 40 :initial-element #\-))
+      (let ((errors (ignore-errors (introspect-recent-errors 10))))
+        (if errors
+            (dolist (err errors)
+              (add (format nil "  ~A" err)))
+            (add "  No recent errors.")))
+      ;; Security + system
+      (add "")
+      (add (%syscmd-kv "Security posture:" (or (ignore-errors *security-posture*) "?")))
+      (add (%syscmd-kv "Total tick errors:" (or (ignore-errors *tick-error-count*) "?")))
+      (add (%syscmd-kv "Router alive:" (if (ignore-errors (router-healthcheck)) "yes" "no")))
+      (let ((signalograd (ignore-errors (and (fboundp 'signalograd-status) (signalograd-status)))))
+        (when (and signalograd (listp signalograd))
+          (add (%syscmd-kv "Signalograd cycle:" (or (getf signalograd :cycle) "?")))
+          (add (%syscmd-kv "Signalograd conf:" (format nil "~,3f" (or (getf signalograd :confidence) 0.0)))))))
     (format nil "~{~A~%~}" (nreverse lines))))
 
 ;;; ─── /backends ─────────────────────────────────────────────────────────

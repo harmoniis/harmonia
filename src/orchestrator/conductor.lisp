@@ -891,6 +891,8 @@ CONTEXT END")))
          (search "claude code" p) (search "claude-code" p)
          (search "codex" p)
          (search "tmux" p) (search "actors" p)
+         (search "phoenix" p) (search "supervisor" p)
+         (search "health" p) (search "diagnos" p)
          (search "architecture" p)
          (search "system" p)
          (search "config" p) (search "configuration" p)
@@ -918,14 +920,17 @@ CONTEXT END")))
 - context-summarizer: ~A~%~
 - active actors: ~A~%~
 - swarm tmux status: ~A~%~
+- phoenix-health: ~A~%~
 - signalograd projection: ~A~%~
-- capabilities: ~A~%"
+- capabilities: ~A~%~
+NOTE: 'Phoenix' = your process supervisor (harmonia-phoenix), NOT the Elixir framework.~%"
             orch-model provider
             cli-prefs
             seed-models
             (model-policy-context-summarizer-model)
             (or actors "(none)")
             (or swarm-status "(none)")
+            (or (ignore-errors (%phoenix-health)) "(unreachable — Phoenix at 127.0.0.1:9100)")
             (or (ignore-errors (signalograd-current-projection *runtime*)) "(not loaded)")
             (let ((caps (load-prompt :evolution :system-capabilities)))
               (if (listp caps)
