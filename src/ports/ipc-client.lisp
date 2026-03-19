@@ -11,6 +11,9 @@
 
 (in-package :harmonia)
 
+;; Load SBCL socket support (contrib module, not loaded by default)
+(require :sb-bsd-sockets)
+
 ;;; ─── Socket path resolution ─────────────────────────────────────────
 
 (defparameter *ipc-socket-path* nil
