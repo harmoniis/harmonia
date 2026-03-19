@@ -19,6 +19,7 @@ pub fn dispatch(component: &str, sexp: &str) -> String {
         "signalograd" => dispatch_signalograd(sexp),
         "tailnet" => dispatch_tailnet(sexp),
         "harmonic-matrix" => dispatch_matrix(sexp),
+        "observability" => dispatch_observability(sexp),
         _ => format!("(:error \"unknown component: {}\")", component),
     }
 }
@@ -687,6 +688,161 @@ fn dispatch_matrix(sexp: &str) -> String {
             op.unwrap_or_default()
         ),
     }
+}
+
+// ── Observability ────────────────────────────────────────────────────
+
+fn dispatch_observability(sexp: &str) -> String {
+    let op = extract_keyword(sexp, ":op");
+    match op.as_deref() {
+        Some("init") => {
+            let rc = harmonia_observability::harmonia_observability_init();
+            if rc == 0 {
+                "(:ok)".to_string()
+            } else {
+                "(:error \"observability init failed\")".to_string()
+            }
+        }
+        Some("trace-start") => {
+            let name = extract_string(sexp, ":name").unwrap_or_default();
+            let kind = extract_string(sexp, ":kind").unwrap_or_else(|| "chain".to_string());
+            let parent_id: i64 = extract_string(sexp, ":parent-id")
+                .and_then(|s| s.parse().ok())
+                .unwrap_or(0);
+            let metadata = extract_string(sexp, ":metadata").unwrap_or_default();
+            // Convert Lisp plist metadata to JSON
+            let metadata_json = plist_to_json(&metadata);
+            let handle = harmonia_observability::harmonia_observability_trace_start(
+                &name,
+                &kind,
+                parent_id,
+                &metadata_json,
+            );
+            format!("(:ok :handle {})", handle)
+        }
+        Some("trace-end") => {
+            let handle: i64 = extract_string(sexp, ":handle")
+                .and_then(|s| s.parse().ok())
+                .unwrap_or(0);
+            let status = extract_string(sexp, ":status").unwrap_or_else(|| "success".to_string());
+            let output = extract_string(sexp, ":output").unwrap_or_default();
+            let output_json = plist_to_json(&output);
+            harmonia_observability::harmonia_observability_trace_end(handle, &status, &output_json);
+            "(:ok)".to_string()
+        }
+        Some("trace-event") => {
+            let name = extract_string(sexp, ":name").unwrap_or_default();
+            let kind = extract_string(sexp, ":kind").unwrap_or_else(|| "chain".to_string());
+            let metadata = extract_string(sexp, ":metadata").unwrap_or_default();
+            let metadata_json = plist_to_json(&metadata);
+            harmonia_observability::harmonia_observability_trace_event(
+                &name,
+                &kind,
+                &metadata_json,
+            );
+            "(:ok)".to_string()
+        }
+        Some("flush") => {
+            harmonia_observability::harmonia_observability_flush();
+            "(:ok)".to_string()
+        }
+        Some("shutdown") => {
+            harmonia_observability::harmonia_observability_shutdown();
+            "(:ok)".to_string()
+        }
+        _ => format!(
+            "(:error \"unknown observability op: {}\")",
+            op.unwrap_or_default()
+        ),
+    }
+}
+
+/// Best-effort conversion of a Lisp plist string to JSON.
+/// Input: "(:key1 val1 :key2 \"val2\")" or "(KEY1 VAL1 KEY2 VAL2)"
+/// Handles the common metadata patterns from Lisp trace calls.
+fn plist_to_json(plist: &str) -> String {
+    if plist.is_empty() {
+        return "{}".to_string();
+    }
+    let trimmed = plist.trim().trim_start_matches('(').trim_end_matches(')');
+    if trimmed.is_empty() {
+        return "{}".to_string();
+    }
+
+    let mut result = String::from("{");
+    let mut first = true;
+    let tokens = tokenize_plist(trimmed);
+    let mut i = 0;
+    while i + 1 < tokens.len() {
+        let key = &tokens[i];
+        let val = &tokens[i + 1];
+        // Key should start with ':'
+        let json_key = key.trim_start_matches(':').to_lowercase();
+        if json_key.is_empty() {
+            i += 2;
+            continue;
+        }
+        if !first {
+            result.push(',');
+        }
+        first = false;
+        result.push('"');
+        result.push_str(&json_key);
+        result.push_str("\":");
+        // Value: try number, bool, or string
+        let clean_val = val.trim_matches('"');
+        if clean_val == "t" || clean_val == "T" {
+            result.push_str("true");
+        } else if clean_val == "nil" || clean_val == "NIL" {
+            result.push_str("false");
+        } else if clean_val.parse::<f64>().is_ok() {
+            result.push_str(clean_val);
+        } else {
+            result.push('"');
+            result.push_str(&clean_val.replace('\\', "\\\\").replace('"', "\\\""));
+            result.push('"');
+        }
+        i += 2;
+    }
+    result.push('}');
+    result
+}
+
+/// Tokenize a plist string respecting quoted strings.
+fn tokenize_plist(s: &str) -> Vec<String> {
+    let mut tokens = Vec::new();
+    let bytes = s.as_bytes();
+    let mut i = 0;
+    while i < bytes.len() {
+        // Skip whitespace
+        if bytes[i].is_ascii_whitespace() {
+            i += 1;
+            continue;
+        }
+        if bytes[i] == b'"' {
+            // Quoted string
+            let mut end = i + 1;
+            while end < bytes.len() {
+                if bytes[end] == b'"' {
+                    break;
+                }
+                if bytes[end] == b'\\' && end + 1 < bytes.len() {
+                    end += 1;
+                }
+                end += 1;
+            }
+            tokens.push(String::from_utf8_lossy(&bytes[i..=end.min(bytes.len() - 1)]).into_owned());
+            i = end + 1;
+        } else {
+            // Bare token
+            let start = i;
+            while i < bytes.len() && !bytes[i].is_ascii_whitespace() && bytes[i] != b')' {
+                i += 1;
+            }
+            tokens.push(String::from_utf8_lossy(&bytes[start..i]).into_owned());
+        }
+    }
+    tokens
 }
 
 // ── Helpers ──────────────────────────────────────────────────────────

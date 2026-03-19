@@ -7,7 +7,6 @@ rust_library(
     srcs = glob(["src/**/*.rs"]),
     edition = "2021",
     deps = [
-        "@crate_index//:libloading",
         "@crate_index//:log",
         "@crate_index//:parking_lot",
     ],
@@ -18,7 +17,6 @@ rust_shared_library(
     srcs = glob(["src/**/*.rs"]),
     edition = "2021",
     deps = [
-        "@crate_index//:libloading",
         "@crate_index//:log",
         "@crate_index//:parking_lot",
     ],

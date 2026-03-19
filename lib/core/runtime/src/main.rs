@@ -77,6 +77,14 @@ async fn main() {
     .await
     .expect("failed to spawn ObservabilityActor");
 
+    let (harmonic_matrix_ref, _) = Actor::spawn(
+        Some("harmonic-matrix".to_string()),
+        actors::HarmonicMatrixActor,
+        (),
+    )
+    .await
+    .expect("failed to spawn HarmonicMatrixActor");
+
     // 5. Spawn RuntimeSupervisor
     let (supervisor_ref, supervisor_handle) = Actor::spawn(
         Some("runtime-supervisor".to_string()),
@@ -85,6 +93,32 @@ async fn main() {
     )
     .await
     .expect("failed to spawn RuntimeSupervisor");
+
+    // 5b. Register component actors with the supervisor for restart tracking
+    let _ = supervisor_ref.cast(msg::RuntimeMsg::RegisterComponent(
+        "chronicle".to_string(),
+        chronicle_ref.clone(),
+    ));
+    let _ = supervisor_ref.cast(msg::RuntimeMsg::RegisterComponent(
+        "gateway".to_string(),
+        gateway_ref.clone(),
+    ));
+    let _ = supervisor_ref.cast(msg::RuntimeMsg::RegisterComponent(
+        "tailnet".to_string(),
+        tailnet_ref.clone(),
+    ));
+    let _ = supervisor_ref.cast(msg::RuntimeMsg::RegisterComponent(
+        "signalograd".to_string(),
+        signalograd_ref.clone(),
+    ));
+    let _ = supervisor_ref.cast(msg::RuntimeMsg::RegisterComponent(
+        "observability".to_string(),
+        observability_ref.clone(),
+    ));
+    let _ = supervisor_ref.cast(msg::RuntimeMsg::RegisterComponent(
+        "harmonic-matrix".to_string(),
+        harmonic_matrix_ref.clone(),
+    ));
 
     eprintln!("[INFO] [runtime] All actors spawned, starting IPC server");
 
@@ -102,6 +136,7 @@ async fn main() {
         tailnet_ref.clone(),
         signalograd_ref.clone(),
         observability_ref.clone(),
+        harmonic_matrix_ref.clone(),
     ];
     tokio::spawn(async move {
         let mut interval = tokio::time::interval(std::time::Duration::from_secs(5));
@@ -121,6 +156,7 @@ async fn main() {
         tailnet_ref,
         signalograd_ref,
         observability_ref,
+        harmonic_matrix_ref,
     ];
     tokio::spawn(async move {
         let mut sigterm =

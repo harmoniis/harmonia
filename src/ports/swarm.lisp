@@ -398,10 +398,14 @@
                                          past-mistakes))
                          (%swarm-cli-delegation-prompt user-task)))
          (actor-id (tmux-spawn cli workdir cli-prompt)))
-    (trace-event "tmux-spawn" :tool
-                 :metadata (list :actor-id actor-id :cli cli :model model
-                                 :prompt-length (length (or cli-prompt ""))
-                                 :workdir workdir))
+    (when (%trace-level-p :standard)
+      (trace-event "actor-spawned" :agent
+                   :metadata (list :actor-id actor-id
+                                   :model model
+                                   :cli cli
+                                   :cli-prompt-length (length (or cli-prompt ""))
+                                   :workdir workdir
+                                   :supervision-spec-p (not (null spec-sexp)))))
     ;; Update spec with actual task-id
     (when spec-sexp
       (ignore-errors (%supervision-update-task-id spec-sexp actor-id)))
@@ -489,8 +493,10 @@
 (defun %swarm-dag-spawn-with-audit (prompt originating-signal orchestration-ctx group-id)
   "Spawn a DAG: both CLI agents do the task, then cross-audit each other.
    Returns group-id. Results delivered via actor mailbox."
-  (trace-event "dag-spawn" :agent
-               :metadata (list :group-id group-id :pattern "cross-audit"))
+  (when (%trace-level-p :standard)
+    (trace-event "dag-spawned" :agent
+                 :metadata (list :group-id group-id
+                                 :pattern "cross-audit")))
   (multiple-value-bind (work-claude work-codex)
       (%swarm-dag-split-work prompt)
     (let* ((workdir (or (ignore-errors (config-get-for "conductor" "workdir"))
@@ -534,9 +540,13 @@
    CLI models are spawned as non-blocking tmux actors. If ALL models are CLI,
    returns (values :deferred nil nil nil) — results delivered later by %tick-actor-deliver.
    For software-dev tasks with both CLIs available, uses DAG pattern with cross-audit."
-  (trace-event "parallel-solve" :agent
-               :metadata (list :max-subagents (or max-subagents 0)
-                               :preferred-models (format nil "~{~A~^,~}" (or preferred-models '()))))
+  (when (%trace-level-p :minimal)
+    (trace-event "parallel-solve" :agent
+                 :metadata (list :max-subagents (or max-subagents 0)
+                                 :preferred-models (format nil "~{~A~^,~}" (or preferred-models '()))
+                                 :group-id (1+ *swarm-group-counter*)
+                                 :dag-mode (%swarm-dag-software-dev-p
+                                            prompt (or preferred-models '())))))
   (let* ((n (max 1 (or max-subagents (parallel-get-subagent-count))))
          (group-id (incf *swarm-group-counter*))
          (chain (or preferred-models

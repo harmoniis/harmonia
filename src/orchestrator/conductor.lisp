@@ -110,6 +110,16 @@
       (%security-log :denied op originating-signal "missing prompt for admin-intent")
       (error "privileged operation ~A denied: missing admin-intent prompt context" op))
     (%validate-admin-intent op prompt originating-signal))
+  (when (%trace-level-p :standard)
+    (trace-event "policy-gate" :chain
+                 :metadata (list :op op
+                                 :allowed t
+                                 :taint (and originating-signal
+                                             (harmonia-signal-p originating-signal)
+                                             (harmonia-signal-taint originating-signal))
+                                 :security-label (and originating-signal
+                                                      (harmonia-signal-p originating-signal)
+                                                      (harmonia-signal-security-label originating-signal)))))
   (%security-log :allowed op originating-signal "passed")
   t)
 
@@ -805,7 +815,13 @@ CONTEXT END")))
   (with-trace ("orchestrate-signal" :kind :chain
                :metadata (list :frontend (ignore-errors (harmonia-signal-frontend signal))
                                :channel-kind (ignore-errors (harmonia-signal-channel-kind signal))
-                               :security (ignore-errors (harmonia-signal-security-label signal))))
+                               :security-label (ignore-errors (harmonia-signal-security-label signal))
+                               :dissonance (or (ignore-errors (harmonia-signal-dissonance signal)) 0.0)
+                               :peer-device-id (ignore-errors
+                                                 (and (harmonia-signal-peer signal)
+                                                      (harmonia-peer-device-id (harmonia-signal-peer signal))))
+                               :session-id (ignore-errors (harmonia-signal-conversation-id signal))
+                               :taint (ignore-errors (harmonia-signal-taint signal))))
     (let* ((*current-originating-signal* signal)
            (prompt (%signal-to-prompt-text signal)))
       (%orchestrate-inner prompt signal))))
@@ -814,7 +830,8 @@ CONTEXT END")))
   "Orchestrate an internal/TUI prompt (string).
    *current-originating-signal* is nil → policy gate allows (owner trust)."
   (with-trace ("orchestrate-prompt" :kind :chain
-               :metadata (list :prompt-length (length (or prompt ""))))
+               :metadata (list :prompt-length (length (or prompt ""))
+                               :has-signal nil))
     (let ((*current-originating-signal* nil))
       (%orchestrate-inner prompt nil))))
 
@@ -989,16 +1006,21 @@ Delegation chain: ~{~A~^, ~}~%~%TASK: ~A"
    Smart delegation: answer internal questions directly, delegate action tasks."
   (memory-touch-activity)
   (ignore-errors (memory-maybe-journal-yesterday))
-  (trace-event "memory-recall" :tool :metadata (list :source "orchestrate-inner"))
   (let* ((safe-prompt (%sanitize-prompt-for-memory prompt))
          (llm-prompt (dna-compose-llm-prompt prompt :mode :orchestrate))
+         (recall-limit (truncate (if (fboundp 'signalograd-memory-recall-limit)
+                                    (signalograd-memory-recall-limit *runtime*)
+                                    5)))
          (recall-block (let ((raw (memory-semantic-recall-block prompt
-                               :limit (truncate (if (fboundp 'signalograd-memory-recall-limit)
-                                                    (signalograd-memory-recall-limit *runtime*)
-                                                    5))
+                               :limit recall-limit
                                :max-chars (truncate (if (fboundp 'harmony-policy-number)
                                                         (harmony-policy-number "memory/recall-max-chars" 1500)
                                                         1500)))))
+                         (when (and (> (length raw) 0) (%trace-level-p :standard))
+                           (trace-event "memory-recall" :tool
+                                        :metadata (list :source "orchestrate-inner"
+                                                        :recall-count recall-limit
+                                                        :chars-used (length raw))))
                          ;; Wave 2.1: Boundary-wrap memory recall entries
                          (if (> (length raw) 0)
                              (%boundary-wrap raw "memory-recall")
@@ -1059,8 +1081,10 @@ Delegation chain: ~{~A~^, ~}~%~%TASK: ~A"
                       (when (and (not *current-originating-signal*)
                                  (%internal-question-p prompt)
                                  (not (%task-needs-delegation-p prompt)))
-                        (trace-event "delegation-gate" :chain
-                                     :metadata (list :decision "direct" :reason "internal-question"))
+                        (when (%trace-level-p :standard)
+                          (trace-event "delegation-direct" :chain
+                                       :metadata (list :model (model-policy-orchestrator-model)
+                                                       :reason "internal-question")))
                         (setf used-tool "orchestrator-direct")
                         (setf mode :direct)
                         (setf llm-calls 1)
@@ -1107,10 +1131,13 @@ Delegation chain: ~{~A~^, ~}~%~%TASK: ~A"
                           (%maybe-prepare-swarm-prompt llm-prompt))
                         (setf model-input-prompt prepared-prompt)
                         (%route-or-error "orchestrator" "parallel-agents")
-                        (trace-event "delegation-gate" :chain
-                                     :metadata (list :decision "swarm"
-                                                     :max-subagents max-subs
-                                                     :chain (format nil "~{~A~^,~}" chain)))
+                        (when (%trace-level-p :standard)
+                          (trace-event "delegation-swarm" :chain
+                                       :metadata (list :chain (format nil "~{~A~^,~}" chain)
+                                                       :max-subagents max-subs
+                                                       :task-kind (ignore-errors
+                                                                    (string-downcase
+                                                                     (symbol-name (%task-kind prompt)))))))
                         (multiple-value-setq (swarm-response swarm-report best-entry swarm-results)
                           (parallel-solve prepared-prompt
                                           :return-structured t
@@ -1184,9 +1211,10 @@ Delegation chain: ~{~A~^, ~}~%~%TASK: ~A"
                                    (model-policy-estimate-cost-usd model model-input-prompt visible-response))
                                0.0))
            (memory-id (memory-record-orchestration safe-prompt visible-response used-tool score elapsed-ms :harmony harmony)))
-      (trace-event "memory-store" :tool
-                   :metadata (list :memory-id memory-id :score score :model model
-                                   :elapsed-ms elapsed-ms :mode mode))
+      (when (%trace-level-p :standard)
+        (trace-event "memory-store" :tool
+                     :metadata (list :memory-id memory-id :score score :model model
+                                     :tool used-tool :elapsed-ms elapsed-ms)))
       (when (and *runtime* llm-ran)
         (setf (runtime-state-active-model *runtime*) model))
       (memory-record-tool-usage used-tool :latency-ms elapsed-ms :success t)

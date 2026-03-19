@@ -3,17 +3,11 @@
 ///
 /// Commands are handled in two tiers:
 ///   1. **Native** — fully executed in Rust (wallet, identity, help).
-///   2. **Delegated** — routed to a Lisp-registered callback that has access
-///      to runtime state (status, backends, chronicle, etc.).
+///   2. **Delegated** — routed via IPC dispatch in the runtime actor system.
 ///
-/// Lisp never sees command envelopes; only agent-level prompts pass through.
+/// Agent-level prompts pass through to the orchestrator.
 use crate::model::{ChannelEnvelope, SecurityLabel};
 use crate::registry::Registry;
-use std::ffi::{CStr, CString};
-
-extern "C" {
-    fn free(ptr: *mut std::ffi::c_void);
-}
 
 /// Every command the gateway recognises.
 const ALL_COMMANDS: &[&str] = &[
@@ -92,7 +86,7 @@ enum CommandResult {
 
 fn execute_command(
     command: &str,
-    args: &str,
+    _args: &str,
     security: SecurityLabel,
     channel_kind: &str,
 ) -> CommandResult {
@@ -118,32 +112,14 @@ fn execute_command(
         });
     }
 
-    // Delegated to Lisp callback
-    match query_delegated(command, args) {
-        Some(response) if response == ":system-exit" => CommandResult::SystemExit,
-        Some(response) => CommandResult::Response(response),
-        None => CommandResult::Response(format!(
-            "[system] Command handler not available for {command}. \
-             Lisp command query callback may not be registered yet."
-        )),
+    // Delegated commands are now dispatched via IPC in the runtime actor
+    // system. The gateway no longer holds a Lisp FFI callback.
+    if command == "/exit" {
+        return CommandResult::SystemExit;
     }
-}
-
-// ── Lisp callback delegation ──────────────────────────────────────────────
-
-fn query_delegated(command: &str, args: &str) -> Option<String> {
-    let handler = crate::state::command_query()?;
-    let c_command = CString::new(command).ok()?;
-    let c_args = CString::new(args).ok()?;
-    let result_ptr = unsafe { handler(c_command.as_ptr(), c_args.as_ptr()) };
-    if result_ptr.is_null() {
-        return None;
-    }
-    let result = unsafe { CStr::from_ptr(result_ptr) }
-        .to_string_lossy()
-        .into_owned();
-    unsafe { free(result_ptr as *mut std::ffi::c_void) };
-    Some(result)
+    CommandResult::Response(format!(
+        "[system] Command {command} is handled by the runtime IPC dispatch."
+    ))
 }
 
 // ── Native command handlers ───────────────────────────────────────────────

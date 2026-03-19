@@ -1,13 +1,12 @@
+#[allow(dead_code)]
 mod baseband;
 mod command_dispatch;
-mod frontend_ffi;
 mod model;
 mod payment_auth;
 mod registry;
 mod sender_policy;
 mod state;
 mod tool_baseband;
-mod tool_ffi;
 mod tool_registry;
 
 pub use baseband::{poll_baseband, send_signal};

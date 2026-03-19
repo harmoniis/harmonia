@@ -200,7 +200,12 @@ impl Actor for ObservabilityActor {
         _myself: ActorRef<Self::Msg>,
         _args: (),
     ) -> Result<Self::State, ActorProcessingErr> {
-        eprintln!("[INFO] [runtime] ObservabilityActor started");
+        let rc = harmonia_observability::harmonia_observability_init();
+        if rc == 0 {
+            eprintln!("[INFO] [runtime] ObservabilityActor started (tracing initialized)");
+        } else {
+            eprintln!("[WARN] [runtime] ObservabilityActor started (tracing init failed)");
+        }
         Ok(())
     }
 
@@ -212,12 +217,66 @@ impl Actor for ObservabilityActor {
     ) -> Result<(), ActorProcessingErr> {
         match message {
             ComponentMsg::Tick => {
-                // Observability batches are flushed by the LangSmithClient internally
+                // Periodic flush — the sender thread also auto-flushes, but
+                // this ensures traces are submitted even during low-activity periods.
+                harmonia_observability::harmonia_observability_flush();
+            }
+            ComponentMsg::Signal { payload_sexp } => {
+                // Forward trace commands received via IPC signal
+                let _ = payload_sexp;
             }
             ComponentMsg::Shutdown => {
+                harmonia_observability::harmonia_observability_shutdown();
                 eprintln!("[INFO] [runtime] ObservabilityActor shutting down");
             }
-            _ => {}
+        }
+        Ok(())
+    }
+}
+
+// ── HarmonicMatrixActor ──────────────────────────────────────────────
+
+pub struct HarmonicMatrixActor;
+
+impl Actor for HarmonicMatrixActor {
+    type Msg = ComponentMsg;
+    type State = ();
+    type Arguments = ();
+
+    async fn pre_start(
+        &self,
+        _myself: ActorRef<Self::Msg>,
+        _args: (),
+    ) -> Result<Self::State, ActorProcessingErr> {
+        let _ = harmonia_harmonic_matrix::runtime::store::init();
+        eprintln!("[INFO] [runtime] HarmonicMatrixActor started");
+        Ok(())
+    }
+
+    async fn handle(
+        &self,
+        _myself: ActorRef<Self::Msg>,
+        message: Self::Msg,
+        _state: &mut Self::State,
+    ) -> Result<(), ActorProcessingErr> {
+        match message {
+            ComponentMsg::Tick => {
+                // Epoch advancement is future work — no-op for now
+            }
+            ComponentMsg::Signal { payload_sexp } => {
+                // Interpret signals as route observations to log
+                let _ = harmonia_harmonic_matrix::runtime::ops::log_event(
+                    "runtime",
+                    "inbound",
+                    "signal",
+                    &payload_sexp,
+                    true,
+                    "",
+                );
+            }
+            ComponentMsg::Shutdown => {
+                eprintln!("[INFO] [runtime] HarmonicMatrixActor shutting down");
+            }
         }
         Ok(())
     }

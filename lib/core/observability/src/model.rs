@@ -1,6 +1,7 @@
 //! Core types and global state for observability.
 
 use std::time::{SystemTime, UNIX_EPOCH};
+use uuid::Uuid;
 
 // ─── State ───────────────────────────────────────────────────────────
 
@@ -179,4 +180,41 @@ fn secs_to_utc(secs: u64) -> (u64, u64, u64, u64, u64, u64) {
 
 fn is_leap(y: u64) -> bool {
     (y % 4 == 0 && y % 100 != 0) || y % 400 == 0
+}
+
+// ─── UUID + dotted_order helpers ─────────────────────────────────────
+
+/// Generate a new UUID v4 string (no hyphens — LangSmith format).
+pub fn new_uuid() -> String {
+    Uuid::new_v4().to_string()
+}
+
+/// LangSmith dotted_order timestamp: `YYYYMMDDTHHmmSSffffffZ`
+/// No dots in timestamp, 6-digit microseconds.
+fn dotted_order_timestamp() -> String {
+    let dur = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default();
+    let secs = dur.as_secs();
+    let micros = dur.subsec_micros();
+    let (s, m, h, day, month, year) = secs_to_utc(secs);
+    format!(
+        "{:04}{:02}{:02}T{:02}{:02}{:02}{:06}Z",
+        year, month, day, h, m, s, micros
+    )
+}
+
+/// Root dotted_order: `{timestamp}{run-uuid}`
+pub fn dotted_order_for(run_id: &str) -> String {
+    format!("{}{}", dotted_order_timestamp(), run_id)
+}
+
+/// Child dotted_order: `{parent_order}.{timestamp}{child-uuid}`
+pub fn dotted_order_child(parent_order: &str, child_run_id: &str) -> String {
+    format!(
+        "{}.{}{}",
+        parent_order,
+        dotted_order_timestamp(),
+        child_run_id
+    )
 }

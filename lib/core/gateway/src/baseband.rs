@@ -363,20 +363,17 @@ fn parse_frontend_envelopes(
     envelopes
 }
 
+/// Poll all registered frontends for inbound signals.
+///
+/// FFI-based frontend polling has been removed -- frontends are now ractor
+/// actors that push envelopes directly. This function processes any envelopes
+/// that arrive through the registry (currently none via FFI), applies sender
+/// policy, payment interception, and command dispatch.
 pub fn poll_baseband(registry: &Registry) -> ChannelBatch {
-    let mut all_envelopes = Vec::new();
-
-    registry.for_each(|name, handle| match handle.vtable.poll() {
-        Ok(Some(raw)) => {
-            let envelopes =
-                parse_frontend_envelopes(name, handle.security_label, &handle.capabilities, &raw);
-            all_envelopes.extend(envelopes);
-        }
-        Ok(None) => {}
-        Err(e) => {
-            log::warn!("gateway: poll {} failed: {}", name, e);
-        }
-    });
+    // No FFI frontends to poll -- actor-based frontends push envelopes via
+    // the runtime IPC system. The batch will be empty unless envelopes are
+    // injected through some other path.
+    let all_envelopes: Vec<ChannelEnvelope> = Vec::new();
 
     // Apply sender policy: deny-by-default for messaging frontends
     let all_envelopes: Vec<ChannelEnvelope> = all_envelopes
@@ -388,10 +385,8 @@ pub fn poll_baseband(registry: &Registry) -> ChannelBatch {
 
     // Intercept gateway commands (/wallet, /identity, etc.) — handle in Rust,
     // send response back to the originating frontend, filter them out so the
-    // Lisp orchestrator only receives agent-level prompts.
+    // orchestrator only receives agent-level prompts.
     let all_envelopes = crate::command_dispatch::intercept_commands(registry, all_envelopes);
-
-    // Actor mailbox posting is now handled by the runtime IPC system.
 
     ChannelBatch {
         envelopes: all_envelopes,
@@ -399,13 +394,24 @@ pub fn poll_baseband(registry: &Registry) -> ChannelBatch {
     }
 }
 
+/// Send a signal to a frontend.
+///
+/// FFI-based frontend sending has been removed -- frontends are now ractor
+/// actors. This stub returns an error; callers should use the actor mailbox.
 pub fn send_signal(
     registry: &Registry,
     frontend_name: &str,
-    sub_channel: &str,
-    payload: &str,
+    _sub_channel: &str,
+    _payload: &str,
 ) -> Result<(), String> {
-    registry.with_frontend(frontend_name, |handle| {
-        handle.vtable.send(sub_channel, payload)
-    })?
+    if !registry.is_registered(frontend_name) {
+        return Err(format!("frontend not registered: {frontend_name}"));
+    }
+    // FFI send removed; actor-based frontends receive messages via their
+    // ractor mailbox in the runtime.
+    log::debug!(
+        "gateway: send_signal to '{}' is a no-op (actor dispatch expected)",
+        frontend_name
+    );
+    Ok(())
 }

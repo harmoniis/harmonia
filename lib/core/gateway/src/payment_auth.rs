@@ -1,16 +1,10 @@
-use std::ffi::{CStr, CString};
-
 use crate::model::ChannelEnvelope;
 use crate::registry::Registry;
 use harmonia_payment_auth::{
     append_settlement_metadata, build_challenge_payload, build_denied_payload, build_policy_query,
-    default_policy_response, extract_payment_metadata, parse_policy_response, record_challenge,
-    settle_payment, PaymentRequirement, PolicyDecision,
+    default_policy_response, extract_payment_metadata, record_challenge, settle_payment,
+    PaymentRequirement, PolicyDecision,
 };
-
-extern "C" {
-    fn free(ptr: *mut std::ffi::c_void);
-}
 
 pub fn intercept_paid_actions(
     registry: &Registry,
@@ -97,25 +91,12 @@ pub fn intercept_paid_actions(
     forwarded
 }
 
-fn query_payment_policy(summary: &str, requested_action: &str) -> PolicyDecision {
-    let Some(handler) = crate::state::payment_policy_query() else {
-        return default_policy_response(requested_action);
-    };
-    let Ok(summary_c) = CString::new(summary) else {
-        return default_policy_response(requested_action);
-    };
-    let result_ptr = unsafe { handler(summary_c.as_ptr()) };
-    if result_ptr.is_null() {
-        return default_policy_response(requested_action);
-    }
-    let raw = unsafe { CStr::from_ptr(result_ptr) }
-        .to_string_lossy()
-        .into_owned();
-    unsafe { free(result_ptr as *mut std::ffi::c_void) };
-    parse_policy_response(&raw).unwrap_or_else(|err| {
-        log::warn!("gateway: invalid payment policy response '{raw}': {err}");
-        default_policy_response(requested_action)
-    })
+fn query_payment_policy(_summary: &str, requested_action: &str) -> PolicyDecision {
+    // Payment policy callbacks were previously provided via FFI from the Lisp
+    // runtime. Now that frontends are compiled ractor actors, payment policy
+    // decisions are handled by the runtime IPC dispatch. Fall back to the
+    // default policy until the actor-based path is wired up.
+    default_policy_response(requested_action)
 }
 
 fn default_challenge_id(envelope: &ChannelEnvelope, requirement: &PaymentRequirement) -> String {

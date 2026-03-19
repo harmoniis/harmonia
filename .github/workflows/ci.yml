@@ -88,7 +88,8 @@ jobs:
 
       - name: Bazel transport/frontend smoke build
         if: runner.os == 'Linux'
-        continue-on-error: true
+        env:
+          CARGO_BAZEL_REPIN: "true"
         run: |
           bazel build \
             //lib/core/transport-auth:transport-auth \

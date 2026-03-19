@@ -1,14 +1,11 @@
-use crate::frontend_ffi::FrontendVtable;
 use crate::model::{capabilities_to_sexp, Capability, SecurityLabel};
 use parking_lot::RwLock;
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicU32, Ordering};
 
 pub struct FrontendHandle {
-    pub vtable: FrontendVtable,
     pub security_label: SecurityLabel,
     pub config_sexp: String,
-    pub so_path: String,
     pub capabilities: Vec<Capability>,
     pub crash_count: AtomicU32,
 }
@@ -95,21 +92,21 @@ impl Registry {
         }
     }
 
+    /// Register a frontend by name.
+    ///
+    /// Dynamic library loading has been removed -- frontends are now compiled
+    /// into harmonia-runtime as ractor actors. This method registers metadata
+    /// only (capabilities, security label, config).
     pub fn register(
         &self,
         name: &str,
-        so_path: &str,
         config_sexp: &str,
         security_label: SecurityLabel,
     ) -> Result<(), String> {
-        let mut vtable = unsafe { FrontendVtable::load(name, so_path)? };
-        vtable.init(config_sexp)?;
         let capabilities = parse_capabilities(config_sexp);
         let handle = FrontendHandle {
-            vtable,
             security_label,
             config_sexp: config_sexp.to_string(),
-            so_path: so_path.to_string(),
             capabilities,
             crash_count: AtomicU32::new(0),
         };
@@ -119,8 +116,7 @@ impl Registry {
 
     pub fn unregister(&self, name: &str) -> Result<(), String> {
         let mut map = self.frontends.write();
-        if let Some(handle) = map.remove(name) {
-            let _ = handle.vtable.shutdown();
+        if map.remove(name).is_some() {
             Ok(())
         } else {
             Err(format!("frontend not registered: {name}"))
@@ -161,35 +157,6 @@ impl Registry {
         map.get(name).map(|h| h.capabilities_sexp())
     }
 
-    pub fn reload(&self, name: &str) -> Result<(), String> {
-        let mut map = self.frontends.write();
-        let old_handle = map
-            .remove(name)
-            .ok_or_else(|| format!("frontend not registered: {name}"))?;
-
-        let _ = old_handle.vtable.shutdown();
-
-        let so_path = old_handle.so_path.clone();
-        let config_sexp = old_handle.config_sexp.clone();
-        let security_label = old_handle.security_label.clone();
-        let prev_crash_count = old_handle.crash_count.load(Ordering::Relaxed);
-
-        let mut vtable = unsafe { FrontendVtable::load(name, &so_path)? };
-        vtable.init(&config_sexp)?;
-
-        let capabilities = parse_capabilities(&config_sexp);
-        let handle = FrontendHandle {
-            vtable,
-            security_label,
-            config_sexp,
-            so_path,
-            capabilities,
-            crash_count: AtomicU32::new(prev_crash_count),
-        };
-        map.insert(name.to_string(), handle);
-        Ok(())
-    }
-
     pub fn crash_count(&self, name: &str) -> Result<u32, String> {
         let map = self.frontends.read();
         map.get(name)
@@ -199,8 +166,6 @@ impl Registry {
 
     pub fn shutdown_all(&self) {
         let mut map = self.frontends.write();
-        for (_, handle) in map.drain() {
-            let _ = handle.vtable.shutdown();
-        }
+        map.drain();
     }
 }

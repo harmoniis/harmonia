@@ -166,6 +166,13 @@
   (when runtime
     (setf (runtime-state-signalograd-projection runtime) proposal)
     (setf (runtime-state-signalograd-last-updated-at runtime) (get-universal-time))
+    (when (%trace-level-p :standard)
+      (trace-event "signalograd-proposal" :chain
+                   :metadata (list :cycle (getf proposal :cycle)
+                                   :confidence (getf proposal :confidence)
+                                   :stability (getf proposal :stability)
+                                   :novelty (getf proposal :novelty)
+                                   :accepted t)))
     (runtime-log runtime :signalograd-projection
                  (list :confidence (getf proposal :confidence)
                        :stability (getf proposal :stability)
@@ -404,6 +411,12 @@ The kernel emits its proposal back through the unified actor mailbox."
            (feedback-sexp (when feedback-plist
                             (apply #'%signalograd-sexp :signalograd-feedback feedback-plist))))
       (when feedback-sexp
+        (when (%trace-level-p :standard)
+          (trace-event "signalograd-feedback" :chain
+                       :metadata (list :reward (getf feedback-plist :reward)
+                                       :user-affinity (getf feedback-plist :user-affinity)
+                                       :recall-hits (getf feedback-plist :recall-hits)
+                                       :accepted (getf feedback-plist :accepted))))
         (ignore-errors
           (signalograd-feedback feedback-sexp)
           (%signalograd-record-event

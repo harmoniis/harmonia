@@ -297,6 +297,13 @@
                           :dna-laws (getf *dna* :laws))))
          (when ok
            (incf (runtime-state-rewrite-count runtime)))
+         (when (%trace-level-p :verbose)
+           (trace-event "rewrite-decision" :chain
+                        :metadata (list :ready ok
+                                        :convergent (getf projection :convergent-p)
+                                        :chaos-risk (getf logistic :chaos-risk)
+                                        :signal-score (getf vitruvian :signal)
+                                        :aggression (getf logistic :rewrite-aggression))))
          (runtime-log runtime :harmonic-rewrite-plan plan)
          (setf (runtime-state-harmonic-context runtime)
                (append (list :plan plan) ctx))
@@ -323,6 +330,11 @@
            ;; Reset counters for next audit cycle
            (setf *security-event-count* 0)
            (clrhash *security-injection-counts*))
+         (when (%trace-level-p :verbose)
+           (trace-event "security-audit" :chain
+                        :metadata (list :posture *security-posture*
+                                        :events-count event-count
+                                        :injection-total injection-total)))
          (runtime-log runtime :security-audit
                       (list :events event-count
                             :injection-total injection-total
@@ -337,6 +349,22 @@
        (runtime-log runtime :harmonic-stabilized
                     (list :phase :stabilize
                           :rewrite-count (runtime-state-rewrite-count runtime)))
+       ;; Verbose trace: full harmonic cycle summary
+       (when (%trace-level-p :verbose)
+         (let* ((plan (getf ctx :plan))
+                (vit (and plan (getf plan :vitruvian)))
+                (logistic (getf ctx :logistic))
+                (security (getf ctx :security)))
+           (trace-event "harmonic-cycle" :chain
+                        :metadata (list :cycle (or (getf ctx :cycle) 0)
+                                        :phase :stabilize
+                                        :strength (and vit (getf vit :strength))
+                                        :utility (and vit (getf vit :utility))
+                                        :beauty (and vit (getf vit :beauty))
+                                        :signal (and vit (getf vit :signal))
+                                        :chaos-risk (and logistic (getf logistic :chaos-risk))
+                                        :rewrite-ready (and plan (getf plan :ready))
+                                        :security-posture (and security (getf security :posture))))))
        ;; Chronicle: record full harmonic state + concept graph snapshot
        (ignore-errors (chronicle-record-harmonic ctx))
        (ignore-errors (chronicle-record-graph-snapshot))

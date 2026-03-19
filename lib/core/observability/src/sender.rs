@@ -85,7 +85,8 @@ fn sender_loop(rx: Receiver<TraceMessage>, client: LangSmithClient, _project: &s
                 let run_id = new_uuid();
                 let now = now_iso();
                 let trace_id = event.trace_id.unwrap_or_else(|| run_id.clone());
-                let dotted = event.dotted_order
+                let dotted = event
+                    .dotted_order
                     .map(|d| dotted_order_child(&d, &run_id))
                     .unwrap_or_else(|| dotted_order_for(&run_id));
                 let mut run = json!({

@@ -1,5 +1,7 @@
 use harmonia_actor_protocol::{ActorId, ActorKind, HarmoniaMessage};
-use ractor::RpcReplyPort;
+use ractor::{ActorRef, RpcReplyPort};
+
+use crate::actors::ComponentMsg;
 
 // ── RuntimeSupervisor messages ───────────────────────────────────────
 //
@@ -27,6 +29,8 @@ pub enum RuntimeMsg {
     /// Component dispatch: route a sexp command to the named component.
     /// call_t!(sup, ComponentCall, (component, sexp), timeout) → String
     ComponentCall(String, String, RpcReplyPort<String>),
+    /// Register a component actor for supervisor restart tracking (fire-and-forget).
+    RegisterComponent(String, ActorRef<ComponentMsg>),
     /// Initiate graceful shutdown (fire-and-forget).
     Shutdown,
 }

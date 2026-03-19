@@ -188,15 +188,23 @@
         (when (listp envelopes)
           (dolist (envelope envelopes)
             (let* ((signal-struct (%make-harmonia-signal-from-envelope envelope))
-                   (dissonance (harmonia-signal-dissonance signal-struct)))
-              (trace-event "gateway-poll" :chain
-                           :metadata (list :frontend (ignore-errors (harmonia-signal-frontend signal-struct))
-                                           :channel-kind (ignore-errors (harmonia-signal-channel-kind signal-struct))
-                                           :dissonance (or dissonance 0.0)))
+                   (dissonance (harmonia-signal-dissonance signal-struct))
+                   (frontend (ignore-errors (harmonia-signal-frontend signal-struct)))
+                   (channel-kind (ignore-errors (harmonia-signal-channel-kind signal-struct)))
+                   (security-label (ignore-errors (harmonia-signal-security-label signal-struct)))
+                   (payload-length (ignore-errors (length (harmonia-signal-payload signal-struct)))))
+              ;; Only emit trace when a signal ACTUALLY arrives (not on empty polls)
+              (when (%trace-level-p :minimal)
+                (trace-event "signal-received" :chain
+                             :metadata (list :frontend frontend
+                                             :channel-kind channel-kind
+                                             :security-label security-label
+                                             :dissonance (or dissonance 0.0)
+                                             :payload-length (or payload-length 0))))
               (when (and (numberp dissonance) (> dissonance 0.0))
                 (ignore-errors
                   (security-note-event
-                   :frontend (or (harmonia-signal-channel-kind signal-struct) "unknown")
+                   :frontend (or channel-kind "unknown")
                    :injection-count (%dissonance->injection-count dissonance))))
               (setf (runtime-state-prompt-queue runtime)
                     (nconc (runtime-state-prompt-queue runtime)
@@ -218,7 +226,8 @@
       ;; 1. Captures each tmux agent's terminal output
       ;; 2. Runs detection (processing/permission/confirmation/selection/completed)
       ;; 3. Posts ProgressHeartbeat + StateChanged messages to unified mailbox
-      (trace-event "tmux-capture" :tool)
+      ;; NOTE: No trace event here — this fires every tick (1/sec).
+      ;; Actor lifecycle events are emitted by %tick-actor-supervisor on state changes.
       (ignore-errors (tmux-swarm-poll))
       t)))
 
@@ -282,10 +291,16 @@
                             (multiple-value-bind (state-kw detail)
                                 (%parse-actor-state-changed to)
                               (declare (ignore detail))
-                              (trace-event "actor-state-change" :agent
-                                           :metadata (list :actor-id actor-id
-                                                           :from (actor-record-state record)
-                                                           :to state-kw))
+                              ;; Only trace on ACTUAL state transitions, not redundant updates
+                              (let ((from-state (actor-record-state record)))
+                                (when (and (not (eq from-state state-kw))
+                                           (%trace-level-p :standard))
+                                  (trace-event "actor-state-change" :agent
+                                               :metadata (list :actor-id actor-id
+                                                               :model (actor-record-model record)
+                                                               :from-state from-state
+                                                               :to-state state-kw
+                                                               :stall-ticks (actor-record-stall-ticks record)))))
                               (setf (actor-record-state record) state-kw)
                               ;; Interactive states reset stall counter — actor is alive, waiting for us
                               (when (%actor-state-interactive-p state-kw)
@@ -328,10 +343,12 @@
                          (incf (actor-record-stall-ticks record))
                          ;; Kill stalled actors
                          (when (>= (actor-record-stall-ticks record) stall-threshold)
-                           (trace-event "actor-stall-kill" :agent
+                           (when (%trace-level-p :standard)
+                           (trace-event "actor-stalled" :agent
                                         :metadata (list :actor-id id
                                                         :model (actor-record-model record)
-                                                        :stall-ticks (actor-record-stall-ticks record)))
+                                                        :stall-ticks (actor-record-stall-ticks record)
+                                                        :threshold stall-threshold)))
                            (ignore-errors (tmux-kill id))
                            (setf (actor-record-state record) :failed)
                            (setf (actor-record-error-text record)
@@ -530,6 +547,15 @@
                     (ignore-errors (harmonic-score prompt visible))
                     0.0))
          (cost (or (actor-record-cost-usd record) 0.0)))
+    (when (%trace-level-p :standard)
+      (trace-event "actor-completed" :agent
+                   :metadata (list :actor-id actor-id
+                                   :model model
+                                   :score (or score 0.0)
+                                   :cost-usd cost
+                                   :duration-ms duration
+                                   :supervision-grade (actor-record-supervision-grade record)
+                                   :result-length (length trimmed))))
     ;; Record outcome
     (ignore-errors
       (model-policy-record-outcome
@@ -590,6 +616,12 @@
                          (concatenate 'string (subseq raw-error 0 80) "...")
                          raw-error))
          (prompt (actor-record-prompt record)))
+    (when (%trace-level-p :minimal)
+      (trace-event "actor-failed" :agent
+                   :metadata (list :actor-id actor-id
+                                   :model model
+                                   :error-text error-text
+                                   :duration-ms (or (actor-record-duration-ms record) 0))))
     (ignore-errors
       (model-policy-record-outcome
        :model model :success nil :latency-ms 0
@@ -608,6 +640,12 @@
     ;; Deliver error to gateway if originating signal exists
     (let ((signal (actor-record-originating-signal record)))
       (when (harmonia-signal-p signal)
+        (when (%trace-level-p :standard)
+          (trace-event "actor-error-delivered" :agent
+                       :metadata (list :actor-id actor-id
+                                       :model model
+                                       :error-text error-text
+                                       :frontend (harmonia-signal-frontend signal))))
         (push (list :frontend (harmonia-signal-frontend signal)
                     :channel (harmonia-signal-sub-channel signal)
                     :payload (format nil "[actor failed: ~A]"
@@ -672,6 +710,9 @@
     (lambda ()
       (let ((pending (runtime-state-chronicle-pending runtime)))
         (when pending
+          (when (%trace-level-p :verbose)
+            (trace-event "chronicle-flush" :tool
+                         :metadata (list :records-count (length pending))))
           (setf (runtime-state-chronicle-pending runtime) '())
           (dolist (record pending)
             (handler-case
