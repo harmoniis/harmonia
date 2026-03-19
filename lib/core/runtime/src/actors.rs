@@ -200,12 +200,9 @@ impl Actor for ObservabilityActor {
         _myself: ActorRef<Self::Msg>,
         _args: (),
     ) -> Result<Self::State, ActorProcessingErr> {
-        let rc = harmonia_observability::harmonia_observability_init();
-        if rc == 0 {
-            eprintln!("[INFO] [runtime] ObservabilityActor started (tracing initialized)");
-        } else {
-            eprintln!("[WARN] [runtime] ObservabilityActor started (tracing init failed)");
-        }
+        // Init is handled by Lisp via IPC dispatch ("observability" "init").
+        // The actor only owns flush/shutdown lifecycle.
+        eprintln!("[INFO] [runtime] ObservabilityActor started");
         Ok(())
     }
 
@@ -217,15 +214,16 @@ impl Actor for ObservabilityActor {
     ) -> Result<(), ActorProcessingErr> {
         match message {
             ComponentMsg::Tick => {
-                // Periodic flush — the sender thread also auto-flushes, but
-                // this ensures traces are submitted even during low-activity periods.
-                harmonia_observability::harmonia_observability_flush();
+                // No-op: the background sender thread auto-flushes every 2s
+                // when items are pending. Forcing flush here on every tick (5s)
+                // causes redundant HTTP POSTs that trigger 429 rate limits.
             }
             ComponentMsg::Signal { payload_sexp } => {
-                // Forward trace commands received via IPC signal
                 let _ = payload_sexp;
             }
             ComponentMsg::Shutdown => {
+                // Flush remaining traces before shutdown, then stop sender thread.
+                harmonia_observability::harmonia_observability_flush();
                 harmonia_observability::harmonia_observability_shutdown();
                 eprintln!("[INFO] [runtime] ObservabilityActor shutting down");
             }

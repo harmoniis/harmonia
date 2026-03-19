@@ -600,7 +600,7 @@ fn write_phoenix_config(
     let config = format!(
         r#"[phoenix]
 health_port = 9100
-shutdown_timeout_secs = 30
+shutdown_timeout_secs = 5
 
 [[subsystem]]
 name = "harmonia-runtime"

@@ -1,24 +1,30 @@
 //! Public API for observability — called by IPC dispatch and actors.
 //!
-//! All functions are safe to call even when tracing is disabled or not initialized.
-//! They never panic or block the caller.
+//! Design principles:
+//! - Never panic, never block the caller
+//! - No-op when disabled — zero cost, safe to sprinkle everywhere
+//! - Trace-level gating happens HERE, not at call sites
+//! - Handle map is lazy-initialized, no setup ceremony
 
+use std::collections::HashMap;
 use std::sync::Mutex;
 
 use crate::config::ObservabilityConfig;
 use crate::context;
 use crate::model::{
     dotted_order_child, dotted_order_for, new_uuid, now_iso, ObservabilityState, TraceEvent,
-    TraceMessage, TraceSpan,
+    TraceLevel, TraceMessage, TraceSpan,
 };
 use crate::sender;
 
 use serde_json::json;
 
 static STATE: Mutex<Option<ObservabilityState>> = Mutex::new(None);
+static HANDLE_MAP: Mutex<Option<HashMap<i64, String>>> = Mutex::new(None);
 
-/// Initialize observability: load config, start background sender.
-/// Returns 0 on success, -1 on failure. Safe to call multiple times.
+// ─── Lifecycle ───────────────────────────────────────────────────────
+
+/// Initialize observability. Returns 0 on success. Idempotent.
 pub fn harmonia_observability_init() -> i32 {
     let config = ObservabilityConfig::load();
     if !config.enabled || config.api_key.is_empty() {
@@ -35,7 +41,6 @@ pub fn harmonia_observability_init() -> i32 {
         return 0;
     }
 
-    // Start background sender thread
     sender::start(&config.api_url, &config.api_key, &config.project_name);
 
     let mut guard = STATE.lock().unwrap();
@@ -58,10 +63,61 @@ pub fn harmonia_observability_init() -> i32 {
     0
 }
 
+pub fn harmonia_observability_flush() {
+    sender::flush();
+}
+
+pub fn harmonia_observability_shutdown() {
+    sender::shutdown();
+    if let Ok(mut guard) = STATE.lock() {
+        if let Some(state) = guard.as_mut() {
+            state.enabled = false;
+            state.initialized = false;
+        }
+    }
+}
+
+// ─── Level checks (call before building expensive metadata) ─────────
+
+/// True if tracing is active at any level.
+pub fn harmonia_observability_enabled() -> bool {
+    STATE
+        .lock()
+        .ok()
+        .and_then(|g| g.as_ref().map(|s| s.enabled && s.initialized))
+        .unwrap_or(false)
+}
+
+/// True if trace level >= Standard (standard + verbose).
+pub fn harmonia_observability_is_standard() -> bool {
+    STATE
+        .lock()
+        .ok()
+        .and_then(|g| {
+            g.as_ref().map(|s| {
+                s.enabled
+                    && s.initialized
+                    && matches!(s.trace_level, TraceLevel::Standard | TraceLevel::Verbose)
+            })
+        })
+        .unwrap_or(false)
+}
+
+/// True if trace level == Verbose (everything).
+pub fn harmonia_observability_is_verbose() -> bool {
+    STATE
+        .lock()
+        .ok()
+        .and_then(|g| {
+            g.as_ref()
+                .map(|s| s.enabled && s.initialized && s.trace_level == TraceLevel::Verbose)
+        })
+        .unwrap_or(false)
+}
+
+// ─── Span lifecycle ─────────────────────────────────────────────────
+
 /// Start a new trace span. Returns handle (>0) or 0 if disabled/sampled-out.
-/// `kind` is one of: "chain", "llm", "tool", "agent"
-/// `parent_id` is 0 for root spans, or the handle of the parent span.
-/// `metadata_json` is a JSON string of key-value pairs for inputs.
 pub fn harmonia_observability_trace_start(
     name: &str,
     kind: &str,
@@ -85,11 +141,10 @@ pub fn harmonia_observability_trace_start(
     let run_id = new_uuid();
     let now = now_iso();
     let project_name = state.project_name.clone();
+    drop(guard); // Release lock before context operations
 
-    // Determine trace context: either inherit from parent or create new root
     let ctx = context::current();
     let (trace_id, parent_run_id, dotted_order) = if parent_id > 0 {
-        // Child span: inherit parent's trace context
         let tid = ctx.trace_id.unwrap_or_else(|| run_id.clone());
         let parent_rid = ctx.parent_run_id.clone();
         let dotted = ctx
@@ -99,18 +154,11 @@ pub fn harmonia_observability_trace_start(
             .unwrap_or_else(|| dotted_order_for(&run_id));
         (tid, parent_rid, dotted)
     } else {
-        // Root span
         let dotted = dotted_order_for(&run_id);
         (run_id.clone(), None, dotted)
     };
 
-    // Set thread-local context for children
-    let _guard = context::TraceContextGuard::new(context::TraceContext {
-        trace_id: Some(trace_id.clone()),
-        parent_run_id: Some(run_id.clone()),
-        dotted_order: Some(dotted_order.clone()),
-    });
-    // We can't hold the guard across calls, so set it directly
+    // Set thread-local context so children inherit this span
     context::set(context::TraceContext {
         trace_id: Some(trace_id.clone()),
         parent_run_id: Some(run_id.clone()),
@@ -119,7 +167,7 @@ pub fn harmonia_observability_trace_start(
 
     let inputs = serde_json::from_str(metadata_json).unwrap_or(json!({}));
 
-    let span = TraceSpan {
+    sender::send(TraceMessage::StartRun(TraceSpan {
         run_id: run_id.clone(),
         parent_run_id,
         trace_id,
@@ -133,16 +181,9 @@ pub fn harmonia_observability_trace_start(
         outputs: None,
         extra: json!({}),
         project_name,
-    };
+    }));
 
-    sender::send(TraceMessage::StartRun(span));
-
-    // Store run_id keyed by handle for trace_end lookup
-    HANDLE_MAP
-        .lock()
-        .ok()
-        .map(|mut m| HandleMapExt::insert(&mut *m, handle, run_id));
-
+    handle_map_insert(handle, run_id);
     handle
 }
 
@@ -151,10 +192,7 @@ pub fn harmonia_observability_trace_end(handle: i64, status: &str, output_json: 
     if handle == 0 {
         return;
     }
-
-    let run_id = HANDLE_MAP.lock().ok().and_then(|mut m| m.remove(&handle));
-
-    if let Some(run_id) = run_id {
+    if let Some(run_id) = handle_map_remove(handle) {
         let outputs = serde_json::from_str(output_json).unwrap_or(json!({}));
         sender::send(TraceMessage::EndRun {
             run_id,
@@ -163,11 +201,9 @@ pub fn harmonia_observability_trace_end(handle: i64, status: &str, output_json: 
             end_time: now_iso(),
         });
     }
-
-    // Restore parent context (best-effort — context is thread-local)
 }
 
-/// Fire-and-forget trace event. Always succeeds (no-op when disabled).
+/// Fire-and-forget trace event. No-op when disabled.
 pub fn harmonia_observability_trace_event(name: &str, kind: &str, metadata_json: &str) {
     let guard = match STATE.lock() {
         Ok(g) => g,
@@ -184,7 +220,7 @@ pub fn harmonia_observability_trace_event(name: &str, kind: &str, metadata_json:
     let ctx = context::current();
     let metadata = serde_json::from_str(metadata_json).unwrap_or(json!({}));
 
-    let event = TraceEvent {
+    sender::send(TraceMessage::Event(TraceEvent {
         name: name.to_string(),
         run_type: kind.to_string(),
         metadata,
@@ -192,41 +228,22 @@ pub fn harmonia_observability_trace_event(name: &str, kind: &str, metadata_json:
         trace_id: ctx.trace_id,
         parent_run_id: ctx.parent_run_id,
         dotted_order: ctx.dotted_order,
-    };
-
-    sender::send(TraceMessage::Event(event));
+    }));
 }
 
-/// Flush pending traces.
-pub fn harmonia_observability_flush() {
-    sender::flush();
-}
+// ─── Handle map (lazy-init, lock-free happy path check) ─────────────
 
-/// Shut down observability.
-pub fn harmonia_observability_shutdown() {
-    sender::shutdown();
-    if let Ok(mut guard) = STATE.lock() {
-        if let Some(state) = guard.as_mut() {
-            state.enabled = false;
-            state.initialized = false;
-        }
+fn handle_map_insert(handle: i64, run_id: String) {
+    if let Ok(mut guard) = HANDLE_MAP.lock() {
+        guard
+            .get_or_insert_with(HashMap::new)
+            .insert(handle, run_id);
     }
 }
 
-// Handle → run_id mapping for trace_end
-use std::collections::HashMap;
-static HANDLE_MAP: Mutex<Option<HashMap<i64, String>>> = Mutex::new(None);
-
-trait HandleMapExt {
-    fn insert(&mut self, handle: i64, run_id: String);
-    fn remove(&mut self, handle: &i64) -> Option<String>;
-}
-
-impl HandleMapExt for Option<HashMap<i64, String>> {
-    fn insert(&mut self, handle: i64, run_id: String) {
-        self.get_or_insert_with(HashMap::new).insert(handle, run_id);
-    }
-    fn remove(&mut self, handle: &i64) -> Option<String> {
-        self.as_mut().and_then(|m| m.remove(handle))
-    }
+fn handle_map_remove(handle: i64) -> Option<String> {
+    HANDLE_MAP
+        .lock()
+        .ok()
+        .and_then(|mut g| g.as_mut().and_then(|m| m.remove(&handle)))
 }

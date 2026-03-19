@@ -13,12 +13,23 @@ use ractor::ActorRef;
 use crate::actors::MatrixMsg;
 
 /// Route matrix commands through the HarmonicMatrixActor for serialized access.
+/// Observability traces matrix operations in-process (no IPC round-trip) so
+/// LangSmith shows the full matrix decision surface: topology changes, route
+/// decisions with signal/noise/cost dimensions, and component event flow.
 pub async fn dispatch_matrix_via_actor(matrix: &ActorRef<MatrixMsg>, sexp: &str) -> String {
     let op = extract_keyword(sexp, ":op");
     match op.as_deref() {
         Some("register-node") => {
             let id = extract_string(sexp, ":id").unwrap_or_default();
             let kind = extract_string(sexp, ":kind").unwrap_or_default();
+            trace_matrix_verbose(
+                "matrix-topology",
+                &format!(
+                    r#"{{"op":"register-node","node":"{}","kind":"{}"}}"#,
+                    esc(&id),
+                    esc(&kind)
+                ),
+            );
             let _ = matrix.cast(MatrixMsg::RegisterNode { id, kind });
             "(:ok)".to_string()
         }
@@ -27,6 +38,16 @@ pub async fn dispatch_matrix_via_actor(matrix: &ActorRef<MatrixMsg>, sexp: &str)
             let to = extract_string(sexp, ":to").unwrap_or_default();
             let weight = parse_f64(sexp, ":weight");
             let min_harmony = parse_f64(sexp, ":min-harmony");
+            trace_matrix_verbose(
+                "matrix-topology",
+                &format!(
+                    r#"{{"op":"register-edge","from":"{}","to":"{}","weight":{},"min_harmony":{}}}"#,
+                    esc(&from),
+                    esc(&to),
+                    weight,
+                    min_harmony
+                ),
+            );
             let _ = matrix.cast(MatrixMsg::RegisterEdge {
                 from,
                 to,
@@ -41,6 +62,17 @@ pub async fn dispatch_matrix_via_actor(matrix: &ActorRef<MatrixMsg>, sexp: &str)
             let success = parse_bool(sexp, ":success");
             let latency_ms = extract_u64(sexp, ":latency-ms");
             let cost_usd = parse_f64(sexp, ":cost-usd");
+            trace_matrix_standard(
+                "matrix-route-observed",
+                &format!(
+                    r#"{{"from":"{}","to":"{}","success":{},"latency_ms":{},"cost_usd":{}}}"#,
+                    esc(&from),
+                    esc(&to),
+                    success,
+                    latency_ms,
+                    cost_usd
+                ),
+            );
             let _ = matrix.cast(MatrixMsg::ObserveRoute {
                 from,
                 to,
@@ -57,6 +89,17 @@ pub async fn dispatch_matrix_via_actor(matrix: &ActorRef<MatrixMsg>, sexp: &str)
             let payload = extract_string(sexp, ":payload").unwrap_or_default();
             let success = parse_bool(sexp, ":success");
             let error = extract_string(sexp, ":error").unwrap_or_default();
+            trace_matrix_verbose(
+                "matrix-event",
+                &format!(
+                    r#"{{"component":"{}","direction":"{}","channel":"{}","success":{},"error":"{}"}}"#,
+                    esc(&component),
+                    esc(&direction),
+                    esc(&channel),
+                    success,
+                    esc(&error)
+                ),
+            );
             let _ = matrix.cast(MatrixMsg::LogEvent {
                 component,
                 direction,
@@ -70,6 +113,14 @@ pub async fn dispatch_matrix_via_actor(matrix: &ActorRef<MatrixMsg>, sexp: &str)
         Some("set-tool-enabled") => {
             let node = extract_string(sexp, ":node").unwrap_or_default();
             let enabled = parse_bool(sexp, ":enabled");
+            trace_matrix_verbose(
+                "matrix-topology",
+                &format!(
+                    r#"{{"op":"set-tool-enabled","node":"{}","enabled":{}}}"#,
+                    esc(&node),
+                    enabled
+                ),
+            );
             let _ = matrix.cast(MatrixMsg::SetToolEnabled { node, enabled });
             "(:ok)".to_string()
         }
@@ -81,8 +132,8 @@ pub async fn dispatch_matrix_via_actor(matrix: &ActorRef<MatrixMsg>, sexp: &str)
             match ractor::call_t!(
                 matrix,
                 |reply| MatrixMsg::RouteAllowed {
-                    from,
-                    to,
+                    from: from.clone(),
+                    to: to.clone(),
                     signal,
                     noise,
                     reply
@@ -90,6 +141,19 @@ pub async fn dispatch_matrix_via_actor(matrix: &ActorRef<MatrixMsg>, sexp: &str)
                 5000
             ) {
                 Ok(allowed) => {
+                    // Trace the route decision with full signal/noise dimensions
+                    trace_matrix_standard(
+                        "matrix-route-decision",
+                        &format!(
+                            r#"{{"from":"{}","to":"{}","signal":{},"noise":{},"snr":{},"allowed":{}}}"#,
+                            esc(&from),
+                            esc(&to),
+                            signal,
+                            noise,
+                            if noise > 0.0 { signal / noise } else { signal },
+                            allowed
+                        ),
+                    );
                     if allowed {
                         "(:ok :allowed t)".to_string()
                     } else {
@@ -126,8 +190,91 @@ pub fn dispatch(component: &str, sexp: &str) -> String {
         "tailnet" => dispatch_tailnet(sexp),
         "harmonic-matrix" => dispatch_matrix(sexp),
         "observability" => dispatch_observability(sexp),
+        "provider-router" => dispatch_provider_router(sexp),
         _ => format!("(:error \"unknown component: {}\")", component),
     }
+}
+
+// ── Provider Router ──────────────────────────────────────────────────
+
+fn dispatch_provider_router(sexp: &str) -> String {
+    let op = extract_keyword(sexp, ":op");
+    match op.as_deref() {
+        Some("complete") => {
+            let prompt = extract_string(sexp, ":prompt").unwrap_or_default();
+            let model = extract_string(sexp, ":model").unwrap_or_default();
+            let prompt_c = CString::new(prompt.as_str()).unwrap_or_default();
+            let model_c = CString::new(model.as_str()).unwrap_or_default();
+            let model_ptr = if model.is_empty() {
+                std::ptr::null()
+            } else {
+                model_c.as_ptr()
+            };
+            let result_ptr = harmonia_provider_router::harmonia_provider_router_complete(
+                prompt_c.as_ptr(),
+                model_ptr,
+            );
+            let result = ptr_to_string_safe(result_ptr);
+            format!("(:ok :result \"{}\")", esc(&result))
+        }
+        Some("complete-for-task") => {
+            let prompt = extract_string(sexp, ":prompt").unwrap_or_default();
+            let task = extract_string(sexp, ":task").unwrap_or_default();
+            let prompt_c = CString::new(prompt.as_str()).unwrap_or_default();
+            let task_c = CString::new(task.as_str()).unwrap_or_default();
+            let result_ptr = harmonia_provider_router::harmonia_provider_router_complete_for_task(
+                prompt_c.as_ptr(),
+                task_c.as_ptr(),
+            );
+            let result = ptr_to_string_safe(result_ptr);
+            format!("(:ok :result \"{}\")", esc(&result))
+        }
+        Some("healthcheck") => {
+            let rc = harmonia_provider_router::harmonia_provider_router_healthcheck();
+            format!("(:ok :healthy {})", if rc == 1 { "t" } else { "nil" })
+        }
+        Some("list-models") => {
+            let ptr = harmonia_provider_router::harmonia_provider_router_list_models();
+            let result = ptr_to_string_safe(ptr);
+            format!("(:ok :result \"{}\")", esc(&result))
+        }
+        Some("select-model") => {
+            let task = extract_string(sexp, ":task").unwrap_or_default();
+            let task_c = CString::new(task.as_str()).unwrap_or_default();
+            let ptr =
+                harmonia_provider_router::harmonia_provider_router_select_model(task_c.as_ptr());
+            let result = ptr_to_string_safe(ptr);
+            format!("(:ok :result \"{}\")", esc(&result))
+        }
+        Some("list-backends") => {
+            let ptr = harmonia_provider_router::harmonia_provider_router_list_backends();
+            let result = ptr_to_string_safe(ptr);
+            format!("(:ok :result \"{}\")", esc(&result))
+        }
+        Some("backend-status") => {
+            let name = extract_string(sexp, ":name").unwrap_or_default();
+            let name_c = CString::new(name.as_str()).unwrap_or_default();
+            let ptr =
+                harmonia_provider_router::harmonia_provider_router_backend_status(name_c.as_ptr());
+            let result = ptr_to_string_safe(ptr);
+            format!("(:ok :result \"{}\")", esc(&result))
+        }
+        _ => format!(
+            "(:error \"unknown provider-router op: {}\")",
+            op.unwrap_or_default()
+        ),
+    }
+}
+
+fn ptr_to_string_safe(ptr: *mut c_char) -> String {
+    if ptr.is_null() {
+        return String::new();
+    }
+    let s = unsafe { CStr::from_ptr(ptr) }
+        .to_string_lossy()
+        .into_owned();
+    harmonia_provider_router::harmonia_provider_router_free_string(ptr);
+    s
 }
 
 // ── Vault ────────────────────────────────────────────────────────────
@@ -842,7 +989,23 @@ fn dispatch_matrix(sexp: &str) -> String {
                 security_weight,
                 dissonance,
             ) {
-                Ok(allowed) => format!("(:ok :allowed {})", if allowed { "t" } else { "nil" }),
+                Ok(allowed) => {
+                    trace_matrix_standard(
+                        "matrix-route-decision",
+                        &format!(
+                            r#"{{"from":"{}","to":"{}","signal":{},"noise":{},"snr":{},"security_weight":{},"dissonance":{},"allowed":{}}}"#,
+                            esc(&from),
+                            esc(&to),
+                            signal,
+                            noise,
+                            if noise > 0.0 { signal / noise } else { signal },
+                            security_weight,
+                            dissonance,
+                            allowed
+                        ),
+                    );
+                    format!("(:ok :allowed {})", if allowed { "t" } else { "nil" })
+                }
                 Err(e) => format!("(:error \"{}\")", esc(&e)),
             }
         }
@@ -907,6 +1070,29 @@ fn dispatch_matrix(sexp: &str) -> String {
             "(:error \"unknown harmonic-matrix op: {}\")",
             op.unwrap_or_default()
         ),
+    }
+}
+
+// ── Matrix observability ─────────────────────────────────────────────
+//
+// Observability OBSERVES the matrix — it does not route through it.
+// Events go directly to the sender thread (in-process, no IPC).
+//
+// Level policy:
+//   standard: route decisions (allowed/denied), route observations (success/fail)
+//   verbose:  topology changes, component events
+
+/// Trace a matrix operation at standard level (route decisions + observations).
+fn trace_matrix_standard(name: &str, metadata_json: &str) {
+    if harmonia_observability::harmonia_observability_is_standard() {
+        harmonia_observability::harmonia_observability_trace_event(name, "chain", metadata_json);
+    }
+}
+
+/// Trace a matrix operation at verbose level (topology + events).
+fn trace_matrix_verbose(name: &str, metadata_json: &str) {
+    if harmonia_observability::harmonia_observability_is_verbose() {
+        harmonia_observability::harmonia_observability_trace_event(name, "chain", metadata_json);
     }
 }
 

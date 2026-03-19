@@ -2,7 +2,6 @@
 //!
 //! Minimal client for the LangSmith tracing API:
 //! - POST /runs/batch — batch create/update runs
-//! - PATCH /runs/{run_id} — update a single run
 
 use crate::model::TraceSpan;
 use serde_json::{json, Value};
@@ -11,6 +10,13 @@ pub struct LangSmithClient {
     api_url: String,
     api_key: String,
     agent: ureq::Agent,
+}
+
+/// Flush result — distinguishes rate limits from other errors.
+pub enum FlushResult {
+    Ok,
+    RateLimited,
+    Error(String),
 }
 
 impl LangSmithClient {
@@ -27,9 +33,9 @@ impl LangSmithClient {
     }
 
     /// Batch-submit run creates and updates.
-    pub fn post_runs_batch(&self, creates: &[Value], updates: &[Value]) -> Result<(), String> {
+    pub fn post_runs_batch(&self, creates: &[Value], updates: &[Value]) -> FlushResult {
         if creates.is_empty() && updates.is_empty() {
-            return Ok(());
+            return FlushResult::Ok;
         }
 
         let body = json!({
@@ -38,14 +44,17 @@ impl LangSmithClient {
         });
 
         let url = format!("{}/runs/batch", self.api_url);
-        self.agent
+        match self
+            .agent
             .post(&url)
             .set("x-api-key", &self.api_key)
             .set("Content-Type", "application/json")
             .send_json(body)
-            .map_err(|e| format!("langsmith batch post failed: {e}"))?;
-
-        Ok(())
+        {
+            Ok(_) => FlushResult::Ok,
+            Err(ureq::Error::Status(429, _)) => FlushResult::RateLimited,
+            Err(e) => FlushResult::Error(format!("{e}")),
+        }
     }
 
     /// Convert a TraceSpan to a LangSmith run create payload.
