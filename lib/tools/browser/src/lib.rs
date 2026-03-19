@@ -15,12 +15,6 @@
 //!   boundary that demarcates website data from agent instructions, preventing
 //!   prompt injection attacks.
 //!
-//! ## FFI Design
-//!
-//! This is a `cdylib` + `rlib` crate loaded into SBCL via CFFI. All async
-//! operations are managed internally with a dedicated tokio runtime. FFI
-//! functions are synchronous C-ABI exports that block on the internal runtime.
-//!
 //! ## MCP Surface
 //!
 //! Two tools are exposed:
@@ -30,13 +24,9 @@
 pub mod chrome;
 pub mod controlled_fetch;
 pub mod engine;
-pub mod ffi;
 pub mod macros;
 pub mod mcp;
 pub mod sandbox;
 pub mod security;
 pub mod session;
 pub mod stealth;
-
-// Re-export FFI functions at crate root for cdylib symbol visibility.
-pub use ffi::*;

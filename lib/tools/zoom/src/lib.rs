@@ -19,7 +19,6 @@
 //! Zoom web client, and performs DOM interactions using human-like timing.
 //! The browser's stealth engine ensures Zoom cannot detect automation.
 
-mod ffi;
 pub mod operations;
 
 pub use operations::*;
