@@ -181,8 +181,8 @@ install_shell_integration() {
 install_bins() {
     local src="$1" bindir="$2"
     mkdir -p "$bindir"
-    rm -f "$bindir/harmonia" "$bindir/harmonia-phoenix"
-    for bin in harmonia harmonia-phoenix phoenix; do
+    rm -f "$bindir/harmonia" "$bindir/harmonia-phoenix" "$bindir/harmonia-runtime"
+    for bin in harmonia harmonia-phoenix phoenix harmonia-runtime; do
         if [ -f "$src/$bin" ]; then
             local dest="$bindir/$bin"
             [ "$bin" = "phoenix" ] && dest="$bindir/harmonia-phoenix"
@@ -194,23 +194,13 @@ install_bins() {
 }
 
 install_libs() {
-    local src="$1" libdir="$2" ext="$3"
+    # No-op: all Rust code is compiled into harmonia-runtime binary.
+    # Shared libraries (cdylib) were removed in the IPC migration.
+    # Kept for backward compatibility with install_from_local_repo() call site.
+    local libdir="$2"
     mkdir -p "$libdir"
-    find "$libdir" -maxdepth 1 -type f -name "libharmonia_*.${ext}" -delete 2>/dev/null || true
-    local copied=0
-    local is_macos=0
-    case "$(uname -s)" in Darwin) is_macos=1 ;; esac
-    while IFS= read -r lib; do
-        local name
-        name="$(basename "$lib")"
-        # iMessage (BlueBubbles) only works on macOS — skip on other platforms
-        if [ "$is_macos" -eq 0 ]; then
-            case "$name" in *imessage*) continue ;; esac
-        fi
-        cp "$lib" "$libdir/"
-        copied=1
-    done < <(find "$src" -maxdepth 1 -type f -name "libharmonia_*.${ext}" | sort)
-    [ "$copied" -eq 1 ] || error "no runtime libraries found in ${src}"
+    # Clean up any stale shared libraries from previous installs
+    find "$libdir" -maxdepth 1 -type f -name "libharmonia_*" -delete 2>/dev/null || true
 }
 
 install_share_tree() {

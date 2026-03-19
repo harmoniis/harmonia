@@ -54,7 +54,12 @@ elif [ -f "target/release/phoenix${BIN_EXT}" ]; then
     cp "target/release/phoenix${BIN_EXT}" "$STAGING/bin/harmonia-phoenix${BIN_EXT}"
 fi
 
-# Collect all shared libraries
+# Runtime binary (all ractor actors, IPC dispatch)
+if [ -f "target/release/harmonia-runtime${BIN_EXT}" ]; then
+    cp "target/release/harmonia-runtime${BIN_EXT}" "$STAGING/bin/"
+fi
+
+# Collect shared libraries (if any remain from platform-specific builds)
 echo "Collecting shared libraries..."
 for lib in target/release/*."${LIB_EXT}"; do
     [ -f "$lib" ] || continue

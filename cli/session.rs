@@ -232,19 +232,43 @@ fn run_input_loop(
     session: &crate::paths::SessionPaths,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let mut stdout = std::io::stdout();
+    let mut queued_input: Option<String> = None;
 
     loop {
         if !running.load(Ordering::Relaxed) {
             break;
         }
 
-        // Wait for any pending response (reader thread renders the full
-        // response block including the close ╰─, then sets waiting=false)
+        // If waiting for a response, show spinner but allow typing to queue input
         if waiting.load(Ordering::Acquire) {
-            show_thinking_spinner(waiting, running);
+            let input = show_thinking_spinner_with_input(waiting, running);
             if !running.load(Ordering::Relaxed) {
                 break;
             }
+            // If user typed something during thinking, queue it
+            if let Some(text) = input {
+                let trimmed = text.trim().to_string();
+                if !trimmed.is_empty() {
+                    queued_input = Some(trimmed);
+                }
+            }
+        }
+
+        // Drain queued input first (typed during thinking)
+        if let Some(pending) = queued_input.take() {
+            dispatch_input(
+                &pending,
+                writer,
+                waiting,
+                running,
+                term,
+                &mut stdout,
+                session,
+            )?;
+            if !running.load(Ordering::Relaxed) {
+                break;
+            }
+            continue;
         }
 
         // Show prompt and read input
@@ -259,46 +283,62 @@ fn run_input_loop(
             continue;
         }
 
-        let _ = crate::paths::append_session_event(session, "you", "user", trimmed);
-
-        // Handle commands
-        if trimmed.starts_with('/') {
-            match handle_command(
-                trimmed,
-                term,
-                &mut stdout,
-                writer,
-                waiting,
-                running,
-                session,
-            ) {
-                CommandResult::Handled => continue,
-                CommandResult::Quit => break,
-                CommandResult::SendToAgent(cmd) => {
-                    // Send system command to daemon
-                    send_to_daemon(writer, &cmd, waiting, running)?;
-                    continue;
-                }
-                CommandResult::SessionText => {} // fall through to normal session text
-            }
-        }
-
-        // Print user message echo
-        eprintln!();
-        eprintln!(
-            "  {BOLD_GREEN}╭─{RESET} {DIM}you@{}{RESET}",
-            session.identity.node_label
-        );
-        let user_prefix = format!("  {GREEN}│{RESET} ");
-        for line in trimmed.lines() {
-            print_wrapped(line, &user_prefix, &user_prefix, "");
-        }
-        eprintln!("  {BOLD_GREEN}╰─{RESET}");
-
-        // Send to daemon as a normal session message
-        send_to_daemon(writer, trimmed, waiting, running)?;
+        dispatch_input(
+            trimmed,
+            writer,
+            waiting,
+            running,
+            term,
+            &mut stdout,
+            session,
+        )?;
     }
 
+    Ok(())
+}
+
+/// Dispatch a user input string: handle commands, echo, send to daemon.
+fn dispatch_input(
+    trimmed: &str,
+    writer: &mut UnixStream,
+    waiting: &Arc<AtomicBool>,
+    running: &Arc<AtomicBool>,
+    term: &Term,
+    stdout: &mut std::io::Stdout,
+    session: &crate::paths::SessionPaths,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let _ = crate::paths::append_session_event(session, "you", "user", trimmed);
+
+    // Handle commands
+    if trimmed.starts_with('/') {
+        match handle_command(trimmed, term, stdout, writer, waiting, running, session) {
+            CommandResult::Handled => return Ok(()),
+            CommandResult::Quit => {
+                running.store(false, Ordering::Relaxed);
+                return Ok(());
+            }
+            CommandResult::SendToAgent(cmd) => {
+                send_to_daemon(writer, &cmd, waiting, running)?;
+                return Ok(());
+            }
+            CommandResult::SessionText => {} // fall through to normal send
+        }
+    }
+
+    // Print user message echo
+    eprintln!();
+    eprintln!(
+        "  {BOLD_GREEN}╭─{RESET} {DIM}you@{}{RESET}",
+        session.identity.node_label
+    );
+    let user_prefix = format!("  {GREEN}│{RESET} ");
+    for line in trimmed.lines() {
+        print_wrapped(line, &user_prefix, &user_prefix, "");
+    }
+    eprintln!("  {BOLD_GREEN}╰─{RESET}");
+
+    // Send to daemon
+    send_to_daemon(writer, trimmed, waiting, running)?;
     Ok(())
 }
 
@@ -1155,21 +1195,106 @@ fn draw_prompt(
     Ok(box_height)
 }
 
-fn show_thinking_spinner(waiting: &Arc<AtomicBool>, running: &Arc<AtomicBool>) {
+/// Show thinking spinner while allowing the user to type ahead.
+/// Returns Some(text) if the user submitted input during thinking, None otherwise.
+/// Empty-enter (no text) is silently ignored — no duplicate spinners.
+fn show_thinking_spinner_with_input(
+    waiting: &Arc<AtomicBool>,
+    running: &Arc<AtomicBool>,
+) -> Option<String> {
     let dots = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
     let mut i = 0;
+    let mut input_buf = String::new();
+    let mut typing = false;
+
+    let _ = terminal::enable_raw_mode();
+
     while waiting.load(Ordering::Acquire) && running.load(Ordering::Relaxed) {
-        eprint!(
-            "\r  {CYAN}{}{RESET} {DIM}thinking...{RESET}  ",
-            dots[i % dots.len()]
-        );
+        // Show spinner (or spinner + partial input)
+        if typing {
+            eprint!(
+                "\r  {CYAN}{}{RESET} {DIM}thinking...{RESET}  {BOLD_WHITE}{}{RESET}\x1b[K",
+                dots[i % dots.len()],
+                input_buf
+            );
+        } else {
+            eprint!(
+                "\r  {CYAN}{}{RESET} {DIM}thinking...{RESET}\x1b[K",
+                dots[i % dots.len()]
+            );
+        }
         let _ = std::io::stderr().flush();
         i += 1;
-        std::thread::sleep(std::time::Duration::from_millis(80));
+
+        // Poll for keyboard input (non-blocking, 80ms timeout for spinner animation)
+        if event::poll(std::time::Duration::from_millis(80)).unwrap_or(false) {
+            if let Ok(Event::Key(key)) = event::read() {
+                match key {
+                    KeyEvent {
+                        code: KeyCode::Char('c'),
+                        modifiers: KeyModifiers::CONTROL,
+                        ..
+                    } => {
+                        running.store(false, Ordering::Relaxed);
+                        let _ = terminal::disable_raw_mode();
+                        let _ = std::io::stderr().execute(Show);
+                        return None;
+                    }
+                    KeyEvent {
+                        code: KeyCode::Char(ch),
+                        modifiers,
+                        ..
+                    } if !modifiers.contains(KeyModifiers::CONTROL) => {
+                        input_buf.push(ch);
+                        typing = true;
+                    }
+                    KeyEvent {
+                        code: KeyCode::Backspace,
+                        ..
+                    } => {
+                        input_buf.pop();
+                        typing = !input_buf.is_empty();
+                    }
+                    KeyEvent {
+                        code: KeyCode::Enter,
+                        ..
+                    } => {
+                        // Empty enter while thinking = ignore (no duplicate spinner)
+                        if !input_buf.trim().is_empty() {
+                            // User submitted text — clear spinner line and return it
+                            let mut err = std::io::stderr();
+                            let _ = queue!(err, MoveToColumn(0), Clear(ClearType::CurrentLine));
+                            let _ = err.flush();
+                            let _ = terminal::disable_raw_mode();
+                            return Some(input_buf);
+                        }
+                        // Empty enter: silently ignore
+                    }
+                    KeyEvent {
+                        code: KeyCode::Char('u'),
+                        modifiers: KeyModifiers::CONTROL,
+                        ..
+                    } => {
+                        input_buf.clear();
+                        typing = false;
+                    }
+                    _ => {}
+                }
+            }
+        }
     }
+
+    let _ = terminal::disable_raw_mode();
     let mut err = std::io::stderr();
     let _ = queue!(err, MoveToColumn(0), Clear(ClearType::CurrentLine));
     let _ = err.flush();
+
+    // If user was typing when response arrived, return the queued text
+    if !input_buf.trim().is_empty() {
+        Some(input_buf)
+    } else {
+        None
+    }
 }
 
 fn print_agent_line(line: &str) {
