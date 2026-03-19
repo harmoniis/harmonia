@@ -144,7 +144,7 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
                         let _ = queue!(err, MoveToColumn(0), Clear(ClearType::CurrentLine));
                         let _ = err.flush();
                         eprintln!();
-                        eprintln!("  {VIOLET}╭─{RESET} {DIM}{assistant_label}{RESET}");
+                        eprintln!("  {BOLD_CYAN}╭─{RESET} {DIM}{assistant_label}{RESET}");
                         in_response = true;
                     }
 
@@ -1185,17 +1185,16 @@ fn draw_prompt(
     let (lines, cursor_line, cursor_col) = wrap_input(input, cursor_pos, view_w);
     let num_lines = lines.len();
     let box_height = 2 + num_lines as u16; // top bar + content lines + bottom bar
-    let bar_width = width.saturating_sub(2);
-    let gradient_bar = gradient_line("─", bar_width);
+    let bar = "─".repeat(width.saturating_sub(2));
 
     queue!(err, Hide)?;
 
-    // Top border — full width, gradient
+    // Top border — full width
     queue!(
         err,
         MoveTo(0, box_row),
         Clear(ClearType::CurrentLine),
-        Print(format!(" {gradient_bar}{RESET}"))
+        Print(format!(" {DIM}{bar}{RESET}"))
     )?;
 
     // Content lines
@@ -1209,13 +1208,13 @@ fn draw_prompt(
         )?;
     }
 
-    // Bottom border — full width, gradient
+    // Bottom border — full width
     let bottom_row = box_row + 1 + num_lines as u16;
     queue!(
         err,
         MoveTo(0, bottom_row),
         Clear(ClearType::CurrentLine),
-        Print(format!(" {gradient_bar}{RESET}"))
+        Print(format!(" {DIM}{bar}{RESET}"))
     )?;
 
     // Clear leftover rows when box shrinks
@@ -1522,18 +1521,15 @@ fn print_wrapped(text: &str, first_prefix: &str, cont_prefix: &str, color: &str)
 fn print_banner(term: &Term, node_label: &str, session_id: &str) {
     let width = term.size().1 as usize;
     let bar_width = width.min(56);
-    let gradient_bar = gradient_line("─", bar_width);
+    let bar = "─".repeat(bar_width);
 
     eprintln!();
 
-    // ASCII art logo with gradient — each line shifts through the palette
-    let logo_lines: Vec<&str> = LOGO.lines().filter(|l| !l.is_empty()).collect();
-    for (i, line) in logo_lines.iter().enumerate() {
-        let t = i as f32 / logo_lines.len().max(1) as f32;
-        let r = (138.0 + (52.0 - 138.0) * t) as u8;
-        let g = (92.0 + (211.0 - 92.0) * t) as u8;
-        let b = (246.0 + (178.0 - 246.0) * t) as u8;
-        eprintln!("\x1b[1;38;2;{r};{g};{b}m{}{RESET}", line);
+    // ASCII art logo in cyan
+    for line in LOGO.lines() {
+        if !line.is_empty() {
+            eprintln!("{BOLD_CYAN}{}{RESET}", line);
+        }
     }
 
     eprintln!();
@@ -1541,17 +1537,17 @@ fn print_banner(term: &Term, node_label: &str, session_id: &str) {
         "  {DIM}v{VERSION} — Distributed evolutionary homoiconic self-improving agent{RESET}"
     );
     eprintln!(
-        "  {DIM}node:{RESET} {TEAL}{node_label}{RESET}  {DIM}session:{RESET} {TEAL}{session_id}{RESET}"
+        "  {DIM}node:{RESET} {CYAN}{node_label}{RESET}  {DIM}session:{RESET} {CYAN}{session_id}{RESET}"
     );
     eprintln!();
-    eprintln!("  {gradient_bar}");
+    eprintln!("  {DIM}{bar}{RESET}");
     eprintln!();
     eprintln!("  {DIM}Type a message to continue this session with Harmonia.{RESET}");
     eprintln!(
-        "  {DIM}Use {RESET}{TEAL}/help{RESET}{DIM} for commands, {RESET}{TEAL}/exit{RESET}{DIM} to quit.{RESET}"
+        "  {DIM}Use {RESET}{CYAN}/help{RESET}{DIM} for commands, {RESET}{CYAN}/exit{RESET}{DIM} to quit.{RESET}"
     );
     eprintln!();
-    eprintln!("  {gradient_bar}");
+    eprintln!("  {DIM}{bar}{RESET}");
     eprintln!();
 }
 

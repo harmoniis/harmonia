@@ -340,6 +340,12 @@
   (%log :info "signalograd" "Initialized.")
   (%log :info "boot" "Bootstrap complete (~D tools registered)."
         (hash-table-count (runtime-state-tools *runtime*)))
+  ;; Handle SIGTERM for graceful shutdown (Phoenix sends this on stop)
+  (sb-sys:enable-interrupt sb-unix:sigterm
+    (lambda (signal context info)
+      (declare (ignore signal context info))
+      (%log :info "boot" "Received SIGTERM, shutting down gracefully.")
+      (stop *runtime*)))
   (when run-loop
     (%log :info "boot" "Entering main loop (env=~A)." (%environment))
     (run-loop :runtime *runtime* :max-cycles max-cycles :sleep-seconds sleep-seconds))
