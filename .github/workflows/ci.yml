@@ -72,7 +72,7 @@ jobs:
 
       - name: Build all crates (Windows — exclude Unix-only daemons)
         if: runner.os == 'Windows'
-        run: cargo build --workspace --release --exclude harmonia-phoenix --exclude harmonia-runtime
+        run: cargo build --workspace --release --exclude harmonia-phoenix --exclude harmonia-runtime --exclude harmonia
 
       - name: Run all tests (Unix)
         if: runner.os != 'Windows'
@@ -80,7 +80,7 @@ jobs:
 
       - name: Run all tests (Windows — exclude Unix-only daemons)
         if: runner.os == 'Windows'
-        run: cargo test --workspace --exclude harmonia-phoenix --exclude harmonia-runtime
+        run: cargo test --workspace --exclude harmonia-phoenix --exclude harmonia-runtime --exclude harmonia
 
       - name: Set up Bazel
         if: runner.os == 'Linux'
@@ -182,7 +182,7 @@ jobs:
         shell: pwsh
         run: |
           $version = $env:GITHUB_REF_NAME -replace '^harmonia-v', ''
-          cargo build --workspace --release --exclude harmonia-phoenix --exclude harmonia-runtime
+          cargo build --workspace --release --exclude harmonia-phoenix --exclude harmonia-runtime --exclude harmonia
           bash scripts/build_release.sh $version "${{ matrix.platform }}"
 
       - name: Build release binaries
