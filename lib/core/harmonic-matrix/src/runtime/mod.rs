@@ -3,14 +3,11 @@ mod reports;
 mod shared;
 mod store;
 
-
 #[cfg(test)]
 mod tests {
     use std::sync::{Mutex, MutexGuard, OnceLock};
 
-    use super::ops::{
-        log_event, observe_route, register_edge, register_node, set_tool_enabled,
-    };
+    use super::ops::{log_event, observe_route, register_edge, register_node, set_tool_enabled};
     use super::reports::report;
     use super::store::{init, set_store, store_summary};
 

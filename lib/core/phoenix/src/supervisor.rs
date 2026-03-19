@@ -87,7 +87,10 @@ impl Actor for PhoenixSupervisor {
                 let snapshot = build_snapshot(state);
                 let _ = reply.send(snapshot);
             }
-            SupervisorMsg::SubsystemStateChanged { name, state: new_state } => {
+            SupervisorMsg::SubsystemStateChanged {
+                name,
+                state: new_state,
+            } => {
                 if state.children.contains_key(&name) {
                     let old_mode = derive_mode(&state.children);
                     state.children.get_mut(&name).unwrap().state = new_state;
@@ -215,9 +218,7 @@ fn derive_mode(children: &HashMap<String, ChildEntry>) -> DaemonMode {
         return DaemonMode::Starting;
     }
 
-    let any_core_failed = children
-        .values()
-        .any(|c| c.core && c.state.is_failed());
+    let any_core_failed = children.values().any(|c| c.core && c.state.is_failed());
     if any_core_failed {
         return DaemonMode::CoreOnly;
     }
@@ -233,9 +234,7 @@ fn derive_mode(children: &HashMap<String, ChildEntry>) -> DaemonMode {
         };
     }
 
-    let any_starting = children
-        .values()
-        .any(|c| c.state.is_starting_or_backoff());
+    let any_starting = children.values().any(|c| c.state.is_starting_or_backoff());
     if any_starting {
         return DaemonMode::Starting;
     }

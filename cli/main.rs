@@ -434,6 +434,8 @@ fn status() -> Result<(), Box<dyn std::error::Error>> {
 fn query_phoenix_health() -> Result<String, Box<dyn std::error::Error>> {
     let health_port = 9100u16; // convention, matches phoenix.toml default
     let url = format!("http://127.0.0.1:{}/health", health_port);
-    let resp = ureq::get(&url).timeout(std::time::Duration::from_secs(3)).call()?;
+    let resp = ureq::get(&url)
+        .timeout(std::time::Duration::from_secs(3))
+        .call()?;
     Ok(resp.into_string()?)
 }

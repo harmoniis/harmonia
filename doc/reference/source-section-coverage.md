@@ -57,17 +57,17 @@ Do not edit manually.
   - L261: `## Erlang-Style Fault Tolerance (v7)`
   - L265: `### Supervision Architecture`
   - L273: `### Gateway Hardening`
-  - L279: `### Runtime Self-Knowledge`
-  - L292: `### Platform Path Structure`
-  - L305: `### Evolution Portability`
-  - L314: `## Chronicle Knowledge Base (v8)`
-  - L318: `### Database`
-  - L322: `### Tables (9)`
-  - L336: `### Concept Graph Traversal`
-  - L346: `### Arbitrary SQL Query`
-  - L356: `### Pressure-Aware GC`
-  - L368: `### Integration Points`
-  - L377: `### A2UI Dashboard`
+  - L277: `### Runtime Self-Knowledge`
+  - L289: `### Platform Path Structure`
+  - L302: `### Evolution Portability`
+  - L311: `## Chronicle Knowledge Base (v8)`
+  - L315: `### Database`
+  - L319: `### Tables (9)`
+  - L333: `### Concept Graph Traversal`
+  - L343: `### Arbitrary SQL Query`
+  - L353: `### Pressure-Aware GC`
+  - L365: `### Integration Points`
+  - L374: `### A2UI Dashboard`
 
 ## `../evolution/rewrite-roadmap.md`
 - Migration map targets: stability, token efficiency, memory, evolution safety
@@ -76,10 +76,10 @@ Do not edit manually.
   - L23: `## Priority 2: Token And Tool Efficiency`
   - L29: `## Priority 3: Memory Quality`
   - L35: `## Priority 4: Evolution Safety`
-  - L45: `## Priority 5: Signal And Channel Maturity`
-  - L58: `## Priority 6: Security Hardening`
-  - L77: `## Priority 7: Platform Maturity`
-  - L87: `## Scope Exclusions`
+  - L44: `## Priority 5: Signal And Channel Maturity`
+  - L61: `## Priority 6: Security Hardening`
+  - L80: `## Priority 7: Platform Maturity`
+  - L91: `## Scope Exclusions`
 
 ## `../evolution/scorecard.md`
 - Migration map targets: score trajectory, acceptance gates
@@ -121,37 +121,38 @@ Do not edit manually.
   - L48: `## Non-Negotiable Rules`
 
 ## `../genesis/gateway-frontends.md`
-- Migration map targets: baseband model, signal semantics, frontend contract
+- Migration map targets: baseband model, signal semantics, frontend contract (rlib crates)
 - Headings:
   - L8: `## Gateway Responsibilities`
   - L18: `## Unified Command Dispatch`
   - L39: `## Frontend Contract`
-  - L54: `## Frontend Capabilities`
-  - L72: `## Baseband Channel Envelope`
-  - L98: `## Poll Format`
-  - L113: `## Auto-Load Policy`
-  - L133: `## Inbound Signal Adaptation`
-  - L147: `## A2UI Component Catalog`
-  - L153: `## Push Integration`
-  - L157: `## Outbound Flow`
-  - L164: `## Signal Security`
+  - L55: `## Frontend Capabilities`
+  - L73: `## Baseband Channel Envelope`
+  - L99: `## Poll Format`
+  - L114: `## Auto-Load Policy`
+  - L134: `## Inbound Signal Adaptation`
+  - L148: `## A2UI Component Catalog`
+  - L154: `## Push Integration`
+  - L158: `## Outbound Flow`
+  - L165: `## Signal Security`
 
 ## `../genesis/ports-and-ffi.md`
 - Migration map targets: port model, IPC transport, Unix domain socket
 - Headings:
   - L8: `## Port Map`
   - L27: `## IPC Transport`
-  - L33: `## Core Contract Rule`
+  - L35: `## Core Contract Rule`
 
 ## `../genesis/runtime-architecture.md`
 - Migration map targets: full architecture, IPC surfaces, Phoenix topology, deployment safety
 - Headings:
   - L3: `## Runtime Topology`
-  - L10: `## Boot Flow`
-  - L28: `## Deterministic Tick Model`
-  - L49: `## Gateway Signal Processing`
-  - L64: `## Orchestration Flow`
-  - L86: `## Harmonic State Machine`
-  - L115: `## Error Discipline And Self-Repair`
-  - L138: `## Security Architecture`
+  - L11: `### Process Topology`
+  - L27: `## Boot Flow`
+  - L45: `## Deterministic Tick Model`
+  - L66: `## Gateway Signal Processing`
+  - L81: `## Orchestration Flow`
+  - L103: `## Harmonic State Machine`
+  - L132: `## Error Discipline And Self-Repair`
+  - L154: `## Security Architecture`
 

@@ -41,10 +41,18 @@ pub struct SubsystemToml {
     pub env: HashMap<String, String>,
 }
 
-fn default_restart_policy() -> String { "always".to_string() }
-fn default_max_restarts() -> u32 { 3 }
-fn default_backoff_base() -> u64 { 500 }
-fn default_backoff_max() -> u64 { 60_000 }
+fn default_restart_policy() -> String {
+    "always".to_string()
+}
+fn default_max_restarts() -> u32 {
+    3
+}
+fn default_backoff_base() -> u64 {
+    500
+}
+fn default_backoff_max() -> u64 {
+    60_000
+}
 
 // ── Resolved config ─────────────────────────────────────────────────
 
