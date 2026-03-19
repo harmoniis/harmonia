@@ -18,14 +18,15 @@ Harmonia is layered as a constrained orchestration system:
 - Supervision: Erlang-style `%supervised-action` wrapping every tick action, error ring, adaptive cooldown
 
 3. `Rust Capability Layer` (`lib/`)
-- `core/runtime`: single Rust binary (`harmonia-runtime`) containing 7 ractor actors + IPC listener (`runtime.sock`)
-  - RuntimeSupervisor — actor registry, IPC component dispatch
+- `core/runtime`: single Rust binary (`harmonia-runtime`) containing 8 ractor actors + IPC listener (`runtime.sock`)
+  - RuntimeSupervisor — actor registry, IPC component dispatch, supervisor restart of failed actors
   - SbclBridgeActor — drain queue for SBCL
   - GatewayActor — poll_baseband, route signals
   - ChronicleActor — DB init, periodic GC
   - TailnetActor — mesh listener, poll, route
   - SignalogradActor — kernel init, observe, status
   - ObservabilityActor — trace batch management
+  - HarmonicMatrixActor — matrix topology, route constraints, telemetry
   - IPC dispatch (`dispatch.rs`, 689 lines, 50+ ops) routes to: vault, config, chronicle, gateway, signalograd, tailnet, harmonic-matrix
 - `core/phoenix`: ractor-based process supervisor, health endpoint (`127.0.0.1:9100`), pidfile management
 - `core/`: vault, gateway, matrix, recovery, forge, etc.

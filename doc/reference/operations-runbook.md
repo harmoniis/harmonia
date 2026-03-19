@@ -25,7 +25,9 @@ harmonia restart
 harmonia status
 ```
 
-Phoenix writes a pidfile and manages: `harmonia-runtime` (Rust binary, 7 ractor actors), `sbcl-agent` (Lisp orchestrator), and `provision-server`.
+Phoenix writes a pidfile and manages: `harmonia-runtime` (Rust binary, 8 ractor actors), `sbcl-agent` (Lisp orchestrator), and `provision-server`.
+
+**Automatic actor restart**: The RuntimeSupervisor monitors all component actors. If any actor crashes, the supervisor automatically respawns it without requiring a full `harmonia restart`. This covers all 8 actors: RuntimeSupervisor, SbclBridgeActor, GatewayActor, ChronicleActor, TailnetActor, SignalogradActor, ObservabilityActor, and HarmonicMatrixActor.
 
 ### 1.0.1 Health Endpoint
 

@@ -33,42 +33,42 @@ Do not edit manually.
   - L72: `## Signalograd State`
   - L97: `## Gateway Signal Protocol State`
   - L112: `## IPC Architecture State`
-  - L122: `## Unified Command Dispatch (v10)`
-  - L142: `## Matrix Enforcement State`
-  - L151: `## TUI Session System`
-  - L155: `### Session Storage`
-  - L161: `### Resumable Sessions`
-  - L165: `### Auto-Save`
-  - L169: `## Gateway Sender Policy`
-  - L173: `### Filtered Frontends`
-  - L177: `### Exempt Frontends`
-  - L181: `### Policy Evaluation Order`
-  - L189: `### Configuration`
-  - L197: `### Access Control`
-  - L201: `## Security Kernel State`
-  - L205: `### Typed Signal Dispatch`
-  - L211: `### Policy Gate`
-  - L222: `### Taint Propagation`
-  - L226: `### Safe Parsers`
-  - L232: `### Vault Security`
-  - L239: `### Invariant Guards`
-  - L247: `### Security Posture Tracking`
-  - L256: `### Adaptive Shell State`
-  - L263: `### Security Config`
-  - L271: `## Erlang-Style Fault Tolerance (v7)`
-  - L275: `### Supervision Architecture`
-  - L283: `### Gateway Hardening`
-  - L287: `### Runtime Self-Knowledge`
-  - L299: `### Platform Path Structure`
-  - L312: `### Evolution Portability`
-  - L321: `## Chronicle Knowledge Base (v8)`
-  - L325: `### Database`
-  - L329: `### Tables (9)`
-  - L343: `### Concept Graph Traversal`
-  - L353: `### Arbitrary SQL Query`
-  - L363: `### Pressure-Aware GC`
-  - L375: `### Integration Points`
-  - L384: `### A2UI Dashboard`
+  - L124: `## Unified Command Dispatch (v10)`
+  - L144: `## Matrix Enforcement State`
+  - L153: `## TUI Session System`
+  - L157: `### Session Storage`
+  - L163: `### Resumable Sessions`
+  - L167: `### Auto-Save`
+  - L171: `## Gateway Sender Policy`
+  - L175: `### Filtered Frontends`
+  - L179: `### Exempt Frontends`
+  - L183: `### Policy Evaluation Order`
+  - L191: `### Configuration`
+  - L199: `### Access Control`
+  - L203: `## Security Kernel State`
+  - L207: `### Typed Signal Dispatch`
+  - L213: `### Policy Gate`
+  - L224: `### Taint Propagation`
+  - L228: `### Safe Parsers`
+  - L234: `### Vault Security`
+  - L241: `### Invariant Guards`
+  - L249: `### Security Posture Tracking`
+  - L258: `### Adaptive Shell State`
+  - L265: `### Security Config`
+  - L273: `## Erlang-Style Fault Tolerance (v7)`
+  - L277: `### Supervision Architecture`
+  - L285: `### Gateway Hardening`
+  - L289: `### Runtime Self-Knowledge`
+  - L301: `### Platform Path Structure`
+  - L314: `### Evolution Portability`
+  - L323: `## Chronicle Knowledge Base (v8)`
+  - L327: `### Database`
+  - L331: `### Tables (9)`
+  - L345: `### Concept Graph Traversal`
+  - L355: `### Arbitrary SQL Query`
+  - L365: `### Pressure-Aware GC`
+  - L377: `### Integration Points`
+  - L386: `### A2UI Dashboard`
 
 ## `../evolution/rewrite-roadmap.md`
 - Migration map targets: stability, token efficiency, memory, evolution safety
@@ -149,11 +149,11 @@ Do not edit manually.
 - Headings:
   - L3: `## Runtime Topology`
   - L11: `### Process Topology`
-  - L50: `## Boot Flow`
-  - L68: `## Deterministic Tick Model`
-  - L89: `## Gateway Signal Processing`
-  - L104: `## Orchestration Flow`
-  - L126: `## Harmonic State Machine`
-  - L155: `## Error Discipline And Self-Repair`
-  - L177: `## Security Architecture`
+  - L51: `## Boot Flow`
+  - L69: `## Deterministic Tick Model`
+  - L90: `## Gateway Signal Processing`
+  - L105: `## Orchestration Flow`
+  - L127: `## Harmonic State Machine`
+  - L156: `## Error Discipline And Self-Repair`
+  - L178: `## Security Architecture`
 

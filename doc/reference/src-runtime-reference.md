@@ -60,7 +60,7 @@
 | `dispatch.rs` | IPC message dispatch (689 lines, 50+ ops) — routes to vault, config, chronicle, gateway, signalograd, tailnet, harmonic-matrix |
 | `bridge.rs` | SbclBridgeActor — Unix socket connection handler, drain queue for SBCL |
 | `ipc.rs` | IPC listener — Unix socket accept loop, length-prefixed sexp framing |
-| `actors.rs` | Actor definitions — GatewayActor, ChronicleActor, TailnetActor, SignalogradActor, ObservabilityActor |
+| `actors.rs` | Actor definitions — GatewayActor, ChronicleActor, TailnetActor, SignalogradActor, ObservabilityActor, HarmonicMatrixActor |
 | `msg.rs` | Actor message types and routing enums |
 
 All crates are compiled as rlib and linked into the single `harmonia-runtime` binary. No cdylib shared libraries.

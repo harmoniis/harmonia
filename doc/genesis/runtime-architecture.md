@@ -13,13 +13,14 @@ Harmonia runtime is Lisp-first orchestration with Rust execution ports.
 ```
 Phoenix (harmonia-phoenix, ractor supervisor, health at 127.0.0.1:9100)
   ├─ harmonia-runtime (single Rust binary, all ractor actors)
-  │     ├─ RuntimeSupervisor      (actor registry, IPC component dispatch)
+  │     ├─ RuntimeSupervisor      (actor registry, IPC dispatch, supervisor restart)
   │     ├─ SbclBridgeActor        (drain queue for SBCL)
   │     ├─ GatewayActor           (poll_baseband, route signals)
   │     ├─ ChronicleActor         (DB init, periodic GC)
   │     ├─ TailnetActor           (mesh listener, poll, route)
   │     ├─ SignalogradActor       (kernel init, observe, status)
   │     ├─ ObservabilityActor     (trace batch management)
+  │     ├─ HarmonicMatrixActor    (matrix topology, route constraints, telemetry)
   │     └─ IPC listener (Unix socket, length-prefixed sexp)
   │           └─ dispatch.rs routes to: vault, config, chronicle, gateway,
   │              signalograd, tailnet, harmonic-matrix (689 lines, 50+ ops)
@@ -38,7 +39,7 @@ Tick loop: gateway-poll → process-prompt → memory-heartbeat → harmonic-ste
 
 Harmonic state: signalograd observe/feedback → harmonic-machine state transitions → chronicle record
 
-Phoenix (`lib/core/phoenix/`) is a ractor-based process supervisor with a health HTTP endpoint at `127.0.0.1:9100`. It writes a pidfile and manages all child processes.
+Phoenix (`lib/core/phoenix/`) is a ractor-based process supervisor with a health HTTP endpoint at `127.0.0.1:9100`. It writes a pidfile and manages all child processes. The RuntimeSupervisor implements automatic restart for all 8 component actors — if any actor crashes, the supervisor respawns it without requiring a full process restart.
 
 CLI lifecycle commands:
 - `harmonia start` → Phoenix → spawns runtime + sbcl-agent + provision-server

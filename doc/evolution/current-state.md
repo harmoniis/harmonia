@@ -114,8 +114,10 @@ Push notifications: `lib/frontends/push` is a utility library consumed by mqtt-c
 All CFFI/cdylib/dlopen code has been fully removed. Every component communicates via IPC through ractor actors in `harmonia-runtime`.
 
 - **Transport**: Unix domain socket (`$STATE_ROOT/runtime.sock`), length-prefixed s-expressions, 0600 permissions.
-- **Actors (7)**: RuntimeSupervisor, SbclBridgeActor, GatewayActor, ChronicleActor, TailnetActor, SignalogradActor, ObservabilityActor.
+- **Actors (8)**: RuntimeSupervisor, SbclBridgeActor, GatewayActor, ChronicleActor, TailnetActor, SignalogradActor, ObservabilityActor, HarmonicMatrixActor.
+- **Supervisor restart**: All component actors are supervisor-managed. On crash, the RuntimeSupervisor automatically respawns the failed actor.
 - **IPC dispatch** (`dispatch.rs`, 689 lines): routes 50+ operations across 7 component domains — vault, config, chronicle, gateway, signalograd, tailnet, harmonic-matrix.
+- **Gateway cleanliness**: Zero FFI remnants — no `extern "C"`, no `libloading`, no `frontend_ffi.rs`/`tool_ffi.rs`. All crates are pure rlib linked into the single binary.
 - **SBCL side**: `ipc-client.lisp` (socket transport, auto-reconnect), `ipc-ports.lisp` (typed port accessors), 14 port files all converted to IPC.
 - **Data flow**: SBCL → ipc-call → Unix socket → dispatch.rs → crate API → reply → SBCL.
 
