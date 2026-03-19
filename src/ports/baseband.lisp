@@ -87,7 +87,14 @@
     (or (ipc-extract-u64 reply ":result") 0)))
 
 (defun gateway-poll ()
-  (%parse-gateway-sexp (ipc-gateway-poll)))
+  "Poll gateway for inbound envelopes. Unwraps the (:ok :envelopes (...))
+   IPC reply and returns just the flat list of envelope plists."
+  (let* ((raw (ipc-gateway-poll))
+         (parsed (ipc-parse-sexp-reply raw)))
+    ;; IPC returns (:ok :envelopes (env1 env2 ...)) — extract the envelope list.
+    ;; If the reply is malformed or nil, return nil (empty poll).
+    (when (and (listp parsed) (eq (car parsed) :ok))
+      (getf (cdr parsed) :envelopes))))
 
 (defun baseband-poll ()
   (gateway-poll))

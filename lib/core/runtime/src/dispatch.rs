@@ -18,6 +18,7 @@ pub fn dispatch(component: &str, sexp: &str) -> String {
         "gateway" => dispatch_gateway(sexp),
         "signalograd" => dispatch_signalograd(sexp),
         "tailnet" => dispatch_tailnet(sexp),
+        "harmonic-matrix" => dispatch_matrix(sexp),
         _ => format!("(:error \"unknown component: {}\")", component),
     }
 }
@@ -163,6 +164,205 @@ fn dispatch_chronicle(sexp: &str) -> String {
             Ok(s) => format!("(:ok :result \"{}\")", esc(&s)),
             Err(e) => format!("(:error \"{}\")", esc(&e)),
         },
+        Some("record-harmonic") => {
+            let snap = harmonia_chronicle::HarmonicSnapshot {
+                cycle: extract_string(sexp, ":cycle")
+                    .and_then(|s| s.parse().ok())
+                    .unwrap_or(0),
+                phase: extract_string(sexp, ":phase").unwrap_or_default(),
+                strength: parse_f64(sexp, ":strength"),
+                utility: parse_f64(sexp, ":utility"),
+                beauty: parse_f64(sexp, ":beauty"),
+                signal: parse_f64(sexp, ":signal"),
+                noise: parse_f64(sexp, ":noise"),
+                logistic_x: parse_f64(sexp, ":logistic-x"),
+                logistic_r: parse_f64(sexp, ":logistic-r"),
+                chaos_risk: parse_f64(sexp, ":chaos-risk"),
+                rewrite_aggression: parse_f64(sexp, ":rewrite-aggression"),
+                lorenz_x: parse_f64(sexp, ":lorenz-x"),
+                lorenz_y: parse_f64(sexp, ":lorenz-y"),
+                lorenz_z: parse_f64(sexp, ":lorenz-z"),
+                lorenz_radius: parse_f64(sexp, ":lorenz-radius"),
+                lorenz_bounded: parse_f64(sexp, ":lorenz-bounded"),
+                lambdoma_global: parse_f64(sexp, ":lambdoma-global"),
+                lambdoma_local: parse_f64(sexp, ":lambdoma-local"),
+                lambdoma_ratio: parse_f64(sexp, ":lambdoma-ratio"),
+                lambdoma_convergent: parse_bool(sexp, ":lambdoma-convergent"),
+                rewrite_ready: parse_bool(sexp, ":rewrite-ready"),
+                rewrite_count: extract_string(sexp, ":rewrite-count")
+                    .and_then(|s| s.parse().ok())
+                    .unwrap_or(0),
+                security_posture: extract_string(sexp, ":security-posture").unwrap_or_default(),
+                security_events: extract_string(sexp, ":security-events")
+                    .and_then(|s| s.parse().ok())
+                    .unwrap_or(0),
+            };
+            match harmonia_chronicle::harmonic::record(&snap) {
+                Ok(_) => "(:ok)".to_string(),
+                Err(e) => format!("(:error \"{}\")", esc(&e)),
+            }
+        }
+        Some("record-memory-event") => {
+            let event_type = extract_string(sexp, ":event-type").unwrap_or_default();
+            let entries_created: i32 = extract_string(sexp, ":entries-created")
+                .and_then(|s| s.parse().ok())
+                .unwrap_or(0);
+            let entries_source: i32 = extract_string(sexp, ":entries-source")
+                .and_then(|s| s.parse().ok())
+                .unwrap_or(0);
+            let old_size: i64 = extract_string(sexp, ":old-size")
+                .and_then(|s| s.parse().ok())
+                .unwrap_or(0);
+            let new_size: i64 = extract_string(sexp, ":new-size")
+                .and_then(|s| s.parse().ok())
+                .unwrap_or(0);
+            let node_count: i32 = extract_string(sexp, ":node-count")
+                .and_then(|s| s.parse().ok())
+                .unwrap_or(0);
+            let edge_count: i32 = extract_string(sexp, ":edge-count")
+                .and_then(|s| s.parse().ok())
+                .unwrap_or(0);
+            let interdisciplinary_edges: i32 = extract_string(sexp, ":interdisciplinary-edges")
+                .and_then(|s| s.parse().ok())
+                .unwrap_or(0);
+            let max_depth: i32 = extract_string(sexp, ":max-depth")
+                .and_then(|s| s.parse().ok())
+                .unwrap_or(0);
+            let detail = extract_string(sexp, ":detail");
+            match harmonia_chronicle::memory::record(
+                &event_type,
+                entries_created,
+                entries_source,
+                old_size,
+                new_size,
+                node_count,
+                edge_count,
+                interdisciplinary_edges,
+                max_depth,
+                detail.as_deref(),
+            ) {
+                Ok(_) => "(:ok)".to_string(),
+                Err(e) => format!("(:error \"{}\")", esc(&e)),
+            }
+        }
+        Some("record-delegation") => {
+            let task_hint = extract_string(sexp, ":task-hint");
+            let model_chosen = extract_string(sexp, ":model-chosen").unwrap_or_default();
+            let backend = extract_string(sexp, ":backend").unwrap_or_default();
+            let reason = extract_string(sexp, ":reason");
+            let escalated = parse_bool(sexp, ":escalated");
+            let escalated_from = extract_string(sexp, ":escalated-from");
+            let cost_usd = parse_f64(sexp, ":cost-usd");
+            let latency_ms: i64 = extract_string(sexp, ":latency-ms")
+                .and_then(|s| s.parse().ok())
+                .unwrap_or(0);
+            let success = parse_bool(sexp, ":success");
+            let tokens_in: i64 = extract_string(sexp, ":tokens-in")
+                .and_then(|s| s.parse().ok())
+                .unwrap_or(0);
+            let tokens_out: i64 = extract_string(sexp, ":tokens-out")
+                .and_then(|s| s.parse().ok())
+                .unwrap_or(0);
+            match harmonia_chronicle::delegation::record(
+                task_hint.as_deref(),
+                &model_chosen,
+                &backend,
+                reason.as_deref(),
+                escalated,
+                escalated_from.as_deref(),
+                cost_usd,
+                latency_ms,
+                success,
+                tokens_in,
+                tokens_out,
+            ) {
+                Ok(_) => "(:ok)".to_string(),
+                Err(e) => format!("(:error \"{}\")", esc(&e)),
+            }
+        }
+        Some("record-graph") => {
+            let source = extract_string(sexp, ":source").unwrap_or_default();
+            let graph_sexp = extract_string(sexp, ":sexp").unwrap_or_default();
+            // Graph record with empty nodes/edges — the raw sexp is stored for later decomposition
+            match harmonia_chronicle::graph::record_snapshot(&source, &graph_sexp, &[], &[]) {
+                Ok(id) => format!("(:ok :snapshot-id {})", id),
+                Err(e) => format!("(:error \"{}\")", esc(&e)),
+            }
+        }
+        Some("record-signalograd-event") => {
+            let event_type = extract_string(sexp, ":event-type").unwrap_or_default();
+            let cycle: i64 = extract_string(sexp, ":cycle")
+                .and_then(|s| s.parse().ok())
+                .unwrap_or(0);
+            let confidence = parse_f64(sexp, ":confidence");
+            let stability = parse_f64(sexp, ":stability");
+            let novelty = parse_f64(sexp, ":novelty");
+            let reward = parse_f64(sexp, ":reward");
+            let accepted = parse_bool(sexp, ":accepted");
+            let recall_hits: i32 = extract_string(sexp, ":recall-hits")
+                .and_then(|s| s.parse().ok())
+                .unwrap_or(0);
+            let checkpoint_path = extract_string(sexp, ":checkpoint-path");
+            let checkpoint_digest = extract_string(sexp, ":checkpoint-digest");
+            let detail = extract_string(sexp, ":detail");
+            match harmonia_chronicle::signalograd::record(
+                &event_type,
+                cycle,
+                confidence,
+                stability,
+                novelty,
+                reward,
+                accepted,
+                recall_hits,
+                checkpoint_path.as_deref(),
+                checkpoint_digest.as_deref(),
+                detail.as_deref(),
+            ) {
+                Ok(_) => "(:ok)".to_string(),
+                Err(e) => format!("(:error \"{}\")", esc(&e)),
+            }
+        }
+        Some("record-phoenix-event") => {
+            let event_type = extract_string(sexp, ":event-type").unwrap_or_default();
+            let exit_code: Option<i32> =
+                extract_string(sexp, ":exit-code").and_then(|s| s.parse().ok());
+            let attempt: Option<i32> =
+                extract_string(sexp, ":attempt").and_then(|s| s.parse().ok());
+            let max_attempts: Option<i32> =
+                extract_string(sexp, ":max-attempts").and_then(|s| s.parse().ok());
+            let recovery_ms: Option<i64> =
+                extract_string(sexp, ":recovery-ms").and_then(|s| s.parse().ok());
+            let detail = extract_string(sexp, ":detail");
+            match harmonia_chronicle::phoenix::record(
+                &event_type,
+                exit_code,
+                attempt,
+                max_attempts,
+                recovery_ms,
+                detail.as_deref(),
+            ) {
+                Ok(_) => "(:ok)".to_string(),
+                Err(e) => format!("(:error \"{}\")", esc(&e)),
+            }
+        }
+        Some("record-ouroboros-event") => {
+            let event_type = extract_string(sexp, ":event-type").unwrap_or_default();
+            let component = extract_string(sexp, ":component");
+            let detail = extract_string(sexp, ":detail");
+            let patch_size: Option<i64> =
+                extract_string(sexp, ":patch-size").and_then(|s| s.parse().ok());
+            let success = parse_bool(sexp, ":success");
+            match harmonia_chronicle::ouroboros::record(
+                &event_type,
+                component.as_deref(),
+                detail.as_deref(),
+                patch_size,
+                success,
+            ) {
+                Ok(_) => "(:ok)".to_string(),
+                Err(e) => format!("(:error \"{}\")", esc(&e)),
+            }
+        }
         _ => format!(
             "(:error \"unknown chronicle op: {}\")",
             op.unwrap_or_default()
@@ -256,6 +456,29 @@ fn dispatch_signalograd(sexp: &str) -> String {
                 "(:error \"reset failed\")".to_string()
             }
         }
+        Some("checkpoint") => {
+            let path = extract_string(sexp, ":path").unwrap_or_default();
+            let c = CString::new(path).unwrap_or_default();
+            let rc = harmonia_signalograd::harmonia_signalograd_checkpoint(c.as_ptr());
+            if rc == 0 {
+                "(:ok)".to_string()
+            } else {
+                format!(
+                    "(:error \"checkpoint failed: {}\")",
+                    signalograd_last_error()
+                )
+            }
+        }
+        Some("restore") => {
+            let path = extract_string(sexp, ":path").unwrap_or_default();
+            let c = CString::new(path).unwrap_or_default();
+            let rc = harmonia_signalograd::harmonia_signalograd_restore(c.as_ptr());
+            if rc == 0 {
+                "(:ok)".to_string()
+            } else {
+                format!("(:error \"restore failed: {}\")", signalograd_last_error())
+            }
+        }
         _ => format!(
             "(:error \"unknown signalograd op: {}\")",
             op.unwrap_or_default()
@@ -320,6 +543,147 @@ fn dispatch_tailnet(sexp: &str) -> String {
         }
         _ => format!(
             "(:error \"unknown tailnet op: {}\")",
+            op.unwrap_or_default()
+        ),
+    }
+}
+
+// ── Harmonic Matrix ──────────────────────────────────────────────────
+
+fn dispatch_matrix(sexp: &str) -> String {
+    let op = extract_keyword(sexp, ":op");
+    match op.as_deref() {
+        Some("init") => match harmonia_harmonic_matrix::runtime::store::init() {
+            Ok(_) => "(:ok)".to_string(),
+            Err(e) => format!("(:error \"{}\")", esc(&e)),
+        },
+        Some("set-store") => {
+            let kind = extract_string(sexp, ":kind").unwrap_or_default();
+            let path = extract_string(sexp, ":path");
+            match harmonia_harmonic_matrix::runtime::store::set_store(&kind, path.as_deref()) {
+                Ok(_) => "(:ok)".to_string(),
+                Err(e) => format!("(:error \"{}\")", esc(&e)),
+            }
+        }
+        Some("register-node") => {
+            let node_id = extract_string(sexp, ":node-id").unwrap_or_default();
+            let kind = extract_string(sexp, ":kind").unwrap_or_default();
+            match harmonia_harmonic_matrix::runtime::ops::register_node(&node_id, &kind) {
+                Ok(_) => "(:ok)".to_string(),
+                Err(e) => format!("(:error \"{}\")", esc(&e)),
+            }
+        }
+        Some("set-tool-enabled") => {
+            let tool_id = extract_string(sexp, ":tool-id").unwrap_or_default();
+            let enabled = parse_bool(sexp, ":enabled");
+            match harmonia_harmonic_matrix::runtime::ops::set_tool_enabled(&tool_id, enabled) {
+                Ok(_) => "(:ok)".to_string(),
+                Err(e) => format!("(:error \"{}\")", esc(&e)),
+            }
+        }
+        Some("register-edge") => {
+            let from = extract_string(sexp, ":from").unwrap_or_default();
+            let to = extract_string(sexp, ":to").unwrap_or_default();
+            let weight = parse_f64(sexp, ":weight");
+            let min_harmony = parse_f64(sexp, ":min-harmony");
+            match harmonia_harmonic_matrix::runtime::ops::register_edge(
+                &from,
+                &to,
+                weight,
+                min_harmony,
+            ) {
+                Ok(_) => "(:ok)".to_string(),
+                Err(e) => format!("(:error \"{}\")", esc(&e)),
+            }
+        }
+        Some("route-allowed") => {
+            let from = extract_string(sexp, ":from").unwrap_or_default();
+            let to = extract_string(sexp, ":to").unwrap_or_default();
+            let signal = parse_f64(sexp, ":signal");
+            let noise = parse_f64(sexp, ":noise");
+            match harmonia_harmonic_matrix::runtime::ops::route_allowed(&from, &to, signal, noise) {
+                Ok(allowed) => format!("(:ok :allowed {})", if allowed { "t" } else { "nil" }),
+                Err(e) => format!("(:error \"{}\")", esc(&e)),
+            }
+        }
+        Some("route-allowed-ctx") => {
+            let from = extract_string(sexp, ":from").unwrap_or_default();
+            let to = extract_string(sexp, ":to").unwrap_or_default();
+            let signal = parse_f64(sexp, ":signal");
+            let noise = parse_f64(sexp, ":noise");
+            let security_weight = parse_f64(sexp, ":security-weight");
+            let dissonance = parse_f64(sexp, ":dissonance");
+            match harmonia_harmonic_matrix::runtime::ops::route_allowed_with_context(
+                &from,
+                &to,
+                signal,
+                noise,
+                security_weight,
+                dissonance,
+            ) {
+                Ok(allowed) => format!("(:ok :allowed {})", if allowed { "t" } else { "nil" }),
+                Err(e) => format!("(:error \"{}\")", esc(&e)),
+            }
+        }
+        Some("observe-route") => {
+            let from = extract_string(sexp, ":from").unwrap_or_default();
+            let to = extract_string(sexp, ":to").unwrap_or_default();
+            let success = parse_bool(sexp, ":success");
+            let latency_ms: u64 = extract_string(sexp, ":latency-ms")
+                .and_then(|s| s.parse().ok())
+                .unwrap_or(0);
+            let cost_usd = parse_f64(sexp, ":cost-usd");
+            match harmonia_harmonic_matrix::runtime::ops::observe_route(
+                &from, &to, success, latency_ms, cost_usd,
+            ) {
+                Ok(_) => "(:ok)".to_string(),
+                Err(e) => format!("(:error \"{}\")", esc(&e)),
+            }
+        }
+        Some("log-event") => {
+            let component = extract_string(sexp, ":component").unwrap_or_default();
+            let direction = extract_string(sexp, ":direction").unwrap_or_default();
+            let channel = extract_string(sexp, ":channel").unwrap_or_default();
+            let payload = extract_string(sexp, ":payload").unwrap_or_default();
+            let success = parse_bool(sexp, ":success");
+            let error = extract_string(sexp, ":error").unwrap_or_default();
+            match harmonia_harmonic_matrix::runtime::ops::log_event(
+                &component, &direction, &channel, &payload, success, &error,
+            ) {
+                Ok(_) => "(:ok)".to_string(),
+                Err(e) => format!("(:error \"{}\")", esc(&e)),
+            }
+        }
+        Some("route-timeseries") => {
+            let from = extract_string(sexp, ":from").unwrap_or_default();
+            let to = extract_string(sexp, ":to").unwrap_or_default();
+            let limit: i32 = extract_string(sexp, ":limit")
+                .and_then(|s| s.parse().ok())
+                .unwrap_or(0);
+            match harmonia_harmonic_matrix::runtime::reports::route_timeseries(&from, &to, limit) {
+                Ok(s) => format!("(:ok :result \"{}\")", esc(&s)),
+                Err(e) => format!("(:error \"{}\")", esc(&e)),
+            }
+        }
+        Some("time-report") => {
+            let since_unix: u64 = extract_string(sexp, ":since")
+                .and_then(|s| s.parse().ok())
+                .unwrap_or(0);
+            match harmonia_harmonic_matrix::runtime::reports::time_report(since_unix) {
+                Ok(s) => format!("(:ok :result \"{}\")", esc(&s)),
+                Err(e) => format!("(:error \"{}\")", esc(&e)),
+            }
+        }
+        Some("report") => match harmonia_harmonic_matrix::runtime::reports::report() {
+            Ok(s) => format!("(:ok :result \"{}\")", esc(&s)),
+            Err(e) => format!("(:error \"{}\")", esc(&e)),
+        },
+        Some("store-summary") => match harmonia_harmonic_matrix::runtime::store::store_summary() {
+            Ok(s) => format!("(:ok :result \"{}\")", esc(&s)),
+            Err(e) => format!("(:error \"{}\")", esc(&e)),
+        },
+        _ => format!(
+            "(:error \"unknown harmonic-matrix op: {}\")",
             op.unwrap_or_default()
         ),
     }
@@ -390,4 +754,16 @@ fn extract_string(sexp: &str, key: &str) -> Option<String> {
             Some(val)
         }
     }
+}
+
+fn parse_f64(sexp: &str, key: &str) -> f64 {
+    extract_string(sexp, key)
+        .and_then(|s| s.parse::<f64>().ok())
+        .unwrap_or(0.0)
+}
+
+fn parse_bool(sexp: &str, key: &str) -> bool {
+    extract_string(sexp, key)
+        .map(|s| matches!(s.as_str(), "t" | "true" | "1"))
+        .unwrap_or(false)
 }

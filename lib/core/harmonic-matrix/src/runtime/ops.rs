@@ -25,7 +25,7 @@ fn validate_node_kind(kind: &str) -> Result<(), String> {
 }
 
 #[allow(dead_code)]
-pub(crate) fn register_node(node_id: &str, kind: &str) -> Result<(), String> {
+pub fn register_node(node_id: &str, kind: &str) -> Result<(), String> {
     validate_node_kind(kind)?;
 
     let mut st = state()
@@ -41,7 +41,7 @@ pub(crate) fn register_node(node_id: &str, kind: &str) -> Result<(), String> {
 }
 
 #[allow(dead_code)]
-pub(crate) fn set_tool_enabled(tool_id: &str, enabled: bool) -> Result<(), String> {
+pub fn set_tool_enabled(tool_id: &str, enabled: bool) -> Result<(), String> {
     let mut st = state()
         .write()
         .map_err(|_| "harmonic matrix state lock poisoned".to_string())?;
@@ -57,12 +57,7 @@ pub(crate) fn set_tool_enabled(tool_id: &str, enabled: bool) -> Result<(), Strin
 }
 
 #[allow(dead_code)]
-pub(crate) fn register_edge(
-    from: &str,
-    to: &str,
-    weight: f64,
-    min_harmony: f64,
-) -> Result<(), String> {
+pub fn register_edge(from: &str, to: &str, weight: f64, min_harmony: f64) -> Result<(), String> {
     let mut st = state()
         .write()
         .map_err(|_| "harmonic matrix state lock poisoned".to_string())?;
@@ -88,14 +83,14 @@ pub(crate) fn register_edge(
 }
 
 #[allow(dead_code)]
-pub(crate) fn route_allowed(from: &str, to: &str, signal: f64, noise: f64) -> Result<bool, String> {
+pub fn route_allowed(from: &str, to: &str, signal: f64, noise: f64) -> Result<bool, String> {
     route_allowed_with_context(from, to, signal, noise, 1.0, 0.0)
 }
 
 /// Wave 3.2: Security-aware routing with dissonance and security weight.
 /// This is the adaptive shell's routing layer — defense-in-depth alongside the kernel's policy gate.
 #[allow(dead_code)]
-pub(crate) fn route_allowed_with_context(
+pub fn route_allowed_with_context(
     from: &str,
     to: &str,
     signal: f64,
@@ -134,7 +129,7 @@ pub(crate) fn route_allowed_with_context(
 }
 
 #[allow(dead_code)]
-pub(crate) fn observe_route(
+pub fn observe_route(
     from: &str,
     to: &str,
     success: bool,
@@ -173,7 +168,7 @@ pub(crate) fn observe_route(
 }
 
 #[allow(dead_code)]
-pub(crate) fn log_event(
+pub fn log_event(
     component: &str,
     direction: &str,
     channel: &str,

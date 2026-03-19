@@ -5,7 +5,7 @@ use crate::model::MatrixEvent;
 use super::shared::{state, store_config};
 
 #[allow(dead_code)]
-pub(crate) fn route_timeseries(from: &str, to: &str, limit: i32) -> Result<String, String> {
+pub fn route_timeseries(from: &str, to: &str, limit: i32) -> Result<String, String> {
     let st = state()
         .read()
         .map_err(|_| "harmonic matrix state lock poisoned".to_string())?;
@@ -44,7 +44,7 @@ pub(crate) fn route_timeseries(from: &str, to: &str, limit: i32) -> Result<Strin
 }
 
 #[allow(dead_code)]
-pub(crate) fn time_report(since_unix: u64) -> Result<String, String> {
+pub fn time_report(since_unix: u64) -> Result<String, String> {
     let st = state()
         .read()
         .map_err(|_| "harmonic matrix state lock poisoned".to_string())?;
@@ -105,7 +105,7 @@ pub(crate) fn time_report(since_unix: u64) -> Result<String, String> {
 }
 
 #[allow(dead_code)]
-pub(crate) fn report() -> Result<String, String> {
+pub fn report() -> Result<String, String> {
     let st = state()
         .read()
         .map_err(|_| "harmonic matrix state lock poisoned".to_string())?;

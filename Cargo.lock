@@ -2508,6 +2508,7 @@ dependencies = [
  "harmonia-chronicle",
  "harmonia-config-store",
  "harmonia-gateway",
+ "harmonia-harmonic-matrix",
  "harmonia-observability",
  "harmonia-signalograd",
  "harmonia-tailnet",

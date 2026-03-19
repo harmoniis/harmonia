@@ -1,7 +1,7 @@
-mod ops;
-mod reports;
-mod shared;
-mod store;
+pub mod ops;
+pub mod reports;
+pub mod shared;
+pub mod store;
 
 #[cfg(test)]
 mod tests {

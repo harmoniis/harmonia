@@ -18,7 +18,7 @@ pub(super) fn persist_if_needed(st: &State) -> Result<(), String> {
 }
 
 #[allow(dead_code)]
-pub(crate) fn set_store(kind: &str, path_override: Option<&str>) -> Result<(), String> {
+pub fn set_store(kind: &str, path_override: Option<&str>) -> Result<(), String> {
     let parsed = if kind.eq_ignore_ascii_case("memory") {
         StoreKind::Memory
     } else if kind.eq_ignore_ascii_case("sqlite") || kind.eq_ignore_ascii_case("sql") {
@@ -63,7 +63,7 @@ pub(crate) fn set_store(kind: &str, path_override: Option<&str>) -> Result<(), S
 }
 
 #[allow(dead_code)]
-pub(crate) fn init() -> Result<(), String> {
+pub fn init() -> Result<(), String> {
     let cfg = store_config()
         .read()
         .map_err(|_| "harmonic matrix store config lock poisoned".to_string())?
@@ -88,7 +88,7 @@ pub(crate) fn init() -> Result<(), String> {
 }
 
 #[allow(dead_code)]
-pub(crate) fn store_summary() -> Result<String, String> {
+pub fn store_summary() -> Result<String, String> {
     let cfg = store_config()
         .read()
         .map_err(|_| "harmonic matrix store config lock poisoned".to_string())?

@@ -22,6 +22,7 @@ harmonia-vault = { version = "0.1.9", path = "../vault" }
 harmonia-gateway = { version = "0.1.9", path = "../gateway" }
 harmonia-tailnet = { version = "0.1.9", path = "../tailnet" }
 harmonia-signalograd = { version = "0.1.1", path = "../signalograd" }
+harmonia-harmonic-matrix = { version = "0.1.9", path = "../harmonic-matrix" }
 harmonia-observability = { version = "0.1.9", path = "../observability" }
 ractor = "0.15"
 tokio = { version = "1.44", features = ["rt-multi-thread", "macros", "process", "signal", "time", "sync", "net", "io-util"] }
