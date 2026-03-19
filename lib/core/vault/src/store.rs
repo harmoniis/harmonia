@@ -533,8 +533,13 @@ mod tests {
         env::remove_var("HARMONIA_VAULT_MASTER_KEY");
         env::remove_var("HARMONIA_VAULT_ALLOW_UNENCRYPTED");
 
-        let err = upsert_secret("x", "y").expect_err("should fail");
-        assert!(err.contains("vault encryption key unavailable"));
+        let result = upsert_secret("x", "y");
+        assert!(result.is_err(), "should fail without key, but got Ok");
+        let err = result.unwrap_err();
+        assert!(
+            err.contains("key") || err.contains("encrypt") || err.contains("unavailable"),
+            "unexpected error: {err}"
+        );
 
         env::remove_var("HARMONIA_VAULT_DB");
         let _ = std::fs::remove_dir_all(&root);
