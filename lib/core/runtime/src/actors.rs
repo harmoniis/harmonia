@@ -4,7 +4,7 @@
 //! pre_start initializes the component, handle() dispatches messages
 //! to the component's public API, and supervision handles recovery.
 
-use ractor::{Actor, ActorProcessingErr, ActorRef};
+use ractor::{Actor, ActorProcessingErr, ActorRef, RpcReplyPort};
 
 use harmonia_actor_protocol::{now_unix, ActorKind, HarmoniaMessage, MessagePayload};
 
@@ -235,11 +235,57 @@ impl Actor for ObservabilityActor {
 }
 
 // ── HarmonicMatrixActor ──────────────────────────────────────────────
+//
+// Typed message enum — the matrix owns its state through the mailbox.
+// All operations are serialized through the actor, no lock contention.
+
+pub enum MatrixMsg {
+    RegisterNode {
+        id: String,
+        kind: String,
+    },
+    RegisterEdge {
+        from: String,
+        to: String,
+        weight: f64,
+        min_harmony: f64,
+    },
+    ObserveRoute {
+        from: String,
+        to: String,
+        success: bool,
+        latency_ms: u64,
+        cost_usd: f64,
+    },
+    LogEvent {
+        component: String,
+        direction: String,
+        channel: String,
+        payload: String,
+        success: bool,
+        error: String,
+    },
+    SetToolEnabled {
+        node: String,
+        enabled: bool,
+    },
+    RouteAllowed {
+        from: String,
+        to: String,
+        signal: f64,
+        noise: f64,
+        reply: RpcReplyPort<bool>,
+    },
+    Report(RpcReplyPort<String>),
+    StoreSummary(RpcReplyPort<String>),
+    Tick,
+    Shutdown,
+}
 
 pub struct HarmonicMatrixActor;
 
 impl Actor for HarmonicMatrixActor {
-    type Msg = ComponentMsg;
+    type Msg = MatrixMsg;
     type State = ();
     type Arguments = ();
 
@@ -260,21 +306,74 @@ impl Actor for HarmonicMatrixActor {
         _state: &mut Self::State,
     ) -> Result<(), ActorProcessingErr> {
         match message {
-            ComponentMsg::Tick => {
-                // Epoch advancement is future work — no-op for now
+            MatrixMsg::RegisterNode { id, kind } => {
+                let _ = harmonia_harmonic_matrix::runtime::ops::register_node(&id, &kind);
             }
-            ComponentMsg::Signal { payload_sexp } => {
-                // Interpret signals as route observations to log
-                let _ = harmonia_harmonic_matrix::runtime::ops::log_event(
-                    "runtime",
-                    "inbound",
-                    "signal",
-                    &payload_sexp,
-                    true,
-                    "",
+            MatrixMsg::RegisterEdge {
+                from,
+                to,
+                weight,
+                min_harmony,
+            } => {
+                let _ = harmonia_harmonic_matrix::runtime::ops::register_edge(
+                    &from,
+                    &to,
+                    weight,
+                    min_harmony,
                 );
             }
-            ComponentMsg::Shutdown => {
+            MatrixMsg::ObserveRoute {
+                from,
+                to,
+                success,
+                latency_ms,
+                cost_usd,
+            } => {
+                let _ = harmonia_harmonic_matrix::runtime::ops::observe_route(
+                    &from, &to, success, latency_ms, cost_usd,
+                );
+            }
+            MatrixMsg::LogEvent {
+                component,
+                direction,
+                channel,
+                payload,
+                success,
+                error,
+            } => {
+                let _ = harmonia_harmonic_matrix::runtime::ops::log_event(
+                    &component, &direction, &channel, &payload, success, &error,
+                );
+            }
+            MatrixMsg::SetToolEnabled { node, enabled } => {
+                let _ = harmonia_harmonic_matrix::runtime::ops::set_tool_enabled(&node, enabled);
+            }
+            MatrixMsg::RouteAllowed {
+                from,
+                to,
+                signal,
+                noise,
+                reply,
+            } => {
+                let result = harmonia_harmonic_matrix::runtime::ops::route_allowed(
+                    &from, &to, signal, noise,
+                );
+                let _ = reply.send(result.unwrap_or(false));
+            }
+            MatrixMsg::Report(reply) => {
+                let result = harmonia_harmonic_matrix::runtime::reports::report()
+                    .unwrap_or_else(|e| format!("(:error \"{}\")", e));
+                let _ = reply.send(result);
+            }
+            MatrixMsg::StoreSummary(reply) => {
+                let result = harmonia_harmonic_matrix::runtime::store::store_summary()
+                    .unwrap_or_else(|e| format!("(:error \"{}\")", e));
+                let _ = reply.send(result);
+            }
+            MatrixMsg::Tick => {
+                // Epoch advancement — future work
+            }
+            MatrixMsg::Shutdown => {
                 eprintln!("[INFO] [runtime] HarmonicMatrixActor shutting down");
             }
         }

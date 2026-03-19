@@ -85,6 +85,9 @@ async fn main() {
     .await
     .expect("failed to spawn HarmonicMatrixActor");
 
+    // Store matrix actor ref for dispatch routing
+    let matrix_for_supervisor = harmonic_matrix_ref.clone();
+
     // 5. Spawn RuntimeSupervisor
     let (supervisor_ref, supervisor_handle) = Actor::spawn(
         Some("runtime-supervisor".to_string()),
@@ -115,10 +118,7 @@ async fn main() {
         "observability".to_string(),
         observability_ref.clone(),
     ));
-    let _ = supervisor_ref.cast(msg::RuntimeMsg::RegisterComponent(
-        "harmonic-matrix".to_string(),
-        harmonic_matrix_ref.clone(),
-    ));
+    let _ = supervisor_ref.cast(msg::RuntimeMsg::RegisterMatrixActor(matrix_for_supervisor));
 
     eprintln!("[INFO] [runtime] All actors spawned, starting IPC server");
 
@@ -136,8 +136,8 @@ async fn main() {
         tailnet_ref.clone(),
         signalograd_ref.clone(),
         observability_ref.clone(),
-        harmonic_matrix_ref.clone(),
     ];
+    let tick_matrix = harmonic_matrix_ref.clone();
     tokio::spawn(async move {
         let mut interval = tokio::time::interval(std::time::Duration::from_secs(5));
         loop {
@@ -145,6 +145,7 @@ async fn main() {
             for actor in &tick_actors {
                 let _ = actor.cast(ComponentMsg::Tick);
             }
+            let _ = tick_matrix.cast(actors::MatrixMsg::Tick);
         }
     });
 
@@ -156,8 +157,8 @@ async fn main() {
         tailnet_ref,
         signalograd_ref,
         observability_ref,
-        harmonic_matrix_ref,
     ];
+    let shutdown_matrix = harmonic_matrix_ref;
     tokio::spawn(async move {
         let mut sigterm =
             tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate()).unwrap();
@@ -176,6 +177,7 @@ async fn main() {
         for actor in &shutdown_actors {
             let _ = actor.cast(ComponentMsg::Shutdown);
         }
+        let _ = shutdown_matrix.cast(actors::MatrixMsg::Shutdown);
         // Then shutdown the supervisor (which drains bridge)
         let _ = shutdown_sup.cast(msg::RuntimeMsg::Shutdown);
     });

@@ -1,7 +1,7 @@
 use harmonia_actor_protocol::{ActorId, ActorKind, HarmoniaMessage};
 use ractor::{ActorRef, RpcReplyPort};
 
-use crate::actors::ComponentMsg;
+use crate::actors::{ComponentMsg, MatrixMsg};
 
 // ── RuntimeSupervisor messages ───────────────────────────────────────
 //
@@ -31,6 +31,8 @@ pub enum RuntimeMsg {
     ComponentCall(String, String, RpcReplyPort<String>),
     /// Register a component actor for supervisor restart tracking (fire-and-forget).
     RegisterComponent(String, ActorRef<ComponentMsg>),
+    /// Register the matrix actor (separate message type).
+    RegisterMatrixActor(ActorRef<MatrixMsg>),
     /// Initiate graceful shutdown (fire-and-forget).
     Shutdown,
 }

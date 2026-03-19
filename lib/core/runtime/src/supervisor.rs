@@ -6,7 +6,7 @@ use harmonia_actor_protocol::{
     now_unix, ActorId, ActorKind, ActorRegistration, ActorState, HarmoniaMessage, MessagePayload,
 };
 
-use crate::actors::ComponentMsg;
+use crate::actors::{ComponentMsg, MatrixMsg};
 use crate::msg::{BridgeMsg, RuntimeMsg};
 
 /// RuntimeSupervisor owns the actor registry and the SbclBridgeActor.
@@ -23,8 +23,9 @@ pub struct RuntimeState {
     bridge: ActorRef<BridgeMsg>,
     shutting_down: bool,
     /// Component actors tracked for supervisor restart.
-    /// Key is the actor name (e.g. "chronicle"), value is the ActorRef.
     component_actors: HashMap<String, ActorRef<ComponentMsg>>,
+    /// Matrix actor (separate message type).
+    matrix_actor: Option<ActorRef<MatrixMsg>>,
 }
 
 impl RuntimeState {
@@ -95,6 +96,7 @@ impl Actor for RuntimeSupervisor {
             bridge,
             shutting_down: false,
             component_actors: HashMap::new(),
+            matrix_actor: None,
         })
     }
 
@@ -207,8 +209,19 @@ impl Actor for RuntimeSupervisor {
             }
 
             RuntimeMsg::ComponentCall(component, sexp, reply) => {
-                let result = crate::dispatch::dispatch(&component, &sexp);
-                let _ = reply.send(result);
+                // Matrix commands route through the actor for serialized access
+                if component == "harmonic-matrix" {
+                    if let Some(ref matrix) = state.matrix_actor {
+                        let result =
+                            crate::dispatch::dispatch_matrix_via_actor(matrix, &sexp).await;
+                        let _ = reply.send(result);
+                    } else {
+                        let _ = reply.send("(:error \"matrix actor not available\")".to_string());
+                    }
+                } else {
+                    let result = crate::dispatch::dispatch(&component, &sexp);
+                    let _ = reply.send(result);
+                }
             }
 
             RuntimeMsg::RegisterComponent(name, actor_ref) => {
@@ -218,6 +231,14 @@ impl Actor for RuntimeSupervisor {
                     actor_ref.get_id()
                 );
                 state.component_actors.insert(name, actor_ref);
+            }
+
+            RuntimeMsg::RegisterMatrixActor(actor_ref) => {
+                eprintln!(
+                    "[INFO] [runtime] Registered matrix actor (ractor id={})",
+                    actor_ref.get_id()
+                );
+                state.matrix_actor = Some(actor_ref);
             }
 
             RuntimeMsg::Shutdown => {
@@ -345,14 +366,7 @@ impl Actor for RuntimeSupervisor {
                 )
                 .await
                 .map(|(r, _)| r),
-                "harmonic-matrix" => Actor::spawn_linked(
-                    Some(name.clone()),
-                    crate::actors::HarmonicMatrixActor,
-                    (),
-                    myself.get_cell(),
-                )
-                .await
-                .map(|(r, _)| r),
+                // Note: "harmonic-matrix" uses MatrixMsg, handled separately below
                 _ => {
                     eprintln!("[WARN] [runtime] Unknown component actor '{name}', cannot respawn");
                     return Ok(());
@@ -366,6 +380,30 @@ impl Actor for RuntimeSupervisor {
                 }
                 Err(e) => {
                     eprintln!("[ERROR] [runtime] Failed to respawn component actor '{name}': {e}");
+                }
+            }
+            return Ok(());
+        }
+
+        // Try to restart the matrix actor
+        if let Some(ref matrix) = state.matrix_actor {
+            if matrix.get_id() == failed_id {
+                eprintln!("[INFO] [runtime] Respawning HarmonicMatrixActor after failure");
+                match Actor::spawn_linked(
+                    Some("harmonic-matrix".to_string()),
+                    crate::actors::HarmonicMatrixActor,
+                    (),
+                    myself.get_cell(),
+                )
+                .await
+                {
+                    Ok((new_ref, _)) => {
+                        state.matrix_actor = Some(new_ref);
+                        eprintln!("[INFO] [runtime] HarmonicMatrixActor respawned successfully");
+                    }
+                    Err(e) => {
+                        eprintln!("[ERROR] [runtime] Failed to respawn HarmonicMatrixActor: {e}");
+                    }
                 }
             }
         }

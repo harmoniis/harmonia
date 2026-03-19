@@ -8,7 +8,113 @@
 use std::ffi::{CStr, CString};
 use std::os::raw::c_char;
 
-/// Dispatch a command to the named component.
+use ractor::ActorRef;
+
+use crate::actors::MatrixMsg;
+
+/// Route matrix commands through the HarmonicMatrixActor for serialized access.
+pub async fn dispatch_matrix_via_actor(matrix: &ActorRef<MatrixMsg>, sexp: &str) -> String {
+    let op = extract_keyword(sexp, ":op");
+    match op.as_deref() {
+        Some("register-node") => {
+            let id = extract_string(sexp, ":id").unwrap_or_default();
+            let kind = extract_string(sexp, ":kind").unwrap_or_default();
+            let _ = matrix.cast(MatrixMsg::RegisterNode { id, kind });
+            "(:ok)".to_string()
+        }
+        Some("register-edge") => {
+            let from = extract_string(sexp, ":from").unwrap_or_default();
+            let to = extract_string(sexp, ":to").unwrap_or_default();
+            let weight = parse_f64(sexp, ":weight");
+            let min_harmony = parse_f64(sexp, ":min-harmony");
+            let _ = matrix.cast(MatrixMsg::RegisterEdge {
+                from,
+                to,
+                weight,
+                min_harmony,
+            });
+            "(:ok)".to_string()
+        }
+        Some("observe-route") => {
+            let from = extract_string(sexp, ":from").unwrap_or_default();
+            let to = extract_string(sexp, ":to").unwrap_or_default();
+            let success = parse_bool(sexp, ":success");
+            let latency_ms = extract_u64(sexp, ":latency-ms");
+            let cost_usd = parse_f64(sexp, ":cost-usd");
+            let _ = matrix.cast(MatrixMsg::ObserveRoute {
+                from,
+                to,
+                success,
+                latency_ms,
+                cost_usd,
+            });
+            "(:ok)".to_string()
+        }
+        Some("log-event") => {
+            let component = extract_string(sexp, ":component").unwrap_or_default();
+            let direction = extract_string(sexp, ":direction").unwrap_or_default();
+            let channel = extract_string(sexp, ":channel").unwrap_or_default();
+            let payload = extract_string(sexp, ":payload").unwrap_or_default();
+            let success = parse_bool(sexp, ":success");
+            let error = extract_string(sexp, ":error").unwrap_or_default();
+            let _ = matrix.cast(MatrixMsg::LogEvent {
+                component,
+                direction,
+                channel,
+                payload,
+                success,
+                error,
+            });
+            "(:ok)".to_string()
+        }
+        Some("set-tool-enabled") => {
+            let node = extract_string(sexp, ":node").unwrap_or_default();
+            let enabled = parse_bool(sexp, ":enabled");
+            let _ = matrix.cast(MatrixMsg::SetToolEnabled { node, enabled });
+            "(:ok)".to_string()
+        }
+        Some("route-allowed") => {
+            let from = extract_string(sexp, ":from").unwrap_or_default();
+            let to = extract_string(sexp, ":to").unwrap_or_default();
+            let signal = parse_f64(sexp, ":signal");
+            let noise = parse_f64(sexp, ":noise");
+            match ractor::call_t!(
+                matrix,
+                |reply| MatrixMsg::RouteAllowed {
+                    from,
+                    to,
+                    signal,
+                    noise,
+                    reply
+                },
+                5000
+            ) {
+                Ok(allowed) => {
+                    if allowed {
+                        "(:ok :allowed t)".to_string()
+                    } else {
+                        "(:ok :allowed nil)".to_string()
+                    }
+                }
+                Err(_) => "(:error \"matrix route-allowed timeout\")".to_string(),
+            }
+        }
+        Some("report") => match ractor::call_t!(matrix, MatrixMsg::Report, 5000) {
+            Ok(report) => format!("(:ok :result \"{}\")", esc(&report)),
+            Err(_) => "(:error \"matrix report timeout\")".to_string(),
+        },
+        Some("store-summary") => match ractor::call_t!(matrix, MatrixMsg::StoreSummary, 5000) {
+            Ok(summary) => format!("(:ok :result \"{}\")", esc(&summary)),
+            Err(_) => "(:error \"matrix store-summary timeout\")".to_string(),
+        },
+        _ => {
+            // Fall back to synchronous dispatch for ops not yet in the actor
+            dispatch_matrix(sexp)
+        }
+    }
+}
+
+/// Dispatch a command to the named component (synchronous, for non-matrix components).
 /// Returns an sexp reply string.
 pub fn dispatch(component: &str, sexp: &str) -> String {
     match component {
@@ -910,6 +1016,12 @@ fn extract_string(sexp: &str, key: &str) -> Option<String> {
             Some(val)
         }
     }
+}
+
+fn extract_u64(sexp: &str, key: &str) -> u64 {
+    extract_string(sexp, key)
+        .and_then(|s| s.parse::<u64>().ok())
+        .unwrap_or(0)
 }
 
 fn parse_f64(sexp: &str, key: &str) -> f64 {
