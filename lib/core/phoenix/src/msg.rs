@@ -9,10 +9,7 @@ pub enum SupervisorMsg {
     /// Synchronous health query from the HTTP server.
     GetHealth(RpcReplyPort<HealthSnapshot>),
     /// A subsystem actor reports its state has changed.
-    SubsystemStateChanged {
-        name: String,
-        state: SubsystemState,
-    },
+    SubsystemStateChanged { name: String, state: SubsystemState },
     /// Initiate graceful shutdown of all subsystems.
     Shutdown,
 }

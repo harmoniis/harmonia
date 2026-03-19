@@ -26,18 +26,14 @@ async fn main() {
     eprintln!("[INFO] [runtime] harmonia-runtime starting");
 
     // 2. Determine socket path
-    let socket_path = env::var("HARMONIA_RUNTIME_SOCKET").unwrap_or_else(|_| {
-        format!("{}/runtime.sock", state_root())
-    });
+    let socket_path = env::var("HARMONIA_RUNTIME_SOCKET")
+        .unwrap_or_else(|_| format!("{}/runtime.sock", state_root()));
 
     // 3. Spawn SbclBridgeActor
-    let (bridge_ref, _bridge_handle) = Actor::spawn(
-        Some("sbcl-bridge".to_string()),
-        bridge::SbclBridgeActor,
-        (),
-    )
-    .await
-    .expect("failed to spawn SbclBridgeActor");
+    let (bridge_ref, _bridge_handle) =
+        Actor::spawn(Some("sbcl-bridge".to_string()), bridge::SbclBridgeActor, ())
+            .await
+            .expect("failed to spawn SbclBridgeActor");
 
     // 4. Spawn RuntimeSupervisor (linked to bridge)
     let (supervisor_ref, supervisor_handle) = Actor::spawn(

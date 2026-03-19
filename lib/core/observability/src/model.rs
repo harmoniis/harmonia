@@ -180,4 +180,3 @@ fn secs_to_utc(secs: u64) -> (u64, u64, u64, u64, u64, u64) {
 fn is_leap(y: u64) -> bool {
     (y % 4 == 0 && y % 100 != 0) || y % 400 == 0
 }
-

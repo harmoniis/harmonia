@@ -3,7 +3,7 @@ use std::collections::HashMap;
 use ractor::{Actor, ActorProcessingErr, ActorRef, SupervisionEvent};
 
 use harmonia_actor_protocol::{
-    ActorId, ActorKind, ActorRegistration, ActorState, HarmoniaMessage, MessagePayload, now_unix,
+    now_unix, ActorId, ActorKind, ActorRegistration, ActorState, HarmoniaMessage, MessagePayload,
 };
 
 use crate::msg::{BridgeMsg, RuntimeMsg};
@@ -149,9 +149,7 @@ impl Actor for RuntimeSupervisor {
                     target,
                     kind,
                     timestamp: now_unix(),
-                    payload: MessagePayload::StateChanged {
-                        to: payload_sexp,
-                    },
+                    payload: MessagePayload::StateChanged { to: payload_sexp },
                 };
                 let _ = state.bridge.cast(BridgeMsg::Enqueue { msg });
             }
@@ -209,7 +207,10 @@ impl Actor for RuntimeSupervisor {
                 // Two-phase shutdown: drain the bridge first to avoid losing messages
                 match ractor::call_t!(state.bridge, BridgeMsg::Drain, 5000) {
                     Ok(drained) => {
-                        eprintln!("[INFO] [runtime] Bridge drained before shutdown: {} bytes", drained.len());
+                        eprintln!(
+                            "[INFO] [runtime] Bridge drained before shutdown: {} bytes",
+                            drained.len()
+                        );
                     }
                     Err(e) => {
                         eprintln!("[WARN] [runtime] Bridge drain failed during shutdown: {e}");
@@ -255,10 +256,14 @@ impl Actor for RuntimeSupervisor {
                         {
                             Ok((new_bridge, _)) => {
                                 state.bridge = new_bridge;
-                                eprintln!("[INFO] [runtime] SbclBridgeActor respawned successfully");
+                                eprintln!(
+                                    "[INFO] [runtime] SbclBridgeActor respawned successfully"
+                                );
                             }
                             Err(e) => {
-                                eprintln!("[ERROR] [runtime] Failed to respawn SbclBridgeActor: {e}");
+                                eprintln!(
+                                    "[ERROR] [runtime] Failed to respawn SbclBridgeActor: {e}"
+                                );
                             }
                         }
                     }

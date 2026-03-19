@@ -91,7 +91,10 @@ impl Actor for SubsystemActor {
                         let _ = actor_ref.cast(SubsystemMsg::ProcessExited { exit_code: None });
                     });
                 } else {
-                    eprintln!("[INFO] [phoenix] Stop received for {} but process already exited", state.config.name);
+                    eprintln!(
+                        "[INFO] [phoenix] Stop received for {} but process already exited",
+                        state.config.name
+                    );
                     state.set_state(SubsystemState::Stopped);
                 }
             }

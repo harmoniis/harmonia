@@ -6,9 +6,7 @@ use std::thread;
 
 use harmonia_vault::{get_secret_for_component, init_from_env};
 
-use crate::model::{
-    append_metric_line, now_unix, sexp_escape, state, ModelPrice, Task,
-};
+use crate::model::{append_metric_line, now_unix, sexp_escape, state, ModelPrice, Task};
 
 use self::clients::{request_openrouter, verify_with_search};
 use self::metrics::{estimate_cost, render_report};
@@ -441,4 +439,3 @@ pub(crate) fn tmux_list() -> Result<String, String> {
 pub(crate) fn tmux_swarm_poll() -> Result<String, String> {
     controller::swarm_poll()
 }
-

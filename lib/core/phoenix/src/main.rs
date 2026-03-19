@@ -69,10 +69,13 @@ async fn main() {
     );
 
     // 4. Spawn supervisor actor
-    let (supervisor_ref, supervisor_handle) =
-        Actor::spawn(Some("phoenix-supervisor".to_string()), supervisor::PhoenixSupervisor, cfg)
-            .await
-            .expect("failed to spawn PhoenixSupervisor actor");
+    let (supervisor_ref, supervisor_handle) = Actor::spawn(
+        Some("phoenix-supervisor".to_string()),
+        supervisor::PhoenixSupervisor,
+        cfg,
+    )
+    .await
+    .expect("failed to spawn PhoenixSupervisor actor");
 
     // 5. Spawn health server
     let health_sup = supervisor_ref.clone();

@@ -27,10 +27,8 @@ pub async fn serve(socket_path: &str, supervisor: ActorRef<RuntimeMsg>) {
             #[cfg(unix)]
             {
                 use std::os::unix::fs::PermissionsExt;
-                let _ = std::fs::set_permissions(
-                    socket_path,
-                    std::fs::Permissions::from_mode(0o600),
-                );
+                let _ =
+                    std::fs::set_permissions(socket_path, std::fs::Permissions::from_mode(0o600));
             }
             eprintln!("[INFO] [runtime] IPC listening on {socket_path}");
             l
@@ -97,10 +95,7 @@ async fn handle_connection(
 /// Parse a sexp request and dispatch to the RuntimeSupervisor.
 ///
 /// Returns Some(reply_sexp) for requests that expect a reply, None for fire-and-forget.
-async fn dispatch_sexp(
-    sexp: &str,
-    supervisor: &ActorRef<RuntimeMsg>,
-) -> Option<String> {
+async fn dispatch_sexp(sexp: &str, supervisor: &ActorRef<RuntimeMsg>) -> Option<String> {
     let trimmed = sexp.trim();
 
     if trimmed.starts_with("(:drain") {
