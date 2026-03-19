@@ -1,4 +1,4 @@
-;;; tool-channel.lisp — Port: standardised tool channel invocation via gateway.
+;;; tool-channel.lisp — Port: standardised tool channel invocation via gateway IPC.
 ;;;
 ;;; Replaces ad-hoc tool FFI with a uniform invoke contract. Tools are
 ;;; registered and dispatched through the gateway's ToolRegistry, which
@@ -6,31 +6,18 @@
 
 (in-package :harmonia)
 
-;; Gateway tool FFI bindings
-(cffi:defcfun ("harmonia_gateway_register_tool" %gateway-register-tool) :int
-  (name :string) (so-path :string) (config-sexp :string) (security-label :string))
-(cffi:defcfun ("harmonia_gateway_unregister_tool" %gateway-unregister-tool) :int
-  (name :string))
-(cffi:defcfun ("harmonia_gateway_invoke_tool" %gateway-invoke-tool) :pointer
-  (name :string) (operation :string) (params-sexp :string))
-(cffi:defcfun ("harmonia_gateway_list_tools" %gateway-list-tools) :pointer)
-(cffi:defcfun ("harmonia_gateway_tool_capabilities" %gateway-tool-caps) :pointer
-  (name :string))
-(cffi:defcfun ("harmonia_gateway_tool_status" %gateway-tool-status) :pointer
-  (name :string))
-(cffi:defcfun ("harmonia_gateway_reload_tool" %gateway-reload-tool) :int
-  (name :string))
-
 (defun init-tool-channel-port ()
   "Initialise the tool channel port. Gateway must already be initialised."
   t)
 
 (defun tool-channel-register (name so-path config-sexp &optional (security-label "authenticated"))
   "Register a tool with the gateway's ToolRegistry."
-  (let ((rc (%gateway-register-tool name so-path config-sexp security-label)))
-    (unless (zerop rc)
-      (error "tool registration failed for ~A: ~A" name
-             (%last-error-string #'harmonia-gateway-last-error #'harmonia-gateway-free-string)))
+  (let ((reply (ipc-call
+                (format nil "(:component \"gateway\" :op \"register-tool\" :name \"~A\" :so-path \"~A\" :config \"~A\" :security-label \"~A\")"
+                        (sexp-escape-lisp name) (sexp-escape-lisp so-path)
+                        (sexp-escape-lisp config-sexp) (sexp-escape-lisp security-label)))))
+    (when (ipc-reply-error-p reply)
+      (error "tool registration failed for ~A: ~A" name reply))
     t))
 
 (defun tool-channel-invoke (name operation params-sexp)
@@ -38,40 +25,33 @@
    Returns the tool result as an s-expression string.
    Performs harmonic matrix route check before invocation."
   (harmonic-matrix-route-or-error "orchestrator" name)
-  (let ((ptr (%gateway-invoke-tool name operation params-sexp)))
-    (if (cffi:null-pointer-p ptr)
-        (let ((err (%last-error-string #'harmonia-gateway-last-error #'harmonia-gateway-free-string)))
+  (let ((reply (ipc-call
+                (format nil "(:component \"gateway\" :op \"invoke-tool\" :name \"~A\" :operation \"~A\" :params \"~A\")"
+                        (sexp-escape-lisp name) (sexp-escape-lisp operation)
+                        (sexp-escape-lisp params-sexp)))))
+    (if (ipc-reply-error-p reply)
+        (progn
           (harmonic-matrix-observe-route "orchestrator" name nil 1)
-          (error "tool invoke failed ~A/~A: ~A" name operation err))
-        (let ((result (unwind-protect
-                           (cffi:foreign-string-to-lisp ptr)
-                        (harmonia-gateway-free-string ptr))))
+          (error "tool invoke failed ~A/~A: ~A" name operation reply))
+        (progn
           (harmonic-matrix-observe-route "orchestrator" name t 1)
-          result))))
+          (or (ipc-extract-value reply) "")))))
 
 (defun tool-channel-list ()
   "List all registered tool names."
-  (let ((ptr (%gateway-list-tools)))
-    (if (cffi:null-pointer-p ptr)
-        nil
-        (unwind-protect
-             (cffi:foreign-string-to-lisp ptr)
-          (harmonia-gateway-free-string ptr)))))
+  (ipc-extract-value
+   (ipc-call "(:component \"gateway\" :op \"list-tools\")")))
 
 (defun tool-channel-capabilities (name)
   "Get the capability list for a registered tool."
-  (let ((ptr (%gateway-tool-caps name)))
-    (if (cffi:null-pointer-p ptr)
-        "nil"
-        (unwind-protect
-             (cffi:foreign-string-to-lisp ptr)
-          (harmonia-gateway-free-string ptr)))))
+  (or (ipc-extract-value
+       (ipc-call (format nil "(:component \"gateway\" :op \"tool-capabilities\" :name \"~A\")"
+                         (sexp-escape-lisp name))))
+      "nil"))
 
 (defun tool-channel-status (name)
   "Get the status of a registered tool."
-  (let ((ptr (%gateway-tool-status name)))
-    (if (cffi:null-pointer-p ptr)
-        "nil"
-        (unwind-protect
-             (cffi:foreign-string-to-lisp ptr)
-          (harmonia-gateway-free-string ptr)))))
+  (or (ipc-extract-value
+       (ipc-call (format nil "(:component \"gateway\" :op \"tool-status\" :name \"~A\")"
+                         (sexp-escape-lisp name))))
+      "nil"))

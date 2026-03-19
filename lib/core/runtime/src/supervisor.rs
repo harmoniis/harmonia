@@ -201,6 +201,11 @@ impl Actor for RuntimeSupervisor {
                 let _ = reply.send(sexp);
             }
 
+            RuntimeMsg::ComponentCall(component, sexp, reply) => {
+                let result = crate::dispatch::dispatch(&component, &sexp);
+                let _ = reply.send(result);
+            }
+
             RuntimeMsg::Shutdown => {
                 eprintln!("[INFO] [runtime] Shutdown requested");
                 state.shutting_down = true;

@@ -1,5 +1,6 @@
 mod actors;
 mod bridge;
+mod dispatch;
 mod ipc;
 mod msg;
 mod supervisor;

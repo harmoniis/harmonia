@@ -24,6 +24,9 @@ pub enum RuntimeMsg {
     GetState(ActorId, RpcReplyPort<String>),
     /// List all actors as sexp. call_t!(sup, ListAll, timeout) → String
     ListAll(RpcReplyPort<String>),
+    /// Component dispatch: route a sexp command to the named component.
+    /// call_t!(sup, ComponentCall, (component, sexp), timeout) → String
+    ComponentCall(String, String, RpcReplyPort<String>),
     /// Initiate graceful shutdown (fire-and-forget).
     Shutdown,
 }

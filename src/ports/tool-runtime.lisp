@@ -1,29 +1,16 @@
-;;; tool-runtime.lisp — Port: search tool loading and dispatch via CFFI.
+;;; tool-runtime.lisp — Port: search tool loading and dispatch.
 ;;;
-;;; NOTE: Whisper and ElevenLabs have moved to voice-runtime.lisp as proper
-;;; voice provider backends. Search tools will migrate to tool-channel.lisp
-;;; once they implement the ToolVtable contract.
+;;; NOTE: Search tools (exa, brave) are not yet wired as IPC components.
+;;; Wrappers return errors until the Rust actors are connected.
+;;; search-web falls through to grok-live which uses backend-complete.
 
 (in-package :harmonia)
 
 (defparameter *tool-libs* (make-hash-table :test 'equal))
 
-(cffi:defcfun ("harmonia_search_exa_query" %exa-query) :pointer (query :string))
-(cffi:defcfun ("harmonia_search_exa_last_error" %exa-last-error) :pointer)
-(cffi:defcfun ("harmonia_search_exa_free_string" %exa-free-string) :void (ptr :pointer))
-
-(cffi:defcfun ("harmonia_search_brave_query" %brave-query) :pointer (query :string))
-(cffi:defcfun ("harmonia_search_brave_last_error" %brave-last-error) :pointer)
-(cffi:defcfun ("harmonia_search_brave_free_string" %brave-free-string) :void (ptr :pointer))
-
-(defun %load-tool (id file)
-  (setf (gethash id *tool-libs*)
-        (cffi:load-foreign-library (%release-lib-path file))))
-
 (defun init-tool-runtime-port ()
-  (ensure-cffi)
-  (%load-tool "search-exa" "libharmonia_search_exa.dylib")
-  (%load-tool "search-brave" "libharmonia_search_brave.dylib")
+  "No-op: search tools will be initialized when IPC components are wired."
+  (%log :info "tool-runtime" "Tool runtime port initialized (IPC stub — not yet wired)")
   t)
 
 (defun tool-runtime-list ()
@@ -32,32 +19,15 @@
     (maphash (lambda (k v) (declare (ignore v)) (push k names)) *tool-libs*)
     (nreverse names)))
 
-(defun %ptr-string (ptr free-fn)
-  (if (cffi:null-pointer-p ptr)
-      nil
-      (unwind-protect
-           (cffi:foreign-string-to-lisp ptr)
-        (funcall free-fn ptr))))
-
-(defun %last-error-string (getter free-fn)
-  (let ((ptr (funcall getter)))
-    (if (cffi:null-pointer-p ptr)
-        ""
-        (unwind-protect
-             (cffi:foreign-string-to-lisp ptr)
-          (funcall free-fn ptr)))))
-
 (defun search-exa (query)
-  (let ((ptr (%exa-query query)))
-    (or (%ptr-string ptr #'%exa-free-string)
-        (error "exa query failed: ~A"
-               (%last-error-string #'%exa-last-error #'%exa-free-string)))))
+  (declare (ignorable query))
+  (%log :warn "tool-runtime" "search-exa called on unwired IPC stub")
+  (error "exa query failed: search-exa not yet wired as IPC component"))
 
 (defun search-brave (query)
-  (let ((ptr (%brave-query query)))
-    (or (%ptr-string ptr #'%brave-free-string)
-        (error "brave query failed: ~A"
-               (%last-error-string #'%brave-last-error #'%brave-free-string)))))
+  (declare (ignorable query))
+  (%log :warn "tool-runtime" "search-brave called on unwired IPC stub")
+  (error "brave query failed: search-brave not yet wired as IPC component"))
 
 (defun %grok-live-search-prompt (query)
   (let ((template (load-prompt :evolution :grok-live-search nil

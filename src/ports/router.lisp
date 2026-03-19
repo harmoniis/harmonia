@@ -1,34 +1,10 @@
-;;; router.lisp — Port: generic LLM provider routing via provider-router CFFI.
+;;; router.lisp — Port: generic LLM provider routing.
+;;;
+;;; NOTE: The provider router is not yet wired as an IPC component.
+;;; All wrappers return sensible defaults and log warnings until
+;;; the Rust provider-router actor is connected to the IPC dispatch.
 
 (in-package :harmonia)
-
-(defparameter *router-lib* nil)
-
-(cffi:defcfun ("harmonia_provider_router_init" %provider-router-init) :int)
-(cffi:defcfun ("harmonia_provider_router_healthcheck" %provider-router-healthcheck) :int)
-(cffi:defcfun ("harmonia_provider_router_complete" %provider-router-complete) :pointer
-  (prompt :string)
-  (model :string))
-(cffi:defcfun ("harmonia_provider_router_complete_for_task" %provider-router-complete-for-task) :pointer
-  (prompt :string)
-  (task-hint :string))
-(cffi:defcfun ("harmonia_provider_router_list_models" %provider-router-list-models) :pointer)
-(cffi:defcfun ("harmonia_provider_router_select_model" %provider-router-select-model) :pointer
-  (task-hint :string))
-(cffi:defcfun ("harmonia_provider_router_list_backends" %provider-router-list-backends) :pointer)
-(cffi:defcfun ("harmonia_provider_router_backend_status" %provider-router-backend-status) :pointer
-  (name :string))
-(cffi:defcfun ("harmonia_provider_router_last_error" %provider-router-last-error) :pointer)
-(cffi:defcfun ("harmonia_provider_router_free_string" %provider-router-free-string) :void
-  (ptr :pointer))
-
-(defun %provider-router-string (thunk)
-  (let ((ptr (funcall thunk)))
-    (if (cffi:null-pointer-p ptr)
-        ""
-        (unwind-protect
-             (cffi:foreign-string-to-lisp ptr)
-          (%provider-router-free-string ptr)))))
 
 (defun %parse-router-sexp (text)
   (when (and text (> (length text) 0) (not (string= text "nil")))
@@ -36,47 +12,42 @@
       (ignore-errors (read-from-string text)))))
 
 (defun init-router-port ()
-  (ensure-cffi)
-  (setf *router-lib*
-        (cffi:load-foreign-library (%release-lib-path "libharmonia_provider_router.dylib")))
-  (let ((status (%provider-router-init)))
-    (runtime-log *runtime* :native-init (list :provider-router status))
-    (zerop status)))
+  "No-op: provider router will be initialized when IPC component is wired."
+  (%log :info "router" "Provider router port initialized (IPC stub — not yet wired)")
+  (runtime-log *runtime* :native-init (list :provider-router :ipc-stub))
+  t)
 
 (defun router-healthcheck ()
-  (and *router-lib* (= (%provider-router-healthcheck) 1)))
+  (%log :warn "router" "healthcheck called on unwired IPC stub")
+  nil)
 
 (defun backend-last-error ()
-  (%provider-router-string #'%provider-router-last-error))
+  "provider-router: not yet wired as IPC component")
 
 (defun backend-complete (prompt &optional model)
-  (with-trace ("backend-complete" :kind :llm
-               :metadata (list :model (or model "auto")
-                               :prompt-length (length (or prompt ""))))
-    (let ((ptr (%provider-router-complete prompt (or model ""))))
-      (if (cffi:null-pointer-p ptr)
-          (error "LLM request failed: ~A" (backend-last-error))
-          (unwind-protect
-               (cffi:foreign-string-to-lisp ptr)
-            (%provider-router-free-string ptr))))))
+  (declare (ignorable prompt model))
+  (%log :warn "router" "backend-complete called on unwired IPC stub (model=~A)" (or model "auto"))
+  (error "LLM request failed: provider-router not yet wired as IPC component"))
 
 (defun backend-complete-for-task (prompt task-hint)
-  (let ((ptr (%provider-router-complete-for-task prompt (or task-hint ""))))
-    (if (cffi:null-pointer-p ptr)
-        (error "LLM request failed: ~A" (backend-last-error))
-        (unwind-protect
-             (cffi:foreign-string-to-lisp ptr)
-          (%provider-router-free-string ptr)))))
+  (declare (ignorable prompt task-hint))
+  (%log :warn "router" "backend-complete-for-task called on unwired IPC stub")
+  (error "LLM request failed: provider-router not yet wired as IPC component"))
 
 (defun backend-list-models ()
-  (%provider-router-string #'%provider-router-list-models))
+  (%log :warn "router" "backend-list-models called on unwired IPC stub")
+  "")
 
 (defun backend-select-model (task-hint)
-  (%provider-router-string (lambda () (%provider-router-select-model (or task-hint "")))))
+  (declare (ignorable task-hint))
+  (%log :warn "router" "backend-select-model called on unwired IPC stub")
+  "")
 
 (defun backend-list-backends ()
-  (%parse-router-sexp (%provider-router-string #'%provider-router-list-backends)))
+  (%log :warn "router" "backend-list-backends called on unwired IPC stub")
+  nil)
 
 (defun backend-backend-status (&optional (name ""))
-  (%parse-router-sexp (%provider-router-string
-                       (lambda () (%provider-router-backend-status (or name ""))))))
+  (declare (ignorable name))
+  (%log :warn "router" "backend-backend-status called on unwired IPC stub")
+  nil)

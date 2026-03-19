@@ -179,25 +179,8 @@
         (error "Production genesis is blocked. Set HARMONIA_ALLOW_PROD_GENESIS=1 explicitly to override.")))))
 
 (defun %ensure-ffi-deps ()
-  (%log :debug "boot" "Loading Quicklisp CFFI...")
-  (let* ((sink (make-broadcast-stream))
-         (*standard-output* sink)
-         (*trace-output* sink)
-         (*debug-io* (make-two-way-stream (make-concatenated-stream) sink))
-         (asdf-pkg (find-package :asdf)))
-    ;; Suppress ASDF "To load ..." messages
-    (when asdf-pkg
-      (let ((sym (find-symbol "*VERBOSE-OUT*" asdf-pkg)))
-        (when (and sym (boundp sym))
-          (setf (symbol-value sym) sink))))
-    (handler-bind ((style-warning #'muffle-warning))
-      (load #P"~/quicklisp/setup.lisp"))
-    (let* ((ql-package (find-package :ql))
-           (quickload (and ql-package (find-symbol "QUICKLOAD" ql-package))))
-      (unless quickload
-        (error "Quicklisp did not provide QL:QUICKLOAD"))
-      (handler-bind ((style-warning #'muffle-warning))
-        (funcall quickload :cffi :silent t)))))
+  "No-op: CFFI is no longer needed. All Rust calls go through IPC."
+  (%log :debug "boot" "IPC transport active — CFFI no longer required."))
 
 ;;; ─── Module loading (style-warnings suppressed) ───────────────────────
 
@@ -225,6 +208,8 @@
 (%load-module (%core-path "harmonic-machine.lisp"))
 (%load-module (%core-path "evolution-versioning.lisp"))
 (%ensure-ffi-deps)
+(%load-module (%core-path "../ports/ipc-client.lisp") "port/ipc-client")
+(%load-module (%core-path "../ports/ipc-ports.lisp") "port/ipc-ports")
 (%load-module (%core-path "../ports/observability.lisp") "port/observability")
 (%load-module (%core-path "../ports/vault.lisp") "port/vault")
 (%load-module (%core-path "../ports/store.lisp") "port/store")

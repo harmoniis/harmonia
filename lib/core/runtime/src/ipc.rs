@@ -142,6 +142,17 @@ async fn dispatch_sexp(sexp: &str, supervisor: &ActorRef<RuntimeMsg>) -> Option<
     } else if trimmed.starts_with("(:list") {
         let reply = ractor::call_t!(supervisor, RuntimeMsg::ListAll, 5000);
         Some(reply.unwrap_or_else(|_| "()".to_string()))
+    } else if trimmed.starts_with("(:component") {
+        // Component dispatch: (:component "vault" :op "set-secret" :symbol "x" :value "y")
+        let component = extract_string_value(trimmed, ":component").unwrap_or_default();
+        let reply = ractor::call_t!(
+            supervisor,
+            RuntimeMsg::ComponentCall,
+            10000,
+            component,
+            trimmed.to_string()
+        );
+        Some(reply.unwrap_or_else(|_| "(:error \"component call timeout\")".to_string()))
     } else if trimmed.starts_with("(:shutdown") {
         let _ = supervisor.cast(RuntimeMsg::Shutdown);
         Some("(:ok)".to_string())

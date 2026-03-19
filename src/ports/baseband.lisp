@@ -1,41 +1,8 @@
-;;; baseband.lisp — Port: signal baseband processor for frontend management via gateway CFFI.
+;;; baseband.lisp — Port: signal baseband processor for frontend management via IPC.
 
 (in-package :harmonia)
 
-(defparameter *gateway-lib* nil)
-
-(cffi:defcfun ("harmonia_gateway_version" %gateway-version) :string)
-(cffi:defcfun ("harmonia_gateway_healthcheck" %gateway-healthcheck) :int)
-(cffi:defcfun ("harmonia_gateway_init" %gateway-init) :int)
-(cffi:defcfun ("harmonia_gateway_register" %gateway-register) :int
-  (name :string)
-  (so-path :string)
-  (config-sexp :string)
-  (security-label :string))
-(cffi:defcfun ("harmonia_gateway_unregister" %gateway-unregister) :int
-  (name :string))
-(cffi:defcfun ("harmonia_gateway_poll" %gateway-poll) :string)
-(cffi:defcfun ("harmonia_gateway_send" %gateway-send) :int
-  (frontend-name :string)
-  (sub-channel :string)
-  (payload :string))
-(cffi:defcfun ("harmonia_gateway_list_frontends" %gateway-list-frontends) :string)
-(cffi:defcfun ("harmonia_gateway_frontend_status" %gateway-frontend-status) :string
-  (name :string))
-(cffi:defcfun ("harmonia_gateway_list_channels" %gateway-list-channels) :string
-  (name :string))
-(cffi:defcfun ("harmonia_gateway_shutdown" %gateway-shutdown) :int)
-(cffi:defcfun ("harmonia_gateway_reload" %gateway-reload) :int
-  (name :string))
-(cffi:defcfun ("harmonia_gateway_crash_count" %gateway-crash-count) :int
-  (name :string))
-(cffi:defcfun ("harmonia_gateway_free_string" %gateway-free-string) :void
-  (ptr :pointer))
-(cffi:defcfun ("harmonia_gateway_set_command_query" %gateway-set-command-query) :int
-  (handler :pointer))
-(cffi:defcfun ("harmonia_gateway_set_payment_policy_query" %gateway-set-payment-policy-query) :int
-  (handler :pointer))
-(cffi:defcfun ("harmonia_gateway_pending_exit" %gateway-pending-exit) :int)
+;;; --- Pure Lisp helpers (no CFFI) ---
 
 (defun %parse-gateway-sexp (raw)
   (cond
@@ -44,127 +11,135 @@
      (let ((*read-eval* nil))
        (read-from-string raw)))))
 
-;;; ─── Command dispatch callback ─────────────────────────────────────────
-;;; The gateway calls this for delegated commands (/status, /backends, etc.)
-;;; that need Lisp runtime state. The gateway has already enforced security.
+;;; --- Command dispatch callbacks ---
+;;; NOTE: With IPC transport, callbacks from Rust into Lisp are no longer
+;;; registered via cffi:defcallback. Instead, the Rust gateway actor intercepts
+;;; commands (/status, /backends, /chronicle, etc.) and delegates them over IPC.
+;;; The dispatch functions %gateway-dispatch-command and
+;;; %gateway-dispatch-payment-policy still exist in system-commands.lisp and
+;;; are invoked by the runtime when it receives an IPC request from the gateway.
 
-(cffi:defcallback gateway-command-dispatch :pointer
-    ((command :string) (args :string))
-  (handler-case
-      (let ((result (%gateway-dispatch-command command args)))
-        (if result
-            (cffi:foreign-string-alloc result)
-            (cffi:null-pointer)))
-    (error (e)
-      (cffi:foreign-string-alloc
-       (format nil "[system] Error executing ~A: ~A" command e)))))
-
-(cffi:defcallback gateway-payment-policy-dispatch :pointer
-    ((summary :string))
-  (handler-case
-      (let ((result (%gateway-dispatch-payment-policy summary)))
-        (if result
-            (cffi:foreign-string-alloc result)
-            (cffi:null-pointer)))
-    (error (e)
-      (runtime-log *runtime* :gateway-payment-policy-error (list :error (format nil "~A" e)))
-      (cffi:null-pointer))))
+;;; --- Init ---
 
 (defun init-baseband-port ()
-  (ensure-cffi)
-  (setf *gateway-lib*
-        (cffi:load-foreign-library (%release-lib-path "libharmonia_gateway.dylib")))
-  (let ((rc (%gateway-init)))
-    ;; Register gateway as actor through the unified registry (in parallel-agents dylib)
-    (when (and (zerop rc) *runtime*)
+  "Initialize the gateway via IPC. Register gateway as actor."
+  (let ((reply (ipc-call "(:component \"gateway\" :op \"init\")")))
+    ;; Register gateway as actor through the unified registry
+    (when (and (ipc-reply-ok-p reply) *runtime*)
       (ignore-errors
         (let ((actor-id (actor-register "gateway")))
           (setf (runtime-state-gateway-actor-id *runtime*) actor-id)
           (setf (gethash actor-id (runtime-state-actor-kinds *runtime*)) "gateway"))))
-    ;; Register the command dispatch callback so the gateway can delegate
-    ;; /status, /backends, /chronicle etc. back to Lisp for runtime state access
-    (when (zerop rc)
-      (let ((cb-rc (%gateway-set-command-query
-                    (cffi:callback gateway-command-dispatch))))
-        (when (zerop cb-rc)
-          (runtime-log *runtime* :gateway-command-query (list :status "registered")))))
-    (when (zerop rc)
-      (let ((cb-rc (%gateway-set-payment-policy-query
-                    (cffi:callback gateway-payment-policy-dispatch))))
-        (when (zerop cb-rc)
-          (runtime-log *runtime* :gateway-payment-policy-query (list :status "registered")))))
-    (runtime-log *runtime* :gateway-init (list :status rc))
-    (zerop rc)))
+    ;; Command and payment-policy callbacks are now handled by the Rust
+    ;; gateway actor via IPC dispatch — no callback registration needed.
+    (runtime-log *runtime* :gateway-init
+                 (list :status (if (ipc-reply-ok-p reply) 0 -1)))
+    (ipc-reply-ok-p reply)))
+
+;;; --- Gateway API wrappers ---
 
 (defun gateway-version ()
-  (%gateway-version))
+  (or (ipc-extract-value
+       (ipc-call "(:component \"gateway\" :op \"version\")"))
+      "unknown"))
 
 (defun gateway-healthcheck ()
-  (= (%gateway-healthcheck) 1))
+  (let ((reply (ipc-call "(:component \"gateway\" :op \"healthcheck\")")))
+    (and reply (ipc-reply-ok-p reply))))
 
 (defun gateway-register (name so-path config-sexp security-label)
-  (let ((rc (%gateway-register name so-path config-sexp security-label)))
-    (unless (zerop rc)
-      (error "gateway-register failed for ~A (rc=~D)" name rc))
+  (let ((reply (ipc-call
+                (format nil "(:component \"gateway\" :op \"register\" :name \"~A\" :so-path \"~A\" :config \"~A\" :security-label \"~A\")"
+                        (sexp-escape-lisp name) (sexp-escape-lisp so-path)
+                        (sexp-escape-lisp config-sexp) (sexp-escape-lisp security-label)))))
+    (when (ipc-reply-error-p reply)
+      (error "gateway-register failed for ~A: ~A" name reply))
     (ignore-errors (%register-loaded-lib name so-path))
     t))
 
 (defun gateway-unregister (name)
-  (let ((rc (%gateway-unregister name)))
-    (unless (zerop rc)
-      (error "gateway-unregister failed for ~A (rc=~D)" name rc))
+  (let ((reply (ipc-call
+                (format nil "(:component \"gateway\" :op \"unregister\" :name \"~A\")"
+                        (sexp-escape-lisp name)))))
+    (when (ipc-reply-error-p reply)
+      (error "gateway-unregister failed for ~A: ~A" name reply))
     t))
 
 (defun gateway-reload (name)
-  "Hot-reload a frontend by name. The gateway unloads, re-dlopen, and re-init."
-  (let ((rc (%gateway-reload name)))
-    (if (zerop rc)
+  "Hot-reload a frontend by name."
+  (let ((reply (ipc-call
+                (format nil "(:component \"gateway\" :op \"reload\" :name \"~A\")"
+                        (sexp-escape-lisp name)))))
+    (if (ipc-reply-ok-p reply)
         (progn
           (ignore-errors (%mark-lib-recovered name))
           (%log :info "gateway" "Reloaded frontend ~A" name)
           t)
         (progn
-          (%log :error "gateway" "Reload failed for ~A (rc=~D)" name rc)
+          (%log :error "gateway" "Reload failed for ~A: ~A" name reply)
           nil))))
 
 (defun gateway-crash-count (name)
   "Return the crash count for a frontend from the gateway's tracking."
-  (%gateway-crash-count name))
+  (let ((reply (ipc-call
+                (format nil "(:component \"gateway\" :op \"crash-count\" :name \"~A\")"
+                        (sexp-escape-lisp name)))))
+    (or (ipc-extract-u64 reply ":result") 0)))
 
 (defun gateway-poll ()
-  (%parse-gateway-sexp (%gateway-poll)))
+  (%parse-gateway-sexp (ipc-gateway-poll)))
 
 (defun baseband-poll ()
   (gateway-poll))
 
 (defun gateway-send (frontend-name sub-channel payload)
-  (let ((rc (%gateway-send frontend-name sub-channel payload)))
-    (unless (zerop rc)
-      (error "gateway-send failed for ~A/~A (rc=~D)" frontend-name sub-channel rc))
+  (let ((reply (ipc-gateway-send frontend-name sub-channel payload)))
+    (when (ipc-reply-error-p reply)
+      (error "gateway-send failed for ~A/~A: ~A" frontend-name sub-channel reply))
     t))
 
 (defun baseband-send (channel-kind channel-address payload)
   (gateway-send channel-kind channel-address payload))
 
 (defun gateway-list-frontends ()
-  (%parse-gateway-sexp (%gateway-list-frontends)))
+  (%parse-gateway-sexp
+   (or (ipc-extract-value
+        (ipc-call "(:component \"gateway\" :op \"list-frontends\")"))
+       "nil")))
 
 (defun gateway-frontend-status (name)
-  (%parse-gateway-sexp (%gateway-frontend-status name)))
+  (%parse-gateway-sexp
+   (or (ipc-extract-value
+        (ipc-call (format nil "(:component \"gateway\" :op \"frontend-status\" :name \"~A\")"
+                          (sexp-escape-lisp name))))
+       "nil")))
 
 (defun baseband-channel-status (channel-kind)
   (gateway-frontend-status channel-kind))
 
 (defun gateway-list-channels (name)
-  (%parse-gateway-sexp (%gateway-list-channels name)))
+  (%parse-gateway-sexp
+   (or (ipc-extract-value
+        (ipc-call (format nil "(:component \"gateway\" :op \"list-channels\" :name \"~A\")"
+                          (sexp-escape-lisp name))))
+       "nil")))
 
 (defun baseband-list-channels (name)
   (gateway-list-channels name))
 
 (defun gateway-shutdown ()
-  (let ((rc (%gateway-shutdown)))
-    (runtime-log *runtime* :gateway-shutdown (list :status rc))
-    (zerop rc)))
+  (let ((reply (ipc-call "(:component \"gateway\" :op \"shutdown\")")))
+    (runtime-log *runtime* :gateway-shutdown
+                 (list :status (if (ipc-reply-ok-p reply) 0 -1)))
+    (ipc-reply-ok-p reply)))
+
+(defun gateway-pending-exit ()
+  "Check if the gateway has a pending exit request."
+  (let ((reply (ipc-call "(:component \"gateway\" :op \"pending-exit\")")))
+    (and reply (ipc-reply-ok-p reply)
+         (search ":result 1" reply))))
+
+;;; --- Pure Lisp config helpers (unchanged) ---
 
 (defun %source-config-root ()
   (merge-pathnames "config/" (merge-pathnames "../../" *boot-file*)))
@@ -188,26 +163,16 @@
       (t source-baseband))))
 
 (defun %normalize-frontend-so-path (path)
-  (let* ((base (if (search "target/release/" path)
-                   (concatenate 'string
-                                "target/release/"
-                                (subseq path (1+ (position #\/ path :from-end t))))
-                   path))
-         (dot (position #\. base :from-end t))
-         (stem (if dot (subseq base 0 dot) base))
-         (ext (if dot (string-downcase (subseq base (1+ dot))) ""))
-         (normalized (if (member ext '("dylib" "so" "dll") :test #'string=)
-                         (concatenate 'string stem "." (%shared-lib-extension))
-                         (concatenate 'string base "." (%shared-lib-extension))))
+  "Normalize a frontend .so/.dylib path for the current platform."
+  (let* ((leaf (subseq path (1+ (or (position #\/ path :from-end t) -1))))
          (lib-dir (%boot-env "HARMONIA_LIB_DIR")))
     (if (and lib-dir (> (length lib-dir) 0))
         (let* ((root (if (char= (char lib-dir (1- (length lib-dir))) #\/)
                          lib-dir
                          (concatenate 'string lib-dir "/")))
-               (leaf (subseq normalized (1+ (position #\/ normalized :from-end t))))
                (candidate (concatenate 'string root leaf)))
-          (if (probe-file candidate) candidate normalized))
-        normalized)))
+          (if (probe-file candidate) candidate path))
+        path)))
 
 (defun %vault-keys-ready-p (vault-keys)
   (if (null vault-keys)

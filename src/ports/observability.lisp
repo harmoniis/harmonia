@@ -1,60 +1,34 @@
-;;; observability.lisp — Port: distributed tracing via LangSmith CFFI.
+;;; observability.lisp — Port: distributed tracing via IPC.
 ;;;
 ;;; Non-blocking background trace submission. All trace calls are no-ops when
 ;;; observability is disabled or the API key is not configured.
 ;;; Observability must NEVER block the agent — all errors are silently ignored.
+;;;
+;;; NOTE: observability is not yet wired as an IPC component.
+;;; Trace calls are no-ops until the Rust actor is connected.
 
 (in-package :harmonia)
 
-(defparameter *observability-lib* nil)
 (defparameter *observability-initialized* nil)
-
-;;; --- CFFI declarations ---
-
-(cffi:defcfun ("harmonia_observability_init" %observability-init) :int
-  (config-sexp :string))
-
-(cffi:defcfun ("harmonia_observability_trace_start" %observability-trace-start) :int64
-  (name :string)
-  (kind :string)
-  (parent-id :int64)
-  (metadata-sexp :string))
-
-(cffi:defcfun ("harmonia_observability_trace_end" %observability-trace-end) :int
-  (trace-handle :int64)
-  (status :string)
-  (output-sexp :string))
-
-(cffi:defcfun ("harmonia_observability_trace_event" %observability-trace-event) :int
-  (name :string)
-  (kind :string)
-  (metadata-sexp :string))
-
-(cffi:defcfun ("harmonia_observability_flush" %observability-flush) :int)
-
-(cffi:defcfun ("harmonia_observability_shutdown" %observability-shutdown) :int)
 
 ;;; --- Port API ---
 
 (defun init-observability-port ()
-  "Load the observability dylib and initialize tracing.
+  "Initialize observability tracing via IPC.
    Non-fatal on failure — the agent runs without tracing."
   (handler-case
       (progn
-        (ensure-cffi)
-        (setf *observability-lib*
-              (cffi:load-foreign-library
-               (%release-lib-path "libharmonia_observability.dylib")))
-        (let ((rc (%observability-init "")))
-          (unless (zerop rc)
-            (%log :warn "observability" "init returned non-zero: ~D" rc)))
-        (setf *observability-initialized* t)
+        (let ((reply (ipc-call "(:component \"observability\" :op \"init\")")))
+          (when (and reply (ipc-reply-ok-p reply))
+            (setf *observability-initialized* t)))
         ;; Register as actor through the unified registry
-        (when *runtime*
+        (when (and *observability-initialized* *runtime*)
           (ignore-errors
             (let ((actor-id (actor-register "observability")))
               (setf (gethash actor-id (runtime-state-actor-kinds *runtime*)) "observability"))))
-        (%log :info "observability" "Initialized.")
+        (if *observability-initialized*
+            (%log :info "observability" "Initialized via IPC.")
+            (%log :info "observability" "Not available (IPC component not wired — non-fatal)."))
         t)
     (error (e)
       (%log :warn "observability" "Init failed (non-fatal): ~A" e)
@@ -67,39 +41,45 @@
    KIND is one of: :chain :llm :tool :agent"
   (when *observability-initialized*
     (ignore-errors
-      (%observability-trace-start
-       (or name "unknown")
-       (string-downcase (symbol-name (or kind :chain)))
-       (or parent-id 0)
-       (if metadata (format nil "~S" metadata) "")))))
+      (let ((reply (ipc-call
+                    (format nil "(:component \"observability\" :op \"trace-start\" :name \"~A\" :kind \"~A\" :parent-id ~D :metadata \"~A\")"
+                            (sexp-escape-lisp (or name "unknown"))
+                            (string-downcase (symbol-name (or kind :chain)))
+                            (or parent-id 0)
+                            (sexp-escape-lisp (if metadata (format nil "~S" metadata) ""))))))
+        (or (ipc-extract-u64 reply ":handle") 0)))))
 
 (defun trace-end (handle &key (status :success) output)
   "End a trace span. HANDLE 0 = no-op."
   (when (and *observability-initialized* handle (plusp handle))
     (ignore-errors
-      (%observability-trace-end
-       handle
-       (string-downcase (symbol-name (or status :success)))
-       (if output (format nil "~S" output) "")))))
+      (ipc-call
+       (format nil "(:component \"observability\" :op \"trace-end\" :handle ~D :status \"~A\" :output \"~A\")"
+               handle
+               (string-downcase (symbol-name (or status :success)))
+               (sexp-escape-lisp (if output (format nil "~S" output) "")))))))
 
 (defun trace-event (name kind &key metadata)
   "Fire-and-forget trace event."
   (when *observability-initialized*
     (ignore-errors
-      (%observability-trace-event
-       (or name "unknown")
-       (string-downcase (symbol-name (or kind :chain)))
-       (if metadata (format nil "~S" metadata) "")))))
+      (ipc-call
+       (format nil "(:component \"observability\" :op \"trace-event\" :name \"~A\" :kind \"~A\" :metadata \"~A\")"
+               (sexp-escape-lisp (or name "unknown"))
+               (string-downcase (symbol-name (or kind :chain)))
+               (sexp-escape-lisp (if metadata (format nil "~S" metadata) "")))))))
 
 (defun trace-flush ()
-  "Flush pending traces to LangSmith."
+  "Flush pending traces."
   (when *observability-initialized*
-    (ignore-errors (%observability-flush))))
+    (ignore-errors
+      (ipc-call "(:component \"observability\" :op \"flush\")"))))
 
 (defun trace-shutdown ()
   "Shut down the observability subsystem."
   (when *observability-initialized*
-    (ignore-errors (%observability-shutdown))
+    (ignore-errors
+      (ipc-call "(:component \"observability\" :op \"shutdown\")"))
     (setf *observability-initialized* nil)))
 
 ;;; --- with-trace macro ---

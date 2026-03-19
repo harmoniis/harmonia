@@ -1,8 +1,7 @@
-;;; swarm.lisp — Port: parallel subagent orchestration via parallel-agents CFFI.
+;;; swarm.lisp — Port: parallel subagent orchestration via IPC.
 
 (in-package :harmonia)
 
-(defparameter *parallel-agents-lib* nil)
 (defparameter *parallel-subagent-count* 1)
 (defparameter *swarm-full-config* nil
   "Full parsed swarm config plist — loaded by parallel-load-policy.")
@@ -20,280 +19,224 @@
       (config-get-for "parallel-agents-core" "policy-path")
       (concatenate 'string (%parallel-state-root) "/swarm.sexp")))
 
-(cffi:defcfun ("harmonia_parallel_agents_init" %parallel-init) :int)
-(cffi:defcfun ("harmonia_parallel_agents_set_model_price" %parallel-set-price) :int
-  (model :string) (in-price :double) (out-price :double))
-(cffi:defcfun ("harmonia_parallel_agents_submit" %parallel-submit) :long-long
-  (prompt :string) (model :string))
-(cffi:defcfun ("harmonia_parallel_agents_run_pending" %parallel-run-pending) :int
-  (max-parallel :int))
-(cffi:defcfun ("harmonia_parallel_agents_run_pending_async" %parallel-run-pending-async) :pointer
-  (max-parallel :int))
-(cffi:defcfun ("harmonia_parallel_agents_task_result" %parallel-task-result) :pointer
-  (task-id :long-long))
-(cffi:defcfun ("harmonia_parallel_agents_report" %parallel-report) :pointer)
-(cffi:defcfun ("harmonia_parallel_agents_last_error" %parallel-last-error) :pointer)
-(cffi:defcfun ("harmonia_parallel_agents_free_string" %parallel-free-string) :void
-  (ptr :pointer))
-
-;;; --- Tmux CLI Agent CFFI bindings ---
-
-(cffi:defcfun ("harmonia_tmux_spawn" %tmux-spawn) :long-long
-  (cli-type :string) (workdir :string) (prompt :string))
-(cffi:defcfun ("harmonia_tmux_poll" %tmux-poll) :pointer (id :long-long))
-(cffi:defcfun ("harmonia_tmux_kill" %tmux-kill) :int (id :long-long))
-(cffi:defcfun ("harmonia_tmux_capture" %tmux-capture) :pointer
-  (id :long-long) (history :int))
-(cffi:defcfun ("harmonia_tmux_swarm_poll" %tmux-swarm-poll) :pointer)
-(cffi:defcfun ("harmonia_tmux_send" %tmux-send) :int
-  (id :long-long) (input :string))
-(cffi:defcfun ("harmonia_tmux_send_key" %tmux-send-key) :int
-  (id :long-long) (key :string))
-(cffi:defcfun ("harmonia_tmux_approve" %tmux-approve) :int (id :long-long))
-(cffi:defcfun ("harmonia_tmux_deny" %tmux-deny) :int (id :long-long))
-(cffi:defcfun ("harmonia_tmux_confirm_yes" %tmux-confirm-yes) :int (id :long-long))
-(cffi:defcfun ("harmonia_tmux_confirm_no" %tmux-confirm-no) :int (id :long-long))
-(cffi:defcfun ("harmonia_tmux_select" %tmux-select) :int
-  (id :long-long) (index :int))
-(cffi:defcfun ("harmonia_tmux_interrupt" %tmux-interrupt) :int (id :long-long))
-
-;;; --- Unified Actor Protocol CFFI bindings ---
-
-(cffi:defcfun ("harmonia_actor_register" %actor-register) :long-long (kind :string))
-(cffi:defcfun ("harmonia_actor_heartbeat" %actor-heartbeat) :int (id :long-long) (bytes :unsigned-long-long))
-(cffi:defcfun ("harmonia_actor_post" %actor-post) :int (source :long-long) (target :long-long) (payload :string))
-(cffi:defcfun ("harmonia_actor_drain" %actor-drain) :pointer)
-(cffi:defcfun ("harmonia_actor_state" %actor-state) :pointer (id :long-long))
-(cffi:defcfun ("harmonia_actor_list" %actor-list) :pointer)
-(cffi:defcfun ("harmonia_actor_deregister" %actor-deregister) :int (id :long-long))
-(cffi:defcfun ("harmonia_actor_free_string" %actor-free-string) :void (ptr :pointer))
-
-;;; --- Unified Actor Protocol Lisp wrappers ---
+;;; --- Unified Actor Protocol Lisp wrappers (via IPC) ---
 
 (defun actor-register (kind)
   "Register an actor of KIND (string: gateway, cli-agent, llm-task, chronicle, tailnet).
    Returns actor-id (>= 1) or signals error."
-  (let ((id (%actor-register kind)))
-    (when (minusp id)
+  (let ((id (ipc-actor-register kind)))
+    (unless (and id (plusp id))
       (error "actor-register failed for kind ~A" kind))
     id))
 
 (defun actor-heartbeat (id &optional (bytes-delta 0))
   "Report progress heartbeat for actor ID."
-  (let ((rc (%actor-heartbeat id bytes-delta)))
-    (unless (zerop rc)
-      (error "actor-heartbeat failed for actor ~D" id))
-    t))
+  (ipc-actor-heartbeat id bytes-delta)
+  t)
 
 (defun actor-post (source target payload-sexp)
   "Post a message to the unified mailbox."
-  (let ((rc (%actor-post source target payload-sexp)))
-    (unless (zerop rc)
-      (error "actor-post failed: source=~D target=~D" source target))
-    t))
+  (ipc-actor-post source target payload-sexp)
+  t)
 
 (defun actor-drain ()
   "Drain all pending messages from the unified actor mailbox. Returns sexp list."
-  (let ((ptr (%actor-drain)))
-    (if (cffi:null-pointer-p ptr)
-        '()
-        (let ((raw (unwind-protect
-                        (cffi:foreign-string-to-lisp ptr)
-                     (%actor-free-string ptr))))
-          (handler-case
-              (let ((*read-eval* nil))
-                (read-from-string raw))
-            (error () '()))))))
+  (let ((raw (ipc-actor-drain)))
+    (handler-case
+        (let ((*read-eval* nil))
+          (read-from-string raw))
+      (error () '()))))
 
 (defun actor-state (id)
   "Get actor state as parsed sexp."
-  (let ((ptr (%actor-state id)))
-    (if (cffi:null-pointer-p ptr)
-        nil
-        (let ((raw (unwind-protect
-                        (cffi:foreign-string-to-lisp ptr)
-                     (%actor-free-string ptr))))
-          (handler-case
-              (let ((*read-eval* nil))
-                (read-from-string raw))
-            (error () nil))))))
+  (let ((raw (ipc-actor-state id)))
+    (when raw
+      (handler-case
+          (let ((*read-eval* nil))
+            (read-from-string raw))
+        (error () nil)))))
 
 (defun actor-list ()
   "List all registered actors as parsed sexp."
-  (let ((ptr (%actor-list)))
-    (if (cffi:null-pointer-p ptr)
-        '()
-        (let ((raw (unwind-protect
-                        (cffi:foreign-string-to-lisp ptr)
-                     (%actor-free-string ptr))))
-          (handler-case
-              (let ((*read-eval* nil))
-                (read-from-string raw))
-            (error () '()))))))
+  (let ((raw (ipc-actor-list)))
+    (handler-case
+        (let ((*read-eval* nil))
+          (read-from-string raw))
+      (error () '()))))
 
 (defun actor-deregister (id)
   "Deregister an actor by ID."
-  (let ((rc (%actor-deregister id)))
-    (zerop rc)))
+  (let ((reply (ipc-actor-deregister id)))
+    (and reply (ipc-reply-ok-p reply))))
 
 ;;; --- Legacy mailbox drain (delegates to unified) ---
-
-(cffi:defcfun ("harmonia_actor_drain_mailbox" %actor-drain-mailbox) :pointer)
-
-;;; --- Tmux Lisp wrappers ---
-
-(defun tmux-spawn (cli-type workdir prompt)
-  "Spawn a tmux CLI agent. Returns agent id (>= 0) or signals error."
-  (let ((id (%tmux-spawn cli-type workdir (or prompt ""))))
-    (when (minusp id)
-      (error "tmux spawn failed: ~A" (parallel-last-error)))
-    id))
-
-(defun tmux-poll (id)
-  "Poll a tmux agent state. Returns sexp string."
-  (%ptr->string (%tmux-poll id)))
-
-(defun tmux-kill (id)
-  "Kill a tmux agent."
-  (let ((rc (%tmux-kill id)))
-    (unless (zerop rc)
-      (error "tmux kill failed: ~A" (parallel-last-error)))
-    t))
-
-(defun tmux-capture (id &optional (history 200))
-  "Capture terminal output of a tmux agent."
-  (%ptr->string (%tmux-capture id history)))
-
-(defun tmux-swarm-poll ()
-  "Poll all active tmux agents."
-  (%ptr->string (%tmux-swarm-poll)))
-
-(defun tmux-send-input (id input)
-  "Send text input followed by Enter to a tmux CLI agent."
-  (let ((rc (%tmux-send id (or input ""))))
-    (unless (zerop rc)
-      (error "tmux send failed: ~A" (parallel-last-error)))
-    t))
-
-(defun tmux-send-key (id key)
-  "Send a special key (Enter, Tab, Escape, Up, Down, C-c, etc.) to a tmux agent."
-  (let ((rc (%tmux-send-key id (or key ""))))
-    (unless (zerop rc)
-      (error "tmux send-key failed: ~A" (parallel-last-error)))
-    t))
-
-(defun tmux-approve (id)
-  "Approve a permission prompt on a tmux CLI agent."
-  (let ((rc (%tmux-approve id)))
-    (unless (zerop rc)
-      (error "tmux approve failed: ~A" (parallel-last-error)))
-    t))
-
-(defun tmux-deny (id)
-  "Deny a permission prompt on a tmux CLI agent."
-  (let ((rc (%tmux-deny id)))
-    (unless (zerop rc)
-      (error "tmux deny failed: ~A" (parallel-last-error)))
-    t))
-
-(defun tmux-confirm-yes (id)
-  "Confirm yes on a tmux CLI agent confirmation prompt."
-  (let ((rc (%tmux-confirm-yes id)))
-    (unless (zerop rc)
-      (error "tmux confirm-yes failed: ~A" (parallel-last-error)))
-    t))
-
-(defun tmux-confirm-no (id)
-  "Confirm no on a tmux CLI agent confirmation prompt."
-  (let ((rc (%tmux-confirm-no id)))
-    (unless (zerop rc)
-      (error "tmux confirm-no failed: ~A" (parallel-last-error)))
-    t))
-
-(defun tmux-select-option (id index)
-  "Select option by INDEX (0-based) on a tmux CLI agent selection menu."
-  (let ((rc (%tmux-select id index)))
-    (unless (zerop rc)
-      (error "tmux select failed: ~A" (parallel-last-error)))
-    t))
-
-(defun tmux-interrupt (id)
-  "Send Ctrl+C interrupt to a tmux CLI agent."
-  (let ((rc (%tmux-interrupt id)))
-    (unless (zerop rc)
-      (error "tmux interrupt failed: ~A" (parallel-last-error)))
-    t))
 
 (defun actor-drain-mailbox ()
   "Drain all pending actor messages from unified actor mailbox. Returns sexp list.
    Delegates to the unified actor-drain which reads from actor-protocol registry."
   (actor-drain))
 
+;;; --- Tmux Lisp wrappers (via IPC component dispatch) ---
+
+(defun tmux-spawn (cli-type workdir prompt)
+  "Spawn a tmux CLI agent. Returns agent id (>= 0) or signals error."
+  (let* ((reply (ipc-call
+                 (format nil "(:component \"tmux\" :op \"spawn\" :cli-type \"~A\" :workdir \"~A\" :prompt \"~A\")"
+                         (sexp-escape-lisp cli-type)
+                         (sexp-escape-lisp workdir)
+                         (sexp-escape-lisp (or prompt "")))))
+         (id (when reply (ipc-extract-u64 reply ":id"))))
+    (unless (and id (>= id 0))
+      (error "tmux spawn failed: ~A" (or reply "no reply")))
+    id))
+
+(defun tmux-poll (id)
+  "Poll a tmux agent state. Returns sexp string."
+  (ipc-extract-value
+   (ipc-call (format nil "(:component \"tmux\" :op \"poll\" :id ~D)" id))))
+
+(defun tmux-kill (id)
+  "Kill a tmux agent."
+  (let ((reply (ipc-call (format nil "(:component \"tmux\" :op \"kill\" :id ~D)" id))))
+    (when (ipc-reply-error-p reply)
+      (error "tmux kill failed: ~A" reply))
+    t))
+
+(defun tmux-capture (id &optional (history 200))
+  "Capture terminal output of a tmux agent."
+  (ipc-extract-value
+   (ipc-call (format nil "(:component \"tmux\" :op \"capture\" :id ~D :history ~D)" id history))))
+
+(defun tmux-swarm-poll ()
+  "Poll all active tmux agents."
+  (ipc-extract-value
+   (ipc-call "(:component \"tmux\" :op \"swarm-poll\")")))
+
+(defun tmux-send-input (id input)
+  "Send text input followed by Enter to a tmux CLI agent."
+  (let ((reply (ipc-call
+                (format nil "(:component \"tmux\" :op \"send\" :id ~D :input \"~A\")"
+                        id (sexp-escape-lisp (or input ""))))))
+    (when (ipc-reply-error-p reply)
+      (error "tmux send failed: ~A" reply))
+    t))
+
+(defun tmux-send-key (id key)
+  "Send a special key (Enter, Tab, Escape, Up, Down, C-c, etc.) to a tmux agent."
+  (let ((reply (ipc-call
+                (format nil "(:component \"tmux\" :op \"send-key\" :id ~D :key \"~A\")"
+                        id (sexp-escape-lisp (or key ""))))))
+    (when (ipc-reply-error-p reply)
+      (error "tmux send-key failed: ~A" reply))
+    t))
+
+(defun tmux-approve (id)
+  "Approve a permission prompt on a tmux CLI agent."
+  (let ((reply (ipc-call (format nil "(:component \"tmux\" :op \"approve\" :id ~D)" id))))
+    (when (ipc-reply-error-p reply)
+      (error "tmux approve failed: ~A" reply))
+    t))
+
+(defun tmux-deny (id)
+  "Deny a permission prompt on a tmux CLI agent."
+  (let ((reply (ipc-call (format nil "(:component \"tmux\" :op \"deny\" :id ~D)" id))))
+    (when (ipc-reply-error-p reply)
+      (error "tmux deny failed: ~A" reply))
+    t))
+
+(defun tmux-confirm-yes (id)
+  "Confirm yes on a tmux CLI agent confirmation prompt."
+  (let ((reply (ipc-call (format nil "(:component \"tmux\" :op \"confirm-yes\" :id ~D)" id))))
+    (when (ipc-reply-error-p reply)
+      (error "tmux confirm-yes failed: ~A" reply))
+    t))
+
+(defun tmux-confirm-no (id)
+  "Confirm no on a tmux CLI agent confirmation prompt."
+  (let ((reply (ipc-call (format nil "(:component \"tmux\" :op \"confirm-no\" :id ~D)" id))))
+    (when (ipc-reply-error-p reply)
+      (error "tmux confirm-no failed: ~A" reply))
+    t))
+
+(defun tmux-select-option (id index)
+  "Select option by INDEX (0-based) on a tmux CLI agent selection menu."
+  (let ((reply (ipc-call (format nil "(:component \"tmux\" :op \"select\" :id ~D :index ~D)" id index))))
+    (when (ipc-reply-error-p reply)
+      (error "tmux select failed: ~A" reply))
+    t))
+
+(defun tmux-interrupt (id)
+  "Send Ctrl+C interrupt to a tmux CLI agent."
+  (let ((reply (ipc-call (format nil "(:component \"tmux\" :op \"interrupt\" :id ~D)" id))))
+    (when (ipc-reply-error-p reply)
+      (error "tmux interrupt failed: ~A" reply))
+    t))
+
+;;; --- Init ---
+
 (defun init-swarm-port ()
-  (ensure-cffi)
-  (setf *parallel-agents-lib*
-        (cffi:load-foreign-library (%release-lib-path "libharmonia_parallel_agents.dylib")))
-  (let ((rc (%parallel-init)))
+  (let ((reply (ipc-call "(:component \"parallel\" :op \"init\")")))
     (parallel-load-policy)
-    (runtime-log *runtime* :parallel-agents-init (list :status rc))
-    (zerop rc)))
+    (runtime-log *runtime* :parallel-agents-init
+                 (list :status (if (ipc-reply-ok-p reply) 0 -1)))
+    (ipc-reply-ok-p reply)))
 
 (defun parallel-last-error ()
-  (let ((ptr (%parallel-last-error)))
-    (if (cffi:null-pointer-p ptr)
-        ""
-        (unwind-protect
-             (cffi:foreign-string-to-lisp ptr)
-          (%parallel-free-string ptr)))))
+  "Parallel agent errors are reported via IPC reply; this returns empty for compat."
+  "")
 
 (defun parallel-set-model-price (model in-price out-price)
-  (let ((rc (%parallel-set-price model (coerce in-price 'double-float) (coerce out-price 'double-float))))
-    (unless (zerop rc)
-      (error "parallel set price failed: ~A" (parallel-last-error)))
+  (let ((reply (ipc-call
+                (format nil "(:component \"parallel\" :op \"set-model-price\" :model \"~A\" :in-price ~F :out-price ~F)"
+                        (sexp-escape-lisp model)
+                        (coerce in-price 'double-float)
+                        (coerce out-price 'double-float)))))
+    (when (ipc-reply-error-p reply)
+      (error "parallel set price failed: ~A" reply))
     t))
 
 (defun parallel-submit (prompt model)
-  (let ((id (%parallel-submit prompt model)))
-    (when (minusp id)
-      (error "parallel submit failed: ~A" (parallel-last-error)))
+  (let* ((reply (ipc-call
+                 (format nil "(:component \"parallel\" :op \"submit\" :prompt \"~A\" :model \"~A\")"
+                         (sexp-escape-lisp prompt) (sexp-escape-lisp model))))
+         (id (when reply (ipc-extract-u64 reply ":id"))))
+    (unless (and id (>= id 0))
+      (error "parallel submit failed: ~A" (or reply "no reply")))
     id))
 
 (defun parallel-run-pending (&optional (max-parallel 3))
-  (let ((rc (%parallel-run-pending max-parallel)))
-    (unless (zerop rc)
-      (error "parallel run pending failed: ~A" (parallel-last-error)))
+  (let ((reply (ipc-call
+                (format nil "(:component \"parallel\" :op \"run-pending\" :max-parallel ~D)" max-parallel))))
+    (when (ipc-reply-error-p reply)
+      (error "parallel run pending failed: ~A" reply))
     t))
 
 (defun parallel-run-pending-async (&optional (max-parallel 3))
   "Run pending tasks asynchronously — results arrive via unified actor mailbox.
    Returns list of (:task-id T :actor-id A :model M) plists for Lisp-side tracking."
-  (let ((ptr (%parallel-run-pending-async max-parallel)))
-    (if (cffi:null-pointer-p ptr)
-        (error "parallel run pending async failed: ~A" (parallel-last-error))
-        (let ((raw (unwind-protect
-                        (cffi:foreign-string-to-lisp ptr)
-                     (%parallel-free-string ptr))))
-          (handler-case
-              (let ((*read-eval* nil))
-                (read-from-string raw))
-            (error () '()))))))
-
-(defun %ptr->string (ptr)
-  (if (cffi:null-pointer-p ptr)
-      nil
-      (unwind-protect
-           (cffi:foreign-string-to-lisp ptr)
-        (%parallel-free-string ptr))))
+  (let ((reply (ipc-call
+                (format nil "(:component \"parallel\" :op \"run-pending-async\" :max-parallel ~D)" max-parallel))))
+    (if (ipc-reply-error-p reply)
+        (error "parallel run pending async failed: ~A" reply)
+        (let ((val (ipc-extract-value reply)))
+          (when val
+            (handler-case
+                (let ((*read-eval* nil))
+                  (read-from-string val))
+              (error () '())))))))
 
 (defun parallel-task-result (task-id)
-  (let ((ptr (%parallel-task-result task-id)))
-    (or (%ptr->string ptr)
-        (error "parallel task result failed: ~A" (parallel-last-error)))))
+  (let ((reply (ipc-call
+                (format nil "(:component \"parallel\" :op \"task-result\" :task-id ~D)" task-id))))
+    (or (ipc-extract-value reply)
+        (error "parallel task result failed: ~A" (or reply "no reply")))))
 
 (defun parallel-report ()
-  (let ((ptr (%parallel-report)))
-    (or (%ptr->string ptr)
-        (error "parallel report failed: ~A" (parallel-last-error)))))
+  (or (ipc-extract-value
+       (ipc-call "(:component \"parallel\" :op \"report\")"))
+      ""))
+
+;;; --- Pure Lisp policy/config (unchanged) ---
 
 (defun %parallel-read-file (path)
   (with-open-file (in path :direction :input)
@@ -363,8 +306,8 @@
    CLI agents (Claude Code) have their own system prompt — they only need the task.
 
    Priority:
-   1. If BASEBAND EXTERNAL DATA boundary markers exist → extract content between them
-   2. If USER_TASK: marker exists → extract after it, then check for nested EXTERNAL DATA
+   1. If BASEBAND EXTERNAL DATA boundary markers exist -> extract content between them
+   2. If USER_TASK: marker exists -> extract after it, then check for nested EXTERNAL DATA
    3. Fall back to prompt as-is"
   (let* ((p (or prompt ""))
          (ext-start-prefix "=== EXTERNAL DATA")
@@ -527,13 +470,6 @@
     (format nil template model)))
 
 ;;; --- DAG-based task decomposition ---
-;;; For software-dev tasks: split work equally between claude-code and codex,
-;;; then cross-audit. This is a directed acyclic graph:
-;;;
-;;;   [task] → [claude-code: implement] ──→ [codex: audit claude's work]
-;;;          → [codex: implement]       ──→ [claude-code: audit codex's work]
-;;;
-;;; Equal work distribution + cross-audit pattern.
 
 (defun %swarm-dag-software-dev-p (prompt chain)
   "Return T if this should be a DAG software-dev task with cross-audit.
@@ -548,7 +484,6 @@
    Returns (values work-a work-b) where each is a focused subtask."
   (let ((p (%swarm-extract-user-task prompt)))
     ;; For now, both agents get the full task. The audit step adds the value.
-    ;; Future: use a cheap model to decompose into parallel subtasks.
     (values p p)))
 
 (defun %swarm-dag-spawn-with-audit (prompt originating-signal orchestration-ctx group-id)
@@ -672,7 +607,6 @@
             (values :deferred nil nil nil)
             :deferred)))
     ;; Run OpenRouter jobs asynchronously — results arrive via unified actor mailbox.
-    ;; Create Lisp-side actor records so %tick-actor-supervisor can track them.
     (when jobs
       (let ((assignments (parallel-run-pending-async (length jobs))))
         (when (listp assignments)

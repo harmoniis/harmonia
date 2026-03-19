@@ -4,12 +4,12 @@
 ;;;   :artifact-rollout (Phoenix) — binary swap via storage adapters (Phoenix is a supervisor binary)
 ;;;   :source-rewrite   (Ouroboros) — code self-modification via rust-forge + lineage
 ;;;
-;;; Phoenix is a standalone supervisor binary; Ouroboros exposes CFFI for crash tracking + patching.
+;;; NOTE: Ouroboros is not yet wired as an IPC component.
+;;; Wrappers return sensible defaults until the Rust actor is connected.
 
 (in-package :harmonia)
 
 (defparameter *evolution-mode* :source-rewrite)
-(defparameter *ouroboros-lib* nil)
 (defparameter *source-rewrite-enabled* t)
 (defparameter *distributed-evolution-enabled* nil)
 (defparameter *distributed-store-kind* "s3")
@@ -18,40 +18,7 @@
 
 (declaim (ftype function evolution-snapshot-latest))
 
-;;; --- Ouroboros CFFI ---
-
-(cffi:defcfun ("harmonia_ouroboros_version" %ouroboros-version) :string)
-(cffi:defcfun ("harmonia_ouroboros_healthcheck" %ouroboros-healthcheck) :int)
-(cffi:defcfun ("harmonia_ouroboros_record_crash" %ouroboros-record-crash) :int
-  (component :string)
-  (detail :string))
-(cffi:defcfun ("harmonia_ouroboros_last_crash" %ouroboros-last-crash) :pointer)
-(cffi:defcfun ("harmonia_ouroboros_history" %ouroboros-history) :pointer
-  (limit :int))
-(cffi:defcfun ("harmonia_ouroboros_write_patch" %ouroboros-write-patch) :int
-  (component :string)
-  (patch-body :string))
-(cffi:defcfun ("harmonia_ouroboros_last_error" %ouroboros-last-error) :pointer)
-(cffi:defcfun ("harmonia_ouroboros_health" %ouroboros-health) :pointer)
-(cffi:defcfun ("harmonia_ouroboros_free_string" %ouroboros-free-string) :void
-  (ptr :pointer))
-
-;;; --- Helpers ---
-
-(defun %ouroboros-read-string (ptr op)
-  (if (cffi:null-pointer-p ptr)
-      (error "ouroboros ~A failed: ~A" op (%ouroboros-error-string))
-      (unwind-protect
-           (cffi:foreign-string-to-lisp ptr)
-        (%ouroboros-free-string ptr))))
-
-(defun %ouroboros-error-string ()
-  (let ((ptr (%ouroboros-last-error)))
-    (if (cffi:null-pointer-p ptr)
-        ""
-        (unwind-protect
-             (cffi:foreign-string-to-lisp ptr)
-          (%ouroboros-free-string ptr)))))
+;;; --- Config helpers (pure Lisp, unchanged) ---
 
 (defun %configure-evolution-runtime ()
   (let ((rewrite-raw (config-get-for "evolution" "source-rewrite-enabled")))
@@ -89,8 +56,7 @@
         :prefix *distributed-store-prefix*))
 
 (defun %distributed-note (event payload)
-  "Placeholder for publish/subscribe distributed evolution.
-   TODO: implement S3-sync pub/sub algorithm (proposal digest, quorum, rollback)."
+  "Placeholder for publish/subscribe distributed evolution."
   (when *distributed-evolution-enabled*
     (runtime-log *runtime* :distributed-evolution
                  (list :event event :payload payload :store (%distributed-status)))))
@@ -98,16 +64,14 @@
 ;;; --- Port API ---
 
 (defun init-evolution-port ()
-  "Load the ouroboros dylib. Phoenix is a standalone binary and not loaded here."
+  "Initialize evolution port. Ouroboros will be initialized when IPC component is wired."
   (%configure-evolution-runtime)
-  (ensure-cffi)
-  (setf *ouroboros-lib*
-        (cffi:load-foreign-library (%release-lib-path "libharmonia_ouroboros.dylib")))
+  (%log :info "evolution" "Evolution port initialized (IPC stub — ouroboros not yet wired)")
   (runtime-log *runtime* :evolution-init
                (list :mode *evolution-mode*
                      :source-rewrite-enabled *source-rewrite-enabled*
                      :distributed (%distributed-status)
-                     :ouroboros :loaded))
+                     :ouroboros :ipc-stub))
   t)
 
 (defun evolution-mode ()
@@ -126,25 +90,21 @@
 
 (defun evolution-prepare ()
   "Dispatch to mode-specific preparation."
+  (%log :warn "evolution" "evolution-prepare called on unwired IPC stub")
   (ecase *evolution-mode*
     (:artifact-rollout
-     ;; Phoenix mode: check health via ouroboros crash history
-     (let ((health (%ouroboros-read-string (%ouroboros-health) "health")))
-       (list :mode :artifact-rollout :health health :distributed (%distributed-status))))
+     (list :mode :artifact-rollout :health "ipc-stub" :distributed (%distributed-status)))
     (:source-rewrite
-     ;; Ouroboros mode: check for pending patches and crash state
-     (let ((health (%ouroboros-read-string (%ouroboros-health) "health"))
-           (last-crash (%ouroboros-read-string (%ouroboros-last-crash) "last-crash")))
-       (list :mode :source-rewrite
-             :health health
-             :last-crash last-crash
-             :distributed (%distributed-status))))))
+     (list :mode :source-rewrite
+           :health "ipc-stub"
+           :last-crash "none"
+           :distributed (%distributed-status)))))
 
 (defun evolution-execute (&key component patch-body)
   "Dispatch to mode-specific execution."
+  (%log :warn "evolution" "evolution-execute called on unwired IPC stub")
   (ecase *evolution-mode*
     (:artifact-rollout
-     ;; Phoenix mode: signal readiness (actual swap done by phoenix supervisor)
      (let ((snapshot (ignore-errors
                        (evolution-snapshot-latest
                         :reason :artifact-rollout
@@ -155,14 +115,16 @@
              (list :mode :artifact-rollout :status :signaled :snapshot snapshot))
            (list :mode :artifact-rollout :status :signaled :distributed (%distributed-status)))))
     (:source-rewrite
-     ;; Ouroboros mode: write a patch
      (unless *source-rewrite-enabled*
        (error "source rewrite execution denied: source rewrite is disabled by policy"))
      (unless (and component patch-body)
        (error "evolution-execute in :source-rewrite mode requires :component and :patch-body"))
-     (let ((rc (%ouroboros-write-patch component patch-body)))
-       (unless (zerop rc)
-         (error "ouroboros write-patch failed: ~A" (%ouroboros-error-string)))
+     ;; Ouroboros write-patch via IPC (will fail gracefully until wired)
+     (let ((reply (ipc-call
+                   (format nil "(:component \"ouroboros\" :op \"write-patch\" :component \"~A\" :patch-body \"~A\")"
+                           (sexp-escape-lisp component) (sexp-escape-lisp patch-body)))))
+       (when (ipc-reply-error-p reply)
+         (error "ouroboros write-patch failed: ~A" (or reply "not wired")))
        (let ((snapshot (ignore-errors
                          (evolution-snapshot-latest
                           :reason :source-rewrite
@@ -176,7 +138,8 @@
 
 (defun evolution-rollback ()
   "Undo last evolution step — records crash event for recovery tracking."
-  (let ((rc (%ouroboros-record-crash "evolution" "rollback requested")))
-    (unless (zerop rc)
-      (error "ouroboros record-crash failed: ~A" (%ouroboros-error-string)))
+  (let ((reply (ipc-call
+                (format nil "(:component \"ouroboros\" :op \"record-crash\" :component \"evolution\" :detail \"rollback requested\")"))))
+    (when (ipc-reply-error-p reply)
+      (%log :warn "evolution" "rollback record-crash failed: ~A" reply))
     (list :status :rolled-back :mode *evolution-mode*)))
