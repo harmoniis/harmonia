@@ -1,6 +1,7 @@
 (
   ;; Core — essential infrastructure
   ("phoenix" . "lib/core/phoenix")
+  ("runtime" . "lib/core/runtime")
   ("ouroboros" . "lib/core/ouroboros")
   ("vault" . "lib/core/vault")
   ("memory" . "lib/core/memory")
@@ -32,8 +33,8 @@
   ("hfetch" . "lib/tools/hfetch")
   ("zoom" . "lib/tools/zoom")
 
-  ;; Frontends — hot-pluggable channels (loaded via gateway, not directly)
-  ;; Listed here for reference; actual loading is via baseband.sexp
+  ;; Frontends — rlib modules compiled into harmonia-runtime
+  ;; Listed here for reference; loaded as ractor actors at runtime startup
   ("mqtt-client" . "lib/frontends/mqtt-client")
   ("http2-mtls" . "lib/frontends/http2-mtls")
   ("tui" . "lib/frontends/tui")

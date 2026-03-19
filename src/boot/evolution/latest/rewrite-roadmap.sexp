@@ -35,7 +35,7 @@
            "Push notification integration (v5)" "MQTT device registry (v5)"
            "A2UI component catalog (v5)"
            "Unified command dispatch: gateway as single interception point for all /commands (v10)"
-           "All crate Cargo.toml unified to [cdylib, rlib] (v10)")
+           "All crate Cargo.toml unified to rlib (cdylib removed, FFI replaced by IPC) (v10)")
     :remaining ("Extend capabilities to non-A2UI features (:voice, :location, :accessibility)"
                 "Frontend capability negotiation at connect time"
                 "A2UI catalog versioning for compatibility"))

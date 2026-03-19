@@ -18,7 +18,7 @@
    "Security posture state (*security-posture*, injection counts, policy gate denials)"
    "Per-frontend dissonance scores and anomaly rates"
    "Supervision health: *tick-error-count*, *consecutive-tick-errors*"
-   "Library health: introspect-libs crash counts and status per loaded cdylib"
+   "Library health: introspect-libs crash counts and status per loaded module"
    "Error ring: introspect-recent-errors for last N errors with context"
    "Full diagnostic: introspect-runtime snapshot"
    "Chronicle harmonic snapshots: full vitruvian + chaos + lorenz + lambdoma per cycle"

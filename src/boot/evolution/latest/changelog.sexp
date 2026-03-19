@@ -9,7 +9,7 @@
             "CommandQueryFn callback: Lisp registers a C callback with the gateway for delegated commands needing runtime state"
             "Gateway enforces security (Owner/Authenticated for read-restricted, TUI-only for /exit) before dispatching"
             "pending_exit flag: gateway sets when /exit intercepted, Lisp checks after each poll to stop run-loop"
-            "All crate Cargo.toml files unified to [cdylib, rlib] for dual loading"
+            "All crate Cargo.toml files unified to [cdylib, rlib] for dual loading (subsequently: cdylib removed, FFI replaced by Unix domain socket IPC with harmonia-runtime)"
             "system-commands.lisp refactored: %gateway-dispatch-command as callback entry point, security checks removed (gateway enforces)")
   :risk "Lisp command callback must be registered before any frontend sends commands. Gateway init happens before frontend registration."
   :rollback "Remove command interception from poll_baseband; remove callback registration from init-baseband-port; restore %maybe-dispatch-system-command as primary handler.")
@@ -56,7 +56,7 @@
             "Gateway FFI hardening: catch_unwind on all frontend calls"
             "Runtime introspection: platform detection, path introspection, library tracking"
             "Error ring buffer: circular 64-entry for self-diagnosis"
-            "Self-compilation (%cargo-build-component) and hot-reload (%hot-reload-frontend)"
+            "Self-compilation (%cargo-build-component) and hot-reload (%hot-reload-frontend) (note: hot-reload later replaced by runtime IPC via ractor actor system)"
             "DNA rules 7 & 8 added, system prompt includes self-knowledge block"
             "Platform-correct paths: XDG-style separation of user data, libs, source, logs"
             "Uninstall with evolution safety gate, export/import portability")

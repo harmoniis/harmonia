@@ -61,9 +61,9 @@
      ("Platform and path introspection for autonomous debugging."
       "introspect-runtime — full diagnostic snapshot."
       "introspect-recent-errors — last N errors with context."
-      "introspect-libs — all loaded cdylibs with crash counts."
+      "introspect-libs — all loaded modules with crash counts."
       "%cargo-build-component — self-compilation of individual crates."
-      "%hot-reload-frontend — rebuild, copy, and re-register a frontend cdylib."))
+      "%hot-reload-frontend — replaced by runtime actor system; modules reload via ractor supervisor and IPC."))
 
    (:name "Security Architecture"
     :layers

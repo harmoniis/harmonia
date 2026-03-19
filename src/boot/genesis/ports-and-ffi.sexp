@@ -12,11 +12,11 @@
     :responsibility "Commit/push operations")
    (:port "Matrix" :lisp "src/ports/matrix.lisp" :rust "lib/core/harmonic-matrix"
     :responsibility "Route constraints + telemetry")
-   (:port "Tool Channel" :lisp "src/ports/tool-channel.lisp" :rust "lib/core/gateway (ToolRegistry) + lib/core/tool-channel-protocol + tool cdylibs"
+   (:port "Tool Channel" :lisp "src/ports/tool-channel.lisp" :rust "lib/core/gateway (ToolRegistry) + lib/core/tool-channel-protocol + tool modules in harmonia-runtime"
     :responsibility "Protocolised tool invocation via ToolVtable contract")
    (:port "Voice Runtime" :lisp "src/ports/voice-runtime.lisp" :rust "lib/backends/voice/voice-router"
     :responsibility "Speech-to-text and text-to-speech via voice backend routing")
-   (:port "Baseband" :lisp "src/ports/baseband.lisp" :rust "lib/core/gateway + lib/core/baseband-channel-protocol + frontend cdylibs"
+   (:port "Baseband" :lisp "src/ports/baseband.lisp" :rust "lib/core/gateway + lib/core/baseband-channel-protocol + frontend modules in harmonia-runtime"
     :responsibility "Unified command dispatch, typed Baseband Channel Protocol envelopes, channel send/status, gateway admin lifecycle")
    (:port "Swarm" :lisp "src/ports/swarm.lisp" :rust "lib/core/parallel-agents"
     :responsibility "Parallel and tmux subagents")

@@ -67,7 +67,7 @@
    :security "Gateway enforces security labels before dispatch: Owner/Authenticated for read-restricted, TUI-only for /exit."
    :callback "CommandQueryFn registered by Lisp during init-baseband-port via harmonia_gateway_set_command_query."
    :exit-handling "Gateway sets pending_exit flag on /exit. Lisp checks via harmonia_gateway_pending_exit after each poll."
-   :crate-types "All crates unified to [cdylib, rlib] for dual loading.")
+   :crate-types "All crates unified to rlib (compiled into harmonia-runtime; cdylib removed, FFI replaced by IPC).")
 
  :matrix-enforcement
   (:description "All critical orchestrator routes are matrix-gated before invocation."
@@ -125,12 +125,12 @@
                 "Library tracking via *loaded-libs* hash table"
                 "Error ring: circular 64-entry buffer"
                 "Self-compilation via %cargo-build-component"
-                "Hot-reload via %hot-reload-frontend"
+                "Runtime actor reload via ractor supervisor (replaced former %hot-reload-frontend)"
                 "Full diagnostic snapshot via introspect-runtime"
                 "DNA integration via %runtime-self-knowledge"))
    :platform-paths
     ((:category "User data" :path "~/.harmoniis/harmonia/" :contents "vault.db, config.db, metrics.db, config/, frontends/, state/")
-     (:category "Libraries" :path "~/.local/lib/harmonia/" :contents "cdylibs")
+     (:category "Libraries" :path "~/.local/lib/harmonia/" :contents "rlib modules (compiled into harmonia-runtime)")
      (:category "App data" :path "~/.local/share/harmonia/" :contents "Lisp source, docs, genesis, evolution knowledge")
      (:category "Binary" :path "~/.local/bin/harmonia" :contents "CLI binary")
      (:category "Logs" :path "~/Library/Logs/Harmonia/ (macOS)" :contents "harmonia.log")

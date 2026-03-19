@@ -184,53 +184,8 @@
             (%log :error "self-compile" "Build failed for ~A (exit=~A)" crate-name exit-code))
         (values success (or output ""))))))
 
-(defun %dylib-name-for-crate (crate-name)
-  "Convert a Cargo crate name to the output dylib filename."
-  (let ((base (substitute #\_ #\- crate-name)))
-    (format nil "lib~A.~A" base (%shared-lib-extension))))
-
-(defun %hot-reload-frontend (frontend-name crate-name &optional config-sexp)
-  "Rebuild a frontend crate, copy the new dylib, and hot-reload via gateway.
-   Returns (values success-p detail)."
-  (multiple-value-bind (build-ok build-output)
-      (%cargo-build-component crate-name)
-    (unless build-ok
-      (return-from %hot-reload-frontend
-        (values nil (format nil "build failed: ~A" build-output))))
-    ;; Copy new dylib to lib dir
-    (let* ((dylib-name (%dylib-name-for-crate crate-name))
-           (source-path (merge-pathnames dylib-name
-                                         (pathname (concatenate 'string (%source-root) "target/release/"))))
-           (dest-dir (%lib-dir))
-           (dest-path (when dest-dir (merge-pathnames dylib-name (pathname dest-dir)))))
-      (when (and dest-path (probe-file source-path))
-        (handler-case
-            (progn
-              (with-open-file (in source-path :element-type '(unsigned-byte 8))
-                (with-open-file (out dest-path :element-type '(unsigned-byte 8)
-                                               :direction :output
-                                               :if-exists :supersede)
-                  (let ((buf (make-array 65536 :element-type '(unsigned-byte 8))))
-                    (loop for n = (read-sequence buf in)
-                          while (plusp n)
-                          do (write-sequence buf out :end n)))))
-              (%log :info "self-compile" "Copied ~A to ~A" dylib-name dest-dir))
-          (error (e)
-            (return-from %hot-reload-frontend
-              (values nil (format nil "copy failed: ~A" e))))))
-      ;; Reload via gateway
-      (handler-case
-          (progn
-            (ignore-errors (gateway-unregister frontend-name))
-            (let* ((so-path (if dest-path
-                                (namestring dest-path)
-                                (namestring source-path)))
-                   (cfg (or config-sexp "()")))
-              (gateway-register frontend-name so-path cfg "owner")
-              (%mark-lib-recovered frontend-name)
-              (values t (format nil "reloaded ~A from ~A" frontend-name so-path))))
-        (error (e)
-          (values nil (format nil "reload failed: ~A" e)))))))
+;;; %hot-reload-frontend and %dylib-name-for-crate removed — cdylib/FFI architecture
+;;; replaced by harmonia-runtime with ractor actors and IPC (Unix domain socket).
 
 ;;; ─── Full runtime snapshot for self-diagnosis ──────────────────────────
 
@@ -251,11 +206,23 @@
                 :lib-dir (%lib-dir)
                 :log-path (%log-path)
                 :runtime-dir (%runtime-dir))
+   :phoenix-health (%phoenix-health)
    :libraries (introspect-libs)
    :recent-errors (introspect-recent-errors 5)
    :frontends (ignore-errors (gateway-list-frontends))))
 
 ;;; ─── Self-knowledge for DNA system prompt ──────────────────────────────
+
+(defun %phoenix-health-url ()
+  "URL for the Phoenix supervisor health endpoint (localhost only)."
+  "http://127.0.0.1:9100/health")
+
+(defun %phoenix-health ()
+  "Query Phoenix health endpoint. Returns the JSON string or nil on failure."
+  (ignore-errors
+    (let ((result (hfetch (%phoenix-health-url) :timeout-ms 3000)))
+      (when (and result (stringp result))
+        result))))
 
 (defun %runtime-self-knowledge ()
   "Generate a block of self-knowledge text for the DNA system prompt.
@@ -264,38 +231,60 @@
 "RUNTIME SELF-KNOWLEDGE
 Platform: ~A
 Source: ~A
-Libraries: ~A
-Logs: ~A
 State: ~A
+Logs: ~A
+
+PROCESS ARCHITECTURE
+You (SBCL) are supervised by Phoenix, which manages all Harmonia processes.
+Phoenix is the root process (PID 1 of the agent) that reads phoenix.toml
+and supervises: harmonia-runtime, sbcl-agent (you), and provision-server.
+
+  Phoenix (ractor supervisor, writes phoenix.pid, health HTTP at 127.0.0.1:9100)
+    ├─ harmonia-runtime (Rust binary, all ractor actors, IPC via Unix socket)
+    ├─ sbcl-agent (you — this SBCL process)
+    └─ provision-server
+
+You communicate with Rust actors via IPC (Unix domain socket at $STATE_ROOT/runtime.sock).
+All Rust crates are compiled as rlib into harmonia-runtime — no more cdylib/FFI/dlopen.
+
+PHOENIX HEALTH ENDPOINT
+  GET http://127.0.0.1:9100/health     → JSON: mode, uptime, all subsystem states
+  GET http://127.0.0.1:9100/health/ready → 200 if Full, 503 otherwise
+
+  Daemon modes:
+    Full     — all subsystems running, system healthy
+    Starting — subsystems still coming up
+    Degraded — non-core subsystem failed, core OK
+    CoreOnly — a core subsystem failed
+
+  To check your own status: (hfetch \"http://127.0.0.1:9100/health\")
+  The health endpoint is localhost-only (127.0.0.1), PIDs are redacted.
 
 SELF-REPAIR CAPABILITIES
+- Check Phoenix health: (hfetch \"http://127.0.0.1:9100/health\") — your daemon status
 - Read logs: (introspect-runtime) returns full diagnostic snapshot
 - View errors: (introspect-recent-errors N) returns last N errors with context
-- Library status: (introspect-libs) shows all loaded cdylibs and crash counts
+- Library status: (introspect-libs) shows loaded modules and crash counts
 - Rebuild component: (%cargo-build-component \"crate-name\") compiles a single crate
-- Hot-reload frontend: (%hot-reload-frontend \"name\" \"crate-name\") rebuilds + reloads a frontend cdylib
-- Record crash: (%record-lib-crash \"name\" \"detail\") logs a library failure
-- Gateway reload: (gateway-unregister \"name\") then (gateway-register ...) to hot-swap
+- Record crash: (%record-lib-crash \"name\" \"detail\") logs a module failure
+- Source rewrite via ouroboros: write patch, validate with rust-forge, snapshot version
 
-ARCHITECTURE
-- Core loop: src/core/loop.lisp — tick-based, never crashes, all actions wrapped in handler-case
+CORE LOOP
+- src/core/loop.lisp — tick-based, never crashes, all actions wrapped in handler-case
 - Each tick: gateway-poll -> process-prompt -> memory-heartbeat -> harmonic-step -> gateway-flush
-- FFI calls through CFFI to Rust cdylibs; crashes are caught and recorded, not propagated
-- Frontends are cdylibs loaded via gateway-register; can be unregistered and reloaded at runtime
-- Source rewrite via ouroboros: write patch, validate with rust-forge, snapshot version, reload
 
 DEBUGGING GUIDE
+- Check Phoenix status: (hfetch \"http://127.0.0.1:9100/health\") — JSON with mode + subsystems
 - Check logs: tail -f ~A
 - Check library health: (introspect-libs)
 - Check recent errors: (introspect-recent-errors 10)
-- If a frontend stops responding: (%hot-reload-frontend \"name\" \"crate-name\")
 - If orchestration fails: check (introspect-recent-errors) for backend errors
 - If memory/config issues: check state-root ~A for vault.db, config.db
-- To recompile everything: (%cargo-build-component \"harmonia\") from source root"
+- To recompile: (%cargo-build-component \"harmonia-runtime\") from source root
+- If Phoenix shows Degraded/CoreOnly: operator should run 'harmonia status' from CLI"
           (%platform-name)
           (or (%source-root) "unknown")
-          (or (%lib-dir) "unknown")
-          (or (%log-path) "unknown")
           (or (%state-root) "unknown")
+          (or (%log-path) "unknown")
           (or (%log-path) "unknown")
           (or (%state-root) "unknown")))
