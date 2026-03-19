@@ -63,18 +63,15 @@ fn to_c_string(value: String) -> *mut c_char {
     }
 }
 
-#[no_mangle]
-pub extern "C" fn harmonia_cron_scheduler_version() -> *const c_char {
+pub fn harmonia_cron_scheduler_version() -> *const c_char {
     VERSION.as_ptr().cast()
 }
 
-#[no_mangle]
-pub extern "C" fn harmonia_cron_scheduler_healthcheck() -> i32 {
+pub fn harmonia_cron_scheduler_healthcheck() -> i32 {
     1
 }
 
-#[no_mangle]
-pub extern "C" fn harmonia_cron_scheduler_add_job(name: *const c_char, interval_secs: i32) -> i32 {
+pub fn harmonia_cron_scheduler_add_job(name: *const c_char, interval_secs: i32) -> i32 {
     let name = match cstr_to_string(name) {
         Ok(v) => v,
         Err(e) => {
@@ -103,8 +100,7 @@ pub extern "C" fn harmonia_cron_scheduler_add_job(name: *const c_char, interval_
     0
 }
 
-#[no_mangle]
-pub extern "C" fn harmonia_cron_scheduler_due_jobs(now: i64) -> *mut c_char {
+pub fn harmonia_cron_scheduler_due_jobs(now: i64) -> *mut c_char {
     let now = if now <= 0 { now_secs() } else { now as u64 };
     let mut st = match state().write() {
         Ok(v) => v,
@@ -126,8 +122,7 @@ pub extern "C" fn harmonia_cron_scheduler_due_jobs(now: i64) -> *mut c_char {
     to_c_string(due.join(","))
 }
 
-#[no_mangle]
-pub extern "C" fn harmonia_cron_scheduler_reset() -> i32 {
+pub fn harmonia_cron_scheduler_reset() -> i32 {
     match state().write() {
         Ok(mut st) => {
             st.jobs.clear();
@@ -141,8 +136,7 @@ pub extern "C" fn harmonia_cron_scheduler_reset() -> i32 {
     }
 }
 
-#[no_mangle]
-pub extern "C" fn harmonia_cron_scheduler_last_error() -> *mut c_char {
+pub fn harmonia_cron_scheduler_last_error() -> *mut c_char {
     let msg = last_error()
         .read()
         .map(|v| v.clone())
@@ -150,8 +144,7 @@ pub extern "C" fn harmonia_cron_scheduler_last_error() -> *mut c_char {
     to_c_string(msg)
 }
 
-#[no_mangle]
-pub extern "C" fn harmonia_cron_scheduler_free_string(ptr: *mut c_char) {
+pub fn harmonia_cron_scheduler_free_string(ptr: *mut c_char) {
     if ptr.is_null() {
         return;
     }

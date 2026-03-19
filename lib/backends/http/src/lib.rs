@@ -40,18 +40,15 @@ fn to_c_string(value: String) -> *mut c_char {
     }
 }
 
-#[no_mangle]
-pub extern "C" fn harmonia_http_version() -> *const c_char {
+pub fn harmonia_http_version() -> *const c_char {
     VERSION.as_ptr().cast()
 }
 
-#[no_mangle]
-pub extern "C" fn harmonia_http_healthcheck() -> i32 {
+pub fn harmonia_http_healthcheck() -> i32 {
     1
 }
 
-#[no_mangle]
-pub extern "C" fn harmonia_http_request(method: *const c_char, url: *const c_char) -> *mut c_char {
+pub fn harmonia_http_request(method: *const c_char, url: *const c_char) -> *mut c_char {
     let method = match cstr_to_string(method) {
         Ok(v) => v,
         Err(e) => {
@@ -93,8 +90,7 @@ pub extern "C" fn harmonia_http_request(method: *const c_char, url: *const c_cha
     }
 }
 
-#[no_mangle]
-pub extern "C" fn harmonia_http_request_with_auth_symbol(
+pub fn harmonia_http_request_with_auth_symbol(
     method: *const c_char,
     url: *const c_char,
     auth_symbol: *const c_char,
@@ -162,8 +158,7 @@ pub extern "C" fn harmonia_http_request_with_auth_symbol(
     }
 }
 
-#[no_mangle]
-pub extern "C" fn harmonia_http_last_error() -> *mut c_char {
+pub fn harmonia_http_last_error() -> *mut c_char {
     let msg = last_error()
         .read()
         .map(|v| v.clone())
@@ -171,8 +166,7 @@ pub extern "C" fn harmonia_http_last_error() -> *mut c_char {
     to_c_string(msg)
 }
 
-#[no_mangle]
-pub extern "C" fn harmonia_http_free_string(ptr: *mut c_char) {
+pub fn harmonia_http_free_string(ptr: *mut c_char) {
     if ptr.is_null() {
         return;
     }

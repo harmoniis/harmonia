@@ -71,14 +71,12 @@ fn runtime() -> &'static tokio::runtime::Runtime {
 // ======================================================================
 
 /// ToolVtable: version string. Pointer is static, do NOT free.
-#[no_mangle]
-pub extern "C" fn harmonia_tool_version() -> *const c_char {
+pub fn harmonia_tool_version() -> *const c_char {
     VERSION.as_ptr().cast()
 }
 
 /// ToolVtable: health check. Returns 1 if operational.
-#[no_mangle]
-pub extern "C" fn harmonia_tool_healthcheck() -> i32 {
+pub fn harmonia_tool_healthcheck() -> i32 {
     let _ = runtime();
     1
 }
@@ -86,8 +84,7 @@ pub extern "C" fn harmonia_tool_healthcheck() -> i32 {
 /// ToolVtable: initialize with s-expression config.
 ///
 /// Returns 0 on success, -1 on error.
-#[no_mangle]
-pub extern "C" fn harmonia_tool_init(config_sexp: *const c_char) -> i32 {
+pub fn harmonia_tool_init(config_sexp: *const c_char) -> i32 {
     let config = match cstr_to_string(config_sexp) {
         Ok(v) => v,
         Err(e) => {
@@ -124,11 +121,7 @@ pub extern "C" fn harmonia_tool_init(config_sexp: *const c_char) -> i32 {
 ///
 /// params_sexp format varies by operation (s-expression).
 /// Returns result as s-expression string. Caller must free.
-#[no_mangle]
-pub extern "C" fn harmonia_tool_invoke(
-    operation: *const c_char,
-    params_sexp: *const c_char,
-) -> *mut c_char {
+pub fn harmonia_tool_invoke(operation: *const c_char, params_sexp: *const c_char) -> *mut c_char {
     let op = match cstr_to_string(operation) {
         Ok(v) => v,
         Err(e) => {
@@ -162,14 +155,12 @@ pub extern "C" fn harmonia_tool_invoke(
 ///
 /// Returns s-expression listing all supported operations.
 /// Caller must free.
-#[no_mangle]
-pub extern "C" fn harmonia_tool_capabilities() -> *mut c_char {
+pub fn harmonia_tool_capabilities() -> *mut c_char {
     to_c_string(CAPABILITIES_SEXP.to_string())
 }
 
 /// ToolVtable: last error message. Caller must free.
-#[no_mangle]
-pub extern "C" fn harmonia_tool_last_error() -> *mut c_char {
+pub fn harmonia_tool_last_error() -> *mut c_char {
     let msg = last_error()
         .read()
         .map(|v| v.clone())
@@ -178,16 +169,14 @@ pub extern "C" fn harmonia_tool_last_error() -> *mut c_char {
 }
 
 /// ToolVtable: graceful shutdown. Returns 0.
-#[no_mangle]
-pub extern "C" fn harmonia_tool_shutdown() -> i32 {
+pub fn harmonia_tool_shutdown() -> i32 {
     // No persistent state to clean up in the basic case.
     // Session pool cleanup would go here if we add global state.
     0
 }
 
 /// ToolVtable: free a string returned by this tool. Same as browser_free_string.
-#[no_mangle]
-pub extern "C" fn harmonia_tool_free_string(ptr: *mut c_char) {
+pub fn harmonia_tool_free_string(ptr: *mut c_char) {
     if ptr.is_null() {
         return;
     }
@@ -584,14 +573,12 @@ const CAPABILITIES_SEXP: &str = r#"((:operation "search"
 // ======================================================================
 
 /// Returns the version string. Pointer is static, do NOT free.
-#[no_mangle]
-pub extern "C" fn harmonia_browser_version() -> *const c_char {
+pub fn harmonia_browser_version() -> *const c_char {
     VERSION.as_ptr().cast()
 }
 
 /// Health check. Returns 1 if the browser tool is operational.
-#[no_mangle]
-pub extern "C" fn harmonia_browser_healthcheck() -> i32 {
+pub fn harmonia_browser_healthcheck() -> i32 {
     let _ = runtime();
     1
 }
@@ -600,8 +587,7 @@ pub extern "C" fn harmonia_browser_healthcheck() -> i32 {
 ///
 /// Config format: `(:timeout 10000 :user-agent "harmonia/2.0" :allowlist ("example.com"))`
 /// Returns 0 on success, -1 on error (check harmonia_browser_last_error).
-#[no_mangle]
-pub extern "C" fn harmonia_browser_init(config: *const c_char) -> i32 {
+pub fn harmonia_browser_init(config: *const c_char) -> i32 {
     let config = match cstr_to_string(config) {
         Ok(v) => v,
         Err(e) => {
@@ -627,8 +613,7 @@ pub extern "C" fn harmonia_browser_init(config: *const c_char) -> i32 {
 /// MCP tool: browser_search(url, macro, arg) -> security-wrapped s-expression.
 ///
 /// Caller must free the returned string with `harmonia_browser_free_string`.
-#[no_mangle]
-pub extern "C" fn harmonia_browser_search(
+pub fn harmonia_browser_search(
     url: *const c_char,
     macro_name: *const c_char,
     arg: *const c_char,
@@ -662,8 +647,7 @@ pub extern "C" fn harmonia_browser_search(
 ///
 /// steps_json is a JSON array: `[{"url":"...","macro":"text","arg":""}]`
 /// Caller must free the returned string with `harmonia_browser_free_string`.
-#[no_mangle]
-pub extern "C" fn harmonia_browser_execute(steps_json: *const c_char) -> *mut c_char {
+pub fn harmonia_browser_execute(steps_json: *const c_char) -> *mut c_char {
     let steps = match cstr_to_string(steps_json) {
         Ok(v) => v,
         Err(e) => {
@@ -687,8 +671,7 @@ pub extern "C" fn harmonia_browser_execute(steps_json: *const c_char) -> *mut c_
 /// body: JSON body for POST requests (NULL for GET)
 ///
 /// Caller must free the returned string with `harmonia_browser_free_string`.
-#[no_mangle]
-pub extern "C" fn harmonia_browser_controlled_fetch(
+pub fn harmonia_browser_controlled_fetch(
     url: *const c_char,
     method: *const c_char,
     body: *const c_char,
@@ -715,8 +698,7 @@ pub extern "C" fn harmonia_browser_controlled_fetch(
 // ---- Chrome CDP ----
 
 /// Returns 1 if Chrome CDP is available (compiled with --features chrome), 0 otherwise.
-#[no_mangle]
-pub extern "C" fn harmonia_browser_chrome_available() -> i32 {
+pub fn harmonia_browser_chrome_available() -> i32 {
     if chrome::chrome_available() {
         1
     } else {
@@ -729,8 +711,7 @@ pub extern "C" fn harmonia_browser_chrome_available() -> i32 {
 /// Legacy: fetch raw HTML from a URL. Result is security-wrapped.
 ///
 /// Caller must free the returned string with `harmonia_browser_free_string`.
-#[no_mangle]
-pub extern "C" fn harmonia_browser_fetch_html(url: *const c_char) -> *mut c_char {
+pub fn harmonia_browser_fetch_html(url: *const c_char) -> *mut c_char {
     let url = match cstr_to_string(url) {
         Ok(v) => v,
         Err(e) => {
@@ -756,8 +737,7 @@ pub extern "C" fn harmonia_browser_fetch_html(url: *const c_char) -> *mut c_char
 /// Legacy: fetch a page title. Result is security-wrapped.
 ///
 /// Caller must free the returned string with `harmonia_browser_free_string`.
-#[no_mangle]
-pub extern "C" fn harmonia_browser_fetch_title(url: *const c_char) -> *mut c_char {
+pub fn harmonia_browser_fetch_title(url: *const c_char) -> *mut c_char {
     let url = match cstr_to_string(url) {
         Ok(v) => v,
         Err(e) => {
@@ -783,8 +763,7 @@ pub extern "C" fn harmonia_browser_fetch_title(url: *const c_char) -> *mut c_cha
 /// Legacy: extract links from a URL. Result is security-wrapped s-expression.
 ///
 /// Caller must free the returned string with `harmonia_browser_free_string`.
-#[no_mangle]
-pub extern "C" fn harmonia_browser_extract_links(url: *const c_char) -> *mut c_char {
+pub fn harmonia_browser_extract_links(url: *const c_char) -> *mut c_char {
     let url = match cstr_to_string(url) {
         Ok(v) => v,
         Err(e) => {
@@ -812,8 +791,7 @@ pub extern "C" fn harmonia_browser_extract_links(url: *const c_char) -> *mut c_c
 /// Returns the agent security prompt text that should be included in system prompts.
 ///
 /// Pointer is static, do NOT free.
-#[no_mangle]
-pub extern "C" fn harmonia_browser_security_prompt() -> *const c_char {
+pub fn harmonia_browser_security_prompt() -> *const c_char {
     static PROMPT: OnceLock<CString> = OnceLock::new();
     let cstr = PROMPT.get_or_init(|| {
         CString::new(security::agent_security_prompt()).expect("security prompt contains null byte")
@@ -824,8 +802,7 @@ pub extern "C" fn harmonia_browser_security_prompt() -> *const c_char {
 /// Returns the MCP tool definitions as a JSON string.
 ///
 /// Caller must free the returned string with `harmonia_browser_free_string`.
-#[no_mangle]
-pub extern "C" fn harmonia_browser_mcp_tools() -> *mut c_char {
+pub fn harmonia_browser_mcp_tools() -> *mut c_char {
     let defs = mcp::mcp_tool_definitions();
     to_c_string(serde_json::to_string(&defs).unwrap_or_else(|_| "[]".to_string()))
 }
@@ -835,8 +812,7 @@ pub extern "C" fn harmonia_browser_mcp_tools() -> *mut c_char {
 /// Returns the last error message.
 ///
 /// Caller must free the returned string with `harmonia_browser_free_string`.
-#[no_mangle]
-pub extern "C" fn harmonia_browser_last_error() -> *mut c_char {
+pub fn harmonia_browser_last_error() -> *mut c_char {
     let msg = last_error()
         .read()
         .map(|v| v.clone())
@@ -849,8 +825,7 @@ pub extern "C" fn harmonia_browser_last_error() -> *mut c_char {
 /// # Safety
 /// The pointer must have been returned by one of this crate's functions
 /// and must not have been freed already.
-#[no_mangle]
-pub extern "C" fn harmonia_browser_free_string(ptr: *mut c_char) {
+pub fn harmonia_browser_free_string(ptr: *mut c_char) {
     if ptr.is_null() {
         return;
     }

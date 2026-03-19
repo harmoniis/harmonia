@@ -22,18 +22,15 @@ fn to_c_string(value: String) -> *mut c_char {
     }
 }
 
-#[no_mangle]
-pub extern "C" fn harmonia_openrouter_version() -> *const c_char {
+pub fn harmonia_openrouter_version() -> *const c_char {
     VERSION.as_ptr().cast()
 }
 
-#[no_mangle]
-pub extern "C" fn harmonia_openrouter_healthcheck() -> i32 {
+pub fn harmonia_openrouter_healthcheck() -> i32 {
     1
 }
 
-#[no_mangle]
-pub extern "C" fn harmonia_openrouter_init() -> i32 {
+pub fn harmonia_openrouter_init() -> i32 {
     match client::init_backend() {
         Ok(()) => {
             clear_error();
@@ -46,11 +43,7 @@ pub extern "C" fn harmonia_openrouter_init() -> i32 {
     }
 }
 
-#[no_mangle]
-pub extern "C" fn harmonia_openrouter_complete(
-    prompt: *const c_char,
-    model: *const c_char,
-) -> *mut c_char {
+pub fn harmonia_openrouter_complete(prompt: *const c_char, model: *const c_char) -> *mut c_char {
     let prompt = match cstr_to_string(prompt) {
         Ok(v) => v,
         Err(e) => {
@@ -76,16 +69,14 @@ pub extern "C" fn harmonia_openrouter_complete(
     }
 }
 
-#[no_mangle]
-pub extern "C" fn harmonia_openrouter_last_error() -> *mut c_char {
+pub fn harmonia_openrouter_last_error() -> *mut c_char {
     to_c_string(last_error_message())
 }
 
 /// Return the full model offerings pool as a JSON array.
 /// Each entry: { id, tier, usd_in_1k, usd_out_1k, quality, speed, tags }.
 /// Caller must free the returned string with harmonia_openrouter_free_string.
-#[no_mangle]
-pub extern "C" fn harmonia_openrouter_list_models() -> *mut c_char {
+pub fn harmonia_openrouter_list_models() -> *mut c_char {
     to_c_string(client::list_offerings())
 }
 
@@ -93,8 +84,7 @@ pub extern "C" fn harmonia_openrouter_list_models() -> *mut c_char {
 /// task_hint: "orchestration", "execution", "memory-ops", "coding",
 ///            "reasoning", "casual", "software-dev", or "" for cheapest.
 /// Returns model ID string. Caller must free with harmonia_openrouter_free_string.
-#[no_mangle]
-pub extern "C" fn harmonia_openrouter_select_model(task_hint: *const c_char) -> *mut c_char {
+pub fn harmonia_openrouter_select_model(task_hint: *const c_char) -> *mut c_char {
     let hint = match cstr_to_string(task_hint) {
         Ok(v) => v,
         Err(_) => String::new(),
@@ -104,8 +94,7 @@ pub extern "C" fn harmonia_openrouter_select_model(task_hint: *const c_char) -> 
 
 /// Complete a prompt for a specific task category (pool-based model selection).
 /// Caller must free the returned string with harmonia_openrouter_free_string.
-#[no_mangle]
-pub extern "C" fn harmonia_openrouter_complete_for_task(
+pub fn harmonia_openrouter_complete_for_task(
     prompt: *const c_char,
     task_hint: *const c_char,
 ) -> *mut c_char {
@@ -132,8 +121,7 @@ pub extern "C" fn harmonia_openrouter_complete_for_task(
     }
 }
 
-#[no_mangle]
-pub extern "C" fn harmonia_openrouter_free_string(ptr: *mut c_char) {
+pub fn harmonia_openrouter_free_string(ptr: *mut c_char) {
     if ptr.is_null() {
         return;
     }

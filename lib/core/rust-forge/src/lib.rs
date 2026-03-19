@@ -39,18 +39,15 @@ fn to_c_string(value: String) -> *mut c_char {
     }
 }
 
-#[no_mangle]
-pub extern "C" fn harmonia_rust_forge_version() -> *const c_char {
+pub fn harmonia_rust_forge_version() -> *const c_char {
     VERSION.as_ptr().cast()
 }
 
-#[no_mangle]
-pub extern "C" fn harmonia_rust_forge_healthcheck() -> i32 {
+pub fn harmonia_rust_forge_healthcheck() -> i32 {
     1
 }
 
-#[no_mangle]
-pub extern "C" fn harmonia_rust_forge_build_package(
+pub fn harmonia_rust_forge_build_package(
     workspace_dir: *const c_char,
     package: *const c_char,
 ) -> i32 {
@@ -94,8 +91,7 @@ pub extern "C" fn harmonia_rust_forge_build_package(
     }
 }
 
-#[no_mangle]
-pub extern "C" fn harmonia_rust_forge_last_error() -> *mut c_char {
+pub fn harmonia_rust_forge_last_error() -> *mut c_char {
     let msg = last_error()
         .read()
         .map(|v| v.clone())
@@ -103,8 +99,7 @@ pub extern "C" fn harmonia_rust_forge_last_error() -> *mut c_char {
     to_c_string(msg)
 }
 
-#[no_mangle]
-pub extern "C" fn harmonia_rust_forge_free_string(ptr: *mut c_char) {
+pub fn harmonia_rust_forge_free_string(ptr: *mut c_char) {
     if ptr.is_null() {
         return;
     }

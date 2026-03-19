@@ -21,18 +21,15 @@ fn to_c(value: String) -> *mut c_char {
         .unwrap_or(std::ptr::null_mut())
 }
 
-#[no_mangle]
-pub extern "C" fn harmonia_elevenlabs_version() -> *const c_char {
+pub fn harmonia_elevenlabs_version() -> *const c_char {
     VERSION.as_ptr().cast()
 }
 
-#[no_mangle]
-pub extern "C" fn harmonia_elevenlabs_healthcheck() -> i32 {
+pub fn harmonia_elevenlabs_healthcheck() -> i32 {
     1
 }
 
-#[no_mangle]
-pub extern "C" fn harmonia_elevenlabs_init() -> i32 {
+pub fn harmonia_elevenlabs_init() -> i32 {
     match backend::init() {
         Ok(()) => {
             clear_error();
@@ -45,8 +42,7 @@ pub extern "C" fn harmonia_elevenlabs_init() -> i32 {
     }
 }
 
-#[no_mangle]
-pub extern "C" fn harmonia_elevenlabs_tts_to_file(
+pub fn harmonia_elevenlabs_tts_to_file(
     text: *const c_char,
     voice_id: *const c_char,
     out_path: *const c_char,
@@ -84,8 +80,7 @@ pub extern "C" fn harmonia_elevenlabs_tts_to_file(
     }
 }
 
-#[no_mangle]
-pub extern "C" fn harmonia_elevenlabs_tts_to_file_with_model(
+pub fn harmonia_elevenlabs_tts_to_file_with_model(
     text: *const c_char,
     voice_id: *const c_char,
     out_path: *const c_char,
@@ -125,8 +120,7 @@ pub extern "C" fn harmonia_elevenlabs_tts_to_file_with_model(
     }
 }
 
-#[no_mangle]
-pub extern "C" fn harmonia_elevenlabs_list_voices() -> *mut c_char {
+pub fn harmonia_elevenlabs_list_voices() -> *mut c_char {
     match backend::list_voices() {
         Ok(json) => {
             clear_error();
@@ -139,18 +133,15 @@ pub extern "C" fn harmonia_elevenlabs_list_voices() -> *mut c_char {
     }
 }
 
-#[no_mangle]
-pub extern "C" fn harmonia_elevenlabs_list_models() -> *mut c_char {
+pub fn harmonia_elevenlabs_list_models() -> *mut c_char {
     to_c(backend::list_offerings())
 }
 
-#[no_mangle]
-pub extern "C" fn harmonia_elevenlabs_last_error() -> *mut c_char {
+pub fn harmonia_elevenlabs_last_error() -> *mut c_char {
     to_c(last_error_message())
 }
 
-#[no_mangle]
-pub extern "C" fn harmonia_elevenlabs_free_string(ptr: *mut c_char) {
+pub fn harmonia_elevenlabs_free_string(ptr: *mut c_char) {
     if !ptr.is_null() {
         unsafe {
             drop(CString::from_raw(ptr));

@@ -119,18 +119,15 @@ fn to_c(value: String) -> *mut c_char {
         .unwrap_or(std::ptr::null_mut())
 }
 
-#[no_mangle]
-pub extern "C" fn harmonia_voice_router_version() -> *const c_char {
+pub fn harmonia_voice_router_version() -> *const c_char {
     VERSION.as_ptr().cast()
 }
 
-#[no_mangle]
-pub extern "C" fn harmonia_voice_router_healthcheck() -> i32 {
+pub fn harmonia_voice_router_healthcheck() -> i32 {
     1
 }
 
-#[no_mangle]
-pub extern "C" fn harmonia_voice_router_init() -> i32 {
+pub fn harmonia_voice_router_init() -> i32 {
     match init() {
         Ok(()) => {
             clear_error();
@@ -143,8 +140,7 @@ pub extern "C" fn harmonia_voice_router_init() -> i32 {
     }
 }
 
-#[no_mangle]
-pub extern "C" fn harmonia_voice_router_transcribe(
+pub fn harmonia_voice_router_transcribe(
     audio_path: *const c_char,
     model_hint: *const c_char,
 ) -> *mut c_char {
@@ -168,8 +164,7 @@ pub extern "C" fn harmonia_voice_router_transcribe(
     }
 }
 
-#[no_mangle]
-pub extern "C" fn harmonia_voice_router_tts(
+pub fn harmonia_voice_router_tts(
     text: *const c_char,
     voice_id: *const c_char,
     out_path: *const c_char,
@@ -209,18 +204,15 @@ pub extern "C" fn harmonia_voice_router_tts(
     }
 }
 
-#[no_mangle]
-pub extern "C" fn harmonia_voice_router_list_providers() -> *mut c_char {
+pub fn harmonia_voice_router_list_providers() -> *mut c_char {
     to_c(list_providers())
 }
 
-#[no_mangle]
-pub extern "C" fn harmonia_voice_router_last_error() -> *mut c_char {
+pub fn harmonia_voice_router_last_error() -> *mut c_char {
     to_c(last_error_message())
 }
 
-#[no_mangle]
-pub extern "C" fn harmonia_voice_router_free_string(ptr: *mut c_char) {
+pub fn harmonia_voice_router_free_string(ptr: *mut c_char) {
     if !ptr.is_null() {
         unsafe {
             drop(CString::from_raw(ptr));

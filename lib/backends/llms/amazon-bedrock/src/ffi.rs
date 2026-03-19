@@ -21,17 +21,14 @@ fn to_c(value: String) -> *mut c_char {
         .unwrap_or(std::ptr::null_mut())
 }
 
-#[no_mangle]
-pub extern "C" fn harmonia_amazon_bedrock_version() -> *const c_char {
+pub fn harmonia_amazon_bedrock_version() -> *const c_char {
     VERSION.as_ptr().cast()
 }
-#[no_mangle]
-pub extern "C" fn harmonia_amazon_bedrock_healthcheck() -> i32 {
+pub fn harmonia_amazon_bedrock_healthcheck() -> i32 {
     1
 }
 
-#[no_mangle]
-pub extern "C" fn harmonia_amazon_bedrock_init() -> i32 {
+pub fn harmonia_amazon_bedrock_init() -> i32 {
     match backend::init() {
         Ok(()) => {
             clear_error();
@@ -44,8 +41,7 @@ pub extern "C" fn harmonia_amazon_bedrock_init() -> i32 {
     }
 }
 
-#[no_mangle]
-pub extern "C" fn harmonia_amazon_bedrock_complete(
+pub fn harmonia_amazon_bedrock_complete(
     prompt: *const c_char,
     model: *const c_char,
 ) -> *mut c_char {
@@ -69,20 +65,17 @@ pub extern "C" fn harmonia_amazon_bedrock_complete(
     }
 }
 
-#[no_mangle]
-pub extern "C" fn harmonia_amazon_bedrock_list_models() -> *mut c_char {
+pub fn harmonia_amazon_bedrock_list_models() -> *mut c_char {
     to_c(backend::list_offerings())
 }
 
-#[no_mangle]
-pub extern "C" fn harmonia_amazon_bedrock_select_model(hint: *const c_char) -> *mut c_char {
+pub fn harmonia_amazon_bedrock_select_model(hint: *const c_char) -> *mut c_char {
     to_c(backend::select_model(
         &cstr_to_string(hint).unwrap_or_default(),
     ))
 }
 
-#[no_mangle]
-pub extern "C" fn harmonia_amazon_bedrock_complete_for_task(
+pub fn harmonia_amazon_bedrock_complete_for_task(
     prompt: *const c_char,
     hint: *const c_char,
 ) -> *mut c_char {
@@ -106,12 +99,10 @@ pub extern "C" fn harmonia_amazon_bedrock_complete_for_task(
     }
 }
 
-#[no_mangle]
-pub extern "C" fn harmonia_amazon_bedrock_last_error() -> *mut c_char {
+pub fn harmonia_amazon_bedrock_last_error() -> *mut c_char {
     to_c(last_error_message())
 }
-#[no_mangle]
-pub extern "C" fn harmonia_amazon_bedrock_free_string(ptr: *mut c_char) {
+pub fn harmonia_amazon_bedrock_free_string(ptr: *mut c_char) {
     if !ptr.is_null() {
         unsafe {
             drop(CString::from_raw(ptr));

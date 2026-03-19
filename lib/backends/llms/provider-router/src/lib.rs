@@ -271,18 +271,15 @@ fn to_c_string(value: String) -> *mut c_char {
     }
 }
 
-#[no_mangle]
-pub extern "C" fn harmonia_provider_router_version() -> *const c_char {
+pub fn harmonia_provider_router_version() -> *const c_char {
     VERSION.as_ptr().cast()
 }
 
-#[no_mangle]
-pub extern "C" fn harmonia_provider_router_healthcheck() -> i32 {
+pub fn harmonia_provider_router_healthcheck() -> i32 {
     1
 }
 
-#[no_mangle]
-pub extern "C" fn harmonia_provider_router_init() -> i32 {
+pub fn harmonia_provider_router_init() -> i32 {
     match init_all() {
         Ok(()) => {
             clear_error();
@@ -295,8 +292,7 @@ pub extern "C" fn harmonia_provider_router_init() -> i32 {
     }
 }
 
-#[no_mangle]
-pub extern "C" fn harmonia_provider_router_complete(
+pub fn harmonia_provider_router_complete(
     prompt: *const c_char,
     model: *const c_char,
 ) -> *mut c_char {
@@ -320,8 +316,7 @@ pub extern "C" fn harmonia_provider_router_complete(
     }
 }
 
-#[no_mangle]
-pub extern "C" fn harmonia_provider_router_complete_for_task(
+pub fn harmonia_provider_router_complete_for_task(
     prompt: *const c_char,
     task_hint: *const c_char,
 ) -> *mut c_char {
@@ -345,27 +340,23 @@ pub extern "C" fn harmonia_provider_router_complete_for_task(
     }
 }
 
-#[no_mangle]
-pub extern "C" fn harmonia_provider_router_list_models() -> *mut c_char {
+pub fn harmonia_provider_router_list_models() -> *mut c_char {
     clear_error();
     to_c_string(openrouter::list_offerings())
 }
 
-#[no_mangle]
-pub extern "C" fn harmonia_provider_router_select_model(task_hint: *const c_char) -> *mut c_char {
+pub fn harmonia_provider_router_select_model(task_hint: *const c_char) -> *mut c_char {
     let task_hint = cstr_to_string(task_hint).unwrap_or_default();
     clear_error();
     to_c_string(openrouter::select_model_for_task(&task_hint))
 }
 
-#[no_mangle]
-pub extern "C" fn harmonia_provider_router_list_backends() -> *mut c_char {
+pub fn harmonia_provider_router_list_backends() -> *mut c_char {
     clear_error();
     to_c_string(all_backends_sexp())
 }
 
-#[no_mangle]
-pub extern "C" fn harmonia_provider_router_backend_status(name: *const c_char) -> *mut c_char {
+pub fn harmonia_provider_router_backend_status(name: *const c_char) -> *mut c_char {
     let name = cstr_to_string(name).unwrap_or_default();
     match backend_status_sexp(&name) {
         Some(sexp) => {
@@ -379,13 +370,11 @@ pub extern "C" fn harmonia_provider_router_backend_status(name: *const c_char) -
     }
 }
 
-#[no_mangle]
-pub extern "C" fn harmonia_provider_router_last_error() -> *mut c_char {
+pub fn harmonia_provider_router_last_error() -> *mut c_char {
     to_c_string(last_error_message())
 }
 
-#[no_mangle]
-pub extern "C" fn harmonia_provider_router_free_string(ptr: *mut c_char) {
+pub fn harmonia_provider_router_free_string(ptr: *mut c_char) {
     if ptr.is_null() {
         return;
     }

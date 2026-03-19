@@ -79,18 +79,15 @@ fn persist_to_disk(path: &Path, map: &HashMap<String, String>) -> Result<(), Str
     Ok(())
 }
 
-#[no_mangle]
-pub extern "C" fn harmonia_memory_version() -> *const c_char {
+pub fn harmonia_memory_version() -> *const c_char {
     VERSION.as_ptr().cast()
 }
 
-#[no_mangle]
-pub extern "C" fn harmonia_memory_healthcheck() -> i32 {
+pub fn harmonia_memory_healthcheck() -> i32 {
     1
 }
 
-#[no_mangle]
-pub extern "C" fn harmonia_memory_init(file_path: *const c_char) -> i32 {
+pub fn harmonia_memory_init(file_path: *const c_char) -> i32 {
     let path = match cstr_to_string(file_path) {
         Ok(v) => v,
         Err(e) => {
@@ -129,8 +126,7 @@ pub extern "C" fn harmonia_memory_init(file_path: *const c_char) -> i32 {
     }
 }
 
-#[no_mangle]
-pub extern "C" fn harmonia_memory_put(key: *const c_char, value: *const c_char) -> i32 {
+pub fn harmonia_memory_put(key: *const c_char, value: *const c_char) -> i32 {
     let key = match cstr_to_string(key) {
         Ok(v) => v,
         Err(e) => {
@@ -165,8 +161,7 @@ pub extern "C" fn harmonia_memory_put(key: *const c_char, value: *const c_char) 
     0
 }
 
-#[no_mangle]
-pub extern "C" fn harmonia_memory_get(key: *const c_char) -> *mut c_char {
+pub fn harmonia_memory_get(key: *const c_char) -> *mut c_char {
     let key = match cstr_to_string(key) {
         Ok(v) => v,
         Err(e) => {
@@ -193,8 +188,7 @@ pub extern "C" fn harmonia_memory_get(key: *const c_char) -> *mut c_char {
     }
 }
 
-#[no_mangle]
-pub extern "C" fn harmonia_memory_last_error() -> *mut c_char {
+pub fn harmonia_memory_last_error() -> *mut c_char {
     let msg = last_error()
         .read()
         .map(|v| v.clone())
@@ -202,8 +196,7 @@ pub extern "C" fn harmonia_memory_last_error() -> *mut c_char {
     to_c_string(msg)
 }
 
-#[no_mangle]
-pub extern "C" fn harmonia_memory_free_string(ptr: *mut c_char) {
+pub fn harmonia_memory_free_string(ptr: *mut c_char) {
     if ptr.is_null() {
         return;
     }

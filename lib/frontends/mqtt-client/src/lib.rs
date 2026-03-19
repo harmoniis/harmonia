@@ -740,21 +740,15 @@ fn extract_sexp_value(sexp: &str, key: &str) -> Option<String> {
 
 // ─── Legacy MQTT Client API ─────────────────────────────────────────
 
-#[no_mangle]
-pub extern "C" fn harmonia_mqtt_client_version() -> *const c_char {
+pub fn harmonia_mqtt_client_version() -> *const c_char {
     VERSION.as_ptr().cast()
 }
 
-#[no_mangle]
-pub extern "C" fn harmonia_mqtt_client_healthcheck() -> i32 {
+pub fn harmonia_mqtt_client_healthcheck() -> i32 {
     1
 }
 
-#[no_mangle]
-pub extern "C" fn harmonia_mqtt_client_publish(
-    topic: *const c_char,
-    payload: *const c_char,
-) -> i32 {
+pub fn harmonia_mqtt_client_publish(topic: *const c_char, payload: *const c_char) -> i32 {
     let topic = match cstr_to_string(topic) {
         Ok(v) => v,
         Err(e) => {
@@ -802,8 +796,7 @@ pub extern "C" fn harmonia_mqtt_client_publish(
     -1
 }
 
-#[no_mangle]
-pub extern "C" fn harmonia_mqtt_client_poll(topic: *const c_char) -> *mut c_char {
+pub fn harmonia_mqtt_client_poll(topic: *const c_char) -> *mut c_char {
     let topic = match cstr_to_string(topic) {
         Ok(v) => v,
         Err(e) => {
@@ -844,14 +837,12 @@ pub extern "C" fn harmonia_mqtt_client_poll(topic: *const c_char) -> *mut c_char
     std::ptr::null_mut()
 }
 
-#[no_mangle]
-pub extern "C" fn harmonia_mqtt_client_reset() -> i32 {
+pub fn harmonia_mqtt_client_reset() -> i32 {
     clear_error();
     0
 }
 
-#[no_mangle]
-pub extern "C" fn harmonia_mqtt_client_last_error() -> *mut c_char {
+pub fn harmonia_mqtt_client_last_error() -> *mut c_char {
     let msg = last_error()
         .read()
         .map(|v| v.clone())
@@ -859,8 +850,7 @@ pub extern "C" fn harmonia_mqtt_client_last_error() -> *mut c_char {
     to_c_string(msg)
 }
 
-#[no_mangle]
-pub extern "C" fn harmonia_mqtt_client_make_envelope(
+pub fn harmonia_mqtt_client_make_envelope(
     kind: *const c_char,
     type_name: *const c_char,
     agent_fp: *const c_char,
@@ -931,8 +921,7 @@ pub extern "C" fn harmonia_mqtt_client_make_envelope(
     }
 }
 
-#[no_mangle]
-pub extern "C" fn harmonia_mqtt_client_parse_envelope(payload: *const c_char) -> *mut c_char {
+pub fn harmonia_mqtt_client_parse_envelope(payload: *const c_char) -> *mut c_char {
     let payload = match cstr_to_string(payload) {
         Ok(v) => v,
         Err(e) => {
@@ -963,8 +952,7 @@ pub extern "C" fn harmonia_mqtt_client_parse_envelope(payload: *const c_char) ->
     }
 }
 
-#[no_mangle]
-pub extern "C" fn harmonia_mqtt_client_free_string(ptr: *mut c_char) {
+pub fn harmonia_mqtt_client_free_string(ptr: *mut c_char) {
     if ptr.is_null() {
         return;
     }
@@ -986,18 +974,15 @@ fn inbound_queue() -> &'static RwLock<VecDeque<InboundMessage>> {
     INBOUND_QUEUE.get_or_init(|| RwLock::new(VecDeque::new()))
 }
 
-#[no_mangle]
-pub extern "C" fn harmonia_frontend_version() -> *const c_char {
+pub fn harmonia_frontend_version() -> *const c_char {
     FRONTEND_VERSION.as_ptr().cast()
 }
 
-#[no_mangle]
-pub extern "C" fn harmonia_frontend_healthcheck() -> i32 {
+pub fn harmonia_frontend_healthcheck() -> i32 {
     1
 }
 
-#[no_mangle]
-pub extern "C" fn harmonia_frontend_init(config: *const c_char) -> i32 {
+pub fn harmonia_frontend_init(config: *const c_char) -> i32 {
     let config = match cstr_to_string(config) {
         Ok(v) => v,
         Err(e) => {
@@ -1112,8 +1097,7 @@ pub extern "C" fn harmonia_frontend_init(config: *const c_char) -> i32 {
     0
 }
 
-#[no_mangle]
-pub extern "C" fn harmonia_frontend_poll(buf: *mut c_char, buf_len: usize) -> i32 {
+pub fn harmonia_frontend_poll(buf: *mut c_char, buf_len: usize) -> i32 {
     if buf.is_null() || buf_len == 0 {
         set_error("null buffer");
         return -1;
@@ -1157,8 +1141,7 @@ pub extern "C" fn harmonia_frontend_poll(buf: *mut c_char, buf_len: usize) -> i3
     write_len as i32
 }
 
-#[no_mangle]
-pub extern "C" fn harmonia_frontend_send(channel: *const c_char, payload: *const c_char) -> i32 {
+pub fn harmonia_frontend_send(channel: *const c_char, payload: *const c_char) -> i32 {
     load_remote_device_registry();
     let topic = match cstr_to_string(channel) {
         Ok(v) => v,
@@ -1197,13 +1180,11 @@ pub extern "C" fn harmonia_frontend_send(channel: *const c_char, payload: *const
     harmonia_mqtt_client_publish(channel, payload)
 }
 
-#[no_mangle]
-pub extern "C" fn harmonia_frontend_last_error() -> *const c_char {
+pub fn harmonia_frontend_last_error() -> *const c_char {
     harmonia_mqtt_client_last_error() as *const c_char
 }
 
-#[no_mangle]
-pub extern "C" fn harmonia_frontend_shutdown() -> i32 {
+pub fn harmonia_frontend_shutdown() -> i32 {
     if let Ok(mut t) = subscribed_topics().write() {
         t.clear();
     }
@@ -1220,8 +1201,7 @@ pub extern "C" fn harmonia_frontend_shutdown() -> i32 {
     0
 }
 
-#[no_mangle]
-pub extern "C" fn harmonia_frontend_free_string(ptr: *mut c_char) {
+pub fn harmonia_frontend_free_string(ptr: *mut c_char) {
     harmonia_mqtt_client_free_string(ptr)
 }
 

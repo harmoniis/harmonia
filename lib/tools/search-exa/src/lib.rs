@@ -49,18 +49,15 @@ fn json_escape(s: &str) -> String {
         .replace('\r', "\\r")
 }
 
-#[no_mangle]
-pub extern "C" fn harmonia_search_exa_version() -> *const c_char {
+pub fn harmonia_search_exa_version() -> *const c_char {
     VERSION.as_ptr().cast()
 }
 
-#[no_mangle]
-pub extern "C" fn harmonia_search_exa_healthcheck() -> i32 {
+pub fn harmonia_search_exa_healthcheck() -> i32 {
     1
 }
 
-#[no_mangle]
-pub extern "C" fn harmonia_search_exa_query(query: *const c_char) -> *mut c_char {
+pub fn harmonia_search_exa_query(query: *const c_char) -> *mut c_char {
     let query = match cstr_to_string(query) {
         Ok(v) => v,
         Err(e) => {
@@ -122,8 +119,7 @@ pub extern "C" fn harmonia_search_exa_query(query: *const c_char) -> *mut c_char
     }
 }
 
-#[no_mangle]
-pub extern "C" fn harmonia_search_exa_last_error() -> *mut c_char {
+pub fn harmonia_search_exa_last_error() -> *mut c_char {
     to_c_string(
         last_error()
             .read()
@@ -132,8 +128,7 @@ pub extern "C" fn harmonia_search_exa_last_error() -> *mut c_char {
     )
 }
 
-#[no_mangle]
-pub extern "C" fn harmonia_search_exa_free_string(ptr: *mut c_char) {
+pub fn harmonia_search_exa_free_string(ptr: *mut c_char) {
     if ptr.is_null() {
         return;
     }

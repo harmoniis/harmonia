@@ -96,21 +96,15 @@ fn last_recovery_line() -> Result<String, String> {
     last.ok_or_else(|| "no crash event".to_string())
 }
 
-#[no_mangle]
-pub extern "C" fn harmonia_ouroboros_version() -> *const c_char {
+pub fn harmonia_ouroboros_version() -> *const c_char {
     VERSION.as_ptr().cast()
 }
 
-#[no_mangle]
-pub extern "C" fn harmonia_ouroboros_healthcheck() -> i32 {
+pub fn harmonia_ouroboros_healthcheck() -> i32 {
     1
 }
 
-#[no_mangle]
-pub extern "C" fn harmonia_ouroboros_record_crash(
-    component: *const c_char,
-    detail: *const c_char,
-) -> i32 {
+pub fn harmonia_ouroboros_record_crash(component: *const c_char, detail: *const c_char) -> i32 {
     let component = match cstr_to_string(component) {
         Ok(v) => v,
         Err(e) => {
@@ -145,8 +139,7 @@ pub extern "C" fn harmonia_ouroboros_record_crash(
     }
 }
 
-#[no_mangle]
-pub extern "C" fn harmonia_ouroboros_last_crash() -> *mut c_char {
+pub fn harmonia_ouroboros_last_crash() -> *mut c_char {
     match last_recovery_line() {
         Ok(line) => {
             clear_error();
@@ -159,8 +152,7 @@ pub extern "C" fn harmonia_ouroboros_last_crash() -> *mut c_char {
     }
 }
 
-#[no_mangle]
-pub extern "C" fn harmonia_ouroboros_history(limit: i32) -> *mut c_char {
+pub fn harmonia_ouroboros_history(limit: i32) -> *mut c_char {
     let n = if limit <= 0 { 20 } else { limit as usize };
     let path = recovery_log_path();
     let file = match std::fs::File::open(&path) {
@@ -187,11 +179,7 @@ pub extern "C" fn harmonia_ouroboros_history(limit: i32) -> *mut c_char {
     to_c_string(lines[start..].join("\n"))
 }
 
-#[no_mangle]
-pub extern "C" fn harmonia_ouroboros_write_patch(
-    component: *const c_char,
-    patch_body: *const c_char,
-) -> i32 {
+pub fn harmonia_ouroboros_write_patch(component: *const c_char, patch_body: *const c_char) -> i32 {
     let component = match cstr_to_string(component) {
         Ok(v) => v,
         Err(e) => {
@@ -233,8 +221,7 @@ pub extern "C" fn harmonia_ouroboros_write_patch(
     0
 }
 
-#[no_mangle]
-pub extern "C" fn harmonia_ouroboros_last_error() -> *mut c_char {
+pub fn harmonia_ouroboros_last_error() -> *mut c_char {
     let msg = last_error()
         .read()
         .map(|v| v.clone())
@@ -242,16 +229,14 @@ pub extern "C" fn harmonia_ouroboros_last_error() -> *mut c_char {
     to_c_string(msg)
 }
 
-#[no_mangle]
-pub extern "C" fn harmonia_ouroboros_health() -> *mut c_char {
+pub fn harmonia_ouroboros_health() -> *mut c_char {
     clear_error();
     to_c_string(
         "{\"status\":\"ok\",\"role\":\"repair-engine\",\"crash-ledger\":\"recovery\"}".to_string(),
     )
 }
 
-#[no_mangle]
-pub extern "C" fn harmonia_ouroboros_free_string(ptr: *mut c_char) {
+pub fn harmonia_ouroboros_free_string(ptr: *mut c_char) {
     if ptr.is_null() {
         return;
     }

@@ -21,17 +21,14 @@ fn to_c(value: String) -> *mut c_char {
         .unwrap_or(std::ptr::null_mut())
 }
 
-#[no_mangle]
-pub extern "C" fn harmonia_groq_version() -> *const c_char {
+pub fn harmonia_groq_version() -> *const c_char {
     VERSION.as_ptr().cast()
 }
-#[no_mangle]
-pub extern "C" fn harmonia_groq_healthcheck() -> i32 {
+pub fn harmonia_groq_healthcheck() -> i32 {
     1
 }
 
-#[no_mangle]
-pub extern "C" fn harmonia_groq_init() -> i32 {
+pub fn harmonia_groq_init() -> i32 {
     match backend::init() {
         Ok(()) => {
             clear_error();
@@ -44,11 +41,7 @@ pub extern "C" fn harmonia_groq_init() -> i32 {
     }
 }
 
-#[no_mangle]
-pub extern "C" fn harmonia_groq_complete(
-    prompt: *const c_char,
-    model: *const c_char,
-) -> *mut c_char {
+pub fn harmonia_groq_complete(prompt: *const c_char, model: *const c_char) -> *mut c_char {
     let prompt = match cstr_to_string(prompt) {
         Ok(v) => v,
         Err(e) => {
@@ -69,23 +62,17 @@ pub extern "C" fn harmonia_groq_complete(
     }
 }
 
-#[no_mangle]
-pub extern "C" fn harmonia_groq_list_models() -> *mut c_char {
+pub fn harmonia_groq_list_models() -> *mut c_char {
     to_c(backend::list_offerings())
 }
 
-#[no_mangle]
-pub extern "C" fn harmonia_groq_select_model(hint: *const c_char) -> *mut c_char {
+pub fn harmonia_groq_select_model(hint: *const c_char) -> *mut c_char {
     to_c(backend::select_model(
         &cstr_to_string(hint).unwrap_or_default(),
     ))
 }
 
-#[no_mangle]
-pub extern "C" fn harmonia_groq_complete_for_task(
-    prompt: *const c_char,
-    hint: *const c_char,
-) -> *mut c_char {
+pub fn harmonia_groq_complete_for_task(prompt: *const c_char, hint: *const c_char) -> *mut c_char {
     let prompt = match cstr_to_string(prompt) {
         Ok(v) => v,
         Err(e) => {
@@ -106,12 +93,10 @@ pub extern "C" fn harmonia_groq_complete_for_task(
     }
 }
 
-#[no_mangle]
-pub extern "C" fn harmonia_groq_last_error() -> *mut c_char {
+pub fn harmonia_groq_last_error() -> *mut c_char {
     to_c(last_error_message())
 }
-#[no_mangle]
-pub extern "C" fn harmonia_groq_free_string(ptr: *mut c_char) {
+pub fn harmonia_groq_free_string(ptr: *mut c_char) {
     if !ptr.is_null() {
         unsafe {
             drop(CString::from_raw(ptr));

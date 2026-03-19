@@ -1547,26 +1547,22 @@ fn sexp_to_string_value(sexp: &Sexp) -> Option<String> {
     }
 }
 
-#[no_mangle]
-pub extern "C" fn harmonia_signalograd_version() -> *const c_char {
+pub fn harmonia_signalograd_version() -> *const c_char {
     VERSION.as_ptr().cast()
 }
 
-#[no_mangle]
-pub extern "C" fn harmonia_signalograd_healthcheck() -> i32 {
+pub fn harmonia_signalograd_healthcheck() -> i32 {
     1
 }
 
-#[no_mangle]
-pub extern "C" fn harmonia_signalograd_init() -> i32 {
+pub fn harmonia_signalograd_init() -> i32 {
     let _ = state();
     ensure_actor_registered();
     clear_error();
     0
 }
 
-#[no_mangle]
-pub extern "C" fn harmonia_signalograd_observe(observation_sexp: *const c_char) -> i32 {
+pub fn harmonia_signalograd_observe(observation_sexp: *const c_char) -> i32 {
     let raw = match cstr_to_string(observation_sexp) {
         Ok(value) => value,
         Err(err) => {
@@ -1601,13 +1597,11 @@ pub extern "C" fn harmonia_signalograd_observe(observation_sexp: *const c_char) 
     0
 }
 
-#[no_mangle]
-pub extern "C" fn harmonia_signalograd_reflect(observation_json: *const c_char) -> i32 {
+pub fn harmonia_signalograd_reflect(observation_json: *const c_char) -> i32 {
     harmonia_signalograd_observe(observation_json)
 }
 
-#[no_mangle]
-pub extern "C" fn harmonia_signalograd_feedback(feedback_sexp: *const c_char) -> i32 {
+pub fn harmonia_signalograd_feedback(feedback_sexp: *const c_char) -> i32 {
     let raw = match cstr_to_string(feedback_sexp) {
         Ok(value) => value,
         Err(err) => {
@@ -1641,8 +1635,7 @@ pub extern "C" fn harmonia_signalograd_feedback(feedback_sexp: *const c_char) ->
     0
 }
 
-#[no_mangle]
-pub extern "C" fn harmonia_signalograd_checkpoint(path: *const c_char) -> i32 {
+pub fn harmonia_signalograd_checkpoint(path: *const c_char) -> i32 {
     let raw_path = match cstr_to_string(path) {
         Ok(value) => value,
         Err(err) => {
@@ -1679,8 +1672,7 @@ pub extern "C" fn harmonia_signalograd_checkpoint(path: *const c_char) -> i32 {
     0
 }
 
-#[no_mangle]
-pub extern "C" fn harmonia_signalograd_restore(path: *const c_char) -> i32 {
+pub fn harmonia_signalograd_restore(path: *const c_char) -> i32 {
     let raw_path = match cstr_to_string(path) {
         Ok(value) => value,
         Err(err) => {
@@ -1714,8 +1706,7 @@ pub extern "C" fn harmonia_signalograd_restore(path: *const c_char) -> i32 {
     0
 }
 
-#[no_mangle]
-pub extern "C" fn harmonia_signalograd_status() -> *mut c_char {
+pub fn harmonia_signalograd_status() -> *mut c_char {
     let state = match state().lock() {
         Ok(value) => value,
         Err(_) => {
@@ -1727,8 +1718,7 @@ pub extern "C" fn harmonia_signalograd_status() -> *mut c_char {
     to_c_string(status_sexp(&state))
 }
 
-#[no_mangle]
-pub extern "C" fn harmonia_signalograd_snapshot() -> *mut c_char {
+pub fn harmonia_signalograd_snapshot() -> *mut c_char {
     let state = match state().lock() {
         Ok(value) => value,
         Err(_) => {
@@ -1740,8 +1730,7 @@ pub extern "C" fn harmonia_signalograd_snapshot() -> *mut c_char {
     to_c_string(snapshot_sexp(&state))
 }
 
-#[no_mangle]
-pub extern "C" fn harmonia_signalograd_reset() -> i32 {
+pub fn harmonia_signalograd_reset() -> i32 {
     let mut state = match state().lock() {
         Ok(value) => value,
         Err(_) => {
@@ -1759,13 +1748,11 @@ pub extern "C" fn harmonia_signalograd_reset() -> i32 {
     0
 }
 
-#[no_mangle]
-pub extern "C" fn harmonia_signalograd_last_error() -> *mut c_char {
+pub fn harmonia_signalograd_last_error() -> *mut c_char {
     to_c_string(last_error_message())
 }
 
-#[no_mangle]
-pub extern "C" fn harmonia_signalograd_free_string(ptr: *mut c_char) {
+pub fn harmonia_signalograd_free_string(ptr: *mut c_char) {
     if ptr.is_null() {
         return;
     }

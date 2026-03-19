@@ -62,18 +62,15 @@ fn run_git(repo: &str, args: &[&str]) -> Result<String, String> {
     }
 }
 
-#[no_mangle]
-pub extern "C" fn harmonia_git_ops_version() -> *const c_char {
+pub fn harmonia_git_ops_version() -> *const c_char {
     VERSION.as_ptr().cast()
 }
 
-#[no_mangle]
-pub extern "C" fn harmonia_git_ops_healthcheck() -> i32 {
+pub fn harmonia_git_ops_healthcheck() -> i32 {
     1
 }
 
-#[no_mangle]
-pub extern "C" fn harmonia_git_ops_commit_all(
+pub fn harmonia_git_ops_commit_all(
     repo_path: *const c_char,
     message: *const c_char,
     author_name: *const c_char,
@@ -137,8 +134,7 @@ pub extern "C" fn harmonia_git_ops_commit_all(
     }
 }
 
-#[no_mangle]
-pub extern "C" fn harmonia_git_ops_push(
+pub fn harmonia_git_ops_push(
     repo_path: *const c_char,
     remote: *const c_char,
     branch: *const c_char,
@@ -164,8 +160,7 @@ pub extern "C" fn harmonia_git_ops_push(
     }
 }
 
-#[no_mangle]
-pub extern "C" fn harmonia_git_ops_last_error() -> *mut c_char {
+pub fn harmonia_git_ops_last_error() -> *mut c_char {
     let msg = last_error()
         .read()
         .map(|v| v.clone())
@@ -173,8 +168,7 @@ pub extern "C" fn harmonia_git_ops_last_error() -> *mut c_char {
     to_c_string(msg)
 }
 
-#[no_mangle]
-pub extern "C" fn harmonia_git_ops_free_string(ptr: *mut c_char) {
+pub fn harmonia_git_ops_free_string(ptr: *mut c_char) {
     if ptr.is_null() {
         return;
     }

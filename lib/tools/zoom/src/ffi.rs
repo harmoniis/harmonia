@@ -48,20 +48,17 @@ fn to_c_string(value: String) -> *mut c_char {
 // ---- ToolVtable exports ----
 
 /// Version string. Pointer is static, do NOT free.
-#[no_mangle]
-pub extern "C" fn harmonia_tool_version() -> *const c_char {
+pub fn harmonia_tool_version() -> *const c_char {
     VERSION.as_ptr().cast()
 }
 
 /// Health check. Returns 1 if operational.
-#[no_mangle]
-pub extern "C" fn harmonia_tool_healthcheck() -> i32 {
+pub fn harmonia_tool_healthcheck() -> i32 {
     1
 }
 
 /// Initialize with s-expression config. Returns 0 on success.
-#[no_mangle]
-pub extern "C" fn harmonia_tool_init(_config_sexp: *const c_char) -> i32 {
+pub fn harmonia_tool_init(_config_sexp: *const c_char) -> i32 {
     clear_error();
     0
 }
@@ -70,11 +67,7 @@ pub extern "C" fn harmonia_tool_init(_config_sexp: *const c_char) -> i32 {
 ///
 /// Dispatches to the appropriate operation handler based on the operation name.
 /// Caller must free the returned string with `harmonia_tool_free_string`.
-#[no_mangle]
-pub extern "C" fn harmonia_tool_invoke(
-    operation: *const c_char,
-    params_sexp: *const c_char,
-) -> *mut c_char {
+pub fn harmonia_tool_invoke(operation: *const c_char, params_sexp: *const c_char) -> *mut c_char {
     let op = match cstr_to_string(operation) {
         Ok(v) => v,
         Err(e) => {
@@ -103,14 +96,12 @@ pub extern "C" fn harmonia_tool_invoke(
 }
 
 /// Self-describing capabilities. Caller must free.
-#[no_mangle]
-pub extern "C" fn harmonia_tool_capabilities() -> *mut c_char {
+pub fn harmonia_tool_capabilities() -> *mut c_char {
     to_c_string(operations::zoom_capabilities().to_string())
 }
 
 /// Last error message. Caller must free.
-#[no_mangle]
-pub extern "C" fn harmonia_tool_last_error() -> *mut c_char {
+pub fn harmonia_tool_last_error() -> *mut c_char {
     let msg = last_error()
         .read()
         .map(|v| v.clone())
@@ -119,14 +110,12 @@ pub extern "C" fn harmonia_tool_last_error() -> *mut c_char {
 }
 
 /// Graceful shutdown. Returns 0.
-#[no_mangle]
-pub extern "C" fn harmonia_tool_shutdown() -> i32 {
+pub fn harmonia_tool_shutdown() -> i32 {
     0
 }
 
 /// Free a string returned by this tool.
-#[no_mangle]
-pub extern "C" fn harmonia_tool_free_string(ptr: *mut c_char) {
+pub fn harmonia_tool_free_string(ptr: *mut c_char) {
     if ptr.is_null() {
         return;
     }

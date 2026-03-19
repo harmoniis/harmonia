@@ -127,18 +127,15 @@ pub fn is_admin_intent_op(op: &str, required_ops: &[&str]) -> bool {
     required_ops.iter().any(|r| r.eq_ignore_ascii_case(op))
 }
 
-#[no_mangle]
-pub extern "C" fn harmonia_admin_intent_version() -> *const c_char {
+pub fn harmonia_admin_intent_version() -> *const c_char {
     VERSION.as_ptr().cast()
 }
 
-#[no_mangle]
-pub extern "C" fn harmonia_admin_intent_healthcheck() -> i32 {
+pub fn harmonia_admin_intent_healthcheck() -> i32 {
     1
 }
 
-#[no_mangle]
-pub extern "C" fn harmonia_admin_intent_init() -> i32 {
+pub fn harmonia_admin_intent_init() -> i32 {
     match init_from_env() {
         Ok(()) => {
             clear_error();
@@ -151,8 +148,7 @@ pub extern "C" fn harmonia_admin_intent_init() -> i32 {
     }
 }
 
-#[no_mangle]
-pub extern "C" fn harmonia_admin_intent_verify_with_vault(
+pub fn harmonia_admin_intent_verify_with_vault(
     action: *const c_char,
     params: *const c_char,
     sig_hex: *const c_char,
@@ -199,8 +195,7 @@ pub extern "C" fn harmonia_admin_intent_verify_with_vault(
     }
 }
 
-#[no_mangle]
-pub extern "C" fn harmonia_admin_intent_last_error() -> *mut c_char {
+pub fn harmonia_admin_intent_last_error() -> *mut c_char {
     to_c_string(
         last_error_lock()
             .read()
@@ -209,8 +204,7 @@ pub extern "C" fn harmonia_admin_intent_last_error() -> *mut c_char {
     )
 }
 
-#[no_mangle]
-pub extern "C" fn harmonia_admin_intent_free_string(ptr: *mut c_char) {
+pub fn harmonia_admin_intent_free_string(ptr: *mut c_char) {
     if ptr.is_null() {
         return;
     }

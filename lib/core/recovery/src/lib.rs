@@ -60,18 +60,15 @@ fn log_path() -> String {
         .unwrap_or_else(|| format!("{}/recovery.log", state_root()))
 }
 
-#[no_mangle]
-pub extern "C" fn harmonia_recovery_version() -> *const c_char {
+pub fn harmonia_recovery_version() -> *const c_char {
     VERSION.as_ptr().cast()
 }
 
-#[no_mangle]
-pub extern "C" fn harmonia_recovery_healthcheck() -> i32 {
+pub fn harmonia_recovery_healthcheck() -> i32 {
     1
 }
 
-#[no_mangle]
-pub extern "C" fn harmonia_recovery_record(kind: *const c_char, detail: *const c_char) -> i32 {
+pub fn harmonia_recovery_record(kind: *const c_char, detail: *const c_char) -> i32 {
     let kind = match cstr_to_string(kind) {
         Ok(v) => v,
         Err(e) => {
@@ -112,8 +109,7 @@ pub extern "C" fn harmonia_recovery_record(kind: *const c_char, detail: *const c
     0
 }
 
-#[no_mangle]
-pub extern "C" fn harmonia_recovery_tail_lines(limit: i32) -> *mut c_char {
+pub fn harmonia_recovery_tail_lines(limit: i32) -> *mut c_char {
     let path = log_path();
     let body = match fs::read_to_string(&path) {
         Ok(v) => v,
@@ -129,8 +125,7 @@ pub extern "C" fn harmonia_recovery_tail_lines(limit: i32) -> *mut c_char {
     to_c_string(lines[start..].join("\n"))
 }
 
-#[no_mangle]
-pub extern "C" fn harmonia_recovery_last_error() -> *mut c_char {
+pub fn harmonia_recovery_last_error() -> *mut c_char {
     let msg = last_error()
         .read()
         .map(|v| v.clone())
@@ -138,8 +133,7 @@ pub extern "C" fn harmonia_recovery_last_error() -> *mut c_char {
     to_c_string(msg)
 }
 
-#[no_mangle]
-pub extern "C" fn harmonia_recovery_free_string(ptr: *mut c_char) {
+pub fn harmonia_recovery_free_string(ptr: *mut c_char) {
     if ptr.is_null() {
         return;
     }

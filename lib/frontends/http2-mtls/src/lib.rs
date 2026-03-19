@@ -612,18 +612,15 @@ fn shutdown_state(mut state: FrontendState) {
     }
 }
 
-#[no_mangle]
-pub extern "C" fn harmonia_frontend_version() -> *const c_char {
+pub fn harmonia_frontend_version() -> *const c_char {
     VERSION.as_ptr().cast()
 }
 
-#[no_mangle]
-pub extern "C" fn harmonia_frontend_healthcheck() -> i32 {
+pub fn harmonia_frontend_healthcheck() -> i32 {
     1
 }
 
-#[no_mangle]
-pub extern "C" fn harmonia_frontend_init(config: *const c_char) -> i32 {
+pub fn harmonia_frontend_init(config: *const c_char) -> i32 {
     let _ = cstr_to_string(config);
     if let Some(previous) = take_state() {
         shutdown_state(previous);
@@ -643,8 +640,7 @@ pub extern "C" fn harmonia_frontend_init(config: *const c_char) -> i32 {
     }
 }
 
-#[no_mangle]
-pub extern "C" fn harmonia_frontend_poll(buf: *mut c_char, buf_len: usize) -> i32 {
+pub fn harmonia_frontend_poll(buf: *mut c_char, buf_len: usize) -> i32 {
     if buf.is_null() || buf_len == 0 {
         set_error("poll: null buffer or zero length");
         return -1;
@@ -686,8 +682,7 @@ pub extern "C" fn harmonia_frontend_poll(buf: *mut c_char, buf_len: usize) -> i3
     count as i32
 }
 
-#[no_mangle]
-pub extern "C" fn harmonia_frontend_send(channel: *const c_char, payload: *const c_char) -> i32 {
+pub fn harmonia_frontend_send(channel: *const c_char, payload: *const c_char) -> i32 {
     let route = match cstr_to_string(channel) {
         Ok(route) => route,
         Err(error) => {
@@ -732,8 +727,7 @@ pub extern "C" fn harmonia_frontend_send(channel: *const c_char, payload: *const
     0
 }
 
-#[no_mangle]
-pub extern "C" fn harmonia_frontend_last_error() -> *const c_char {
+pub fn harmonia_frontend_last_error() -> *const c_char {
     let message = last_error()
         .read()
         .map(|guard| guard.clone())
@@ -743,8 +737,7 @@ pub extern "C" fn harmonia_frontend_last_error() -> *const c_char {
         .unwrap_or(std::ptr::null())
 }
 
-#[no_mangle]
-pub extern "C" fn harmonia_frontend_shutdown() -> i32 {
+pub fn harmonia_frontend_shutdown() -> i32 {
     if let Some(state) = take_state() {
         shutdown_state(state);
     }
@@ -752,8 +745,7 @@ pub extern "C" fn harmonia_frontend_shutdown() -> i32 {
     0
 }
 
-#[no_mangle]
-pub extern "C" fn harmonia_frontend_free_string(ptr: *mut c_char) {
+pub fn harmonia_frontend_free_string(ptr: *mut c_char) {
     if ptr.is_null() {
         return;
     }
@@ -762,8 +754,7 @@ pub extern "C" fn harmonia_frontend_free_string(ptr: *mut c_char) {
     }
 }
 
-#[no_mangle]
-pub extern "C" fn harmonia_frontend_list_channels() -> *const c_char {
+pub fn harmonia_frontend_list_channels() -> *const c_char {
     let channels = state_slot()
         .lock()
         .ok()

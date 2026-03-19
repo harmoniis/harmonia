@@ -67,18 +67,15 @@ fn local_copy(src: &Path, bucket: &str, prefix: &str, key: &str) -> Result<PathB
     Ok(dest)
 }
 
-#[no_mangle]
-pub extern "C" fn harmonia_s3_version() -> *const c_char {
+pub fn harmonia_s3_version() -> *const c_char {
     VERSION.as_ptr().cast()
 }
 
-#[no_mangle]
-pub extern "C" fn harmonia_s3_healthcheck() -> i32 {
+pub fn harmonia_s3_healthcheck() -> i32 {
     1
 }
 
-#[no_mangle]
-pub extern "C" fn harmonia_s3_upload_file(
+pub fn harmonia_s3_upload_file(
     source_path: *const c_char,
     bucket: *const c_char,
     prefix: *const c_char,
@@ -157,8 +154,7 @@ pub extern "C" fn harmonia_s3_upload_file(
     }
 }
 
-#[no_mangle]
-pub extern "C" fn harmonia_s3_last_error() -> *mut c_char {
+pub fn harmonia_s3_last_error() -> *mut c_char {
     let msg = last_error()
         .read()
         .map(|v| v.clone())
@@ -166,8 +162,7 @@ pub extern "C" fn harmonia_s3_last_error() -> *mut c_char {
     to_c_string(msg)
 }
 
-#[no_mangle]
-pub extern "C" fn harmonia_s3_free_string(ptr: *mut c_char) {
+pub fn harmonia_s3_free_string(ptr: *mut c_char) {
     if ptr.is_null() {
         return;
     }
