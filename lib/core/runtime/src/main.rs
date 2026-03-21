@@ -27,8 +27,8 @@ fn state_root() -> String {
 async fn main() {
     eprintln!("[INFO] [runtime] harmonia-runtime starting");
 
-    // 1. Initialize all components (frontends, backends, tools, core)
-    let (init_ok, init_total) = init::init_all();
+    // 1. Initialize only enabled components (config-driven)
+    let init_result = init::init_all();
 
     // 2. Determine socket path
     let socket_path = env::var("HARMONIA_RUNTIME_SOCKET")
@@ -122,7 +122,9 @@ async fn main() {
     let _ = supervisor_ref.cast(msg::RuntimeMsg::RegisterMatrixActor(matrix_for_supervisor));
 
     eprintln!(
-        "[INFO] [runtime] All actors spawned ({init_ok}/{init_total} components), starting IPC server"
+        "[INFO] [runtime] All actors spawned ({}/{} components), starting IPC server",
+        init_result.ok_count(),
+        init_result.total_count()
     );
 
     // 6. Spawn IPC listener

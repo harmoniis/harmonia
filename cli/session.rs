@@ -331,7 +331,8 @@ fn dispatch_input(
         }
     }
 
-    // Print user message echo
+    // Print user message echo — extra blank line for clear separation
+    eprintln!();
     eprintln!();
     eprintln!(
         "  {BOLD_GREEN}╭─{RESET} {DIM}you@{}{RESET}",
@@ -342,6 +343,7 @@ fn dispatch_input(
         print_wrapped(line, &user_prefix, &user_prefix, "");
     }
     eprintln!("  {BOLD_GREEN}╰─{RESET}");
+    eprintln!();
 
     // Send to daemon
     send_to_daemon(writer, trimmed, waiting, running)?;
@@ -657,6 +659,25 @@ fn read_input_line(
                             }
                             AutocompleteMode::None => {}
                         }
+                        // Paste detection: if more events are immediately queued,
+                        // this Enter is part of a paste — insert newline instead of submitting.
+                        if event::poll(std::time::Duration::from_millis(5)).unwrap_or(false) {
+                            // More input coming — this is a paste, insert newline
+                            let byte_idx = byte_index_for_char(&input, cursor_pos);
+                            input.insert(byte_idx, '\n');
+                            cursor_pos += 1;
+                            box_height = draw_prompt(&input, cursor_pos, box_row, box_height)?;
+                            update_menu(
+                                &input,
+                                cursor_pos,
+                                &mut ac_mode,
+                                box_row,
+                                box_height,
+                                &workspace,
+                            );
+                            continue;
+                        }
+                        // No more events — genuine submit
                         // Clear box + menu
                         let mut err = std::io::stderr();
                         let total_rows = box_height + SLASH_MENU_MAX as u16;
