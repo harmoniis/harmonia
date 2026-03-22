@@ -11,17 +11,29 @@
 
 (in-package :harmonia)
 
-;;; ─── Queue operations ──────────────────────────────────────────────────
+;;; ─── Queue operations (thread-safe for actor model) ────────────────────
+
+(defvar %queue-lock (sb-thread:make-mutex :name "prompt-queue")
+  "Lock for the shared prompt queue. Gateway and conductor actors
+   access the queue from different threads.")
 
 (defun %queue-pop (runtime)
-  (let ((q (runtime-state-prompt-queue runtime)))
-    (when q
-      (setf (runtime-state-prompt-queue runtime) (rest q))
-      (first q))))
+  (sb-thread:with-mutex (%queue-lock)
+    (let ((q (runtime-state-prompt-queue runtime)))
+      (when q
+        (setf (runtime-state-prompt-queue runtime) (rest q))
+        (first q)))))
+
+(defun %queue-push (runtime item)
+  "Thread-safe enqueue to the back of the prompt queue."
+  (sb-thread:with-mutex (%queue-lock)
+    (setf (runtime-state-prompt-queue runtime)
+          (nconc (runtime-state-prompt-queue runtime) (list item)))))
 
 (defun %requeue-front (runtime prompt)
-  (setf (runtime-state-prompt-queue runtime)
-        (cons prompt (runtime-state-prompt-queue runtime))))
+  (sb-thread:with-mutex (%queue-lock)
+    (setf (runtime-state-prompt-queue runtime)
+          (cons prompt (runtime-state-prompt-queue runtime)))))
 
 ;;; ─── Helpers ───────────────────────────────────────────────────────────
 
@@ -171,10 +183,23 @@
         (runtime-log runtime :drop-prompt (list :prompt log-prompt))
         nil))))
 
-;;; ─── Outbound queue ────────────────────────────────────────────────────
+;;; ─── Outbound queue (thread-safe) ──────────────────────────────────────
 
 (defparameter *gateway-outbound-queue* '()
   "Outbound signals queued during a tick for gateway-flush.")
+(defvar %outbound-lock (sb-thread:make-mutex :name "outbound-queue"))
+
+(defun %outbound-push (msg)
+  "Thread-safe push to the outbound gateway queue."
+  (sb-thread:with-mutex (%outbound-lock)
+    (push msg *gateway-outbound-queue*)))
+
+(defun %outbound-drain ()
+  "Thread-safe atomic drain of the outbound gateway queue."
+  (sb-thread:with-mutex (%outbound-lock)
+    (let ((items *gateway-outbound-queue*))
+      (setf *gateway-outbound-queue* '())
+      items)))
 
 ;;; ─── Tick action executors (inline, zero allocation) ─────────────────
 
@@ -212,9 +237,7 @@
                    :injection-count (%dissonance->injection-count dissonance))))
               (%log :info "tick" "Enqueuing signal from ~A payload-len=~D"
                     (or frontend "?") (or payload-length 0))
-              (setf (runtime-state-prompt-queue runtime)
-                    (nconc (runtime-state-prompt-queue runtime)
-                           (list signal-struct)))))))
+              (%queue-push runtime signal-struct)))))
       ;; Check if the gateway intercepted /exit
       (when (= (%gateway-pending-exit) 1)
         (stop runtime)))))
@@ -614,10 +637,10 @@
     ;; Deliver to gateway if originating signal exists
     (let ((signal (actor-record-originating-signal record)))
       (when (harmonia-signal-p signal)
-        (push (list :frontend (harmonia-signal-frontend signal)
-                    :channel (harmonia-signal-sub-channel signal)
-                    :payload visible)
-              *gateway-outbound-queue*))))
+        (%outbound-push
+         (list :frontend (harmonia-signal-frontend signal)
+               :channel (harmonia-signal-sub-channel signal)
+               :payload visible)))))
   ;; Remove from registry
   (remhash actor-id registry))
 
@@ -670,11 +693,11 @@
                                        :model model
                                        :error-text error-text
                                        :frontend (harmonia-signal-frontend signal))))
-        (push (list :frontend (harmonia-signal-frontend signal)
-                    :channel (harmonia-signal-sub-channel signal)
-                    :payload (format nil "[actor failed: ~A]"
-                                     (%presentation-sanitize-visible-text error-text)))
-              *gateway-outbound-queue*))))
+        (%outbound-push
+         (list :frontend (harmonia-signal-frontend signal)
+               :channel (harmonia-signal-sub-channel signal)
+               :payload (format nil "[actor failed: ~A]"
+                                (%presentation-sanitize-visible-text error-text)))))))
   (remhash actor-id registry))
 
 (defun %tick-process-prompt (runtime)
@@ -707,10 +730,10 @@
                                                       :visible-response visible-payload
                                                       :origin :system
                                                       :runtime runtime)))
-                   (push (list :frontend (harmonia-signal-frontend prompt)
-                               :channel (harmonia-signal-sub-channel prompt)
-                               :payload visible-payload)
-                         *gateway-outbound-queue*)))))
+                   (%outbound-push
+                    (list :frontend (harmonia-signal-frontend prompt)
+                          :channel (harmonia-signal-sub-channel prompt)
+                          :payload visible-payload))))))
             t)))))
 
 (defun %tick-tailnet-poll (runtime)
@@ -763,19 +786,13 @@
    from the unified actor mailbox (posted by actors directly).
    Atomic swap: grab queue, clear it, iterate. No copy-list, no quadratic remove.
    Returns T on success or idle (empty queue), NIL only on actual error."
-  (if (null *gateway-outbound-queue*)
-      t  ; idle is not an error
-      (%supervised-action "gateway-flush"
-        (lambda ()
-          (let ((batch *gateway-outbound-queue*))
-            (setf *gateway-outbound-queue* '())
+  (let ((batch (%outbound-drain)))
+    (if (null batch)
+        t
+        (%supervised-action "gateway-flush"
+          (lambda ()
             (dolist (msg batch)
               (handler-case
-                  ;; Payload may already be sanitized (by %deliver-completed-actor or
-                  ;; %tick-process-prompt). Only sanitize if marked :raw or if no
-                  ;; :sanitized flag is present — use the payload directly when
-                  ;; it comes from the actor delivery path or process-prompt path,
-                  ;; both of which already call %presentation-sanitize-visible-text.
                   (let ((payload (or (getf msg :payload) "")))
                     (gateway-send (getf msg :frontend)
                                   (getf msg :channel)
@@ -784,8 +801,10 @@
                   (%log :warn "gateway-flush"
                         "Send to ~A/~A failed: ~A"
                         (getf msg :frontend) (getf msg :channel) e)
-                  (ignore-errors (%record-lib-crash (getf msg :frontend) (princ-to-string e)))))))
-          t))))
+                  (ignore-errors
+                    (%record-lib-crash (getf msg :frontend)
+                                       (princ-to-string e))))))
+            t)))))
 
 ;;; ─── Tick: one supervised cycle (zero allocation on empty queue) ──────
 
@@ -832,64 +851,180 @@
                                    :errors *tick-error-count*))
   runtime)
 
-;;; ─── Lifecycle ─────────────────────────────────────────────────────────
+;;; ─── Actor-based runtime ──────────────────────────────────────────────
+;;;
+;;; The actor system replaces the sequential tick loop with concurrent
+;;; message-driven actors. Each subsystem owns its state and processes
+;;; messages independently — no subsystem blocks another.
+;;;
+;;; Architecture (inspired by cl-gserver/Sento):
+;;;
+;;;   Conductor       ─ orchestrates prompts (LLM calls, tool dispatch)
+;;;   Gateway         ─ polls frontends, enqueues signals, flushes responses
+;;;   Swarm           ─ manages CLI subagents (tmux), actor lifecycle
+;;;   Chronicle       ─ batches and flushes event records
+;;;   Harmonic        ─ phase transitions, memory heartbeat
+;;;   Signalograd     ─ observation, feedback, projection
+;;;
+;;; Message flow:
+;;;   Timer(:tick) → Gateway → Conductor → Gateway (response)
+;;;                → Swarm   → Conductor (actor results)
+;;;                → Harmonic, Chronicle (background)
 
-(defun stop (&optional (runtime *runtime*))
-  "Request loop shutdown."
-  (when runtime
-    (setf (runtime-state-running runtime) nil)
-    (runtime-log runtime :stop (list :cycle (runtime-state-cycle runtime))))
-  runtime)
+(defvar *actor-system* nil
+  "The Harmonia actor system. Created by run-actors, shut down by stop.")
 
-(defun run-loop (&key (runtime *runtime*) (max-cycles nil) (sleep-seconds 1.0))
-  "Run control loop until stop signal or max-cycles is reached.
-   Erlang-style: the loop itself NEVER crashes. If a tick fails catastrophically,
-   we log, cool down, and continue. The agent degrades gracefully but stays alive."
+(defun %make-receive-fn (name action-fn runtime)
+  "Create a receive function that runs ACTION-FN for :tick messages.
+   Wraps in supervision — never crashes."
+  (lambda (msg state)
+    (case (actor-message-tag msg)
+      (:tick
+       (handler-case
+           (funcall action-fn runtime)
+         (serious-condition (c)
+           (%log :error name "~A" (ignore-errors (princ-to-string c)))
+           (ignore-errors
+             (%push-error-ring
+              (list :time (get-universal-time) :action name
+                    :error (ignore-errors (princ-to-string c))))))))
+      (:stop nil))
+    state))
+
+(defun %make-conductor-receive (runtime)
+  "The conductor actor: processes ONE prompt per :tick, delivers actor results,
+   and flushes responses. This is the heart — where signals become responses."
+  (lambda (msg state)
+    (case (actor-message-tag msg)
+      (:tick
+       (%supervised-action "process-prompt"
+         (lambda () (%tick-process-prompt runtime)))
+       (%supervised-action "actor-deliver"
+         (lambda () (%tick-actor-deliver runtime)))
+       (%supervised-action "gateway-flush"
+         (lambda () (%tick-gateway-flush))))
+      (:stop nil))
+    state))
+
+(defun run-actors (&key (runtime *runtime*) (sleep-seconds 1.0))
+  "Start the actor system. Each subsystem becomes a concurrent actor
+   driven by periodic :tick messages. Returns the actor system."
   (unless runtime
     (error "Runtime not initialized. Call HARMONIA:START first."))
   (setf (runtime-state-running runtime) t)
-  (%log :info "loop" "Entering supervised loop (sleep=~As)." sleep-seconds)
-  (loop
-    while (runtime-state-running runtime)
-    do
-    ;; The tick itself is wrapped — even if %supervised-action somehow
-    ;; fails to catch something, this outer handler keeps the loop alive.
-    (handler-case
-        (tick :runtime runtime)
-      (serious-condition (c)
-        ;; This should never happen (tick actions are individually supervised),
-        ;; but if it does, we survive.
-        (%log :error "supervisor"
-              "CRITICAL: tick-level crash at cycle ~D: ~A"
-              (runtime-state-cycle runtime)
-              (ignore-errors (princ-to-string c)))
-        (ignore-errors
-          (%push-error-ring
-           (list :time (get-universal-time)
-                 :action "tick"
-                 :error (ignore-errors (princ-to-string c))
-                 :cycle (runtime-state-cycle runtime))))
-        (incf *tick-error-count*)
-        (incf *consecutive-tick-errors*)))
 
-    ;; Max-cycles check
-    (when (and max-cycles
-              (>= (runtime-state-cycle runtime) max-cycles))
-      (stop runtime))
+  (let ((system (make-actor-system)))
 
-    ;; Adaptive sleep: if we're in an error storm, back off
-    (let ((effective-sleep
-            (if (>= *consecutive-tick-errors* *max-consecutive-errors-before-cooldown*)
-                (progn
-                  (when (= *consecutive-tick-errors* *max-consecutive-errors-before-cooldown*)
-                    (%log :warn "supervisor"
-                          "Entering cooldown: ~D consecutive error ticks. Backing off to ~As."
-                          *consecutive-tick-errors*
-                          (* sleep-seconds 5)))
-                  (* sleep-seconds 5))  ; 5x slower during error storm
-                sleep-seconds)))
-      (sleep effective-sleep)))
+    ;; ── Inbound actors (poll external sources) ──────────────────────
 
-  (%log :info "loop" "Loop exited after ~D cycles (~D errors total)."
-        (runtime-state-cycle runtime) *tick-error-count*)
+    (system-register system "gateway"
+      (make-actor "gateway"
+        (%make-receive-fn "gateway-poll"
+          (lambda (rt)
+            (%tick-gateway-poll rt)
+            (%tick-tailnet-poll rt))
+          runtime)))
+
+    (system-register system "swarm"
+      (make-actor "swarm"
+        (%make-receive-fn "swarm"
+          (lambda (rt)
+            (%tick-tmux-poll rt)
+            (%tick-actor-supervisor rt)
+            (%tick-actor-interact rt)
+            (%tick-supervision rt))
+          runtime)))
+
+    ;; ── Core actor (orchestration + response delivery) ──────────────
+
+    (system-register system "conductor"
+      (make-actor "conductor"
+        (%make-conductor-receive runtime)))
+
+    ;; ── Background actors (housekeeping, no urgency) ────────────────
+
+    (system-register system "harmonic"
+      (make-actor "harmonic"
+        (%make-receive-fn "harmonic"
+          (lambda (rt)
+            (memory-heartbeat :runtime rt)
+            (harmonic-state-step :runtime rt))
+          runtime)))
+
+    (system-register system "chronicle"
+      (make-actor "chronicle"
+        (%make-receive-fn "chronicle"
+          (lambda (rt)
+            (%tick-chronicle-flush rt)
+            (%tick-tailnet-flush rt))
+          runtime)))
+
+    ;; ── Timers: drive each actor at its natural frequency ───────────
+
+    ;; Gateway + swarm poll every second (latency-sensitive)
+    (system-add-timer system
+      (start-timer (system-actor system "gateway") :tick sleep-seconds))
+    (system-add-timer system
+      (start-timer (system-actor system "swarm") :tick sleep-seconds))
+
+    ;; Conductor ticks every second (prompt processing)
+    (system-add-timer system
+      (start-timer (system-actor system "conductor") :tick sleep-seconds))
+
+    ;; Background actors tick every 5 seconds (no urgency)
+    (system-add-timer system
+      (start-timer (system-actor system "harmonic") :tick 5.0))
+    (system-add-timer system
+      (start-timer (system-actor system "chronicle") :tick 5.0))
+
+    (setf *actor-system* system)
+    (%log :info "actors" "Actor system started (5 actors, 5 timers).")
+    system))
+
+;;; ─── Lifecycle ─────────────────────────────────────────────────────────
+
+(defun stop (&optional (runtime *runtime*))
+  "Request shutdown. Stops actor system if running, falls back to loop flag."
+  (when runtime
+    (setf (runtime-state-running runtime) nil)
+    (runtime-log runtime :stop (list :cycle (runtime-state-cycle runtime))))
+  (when *actor-system*
+    (shutdown-system *actor-system*)
+    (setf *actor-system* nil)
+    (%log :info "actors" "Actor system shut down."))
+  runtime)
+
+(defun run-loop (&key (runtime *runtime*) (max-cycles nil) (sleep-seconds 1.0))
+  "Run the Harmonia runtime.
+   Uses the actor system by default — concurrent, non-blocking subsystems.
+   Falls back to sequential tick loop when max-cycles is set (test mode)."
+  (unless runtime
+    (error "Runtime not initialized. Call HARMONIA:START first."))
+  (setf (runtime-state-running runtime) t)
+
+  (if max-cycles
+      ;; Test mode: sequential tick loop (deterministic, for assertions)
+      (progn
+        (%log :info "loop" "Entering sequential loop (max-cycles=~D)." max-cycles)
+        (loop while (and (runtime-state-running runtime)
+                         (< (runtime-state-cycle runtime) max-cycles))
+              do (handler-case (tick :runtime runtime)
+                   (serious-condition (c)
+                     (%log :error "supervisor" "Tick crash: ~A"
+                           (ignore-errors (princ-to-string c)))
+                     (incf *tick-error-count*)))
+                 (sleep 0.05))
+        (%log :info "loop" "Sequential loop exited after ~D cycles."
+              (runtime-state-cycle runtime)))
+
+      ;; Production mode: actor system (concurrent, non-blocking)
+      (progn
+        (%log :info "loop" "Entering supervised loop (sleep=~As)." sleep-seconds)
+        (run-actors :runtime runtime :sleep-seconds sleep-seconds)
+        ;; Block until stop is called (SIGTERM handler sets running=nil)
+        (loop while (runtime-state-running runtime)
+              do (sleep 1.0))
+        (%log :info "loop" "Actor loop exited after ~D cycles (~D errors)."
+              (runtime-state-cycle runtime) *tick-error-count*)))
+
   runtime)

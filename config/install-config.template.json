@@ -1,0 +1,103 @@
+{
+  "_comment": "Harmonia install configuration template. Copy to config.json and fill in the values you need. All fields are optional — omit any you don't want to configure. Use with: curl ... | sh -s -- --config config.json",
+
+  "node": {
+    "label": "",
+    "install_profile": "full-agent"
+  },
+
+  "paths": {
+    "data_dir": "",
+    "workspace": "",
+    "wallet_db": ""
+  },
+
+  "vault_secrets": {
+    "_comment": "API keys and credentials stored in the encrypted vault. Only include the ones you need.",
+
+    "openrouter-api-key": "",
+    "openai-api-key": "",
+    "anthropic-api-key": "",
+    "xai-api-key": "",
+    "google-ai-studio-api-key": "",
+    "google-vertex-access-token": "",
+    "google-vertex-project-id": "",
+    "google-vertex-location": "",
+    "groq-api-key": "",
+    "alibaba-api-key": "",
+    "aws-region": "",
+    "aws-access-key-id": "",
+    "aws-secret-access-key": "",
+    "aws-session-token": "",
+
+    "telegram-bot-token": "",
+    "slack-bot-token": "",
+    "slack-app-token": "",
+    "discord-bot-token": "",
+    "mattermost-bot-token": "",
+    "nostr-private-key": "",
+
+    "exa-api-key": "",
+    "brave-api-key": "",
+    "elevenlabs-api-key": "",
+
+    "github-fork-url": "",
+    "github-token": "",
+
+    "s3-bucket": "",
+    "s3-access-key-id": "",
+    "s3-secret-access-key": "",
+
+    "langsmith-api-key": ""
+  },
+
+  "config_store": {
+    "_comment": "Config-store key/value pairs organized by component > scope > key. Only include what you need.",
+
+    "harmonia-cli": {
+      "model-policy": {
+        "provider": "openrouter",
+        "seed-models": ""
+      },
+      "global": {
+        "source-dir": ""
+      }
+    },
+
+    "signal-frontend": {
+      "default": {
+        "account": ""
+      }
+    },
+    "email-frontend": {
+      "default": {
+        "imap-host": "",
+        "imap-port": "",
+        "imap-username": "",
+        "smtp-host": "",
+        "smtp-port": "",
+        "smtp-username": ""
+      }
+    },
+    "imessage-frontend": {
+      "default": {
+        "server-url": ""
+      }
+    },
+
+    "observability": {
+      "default": {
+        "enabled": "",
+        "trace-level": "standard",
+        "sample-rate": "1.0",
+        "project-name": ""
+      }
+    },
+
+    "harmonia-runtime": {
+      "runtime": {
+        "components": ""
+      }
+    }
+  }
+}

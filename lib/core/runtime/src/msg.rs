@@ -33,6 +33,12 @@ pub enum RuntimeMsg {
     RegisterComponent(String, ActorRef<ComponentMsg>),
     /// Register the matrix actor (separate message type).
     RegisterMatrixActor(ActorRef<MatrixMsg>),
+    /// List all modules and their status. call_t!(sup, ListModules, timeout) → String
+    ListModules(RpcReplyPort<String>),
+    /// Load a module by name. call_t!(sup, LoadModule, name, timeout) → String
+    LoadModule(String, RpcReplyPort<String>),
+    /// Unload a module by name. call_t!(sup, UnloadModule, name, timeout) → String
+    UnloadModule(String, RpcReplyPort<String>),
     /// Initiate graceful shutdown (fire-and-forget).
     Shutdown,
 }

@@ -1,9 +1,7 @@
 use crate::start;
 use console::{style, Term};
 use crossterm::{
-    cursor::{
-        self, Hide, MoveTo, MoveToColumn, RestorePosition, SavePosition, SetCursorStyle, Show,
-    },
+    cursor::{self, Hide, MoveTo, RestorePosition, SavePosition, SetCursorStyle, Show},
     event::{self, Event, KeyCode, KeyEvent, KeyModifiers},
     queue,
     style::Print,
@@ -13,7 +11,7 @@ use crossterm::{
 use std::io::{BufRead, BufReader, Write};
 use std::path::Path;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use unicode_width::UnicodeWidthChar;
 
 #[cfg(unix)]
@@ -47,7 +45,7 @@ const BOLD_WHITE: &str = "\x1b[1;37m";
 pub fn run() -> Result<(), Box<dyn std::error::Error>> {
     let term = Term::stderr();
     let node_identity = crate::paths::current_node_identity()?;
-    let session = Arc::new(crate::paths::resume_or_create_session(&node_identity)?);
+    let session = Arc::new(crate::paths::create_session(&node_identity)?);
     let socket_path = crate::paths::socket_path()?;
 
     if !socket_path.exists() {
@@ -96,11 +94,20 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
         ),
     );
 
-    // Shared state
+    // Shared state — minimal atomic flags for cross-thread coordination.
+    // waiting: true while spinner is showing (reader sets false when response complete)
+    // running: false triggers clean shutdown of all threads
+    // reader_alive: false when reader thread exits (EOF, error, or shutdown)
     let waiting = Arc::new(AtomicBool::new(false));
     let waiting_reader = Arc::clone(&waiting);
     let running = Arc::new(AtomicBool::new(true));
     let running_ctrlc = Arc::clone(&running);
+    let reader_alive = Arc::new(AtomicBool::new(true));
+    let reader_alive_writer = Arc::clone(&reader_alive);
+    // Response buffer: reader thread pushes lines here instead of printing directly.
+    // The main thread drains and renders after the spinner is cleaned up.
+    let response_buf: Arc<Mutex<Vec<String>>> = Arc::new(Mutex::new(Vec::new()));
+    let response_buf_reader = Arc::clone(&response_buf);
 
     // Ctrl+C
     let _ = ctrlc::set_handler(move || {
@@ -110,12 +117,11 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
         eprintln!();
     });
 
-    // Response reader thread — owns the full response lifecycle:
-    // prints header, all content lines, AND the close block.
-    // Only sets waiting=false after the complete response is rendered.
+    // Response reader thread — buffers response lines for the main thread to render.
+    // Never writes to the terminal directly (avoids fighting the spinner for cursor control).
+    // Sets waiting=false after the complete response is buffered.
     let running_reader = Arc::clone(&running);
     let session_reader = Arc::clone(&session);
-    let assistant_label = format!("harmonia@{}", node_identity.label);
     let reader_handle = std::thread::spawn(move || {
         let mut reader = BufReader::new(reader_stream);
         let mut in_response = false;
@@ -131,18 +137,14 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
                 Ok(0) => break, // EOF — socket closed
                 Ok(_) => {
                     let line = line_buf.trim_end_matches('\n').trim_end_matches('\r');
+                    in_response = true;
 
-                    if !in_response {
-                        // First line of a new response — clear spinner, print header
-                        let mut err = std::io::stderr();
-                        let _ = queue!(err, MoveToColumn(0), Clear(ClearType::CurrentLine));
-                        let _ = err.flush();
-                        eprintln!();
-                        eprintln!("  {BOLD_CYAN}╭─{RESET} {DIM}{assistant_label}{RESET}");
-                        in_response = true;
+                    // Buffer the line for the main thread to render
+                    if let Ok(mut buf) = response_buf_reader.lock() {
+                        buf.push(line.to_string());
                     }
 
-                    print_agent_line(line);
+                    // Log to session events
                     let _ = crate::paths::append_session_event(
                         session_reader.as_ref(),
                         "harmonia",
@@ -156,14 +158,7 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
                 {
                     // Read timeout — if we were in a response, it's now complete
                     if in_response {
-                        // Clear any spinner remnants before printing close block
-                        let mut err = std::io::stderr();
-                        let _ = queue!(err, MoveToColumn(0), Clear(ClearType::CurrentLine));
-                        let _ = err.flush();
-                        eprintln!("  {BOLD_CYAN}╰─{RESET}");
-                        eprintln!();
                         in_response = false;
-                        let _ = std::io::stderr().flush();
                         waiting_reader.store(false, Ordering::Release);
                     }
                     continue;
@@ -172,41 +167,66 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
             }
         }
 
-        // Clean up if we were mid-response when connection dropped
-        if in_response {
-            eprintln!("  {BOLD_CYAN}╰─{RESET}");
-            eprintln!();
-            let _ = std::io::stderr().flush();
-            waiting_reader.store(false, Ordering::Release);
-        }
-
-        if running_reader.load(Ordering::Relaxed) {
-            eprintln!("\n  {RED}✗{RESET} Connection lost.");
-        }
+        // Always clear waiting when reader exits — prevents spinner from hanging forever
+        waiting_reader.store(false, Ordering::Release);
+        reader_alive_writer.store(false, Ordering::Release);
     });
 
-    // Main input loop with raw mode
-    let result = run_input_loop(
+    let assistant_label = format!("harmonia@{}", node_identity.label);
+
+    // Main input loop
+    let exit_reason = run_input_loop(
         &mut writer_stream,
         &waiting,
         &running,
+        &reader_alive,
+        &response_buf,
+        &assistant_label,
         &term,
         session.as_ref(),
     );
 
+    // Drain any final buffered response
+    render_buffered_response(&response_buf, &assistant_label);
+
     running.store(false, Ordering::Relaxed);
-    // Shut down socket so reader thread unblocks from lines()
     let _ = writer_stream.shutdown(std::net::Shutdown::Both);
     let _ = reader_handle.join();
 
-    // Restore default cursor style
+    // Restore terminal
+    let _ = terminal::disable_raw_mode();
     let _ = std::io::stderr().execute(SetCursorStyle::DefaultUserShape);
+    let _ = std::io::stderr().execute(Show);
 
-    eprintln!();
-    eprintln!("  {BOLD_CYAN}◆{RESET} Goodbye.");
-    eprintln!();
+    // Exit message based on WHY we exited
+    match &exit_reason {
+        ExitReason::UserQuit => {
+            eprintln!();
+            eprintln!("  {BOLD_CYAN}◆{RESET} Goodbye.");
+            eprintln!();
+        }
+        ExitReason::CtrlC => {
+            eprintln!();
+            eprintln!("  {BOLD_CYAN}◆{RESET} Goodbye.");
+            eprintln!();
+        }
+        ExitReason::ConnectionLost => {
+            eprintln!();
+            eprintln!("  {RED}✗{RESET} Connection lost — daemon may have stopped.");
+            eprintln!("  Run {CYAN}harmonia status{RESET} to check.");
+            eprintln!();
+        }
+        ExitReason::Error(e) => {
+            eprintln!();
+            eprintln!("  {RED}✗{RESET} Session error: {e}");
+            eprintln!();
+        }
+    }
 
-    result
+    match exit_reason {
+        ExitReason::Error(e) => Err(e.into()),
+        _ => Ok(()),
+    }
 }
 
 fn wait_for_socket(
@@ -230,28 +250,70 @@ fn wait_for_socket(
     Err(timeout_error.into())
 }
 
+/// Drain the shared response buffer and render all lines.
+/// Called from the main thread AFTER the spinner has cleaned up,
+/// so there's no cursor conflict.
+fn render_buffered_response(response_buf: &Arc<Mutex<Vec<String>>>, assistant_label: &str) {
+    let lines: Vec<String> = {
+        let mut buf = match response_buf.lock() {
+            Ok(b) => b,
+            Err(_) => return,
+        };
+        if buf.is_empty() {
+            return;
+        }
+        buf.drain(..).collect()
+    };
+
+    // Print response block
+    eprintln!();
+    eprintln!("  {BOLD_CYAN}╭─{RESET} {DIM}{assistant_label}{RESET}");
+    for line in &lines {
+        print_agent_line(line);
+    }
+    eprintln!("  {BOLD_CYAN}╰─{RESET}");
+    eprintln!();
+    let _ = std::io::stderr().flush();
+}
+
+/// Why the session ended — determines the exit message.
+enum ExitReason {
+    UserQuit,       // /exit, /quit
+    CtrlC,          // Ctrl+C
+    ConnectionLost, // reader thread died unexpectedly
+    Error(String),  // I/O or other error
+}
+
 fn run_input_loop(
     writer: &mut UnixStream,
     waiting: &Arc<AtomicBool>,
     running: &Arc<AtomicBool>,
+    reader_alive: &Arc<AtomicBool>,
+    response_buf: &Arc<Mutex<Vec<String>>>,
+    assistant_label: &str,
     term: &Term,
     session: &crate::paths::SessionPaths,
-) -> Result<(), Box<dyn std::error::Error>> {
+) -> ExitReason {
     let mut stdout = std::io::stdout();
     let mut queued_input: Option<String> = None;
 
     loop {
         if !running.load(Ordering::Relaxed) {
-            break;
+            // Check WHY we stopped
+            return if !reader_alive.load(Ordering::Relaxed) {
+                ExitReason::ConnectionLost
+            } else {
+                ExitReason::CtrlC
+            };
         }
 
         // If waiting for a response, show spinner but allow typing to queue input
         if waiting.load(Ordering::Acquire) {
-            let input = show_thinking_spinner_with_input(waiting, running);
+            let input = show_thinking_spinner_with_input(waiting, running, reader_alive);
+            render_buffered_response(response_buf, assistant_label);
             if !running.load(Ordering::Relaxed) {
-                break;
+                continue; // re-enter loop, hit the check above
             }
-            // If user typed something during thinking, queue it
             if let Some(text) = input {
                 let trimmed = text.trim().to_string();
                 if !trimmed.is_empty() {
@@ -260,28 +322,35 @@ fn run_input_loop(
             }
         }
 
-        // Drain queued input first (typed during thinking)
+        render_buffered_response(response_buf, assistant_label);
+
+        // Drain queued input
         if let Some(pending) = queued_input.take() {
-            dispatch_input(
+            if let Err(e) = dispatch_input(
                 &pending,
                 writer,
                 waiting,
                 running,
+                reader_alive,
+                response_buf,
+                assistant_label,
                 term,
                 &mut stdout,
                 session,
-            )?;
-            if !running.load(Ordering::Relaxed) {
-                break;
+            ) {
+                return ExitReason::Error(e.to_string());
             }
             continue;
         }
 
-        // Show prompt and read input
-        let input = read_input_line(running, term)?;
+        // Read input
+        let input = match read_input_line(running, term) {
+            Ok(s) => s,
+            Err(e) => return ExitReason::Error(e.to_string()),
+        };
 
         if !running.load(Ordering::Relaxed) {
-            break;
+            continue;
         }
 
         let trimmed = input.trim();
@@ -289,18 +358,27 @@ fn run_input_loop(
             continue;
         }
 
-        dispatch_input(
+        // Handle commands inline — detect /exit here for clean ExitReason
+        if trimmed == "/exit" || trimmed == "/quit" || trimmed == "/q" {
+            let _ = crate::paths::append_session_event(session, "you", "user", trimmed);
+            return ExitReason::UserQuit;
+        }
+
+        if let Err(e) = dispatch_input(
             trimmed,
             writer,
             waiting,
             running,
+            reader_alive,
+            response_buf,
+            assistant_label,
             term,
             &mut stdout,
             session,
-        )?;
+        ) {
+            return ExitReason::Error(e.to_string());
+        }
     }
-
-    Ok(())
 }
 
 /// Dispatch a user input string: handle commands, echo, send to daemon.
@@ -309,6 +387,9 @@ fn dispatch_input(
     writer: &mut UnixStream,
     waiting: &Arc<AtomicBool>,
     running: &Arc<AtomicBool>,
+    reader_alive: &Arc<AtomicBool>,
+    response_buf: &Arc<Mutex<Vec<String>>>,
+    assistant_label: &str,
     term: &Term,
     stdout: &mut std::io::Stdout,
     session: &crate::paths::SessionPaths,
@@ -317,7 +398,18 @@ fn dispatch_input(
 
     // Handle commands
     if trimmed.starts_with('/') {
-        match handle_command(trimmed, term, stdout, writer, waiting, running, session) {
+        match handle_command(
+            trimmed,
+            term,
+            stdout,
+            writer,
+            waiting,
+            running,
+            reader_alive,
+            response_buf,
+            assistant_label,
+            session,
+        ) {
             CommandResult::Handled => return Ok(()),
             CommandResult::Quit => {
                 running.store(false, Ordering::Relaxed);
@@ -356,6 +448,8 @@ fn read_input_line(
 ) -> Result<String, Box<dyn std::error::Error>> {
     let mut input = String::new();
     let mut cursor_pos: usize = 0;
+    let mut undo_stack: Vec<(String, usize)> = Vec::new();
+    let mut redo_stack: Vec<(String, usize)> = Vec::new();
     let mut ac_mode = AutocompleteMode::None;
     let mut box_height: u16 = 3; // initial: top border + 1 line + bottom border
 
@@ -473,12 +567,42 @@ fn read_input_line(
                         }
                     }
 
+                    // Ctrl+Z — undo
+                    KeyEvent {
+                        code: KeyCode::Char('z'),
+                        modifiers: KeyModifiers::CONTROL,
+                        ..
+                    } => {
+                        if let Some((prev_text, prev_cursor)) = undo_stack.pop() {
+                            redo_stack.push((input.clone(), cursor_pos));
+                            input = prev_text;
+                            cursor_pos = prev_cursor;
+                            box_height = draw_prompt(&input, cursor_pos, box_row, box_height)?;
+                        }
+                    }
+
+                    // Ctrl+Y — redo
+                    KeyEvent {
+                        code: KeyCode::Char('y'),
+                        modifiers: KeyModifiers::CONTROL,
+                        ..
+                    } => {
+                        if let Some((next_text, next_cursor)) = redo_stack.pop() {
+                            undo_stack.push((input.clone(), cursor_pos));
+                            input = next_text;
+                            cursor_pos = next_cursor;
+                            box_height = draw_prompt(&input, cursor_pos, box_row, box_height)?;
+                        }
+                    }
+
                     // Ctrl+U — clear line
                     KeyEvent {
                         code: KeyCode::Char('u'),
                         modifiers: KeyModifiers::CONTROL,
                         ..
                     } => {
+                        undo_stack.push((input.clone(), cursor_pos));
+                        redo_stack.clear();
                         input.clear();
                         cursor_pos = 0;
                         box_height = draw_prompt(&input, cursor_pos, box_row, box_height)?;
@@ -526,6 +650,8 @@ fn read_input_line(
                         ..
                     } => {
                         if cursor_pos > 0 {
+                            undo_stack.push((input.clone(), cursor_pos));
+                            redo_stack.clear();
                             let mut new_pos = cursor_pos;
                             while new_pos > 0
                                 && char_at(&input, new_pos - 1)
@@ -764,6 +890,8 @@ fn read_input_line(
                         ..
                     } => {
                         if cursor_pos > 0 {
+                            undo_stack.push((input.clone(), cursor_pos));
+                            redo_stack.clear();
                             let start = byte_index_for_char(&input, cursor_pos - 1);
                             let end = byte_index_for_char(&input, cursor_pos);
                             input.drain(start..end);
@@ -786,6 +914,8 @@ fn read_input_line(
                         ..
                     } => {
                         if cursor_pos < char_len(&input) {
+                            undo_stack.push((input.clone(), cursor_pos));
+                            redo_stack.clear();
                             let start = byte_index_for_char(&input, cursor_pos);
                             let end = byte_index_for_char(&input, cursor_pos + 1);
                             input.drain(start..end);
@@ -829,6 +959,8 @@ fn read_input_line(
                         modifiers: KeyModifiers::NONE | KeyModifiers::SHIFT,
                         ..
                     } => {
+                        undo_stack.push((input.clone(), cursor_pos));
+                        redo_stack.clear();
                         let byte_index = byte_index_for_char(&input, cursor_pos);
                         input.insert(byte_index, c);
                         cursor_pos += 1;
@@ -858,6 +990,7 @@ const SLASH_COMMANDS: &[(&str, &str)] = &[
     ("/exit", "Quit"),
     ("/session", "Current session"),
     ("/resume", "Resume past session"),
+    ("/rewind", "Rewind conversation"),
     ("/menu", "Interactive menu"),
     ("/policies", "Channel sender policies"),
     ("/frontends", "Setup and pair frontends"),
@@ -1230,11 +1363,15 @@ fn draw_prompt(
 fn show_thinking_spinner_with_input(
     waiting: &Arc<AtomicBool>,
     running: &Arc<AtomicBool>,
+    reader_alive: &Arc<AtomicBool>,
 ) -> Option<String> {
     let dots = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
     let mut i = 0;
     let mut input_buf = String::new();
     let mut cursor_pos: usize = 0;
+    let started = std::time::Instant::now();
+    // Timeout: if no response after 90 seconds, break the spinner
+    const SPINNER_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(90);
 
     let _ = terminal::enable_raw_mode();
 
@@ -1262,6 +1399,37 @@ fn show_thinking_spinner_with_input(
     let _ = draw_prompt(&input_buf, cursor_pos, box_row, box_height);
 
     while waiting.load(Ordering::Acquire) && running.load(Ordering::Relaxed) {
+        // Break if reader thread has died (socket closed, daemon unreachable)
+        if !reader_alive.load(Ordering::Acquire) {
+            clear_spinner_and_box(spinner_row, box_row, box_height);
+            let _ = terminal::disable_raw_mode();
+            waiting.store(false, Ordering::Release);
+            eprintln!("\n  {RED}✗{RESET} No response — daemon connection lost.");
+            eprintln!();
+            return if !input_buf.trim().is_empty() {
+                Some(input_buf)
+            } else {
+                None
+            };
+        }
+
+        // Break if we've been waiting too long
+        if started.elapsed() > SPINNER_TIMEOUT {
+            clear_spinner_and_box(spinner_row, box_row, box_height);
+            let _ = terminal::disable_raw_mode();
+            waiting.store(false, Ordering::Release);
+            eprintln!(
+                "\n  {YELLOW}!{RESET} Response timeout ({}s) — daemon may be unresponsive.",
+                SPINNER_TIMEOUT.as_secs()
+            );
+            eprintln!();
+            return if !input_buf.trim().is_empty() {
+                Some(input_buf)
+            } else {
+                None
+            };
+        }
+
         // Animate spinner
         let _ = draw_spinner_line(spinner_row, dots[i % dots.len()], !input_buf.is_empty());
 
@@ -1568,6 +1736,9 @@ fn handle_command(
     writer: &mut UnixStream,
     waiting: &Arc<AtomicBool>,
     running: &Arc<AtomicBool>,
+    reader_alive: &Arc<AtomicBool>,
+    response_buf: &Arc<Mutex<Vec<String>>>,
+    assistant_label: &str,
     session: &crate::paths::SessionPaths,
 ) -> CommandResult {
     let base = cmd.split_whitespace().next().unwrap_or("");
@@ -1582,8 +1753,31 @@ fn handle_command(
             CommandResult::Handled
         }
         "/clear" | "/cls" => {
-            let _ = term.clear_screen();
-            print_banner(term, &session.identity.node_label, &session.identity.id);
+            // Start a fresh session and clear the screen
+            let node = match crate::paths::current_node_identity() {
+                Ok(n) => n,
+                Err(_) => {
+                    let _ = term.clear_screen();
+                    print_banner(term, &session.identity.node_label, &session.identity.id);
+                    return CommandResult::Handled;
+                }
+            };
+            match crate::paths::create_session(&node) {
+                Ok(new_session) => {
+                    let _ = term.clear_screen();
+                    print_banner(
+                        term,
+                        &new_session.identity.node_label,
+                        &new_session.identity.id,
+                    );
+                    eprintln!("  {DIM}New session started.{RESET}");
+                    eprintln!();
+                }
+                Err(_) => {
+                    let _ = term.clear_screen();
+                    print_banner(term, &session.identity.node_label, &session.identity.id);
+                }
+            }
             CommandResult::Handled
         }
         "/log" | "/logs" => {
@@ -1592,15 +1786,34 @@ fn handle_command(
         }
         "/quit" | "/exit" | "/q" => CommandResult::Quit,
 
-        // ── Resume past session ──
-        "/resume" => match run_resume_flow(stdout, session) {
-            Ok(true) => CommandResult::Quit,     // session switched, reconnect
-            Ok(false) => CommandResult::Handled, // cancelled
+        // ── Rewind (like git reset) ──
+        "/rewind" => match run_rewind_flow(stdout, session, term) {
+            Ok(true) => CommandResult::Handled,
+            Ok(false) => CommandResult::Handled,
             Err(e) => {
-                eprintln!("\n  {RED}Resume error: {}{RESET}", e);
+                eprintln!("\n  {RED}Rewind error: {}{RESET}", e);
                 CommandResult::Handled
             }
         },
+
+        // ── Session management ──
+        "/resume" => {
+            let node = match crate::paths::current_node_identity() {
+                Ok(n) => n,
+                Err(e) => {
+                    eprintln!("\n  {RED}Error: {}{RESET}", e);
+                    return CommandResult::Handled;
+                }
+            };
+            match run_resume_flow(stdout, session, &node) {
+                Ok(true) => CommandResult::Handled, // history replayed, continue in session
+                Ok(false) => CommandResult::Handled,
+                Err(e) => {
+                    eprintln!("\n  {RED}Resume error: {}{RESET}", e);
+                    CommandResult::Handled
+                }
+            }
+        }
 
         // ── Channel sender policies ──
         "/policies" => {
@@ -1611,7 +1824,15 @@ fn handle_command(
         }
 
         // ── Interactive menu ──
-        "/menu" | "/m" => match run_menu_flow(stdout, writer, waiting, running) {
+        "/menu" | "/m" => match run_menu_flow(
+            stdout,
+            writer,
+            waiting,
+            running,
+            reader_alive,
+            response_buf,
+            assistant_label,
+        ) {
             Ok(()) => CommandResult::Handled,
             Err(_) => CommandResult::Handled,
         },
@@ -1665,6 +1886,9 @@ fn run_menu_flow(
     writer: &mut UnixStream,
     waiting: &Arc<AtomicBool>,
     running: &Arc<AtomicBool>,
+    reader_alive: &Arc<AtomicBool>,
+    response_buf: &Arc<Mutex<Vec<String>>>,
+    assistant_label: &str,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let mut menu_stack: Vec<String> = vec!["main".to_string()];
 
@@ -1703,13 +1927,13 @@ fn run_menu_flow(
                             }
                         }
                         "action:resume-session" => {
-                            // We don't have session ref here, but we can get the label
                             let node_identity = crate::paths::current_node_identity()?;
-                            let dummy_session =
-                                crate::paths::resume_or_create_session(&node_identity)?;
-                            match run_resume_flow(stdout, &dummy_session) {
+                            let dummy_session = crate::paths::create_session(&node_identity)?;
+                            match run_resume_flow(stdout, &dummy_session, &node_identity) {
                                 Ok(true) => {
-                                    eprintln!("\n  {YELLOW}Session switched. Please restart harmonia to connect.{RESET}\n");
+                                    eprintln!(
+                                        "\n  {BOLD_CYAN}◆{RESET} Session history loaded.{RESET}\n"
+                                    );
                                 }
                                 Ok(false) => {} // cancelled
                                 Err(e) => {
@@ -1731,8 +1955,9 @@ fn run_menu_flow(
                     eprintln!("  {DIM}→ {}{RESET}", cmd);
                     send_to_daemon(writer, &cmd, waiting, running)?;
 
-                    // Wait for response (reader thread renders the full block)
-                    let _ = show_thinking_spinner_with_input(waiting, running);
+                    // Wait for response, then render buffered output
+                    let _ = show_thinking_spinner_with_input(waiting, running, reader_alive);
+                    render_buffered_response(response_buf, assistant_label);
                 }
 
                 // Stay in menu for another selection
@@ -1760,8 +1985,9 @@ fn run_menu_flow(
 fn run_resume_flow(
     stdout: &mut std::io::Stdout,
     session: &crate::paths::SessionPaths,
+    node: &crate::paths::NodeIdentity,
 ) -> Result<bool, Box<dyn std::error::Error>> {
-    let label = &session.identity.node_label;
+    let label = &node.label;
     let sessions = crate::paths::list_sessions(label)?;
 
     if sessions.is_empty() {
@@ -1789,16 +2015,223 @@ fn run_resume_flow(
 
     match crate::menus::interactive_select(stdout, "Resume Session", &items)? {
         crate::menus::MenuAction::Command(selected_id) => {
-            if selected_id == session.identity.id {
-                eprintln!("\n  {DIM}Already on this session.{RESET}\n");
-                return Ok(false);
-            }
-            crate::paths::write_current_session(label, &selected_id)?;
-            eprintln!("\n  {BOLD_CYAN}◆{RESET} Session switched. Reconnecting...\n");
+            // Load the selected session and replay its history
+            let resumed = crate::paths::resume_session(node, &selected_id)?;
+            eprintln!();
+            replay_session_history(&resumed, label);
             Ok(true)
         }
         _ => Ok(false),
     }
+}
+
+/// A conversation turn: one user message + the assistant response.
+struct Turn {
+    index: usize,              // turn number (1-based)
+    user_text: String,         // what the user said
+    assistant_preview: String, // first line of response
+    event_end: usize,          // index in events list where this turn ends
+}
+
+/// Rewind the conversation to a previous turn.
+/// Like git reset: everything after the chosen turn is removed.
+/// The session events file is truncated and the conversation replays.
+fn run_rewind_flow(
+    stdout: &mut std::io::Stdout,
+    session: &crate::paths::SessionPaths,
+    term: &Term,
+) -> Result<bool, Box<dyn std::error::Error>> {
+    let content = std::fs::read_to_string(&session.events_path)?;
+    let events: Vec<&str> = content.lines().filter(|l| !l.trim().is_empty()).collect();
+
+    if events.is_empty() {
+        eprintln!("\n  {DIM}No conversation to rewind.{RESET}\n");
+        return Ok(false);
+    }
+
+    // Parse events into turns
+    let mut turns: Vec<Turn> = Vec::new();
+    let mut i = 0;
+    while i < events.len() {
+        if let Ok(ev) = serde_json::from_str::<serde_json::Value>(events[i]) {
+            let actor = ev.get("actor").and_then(|v| v.as_str()).unwrap_or("");
+            let kind = ev.get("kind").and_then(|v| v.as_str()).unwrap_or("");
+            let text = ev.get("text").and_then(|v| v.as_str()).unwrap_or("");
+
+            if actor == "you" && kind == "user" && !text.starts_with('/') {
+                let user_text = text.to_string();
+                // Collect assistant response lines
+                let mut assistant_lines = Vec::new();
+                let mut j = i + 1;
+                while j < events.len() {
+                    if let Ok(rev) = serde_json::from_str::<serde_json::Value>(events[j]) {
+                        let ra = rev.get("actor").and_then(|v| v.as_str()).unwrap_or("");
+                        let rk = rev.get("kind").and_then(|v| v.as_str()).unwrap_or("");
+                        let rt = rev.get("text").and_then(|v| v.as_str()).unwrap_or("");
+                        if ra == "harmonia" && rk == "assistant" {
+                            assistant_lines.push(rt.to_string());
+                            j += 1;
+                        } else {
+                            break;
+                        }
+                    } else {
+                        break;
+                    }
+                }
+                let preview = if assistant_lines.is_empty() {
+                    "(no response)".to_string()
+                } else {
+                    let first = &assistant_lines[0];
+                    if first.len() > 60 {
+                        format!("{}...", &first[..60])
+                    } else {
+                        first.clone()
+                    }
+                };
+                turns.push(Turn {
+                    index: turns.len() + 1,
+                    user_text,
+                    assistant_preview: preview,
+                    event_end: j, // events[0..j] = everything up to and including this turn
+                });
+                i = j;
+                continue;
+            }
+        }
+        i += 1;
+    }
+
+    if turns.is_empty() {
+        eprintln!("\n  {DIM}No conversation turns to rewind to.{RESET}\n");
+        return Ok(false);
+    }
+
+    // Build menu items
+    let items: Vec<crate::menus::MenuItem> = turns
+        .iter()
+        .rev() // most recent first
+        .map(|t| {
+            let clipped_user = if t.user_text.len() > 50 {
+                format!("{}...", &t.user_text[..50])
+            } else {
+                t.user_text.clone()
+            };
+            crate::menus::MenuItem::new(
+                &format!("Turn {} — {}", t.index, clipped_user),
+                &t.index.to_string(),
+                &t.assistant_preview,
+            )
+        })
+        .collect();
+
+    match crate::menus::interactive_select(stdout, "Rewind to turn", &items)? {
+        crate::menus::MenuAction::Command(selected) => {
+            let turn_num: usize = selected.parse().unwrap_or(0);
+            if let Some(turn) = turns.iter().find(|t| t.index == turn_num) {
+                // Truncate events file to this turn
+                let kept: Vec<&str> = events[..turn.event_end].to_vec();
+                let new_content = kept.join("\n") + "\n";
+                std::fs::write(&session.events_path, &new_content)?;
+
+                // Clear screen and replay
+                let _ = term.clear_screen();
+                let label = &session.identity.node_label;
+                print_banner(term, label, &session.identity.id);
+                replay_session_history(session, label);
+
+                let removed = turns.len() - turn_num;
+                eprintln!(
+                    "  {BOLD_CYAN}◆{RESET} Rewound to turn {}. {} turn{} removed.",
+                    turn_num,
+                    removed,
+                    if removed == 1 { "" } else { "s" }
+                );
+                eprintln!();
+                Ok(true)
+            } else {
+                eprintln!("\n  {DIM}Turn not found.{RESET}\n");
+                Ok(false)
+            }
+        }
+        _ => Ok(false),
+    }
+}
+
+/// Replay session history on connect — shows the conversation so far.
+/// Renders user and assistant messages in the same format as live responses.
+fn replay_session_history(session: &crate::paths::SessionPaths, node_label: &str) {
+    let content = match std::fs::read_to_string(&session.events_path) {
+        Ok(c) if !c.is_empty() => c,
+        _ => return,
+    };
+
+    let events: Vec<serde_json::Value> = content
+        .lines()
+        .filter(|l| !l.trim().is_empty())
+        .filter_map(|l| serde_json::from_str(l).ok())
+        .collect();
+
+    if events.is_empty() {
+        return;
+    }
+
+    // Find the last session-open marker — only replay from there
+    let replay_start = events
+        .iter()
+        .rposition(|e| e.get("kind").and_then(|v| v.as_str()) == Some("session-open"))
+        .map(|i| i + 1) // skip the session-open event itself
+        .unwrap_or(0);
+
+    let replay_events = &events[replay_start..];
+    if replay_events.is_empty() {
+        return;
+    }
+
+    eprintln!("  {DIM}── session history ──{RESET}");
+    eprintln!();
+
+    // Group consecutive messages by actor for clean block rendering
+    let mut i = 0;
+    while i < replay_events.len() {
+        let event = &replay_events[i];
+        let actor = event.get("actor").and_then(|v| v.as_str()).unwrap_or("");
+        let kind = event.get("kind").and_then(|v| v.as_str()).unwrap_or("");
+        let text = event.get("text").and_then(|v| v.as_str()).unwrap_or("");
+
+        match (actor, kind) {
+            ("you", "user") => {
+                eprintln!("  {BOLD_GREEN}╭─{RESET} {DIM}you@{node_label}{RESET}");
+                eprintln!("  {GREEN}│{RESET} {}", text);
+                eprintln!("  {BOLD_GREEN}╰─{RESET}");
+                eprintln!();
+            }
+            ("harmonia", "assistant") => {
+                eprintln!("  {BOLD_CYAN}╭─{RESET} {DIM}harmonia@{node_label}{RESET}");
+                // Collect consecutive assistant lines into one block
+                let mut j = i;
+                while j < replay_events.len() {
+                    let ev = &replay_events[j];
+                    if ev.get("actor").and_then(|v| v.as_str()) != Some("harmonia")
+                        || ev.get("kind").and_then(|v| v.as_str()) != Some("assistant")
+                    {
+                        break;
+                    }
+                    let line = ev.get("text").and_then(|v| v.as_str()).unwrap_or("");
+                    eprintln!("  {CYAN}│{RESET} {}", line);
+                    j += 1;
+                }
+                eprintln!("  {BOLD_CYAN}╰─{RESET}");
+                eprintln!();
+                i = j;
+                continue;
+            }
+            _ => {} // skip system events
+        }
+        i += 1;
+    }
+
+    eprintln!("  {DIM}── end of history ──{RESET}");
+    eprintln!();
 }
 
 const MESSAGING_FRONTENDS: &[(&str, &str)] = &[
@@ -2005,8 +2438,9 @@ fn print_help() {
     eprintln!("  {DIM}Session{RESET}");
     eprintln!("  {CYAN}/menu{RESET}                Interactive menu");
     eprintln!("  {CYAN}/help{RESET}                Show this help");
-    eprintln!("  {CYAN}/session{RESET}             Current session metadata");
+    eprintln!("  {CYAN}/session{RESET}             Current session info");
     eprintln!("  {CYAN}/resume{RESET}              Resume a past session");
+    eprintln!("  {CYAN}/rewind{RESET}              Rewind to a previous turn");
     eprintln!("  {CYAN}/clear{RESET}               Clear screen");
     eprintln!("  {CYAN}/log{RESET}                 Recent log entries");
     eprintln!("  {CYAN}/exit{RESET}                Exit");

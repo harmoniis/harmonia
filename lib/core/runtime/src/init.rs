@@ -9,31 +9,9 @@
 //!
 //! Example: HARMONIA_RUNTIME_COMPONENTS=tui,provider-router,voice-router,signalograd
 
-use std::collections::HashSet;
-use std::ffi::CString;
+use std::collections::{HashMap, HashSet};
 
-/// A loaded component with its name and status.
-#[allow(dead_code)]
-pub struct ComponentStatus {
-    pub name: String,
-    pub enabled: bool,
-    pub initialized: bool,
-    pub error: Option<String>,
-}
-
-/// Result of initialization.
-pub struct InitResult {
-    pub components: Vec<ComponentStatus>,
-}
-
-impl InitResult {
-    pub fn ok_count(&self) -> usize {
-        self.components.iter().filter(|c| c.initialized).count()
-    }
-    pub fn total_count(&self) -> usize {
-        self.components.len()
-    }
-}
+use crate::registry::{self, ModuleEntry, ModuleStatus};
 
 /// Resolve which components should be loaded.
 /// Core components always load. Optional components load only if listed.
@@ -74,6 +52,7 @@ fn resolve_enabled_components() -> HashSet<String> {
         "tui",
         "signalograd",
         "harmonic-matrix",
+        "observability",
         "provider-router",
         "voice-router",
         "tailnet",
@@ -94,12 +73,13 @@ fn resolve_enabled_components() -> HashSet<String> {
     enabled
 }
 
-/// Initialize all enabled components.
-pub fn init_all() -> InitResult {
+/// Initialize all enabled components using the module registry.
+///
+/// Returns a HashMap of module name → ModuleEntry, suitable for
+/// embedding in the supervisor state for runtime load/unload.
+pub fn init_all() -> HashMap<String, ModuleEntry> {
     let enabled = resolve_enabled_components();
-    let mut result = InitResult {
-        components: Vec::new(),
-    };
+    let modules = registry::build_registry();
 
     eprintln!("[INFO] [init] Components enabled: {}", {
         let mut names: Vec<&String> = enabled.iter().collect();
@@ -111,189 +91,60 @@ pub fn init_all() -> InitResult {
             .join(", ")
     });
 
-    // ── Core (always) ────────────────────────────────────────────────
+    let mut registry_map: HashMap<String, ModuleEntry> = HashMap::new();
+    let mut ok_count = 0usize;
+    let mut total_count = 0usize;
 
-    init_component(&mut result, "config-store", true, || {
-        harmonia_config_store::init().map_err(|e| e.to_string())
-    });
+    for mut entry in modules {
+        let name = entry.name.clone();
+        let should_init = entry.core || enabled.contains(&name);
 
-    init_component(&mut result, "chronicle", true, || {
-        harmonia_chronicle::init().map_err(|e| e.to_string())
-    });
-
-    init_component(&mut result, "vault", true, || {
-        harmonia_vault::init_from_env().map_err(|e| e.to_string())
-    });
-
-    init_component(&mut result, "memory", true, || {
-        let path = memory_db_path();
-        let c = CString::new(path.as_str()).unwrap_or_default();
-        let rc = harmonia_memory::harmonia_memory_init(c.as_ptr());
-        if rc == 0 {
-            Ok(())
-        } else {
-            Err(format!("memory init returned {rc}"))
+        if !should_init {
+            // Module exists in registry but is not enabled — keep as Unloaded
+            registry_map.insert(name, entry);
+            continue;
         }
-    });
 
-    // ── Optional components (config-driven) ──────────────────────────
+        total_count += 1;
 
-    if enabled.contains("signalograd") {
-        init_component(&mut result, "signalograd", true, || {
-            let rc = harmonia_signalograd::harmonia_signalograd_init();
-            if rc == 0 {
-                Ok(())
-            } else {
-                Err("signalograd init failed".into())
-            }
-        });
-    }
-
-    if enabled.contains("harmonic-matrix") {
-        init_component(&mut result, "harmonic-matrix", true, || {
-            harmonia_harmonic_matrix::runtime::store::init().map_err(|e| e.to_string())
-        });
-    }
-
-    if enabled.contains("tui") {
-        init_component(&mut result, "tui", true, || {
-            harmonia_tui::terminal::init().map_err(|e| e)
-        });
-    }
-
-    // ── Frontends (only if configured) ───────────────────────────────
-
-    if enabled.contains("telegram") {
-        init_component(&mut result, "telegram", false, || {
-            harmonia_telegram::bot::init("()")
-        });
-    }
-
-    if enabled.contains("slack") {
-        init_component(&mut result, "slack", false, || {
-            harmonia_slack::client::init("()")
-        });
-    }
-
-    if enabled.contains("discord") {
-        init_component(&mut result, "discord", false, || {
-            harmonia_discord::client::init("()")
-        });
-    }
-
-    if enabled.contains("signal") {
-        init_component(&mut result, "signal", false, || {
-            harmonia_signal::client::init("()")
-        });
-    }
-
-    if enabled.contains("mattermost") {
-        init_component(&mut result, "mattermost", false, || {
-            harmonia_mattermost::client::init("()")
-        });
-    }
-
-    if enabled.contains("nostr") {
-        init_component(&mut result, "nostr", false, || {
-            harmonia_nostr::client::init("()")
-        });
-    }
-
-    if enabled.contains("email") {
-        init_component(&mut result, "email", false, || {
-            harmonia_email_client::client::init("()")
-        });
-    }
-
-    if enabled.contains("whatsapp") {
-        init_component(&mut result, "whatsapp", false, || {
-            harmonia_whatsapp::client::init("()")
-        });
-    }
-
-    #[cfg(target_os = "macos")]
-    if enabled.contains("imessage") {
-        init_component(&mut result, "imessage", false, || {
-            harmonia_imessage::client::init("()")
-        });
-    }
-
-    if enabled.contains("tailscale") {
-        init_component(&mut result, "tailscale", false, || {
-            harmonia_tailscale_frontend::bridge::init("()")
-        });
-    }
-
-    // ── Backends ─────────────────────────────────────────────────────
-
-    if enabled.contains("provider-router") {
-        init_component(&mut result, "provider-router", true, || {
-            let rc = harmonia_provider_router::harmonia_provider_router_init();
-            if rc == 0 {
-                Ok(())
-            } else {
-                Err("provider-router init failed".into())
-            }
-        });
-    }
-
-    if enabled.contains("voice-router") {
-        init_component(&mut result, "voice-router", false, || {
-            harmonia_voice_router::init().map_err(|e| e.to_string())
-        });
-    }
-
-    // ── Tailnet ──────────────────────────────────────────────────────
-
-    if enabled.contains("tailnet") {
-        init_component(&mut result, "tailnet", false, || {
-            harmonia_tailnet::transport::start_listener().map_err(|e| e)
-        });
-    }
-
-    // ── Summary ──────────────────────────────────────────────────────
-
-    let ok = result.ok_count();
-    let total = result.total_count();
-    eprintln!("[INFO] [init] Initialization complete: {ok}/{total} components ready");
-
-    result
-}
-
-fn init_component(
-    result: &mut InitResult,
-    name: &str,
-    core: bool,
-    f: impl FnOnce() -> Result<(), String>,
-) {
-    let status = match f() {
-        Ok(()) => {
-            eprintln!("[INFO] [init] {name} initialized");
-            ComponentStatus {
-                name: name.to_string(),
-                enabled: true,
-                initialized: true,
-                error: None,
-            }
-        }
-        Err(e) => {
-            if core {
-                eprintln!("[WARN] [init] {name} failed: {e}");
+        // Validate config requirements first
+        if let Err(e) = registry::validate_config(&entry.config_reqs) {
+            if entry.core {
+                eprintln!("[WARN] [init] {name} config check failed: {e}");
             } else {
                 eprintln!("[INFO] [init] {name}: {e}");
             }
-            ComponentStatus {
-                name: name.to_string(),
-                enabled: true,
-                initialized: false,
-                error: Some(e),
+            entry.status = ModuleStatus::Error(e);
+            registry_map.insert(name, entry);
+            continue;
+        }
+
+        // Try to initialize
+        match (entry.init_fn)() {
+            Ok(()) => {
+                eprintln!("[INFO] [init] {name} initialized");
+                entry.status = ModuleStatus::Loaded;
+                ok_count += 1;
+            }
+            Err(e) => {
+                if entry.core {
+                    eprintln!("[WARN] [init] {name} failed: {e}");
+                } else {
+                    eprintln!("[INFO] [init] {name}: {e}");
+                }
+                entry.status = ModuleStatus::Error(e);
             }
         }
-    };
-    result.components.push(status);
+
+        registry_map.insert(name, entry);
+    }
+
+    eprintln!("[INFO] [init] Initialization complete: {ok_count}/{total_count} components ready");
+
+    registry_map
 }
 
-fn memory_db_path() -> String {
+pub(crate) fn memory_db_path() -> String {
     harmonia_config_store::get_config_or(
         "harmonia-runtime",
         "global",

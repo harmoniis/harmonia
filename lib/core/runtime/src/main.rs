@@ -4,6 +4,7 @@ mod dispatch;
 mod init;
 mod ipc;
 mod msg;
+mod registry;
 mod supervisor;
 
 use std::env;
@@ -28,7 +29,7 @@ async fn main() {
     eprintln!("[INFO] [runtime] harmonia-runtime starting");
 
     // 1. Initialize only enabled components (config-driven)
-    let init_result = init::init_all();
+    let module_registry = init::init_all();
 
     // 2. Determine socket path
     let socket_path = env::var("HARMONIA_RUNTIME_SOCKET")
@@ -86,14 +87,34 @@ async fn main() {
     .await
     .expect("failed to spawn HarmonicMatrixActor");
 
+    let (vault_ref, _) = Actor::spawn(Some("vault".to_string()), actors::VaultActor, ())
+        .await
+        .expect("failed to spawn VaultActor");
+
+    let (config_ref, _) = Actor::spawn(Some("config".to_string()), actors::ConfigActor, ())
+        .await
+        .expect("failed to spawn ConfigActor");
+
+    let (provider_router_ref, _) = Actor::spawn(
+        Some("provider-router".to_string()),
+        actors::ProviderRouterActor,
+        (),
+    )
+    .await
+    .expect("failed to spawn ProviderRouterActor");
+
+    let (parallel_ref, _) = Actor::spawn(Some("parallel".to_string()), actors::ParallelActor, ())
+        .await
+        .expect("failed to spawn ParallelActor");
+
     // Store matrix actor ref for dispatch routing
     let matrix_for_supervisor = harmonic_matrix_ref.clone();
 
-    // 5. Spawn RuntimeSupervisor
+    // 5. Spawn RuntimeSupervisor (with module registry)
     let (supervisor_ref, supervisor_handle) = Actor::spawn(
         Some("runtime-supervisor".to_string()),
         supervisor::RuntimeSupervisor,
-        bridge_ref,
+        (bridge_ref, module_registry),
     )
     .await
     .expect("failed to spawn RuntimeSupervisor");
@@ -119,13 +140,25 @@ async fn main() {
         "observability".to_string(),
         observability_ref.clone(),
     ));
+    let _ = supervisor_ref.cast(msg::RuntimeMsg::RegisterComponent(
+        "vault".to_string(),
+        vault_ref.clone(),
+    ));
+    let _ = supervisor_ref.cast(msg::RuntimeMsg::RegisterComponent(
+        "config".to_string(),
+        config_ref.clone(),
+    ));
+    let _ = supervisor_ref.cast(msg::RuntimeMsg::RegisterComponent(
+        "provider-router".to_string(),
+        provider_router_ref.clone(),
+    ));
+    let _ = supervisor_ref.cast(msg::RuntimeMsg::RegisterComponent(
+        "parallel".to_string(),
+        parallel_ref.clone(),
+    ));
     let _ = supervisor_ref.cast(msg::RuntimeMsg::RegisterMatrixActor(matrix_for_supervisor));
 
-    eprintln!(
-        "[INFO] [runtime] All actors spawned ({}/{} components), starting IPC server",
-        init_result.ok_count(),
-        init_result.total_count()
-    );
+    eprintln!("[INFO] [runtime] All actors spawned, starting IPC server");
 
     // 6. Spawn IPC listener
     let ipc_sup = supervisor_ref.clone();
@@ -154,7 +187,7 @@ async fn main() {
         }
     });
 
-    // 8. Wait for SIGTERM/SIGINT → send Shutdown to all actors
+    // 8. Wait for SIGTERM/SIGINT → coordinated shutdown with timeout
     let shutdown_sup = supervisor_ref.clone();
     let shutdown_actors = vec![
         chronicle_ref,
@@ -162,6 +195,10 @@ async fn main() {
         tailnet_ref,
         signalograd_ref,
         observability_ref,
+        vault_ref,
+        config_ref,
+        provider_router_ref,
+        parallel_ref,
     ];
     let shutdown_matrix = harmonic_matrix_ref;
     tokio::spawn(async move {
@@ -183,12 +220,19 @@ async fn main() {
             let _ = actor.cast(ComponentMsg::Shutdown);
         }
         let _ = shutdown_matrix.cast(actors::MatrixMsg::Shutdown);
-        // Then shutdown the supervisor (which drains bridge)
+
+        // Give components 2 seconds to finish, then shutdown supervisor
+        tokio::time::sleep(std::time::Duration::from_secs(2)).await;
         let _ = shutdown_sup.cast(msg::RuntimeMsg::Shutdown);
+
+        // Hard deadline: if supervisor doesn't stop within 5 more seconds, force exit
+        tokio::time::sleep(std::time::Duration::from_secs(5)).await;
+        eprintln!("[WARN] [runtime] Shutdown timeout — forcing exit");
+        std::process::exit(0);
     });
 
     // 9. Await supervisor exit
-    supervisor_handle.await.unwrap();
+    let _ = supervisor_handle.await;
 
     // 10. Clean up socket file
     let _ = std::fs::remove_file(&socket_path);

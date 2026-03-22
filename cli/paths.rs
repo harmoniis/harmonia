@@ -392,33 +392,37 @@ pub fn write_current_session(
     Ok(())
 }
 
-fn load_current_session(label: &str) -> Result<Option<String>, Box<dyn std::error::Error>> {
-    let path = current_session_path(label)?;
-    if !path.exists() {
-        return Ok(None);
-    }
-    let raw = fs::read_to_string(path)?;
-    let trimmed = raw.trim();
-    if trimmed.is_empty() {
-        Ok(None)
-    } else {
-        Ok(Some(trimmed.to_string()))
-    }
+/// Create a fresh session. Every `harmonia` invocation starts new.
+pub fn create_session(identity: &NodeIdentity) -> Result<SessionPaths, Box<dyn std::error::Error>> {
+    ensure_node_layout(identity)?;
+    let session_id = new_session_id();
+    init_session(identity, &session_id)
 }
 
+/// Resume a specific session by ID. Called by /resume after user picks one.
+pub fn resume_session(
+    identity: &NodeIdentity,
+    session_id: &str,
+) -> Result<SessionPaths, Box<dyn std::error::Error>> {
+    ensure_node_layout(identity)?;
+    init_session(identity, session_id)
+}
+
+/// Keep for backward compat (used by menu resume flow).
 pub fn resume_or_create_session(
     identity: &NodeIdentity,
 ) -> Result<SessionPaths, Box<dyn std::error::Error>> {
-    ensure_node_layout(identity)?;
-    let session_id = match load_current_session(&identity.label)? {
-        Some(existing) if session_manifest_path(&identity.label, &existing)?.exists() => existing,
-        _ => new_session_id(),
-    };
+    create_session(identity)
+}
 
-    let dir = session_dir(&identity.label, &session_id)?;
+fn init_session(
+    identity: &NodeIdentity,
+    session_id: &str,
+) -> Result<SessionPaths, Box<dyn std::error::Error>> {
+    let dir = session_dir(&identity.label, session_id)?;
     fs::create_dir_all(&dir)?;
-    let manifest_path = session_manifest_path(&identity.label, &session_id)?;
-    let events_path = session_events_path(&identity.label, &session_id)?;
+    let manifest_path = session_manifest_path(&identity.label, session_id)?;
+    let events_path = session_events_path(&identity.label, session_id)?;
     let now = now_ms();
     let identity_record = if manifest_path.exists() {
         let raw = fs::read_to_string(&manifest_path)?;
@@ -427,7 +431,7 @@ pub fn resume_or_create_session(
         stored
     } else {
         SessionIdentity {
-            id: session_id.clone(),
+            id: session_id.to_string(),
             node_label: identity.label.clone(),
             node_role: identity.role,
             install_profile: identity.install_profile,
@@ -436,7 +440,7 @@ pub fn resume_or_create_session(
         }
     };
     write_json(&manifest_path, &identity_record)?;
-    write_current_session(&identity.label, &session_id)?;
+    write_current_session(&identity.label, session_id)?;
 
     Ok(SessionPaths {
         identity: identity_record,

@@ -4,7 +4,7 @@
 //! pre_start initializes the component, handle() dispatches messages
 //! to the component's public API, and supervision handles recovery.
 
-use ractor::{Actor, ActorProcessingErr, ActorRef, RpcReplyPort};
+use ractor::{Actor, ActorProcessingErr, ActorRef};
 
 use harmonia_actor_protocol::{now_unix, ActorKind, HarmoniaMessage, MessagePayload};
 
@@ -12,12 +12,17 @@ use crate::msg::BridgeMsg;
 
 // ── Shared message type for all component actors ─────────────────────
 
+use ractor::RpcReplyPort;
+
 #[allow(dead_code)]
 pub enum ComponentMsg {
     /// Periodic tick — poll, flush, or heartbeat.
     Tick,
     /// Process an inbound signal.
     Signal { payload_sexp: String },
+    /// Dispatch a component command (sexp in, sexp out).
+    /// Runs in the component actor's mailbox — never blocks the supervisor.
+    Dispatch(String, RpcReplyPort<String>),
     /// Graceful shutdown.
     Shutdown,
 }
@@ -50,6 +55,10 @@ impl Actor for ChronicleActor {
         match message {
             ComponentMsg::Tick => {
                 let _ = harmonia_chronicle::gc();
+            }
+            ComponentMsg::Dispatch(sexp, reply) => {
+                let result = crate::dispatch::dispatch("chronicle", &sexp);
+                let _ = reply.send(result);
             }
             ComponentMsg::Shutdown => {
                 eprintln!("[INFO] [runtime] ChronicleActor shutting down");
@@ -107,6 +116,10 @@ impl Actor for TailnetActor {
                     };
                     let _ = state.bridge.cast(BridgeMsg::Enqueue { msg });
                 }
+            }
+            ComponentMsg::Dispatch(sexp, reply) => {
+                let result = crate::dispatch::dispatch("tailnet", &sexp);
+                let _ = reply.send(result);
             }
             ComponentMsg::Signal { payload_sexp } => {
                 // Parse and send mesh message (best-effort)
@@ -174,6 +187,10 @@ impl Actor for SignalogradActor {
                     harmonia_signalograd::harmonia_signalograd_free_string(status_ptr);
                 }
             }
+            ComponentMsg::Dispatch(sexp, reply) => {
+                let result = crate::dispatch::dispatch("signalograd", &sexp);
+                let _ = reply.send(result);
+            }
             ComponentMsg::Signal { payload_sexp } => {
                 let c_str = std::ffi::CString::new(payload_sexp).unwrap_or_default();
                 harmonia_signalograd::harmonia_signalograd_observe(c_str.as_ptr());
@@ -217,6 +234,10 @@ impl Actor for ObservabilityActor {
                 // No-op: the background sender thread auto-flushes every 2s
                 // when items are pending. Forcing flush here on every tick (5s)
                 // causes redundant HTTP POSTs that trigger 429 rate limits.
+            }
+            ComponentMsg::Dispatch(sexp, reply) => {
+                let result = crate::dispatch::dispatch("observability", &sexp);
+                let _ = reply.send(result);
             }
             ComponentMsg::Signal { payload_sexp } => {
                 let _ = payload_sexp;
@@ -305,7 +326,9 @@ impl Actor for HarmonicMatrixActor {
     ) -> Result<(), ActorProcessingErr> {
         match message {
             MatrixMsg::RegisterNode { id, kind } => {
-                let _ = harmonia_harmonic_matrix::runtime::ops::register_node(&id, &kind);
+                if let Err(e) = harmonia_harmonic_matrix::runtime::ops::register_node(&id, &kind) {
+                    eprintln!("[WARN] [matrix] register-node failed: {e}");
+                }
             }
             MatrixMsg::RegisterEdge {
                 from,
@@ -313,12 +336,14 @@ impl Actor for HarmonicMatrixActor {
                 weight,
                 min_harmony,
             } => {
-                let _ = harmonia_harmonic_matrix::runtime::ops::register_edge(
+                if let Err(e) = harmonia_harmonic_matrix::runtime::ops::register_edge(
                     &from,
                     &to,
                     weight,
                     min_harmony,
-                );
+                ) {
+                    eprintln!("[WARN] [matrix] register-edge failed: {e}");
+                }
             }
             MatrixMsg::ObserveRoute {
                 from,
@@ -327,9 +352,11 @@ impl Actor for HarmonicMatrixActor {
                 latency_ms,
                 cost_usd,
             } => {
-                let _ = harmonia_harmonic_matrix::runtime::ops::observe_route(
+                if let Err(e) = harmonia_harmonic_matrix::runtime::ops::observe_route(
                     &from, &to, success, latency_ms, cost_usd,
-                );
+                ) {
+                    eprintln!("[WARN] [matrix] observe-route failed: {e}");
+                }
             }
             MatrixMsg::LogEvent {
                 component,
@@ -339,12 +366,18 @@ impl Actor for HarmonicMatrixActor {
                 success,
                 error,
             } => {
-                let _ = harmonia_harmonic_matrix::runtime::ops::log_event(
+                if let Err(e) = harmonia_harmonic_matrix::runtime::ops::log_event(
                     &component, &direction, &channel, &payload, success, &error,
-                );
+                ) {
+                    eprintln!("[WARN] [matrix] log-event failed: {e}");
+                }
             }
             MatrixMsg::SetToolEnabled { node, enabled } => {
-                let _ = harmonia_harmonic_matrix::runtime::ops::set_tool_enabled(&node, enabled);
+                if let Err(e) =
+                    harmonia_harmonic_matrix::runtime::ops::set_tool_enabled(&node, enabled)
+                {
+                    eprintln!("[WARN] [matrix] set-tool-enabled failed: {e}");
+                }
             }
             MatrixMsg::RouteAllowed {
                 from,
@@ -426,12 +459,168 @@ impl Actor for GatewayActor {
                     let _ = state.bridge.cast(BridgeMsg::Enqueue { msg });
                 }
             }
+            ComponentMsg::Dispatch(sexp, reply) => {
+                let result = crate::dispatch::dispatch("gateway", &sexp);
+                let _ = reply.send(result);
+            }
             ComponentMsg::Signal { .. } => {
                 // Outbound signals handled via direct gateway API from SBCL
             }
             ComponentMsg::Shutdown => {
                 eprintln!("[INFO] [runtime] GatewayActor shutting down");
             }
+        }
+        Ok(())
+    }
+}
+
+// ── VaultActor ──────────────────────────────────────────────────────
+
+pub struct VaultActor;
+
+impl Actor for VaultActor {
+    type Msg = ComponentMsg;
+    type State = ();
+    type Arguments = ();
+
+    async fn pre_start(
+        &self,
+        _myself: ActorRef<Self::Msg>,
+        _args: (),
+    ) -> Result<Self::State, ActorProcessingErr> {
+        eprintln!("[INFO] [runtime] VaultActor started");
+        Ok(())
+    }
+
+    async fn handle(
+        &self,
+        _myself: ActorRef<Self::Msg>,
+        message: Self::Msg,
+        _state: &mut Self::State,
+    ) -> Result<(), ActorProcessingErr> {
+        match message {
+            ComponentMsg::Dispatch(sexp, reply) => {
+                let result = crate::dispatch::dispatch("vault", &sexp);
+                let _ = reply.send(result);
+            }
+            ComponentMsg::Shutdown => {
+                eprintln!("[INFO] [runtime] VaultActor shutting down");
+            }
+            _ => {}
+        }
+        Ok(())
+    }
+}
+
+// ── ConfigActor ─────────────────────────────────────────────────────
+
+pub struct ConfigActor;
+
+impl Actor for ConfigActor {
+    type Msg = ComponentMsg;
+    type State = ();
+    type Arguments = ();
+
+    async fn pre_start(
+        &self,
+        _myself: ActorRef<Self::Msg>,
+        _args: (),
+    ) -> Result<Self::State, ActorProcessingErr> {
+        eprintln!("[INFO] [runtime] ConfigActor started");
+        Ok(())
+    }
+
+    async fn handle(
+        &self,
+        _myself: ActorRef<Self::Msg>,
+        message: Self::Msg,
+        _state: &mut Self::State,
+    ) -> Result<(), ActorProcessingErr> {
+        match message {
+            ComponentMsg::Dispatch(sexp, reply) => {
+                let result = crate::dispatch::dispatch("config", &sexp);
+                let _ = reply.send(result);
+            }
+            ComponentMsg::Shutdown => {
+                eprintln!("[INFO] [runtime] ConfigActor shutting down");
+            }
+            _ => {}
+        }
+        Ok(())
+    }
+}
+
+// ── ProviderRouterActor ─────────────────────────────────────────────
+
+pub struct ProviderRouterActor;
+
+impl Actor for ProviderRouterActor {
+    type Msg = ComponentMsg;
+    type State = ();
+    type Arguments = ();
+
+    async fn pre_start(
+        &self,
+        _myself: ActorRef<Self::Msg>,
+        _args: (),
+    ) -> Result<Self::State, ActorProcessingErr> {
+        eprintln!("[INFO] [runtime] ProviderRouterActor started");
+        Ok(())
+    }
+
+    async fn handle(
+        &self,
+        _myself: ActorRef<Self::Msg>,
+        message: Self::Msg,
+        _state: &mut Self::State,
+    ) -> Result<(), ActorProcessingErr> {
+        match message {
+            ComponentMsg::Dispatch(sexp, reply) => {
+                let result = crate::dispatch::dispatch("provider-router", &sexp);
+                let _ = reply.send(result);
+            }
+            ComponentMsg::Shutdown => {
+                eprintln!("[INFO] [runtime] ProviderRouterActor shutting down");
+            }
+            _ => {}
+        }
+        Ok(())
+    }
+}
+
+// ── ParallelActor ───────────────────────────────────────────────────
+
+pub struct ParallelActor;
+
+impl Actor for ParallelActor {
+    type Msg = ComponentMsg;
+    type State = ();
+    type Arguments = ();
+
+    async fn pre_start(
+        &self,
+        _myself: ActorRef<Self::Msg>,
+        _args: (),
+    ) -> Result<Self::State, ActorProcessingErr> {
+        eprintln!("[INFO] [runtime] ParallelActor started");
+        Ok(())
+    }
+
+    async fn handle(
+        &self,
+        _myself: ActorRef<Self::Msg>,
+        message: Self::Msg,
+        _state: &mut Self::State,
+    ) -> Result<(), ActorProcessingErr> {
+        match message {
+            ComponentMsg::Dispatch(sexp, reply) => {
+                let result = crate::dispatch::dispatch("parallel", &sexp);
+                let _ = reply.send(result);
+            }
+            ComponentMsg::Shutdown => {
+                eprintln!("[INFO] [runtime] ParallelActor shutting down");
+            }
+            _ => {}
         }
         Ok(())
     }

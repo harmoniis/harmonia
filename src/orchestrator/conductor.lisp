@@ -796,7 +796,15 @@ CONTEXT END")))
 ;;; --- Wave 1.4: Split conductor into struct vs string dispatch ---
 
 (defun %signal-to-prompt-text (signal)
-  "Render a typed baseband channel envelope into clean LLM context."
+  "Render a typed baseband channel envelope into clean LLM context.
+   Owner-trusted channels (TUI) pass the user's text directly — no boundary
+   wrapping needed since the owner IS the user, not an external data source.
+   External channels get full BASEBAND envelope with security boundaries."
+  (when (eq (harmonia-signal-security-label signal) :owner)
+    ;; Owner trust: pass text directly — this IS the user speaking
+    (return-from %signal-to-prompt-text
+      (or (harmonia-signal-payload signal) "")))
+  ;; External/authenticated: full envelope with boundary markers
   (format nil "[BASEBAND CHANNEL]~%type: ~A~%channel-kind: ~A~%channel-address: ~A~%security: ~A~%dissonance: ~,3F~%capabilities: ~A~%metadata: ~A~%~A"
           (harmonia-signal-type-name signal)
           (harmonia-signal-channel-kind signal)
@@ -824,6 +832,10 @@ CONTEXT END")))
                                :taint (ignore-errors (harmonia-signal-taint signal))))
     (let* ((*current-originating-signal* signal)
            (prompt (%signal-to-prompt-text signal)))
+      (%log :info "orchestrate" "Signal from ~A security=~A prompt=[~A]"
+            (ignore-errors (harmonia-signal-frontend signal))
+            (ignore-errors (harmonia-signal-security-label signal))
+            (%clip-prompt prompt 100))
       (%orchestrate-inner prompt signal))))
 
 (defun orchestrate-prompt (prompt)
@@ -960,14 +972,27 @@ CONTEXT END")))
   (let* ((sys-ctx (%orchestrator-system-context))
          (recall (memory-semantic-recall-block prompt
                   :limit 5 :max-chars 1500))
-         (orch-model (model-policy-orchestrator-model))
-         (preamble (%swarm-prompt-template :orchestrator-direct-answer
-                    "You are the Harmonia orchestrator answering an internal question about the system. Answer from your own knowledge and the context below. Be concise and accurate."))
+         ;; Use a capable model for owner prompts, cheap orchestrator model for internals
+         (orch-model (if (and *current-originating-signal*
+                              (eq :owner (ignore-errors
+                                           (harmonia-signal-security-label
+                                            *current-originating-signal*))))
+                         ;; Owner: pick from seed models, prefer capable ones
+                         (let ((seeds (%seed-models)))
+                           (or (find-if (lambda (m)
+                                          (and (not (search ":free" m))
+                                               (not (search "mercury" m))))
+                                        seeds)
+                               (first seeds)
+                               (%select-model prompt)))
+                         (model-policy-orchestrator-model)))
          (direct-prompt
-           (format nil "~A~%~A~%~:[~;MEMORY_RECALL:~%~A~%~]~%USER QUESTION: ~A"
-                   preamble sys-ctx
-                   (> (length recall) 0) recall
-                   prompt)))
+           (format nil "Answer the following question directly and concisely.~%~%~A~%~:[~;~%Background context (for reference only):~%~A~%~]~:[~;~%Relevant memories:~%~A~%~]"
+                   prompt
+                   (and sys-ctx (> (length sys-ctx) 0)) sys-ctx
+                   (> (length recall) 0) recall)))
+    (%log :info "orchestrator" "Direct answer: model=~A user-question=[~A] prompt-len=~D"
+          orch-model (%clip-prompt prompt 80) (length direct-prompt))
     (%route-or-error "orchestrator" "provider-router")
     (backend-complete direct-prompt orch-model)))
 
@@ -1079,12 +1104,11 @@ Delegation chain: ~{~A~^, ~}~%~%TASK: ~A"
                       ;; Internal questions about the system → answer directly (no swarm)
                       ;; Action tasks (coding, writing, etc.) → delegate to swarm
                       (when (or
-                             ;; Internal/TUI prompts: answer internal questions directly
+                             ;; Internal/TUI prompts: answer system questions directly
                              (and (not *current-originating-signal*)
                                   (%internal-question-p prompt)
                                   (not (%task-needs-delegation-p prompt)))
-                             ;; Owner signals (TUI): use direct answer for everything
-                             ;; (parallel-agents swarm not yet stable over IPC)
+                             ;; Owner signals (TUI): direct answer with full model
                              (and *current-originating-signal*
                                   (eq :owner (ignore-errors
                                                (harmonia-signal-security-label

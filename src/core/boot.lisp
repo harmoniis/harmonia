@@ -227,6 +227,7 @@
 (%load-module (%core-path "system-commands.lisp") "system-commands")
 (%load-module (%core-path "../orchestrator/conductor.lisp") "conductor")
 (%load-module (%core-path "rewrite.lisp"))
+(%load-module (%core-path "actors.lisp"))
 (%load-module (%core-path "loop.lisp"))
 
 (%log :info "boot" "All modules loaded.")

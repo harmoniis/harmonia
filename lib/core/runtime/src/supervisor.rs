@@ -8,6 +8,7 @@ use harmonia_actor_protocol::{
 
 use crate::actors::{ComponentMsg, MatrixMsg};
 use crate::msg::{BridgeMsg, RuntimeMsg};
+use crate::registry::{self, ModuleEntry, ModuleStatus};
 
 /// RuntimeSupervisor owns the actor registry and the SbclBridgeActor.
 ///
@@ -15,6 +16,9 @@ use crate::msg::{BridgeMsg, RuntimeMsg};
 /// ractor actor — all registry mutations are serialized through the mailbox,
 /// no locks needed.
 pub struct RuntimeSupervisor;
+
+/// Maximum number of restarts before giving up on an actor.
+const MAX_RESPAWNS: u32 = 5;
 
 pub struct RuntimeState {
     actors: HashMap<ActorId, ActorRegistration>,
@@ -26,6 +30,10 @@ pub struct RuntimeState {
     component_actors: HashMap<String, ActorRef<ComponentMsg>>,
     /// Matrix actor (separate message type).
     matrix_actor: Option<ActorRef<MatrixMsg>>,
+    /// Module registry for runtime load/unload management.
+    pub module_registry: HashMap<String, ModuleEntry>,
+    /// Respawn counters for crash-loop prevention.
+    respawn_counts: HashMap<String, u32>,
 }
 
 impl RuntimeState {
@@ -76,17 +84,103 @@ impl RuntimeState {
             None => format!("(:error \"actor {} not found\")", id),
         }
     }
+
+    fn modules_list_sexp(&self) -> String {
+        let mut entries: Vec<String> = Vec::new();
+        let mut names: Vec<&String> = self.module_registry.keys().collect();
+        names.sort();
+        for name in &names {
+            if let Some(entry) = self.module_registry.get(*name) {
+                let status_str = match &entry.status {
+                    ModuleStatus::Unloaded => "unloaded".to_string(),
+                    ModuleStatus::Loaded => "loaded".to_string(),
+                    ModuleStatus::Error(e) => {
+                        format!("error \"{}\"", harmonia_actor_protocol::sexp_escape(e))
+                    }
+                };
+                let core_str = if entry.core { " :core t" } else { "" };
+                let needs: Vec<String> =
+                    entry.config_reqs.iter().map(|r| format!("{}", r)).collect();
+                let needs_str = if needs.is_empty() {
+                    String::new()
+                } else {
+                    format!(
+                        " :needs \"{}\"",
+                        harmonia_actor_protocol::sexp_escape(&needs.join(", "))
+                    )
+                };
+                entries.push(format!(
+                    "(:name \"{}\" :status {}{}{})",
+                    name, status_str, core_str, needs_str
+                ));
+            }
+        }
+        format!("({})", entries.join(" "))
+    }
+
+    fn load_module(&mut self, name: &str) -> String {
+        let esc_name = harmonia_actor_protocol::sexp_escape(name);
+        let entry = match self.module_registry.get_mut(name) {
+            Some(e) => e,
+            None => return format!("(:error \"unknown module '{}'\")", esc_name),
+        };
+
+        if matches!(entry.status, ModuleStatus::Loaded) {
+            return format!("(:ok \"module '{}' is already loaded\")", esc_name);
+        }
+
+        // Validate config requirements
+        if let Err(e) = registry::validate_config(&entry.config_reqs) {
+            entry.status = ModuleStatus::Error(e.clone());
+            return format!("(:error \"{}\")", harmonia_actor_protocol::sexp_escape(&e));
+        }
+
+        // Call init
+        match (entry.init_fn)() {
+            Ok(()) => {
+                entry.status = ModuleStatus::Loaded;
+                eprintln!("[INFO] [runtime] Module '{}' loaded", name);
+                format!("(:ok \"module '{}' loaded\")", esc_name)
+            }
+            Err(e) => {
+                entry.status = ModuleStatus::Error(e.clone());
+                eprintln!("[WARN] [runtime] Module '{}' failed to load: {}", name, e);
+                format!("(:error \"{}\")", harmonia_actor_protocol::sexp_escape(&e))
+            }
+        }
+    }
+
+    fn unload_module(&mut self, name: &str) -> String {
+        let esc_name = harmonia_actor_protocol::sexp_escape(name);
+        let entry = match self.module_registry.get_mut(name) {
+            Some(e) => e,
+            None => return format!("(:error \"unknown module '{}'\")", esc_name),
+        };
+
+        if entry.core {
+            return format!("(:error \"cannot unload core module '{}'\")", esc_name);
+        }
+
+        if matches!(entry.status, ModuleStatus::Unloaded) {
+            return format!("(:ok \"module '{}' is already unloaded\")", esc_name);
+        }
+
+        (entry.shutdown_fn)();
+        entry.status = ModuleStatus::Unloaded;
+        eprintln!("[INFO] [runtime] Module '{}' unloaded", name);
+        format!("(:ok \"module '{}' unloaded\")", esc_name)
+    }
 }
 
 impl Actor for RuntimeSupervisor {
     type Msg = RuntimeMsg;
     type State = RuntimeState;
-    type Arguments = ActorRef<BridgeMsg>;
+    type Arguments = (ActorRef<BridgeMsg>, HashMap<String, ModuleEntry>);
 
     async fn pre_start(
         &self,
         _myself: ActorRef<Self::Msg>,
-        bridge: ActorRef<BridgeMsg>,
+        (bridge, module_registry): (ActorRef<BridgeMsg>, HashMap<String, ModuleEntry>),
     ) -> Result<Self::State, ActorProcessingErr> {
         eprintln!("[INFO] [runtime] RuntimeSupervisor started");
         Ok(RuntimeState {
@@ -97,6 +191,8 @@ impl Actor for RuntimeSupervisor {
             shutting_down: false,
             component_actors: HashMap::new(),
             matrix_actor: None,
+            module_registry,
+            respawn_counts: HashMap::new(),
         })
     }
 
@@ -209,7 +305,9 @@ impl Actor for RuntimeSupervisor {
             }
 
             RuntimeMsg::ComponentCall(component, sexp, reply) => {
-                // Matrix commands route through the actor for serialized access
+                // The supervisor ROUTES, it never EXECUTES component logic.
+                // Every component has an actor — dispatch runs in the actor's
+                // mailbox, keeping the supervisor free for heartbeats/drains/shutdown.
                 if component == "harmonic-matrix" {
                     if let Some(ref matrix) = state.matrix_actor {
                         let result =
@@ -218,9 +316,21 @@ impl Actor for RuntimeSupervisor {
                     } else {
                         let _ = reply.send("(:error \"matrix actor not available\")".to_string());
                     }
+                } else if let Some(actor) = state.component_actors.get(&component) {
+                    // Route to component actor — dispatch runs in its mailbox, not ours
+                    match ractor::call_t!(actor, ComponentMsg::Dispatch, 30_000, sexp) {
+                        Ok(result) => {
+                            let _ = reply.send(result);
+                        }
+                        Err(_) => {
+                            let _ = reply.send(format!(
+                                "(:error \"component '{}' dispatch timeout\")",
+                                component
+                            ));
+                        }
+                    }
                 } else {
-                    let result = crate::dispatch::dispatch(&component, &sexp);
-                    let _ = reply.send(result);
+                    let _ = reply.send(format!("(:error \"unknown component '{}'\")", component));
                 }
             }
 
@@ -239,6 +349,21 @@ impl Actor for RuntimeSupervisor {
                     actor_ref.get_id()
                 );
                 state.matrix_actor = Some(actor_ref);
+            }
+
+            RuntimeMsg::ListModules(reply) => {
+                let sexp = state.modules_list_sexp();
+                let _ = reply.send(sexp);
+            }
+
+            RuntimeMsg::LoadModule(name, reply) => {
+                let result = state.load_module(&name);
+                let _ = reply.send(result);
+            }
+
+            RuntimeMsg::UnloadModule(name, reply) => {
+                let result = state.unload_module(&name);
+                let _ = reply.send(result);
             }
 
             RuntimeMsg::Shutdown => {
@@ -295,7 +420,16 @@ impl Actor for RuntimeSupervisor {
         // Try to restart the bridge actor
         let bridge_id = state.bridge.get_id();
         if failed_id == bridge_id {
-            eprintln!("[INFO] [runtime] Respawning SbclBridgeActor after failure");
+            let count = state
+                .respawn_counts
+                .entry("sbcl-bridge".to_string())
+                .or_insert(0);
+            *count += 1;
+            if *count > MAX_RESPAWNS {
+                eprintln!("[ERROR] [runtime] SbclBridgeActor exceeded max respawns ({MAX_RESPAWNS}), giving up");
+                return Ok(());
+            }
+            eprintln!("[INFO] [runtime] Respawning SbclBridgeActor ({count}/{MAX_RESPAWNS})");
             match Actor::spawn_linked(
                 Some("sbcl-bridge".to_string()),
                 crate::bridge::SbclBridgeActor,
@@ -324,7 +458,18 @@ impl Actor for RuntimeSupervisor {
             .map(|(name, _)| name.clone());
 
         if let Some(name) = component_name {
-            eprintln!("[INFO] [runtime] Respawning component actor '{name}' after failure");
+            let count = state.respawn_counts.entry(name.clone()).or_insert(0);
+            *count += 1;
+            if *count > MAX_RESPAWNS {
+                eprintln!(
+                    "[ERROR] [runtime] Component '{name}' exceeded max respawns ({MAX_RESPAWNS}), giving up"
+                );
+                state.component_actors.remove(&name);
+                return Ok(());
+            }
+            eprintln!(
+                "[INFO] [runtime] Respawning component actor '{name}' ({count}/{MAX_RESPAWNS})"
+            );
             let spawn_result = match name.as_str() {
                 "chronicle" => Actor::spawn_linked(
                     Some(name.clone()),
@@ -361,6 +506,38 @@ impl Actor for RuntimeSupervisor {
                 "observability" => Actor::spawn_linked(
                     Some(name.clone()),
                     crate::actors::ObservabilityActor,
+                    (),
+                    myself.get_cell(),
+                )
+                .await
+                .map(|(r, _)| r),
+                "vault" => Actor::spawn_linked(
+                    Some(name.clone()),
+                    crate::actors::VaultActor,
+                    (),
+                    myself.get_cell(),
+                )
+                .await
+                .map(|(r, _)| r),
+                "config" => Actor::spawn_linked(
+                    Some(name.clone()),
+                    crate::actors::ConfigActor,
+                    (),
+                    myself.get_cell(),
+                )
+                .await
+                .map(|(r, _)| r),
+                "provider-router" => Actor::spawn_linked(
+                    Some(name.clone()),
+                    crate::actors::ProviderRouterActor,
+                    (),
+                    myself.get_cell(),
+                )
+                .await
+                .map(|(r, _)| r),
+                "parallel" => Actor::spawn_linked(
+                    Some(name.clone()),
+                    crate::actors::ParallelActor,
                     (),
                     myself.get_cell(),
                 )

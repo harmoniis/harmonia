@@ -66,11 +66,12 @@
     (force-output stream)))
 
 (defun %ipc-read-frame (stream)
-  "Read a length-prefixed sexp frame from the stream. Returns the string."
+  "Read a length-prefixed sexp frame from the stream. Returns the string.
+   Signals an error on timeout or short reads so ipc-call can reconnect."
   (let ((header (make-array 4 :element-type '(unsigned-byte 8))))
     (let ((n (read-sequence header stream)))
       (when (< n 4)
-        (return-from %ipc-read-frame nil)))
+        (error "IPC read: short header (~D/4 bytes, possible timeout)" n)))
     (let ((len (+ (ash (aref header 0) 24)
                   (ash (aref header 1) 16)
                   (ash (aref header 2)  8)
@@ -80,50 +81,74 @@
       (let ((buf (make-array len :element-type '(unsigned-byte 8))))
         (let ((n (read-sequence buf stream)))
           (when (< n len)
-            (return-from %ipc-read-frame nil)))
+            (error "IPC read: short body (~D/~D bytes)" n len)))
         (sb-ext:octets-to-string buf :external-format :utf-8)))))
 
-;;; ─── Connection pool ────────────────────────────────────────────────
+;;; ─── Connection pool (thread-safe, per-thread connections) ─────────
 
-(defparameter *ipc-connection* nil
-  "Current IPC connection (stream). Lazily opened, reused across calls.")
+(defvar %ipc-connections-lock (sb-thread:make-mutex :name "ipc-pool")
+  "Lock for the per-thread IPC connection table.")
+
+(defvar %ipc-connections (make-hash-table :test 'eq)
+  "Per-thread IPC connections: thread → stream.
+   Each actor thread gets its own socket so concurrent IPC calls
+   never corrupt each other's framing.")
 
 (defun %ipc-ensure-connection ()
-  "Get or create the IPC connection."
-  (or (and *ipc-connection*
-           (open-stream-p *ipc-connection*)
-           *ipc-connection*)
-      (setf *ipc-connection* (%ipc-connect))))
+  "Get or create the IPC connection for the current thread."
+  (let ((thread sb-thread:*current-thread*))
+    (sb-thread:with-mutex (%ipc-connections-lock)
+      (let ((conn (gethash thread %ipc-connections)))
+        (if (and conn (open-stream-p conn))
+            conn
+            (let ((new-conn (%ipc-connect)))
+              (when new-conn
+                (setf (gethash thread %ipc-connections) new-conn))
+              new-conn))))))
 
 (defun %ipc-disconnect ()
-  "Close the IPC connection."
-  (when (and *ipc-connection* (open-stream-p *ipc-connection*))
-    (ignore-errors (close *ipc-connection*)))
-  (setf *ipc-connection* nil))
+  "Close the IPC connection for the current thread."
+  (let ((thread sb-thread:*current-thread*))
+    (sb-thread:with-mutex (%ipc-connections-lock)
+      (let ((conn (gethash thread %ipc-connections)))
+        (when (and conn (open-stream-p conn))
+          (ignore-errors (close conn)))
+        (remhash thread %ipc-connections)))))
 
 ;;; ─── High-level IPC call ────────────────────────────────────────────
+
+(defparameter *ipc-call-timeout-seconds* 30
+  "Maximum seconds to wait for an IPC reply before giving up.
+   Prevents the tick loop from blocking forever on a stuck runtime call.")
 
 (defun ipc-call (sexp-string)
   "Send a sexp request to harmonia-runtime and return the reply string.
    Returns the reply sexp string, or nil on connection failure.
-   Automatically reconnects on broken pipe."
-  (labels ((attempt (retried)
-             (let ((stream (%ipc-ensure-connection)))
-               (unless stream
-                 (return-from attempt nil))
-               (handler-case
-                   (progn
-                     (%ipc-write-frame stream sexp-string)
-                     (%ipc-read-frame stream))
-                 (error (e)
-                   ;; Broken pipe — reconnect once
-                   (%ipc-disconnect)
-                   (if retried
-                       (progn
-                         (%log :warn "ipc" "IPC call failed after retry: ~A" e)
-                         nil)
-                       (attempt t)))))))
-    (attempt nil)))
+   Automatically reconnects on broken pipe. Times out after *ipc-call-timeout-seconds*."
+  (handler-case
+      (sb-sys:with-deadline (:seconds *ipc-call-timeout-seconds*)
+        (labels ((attempt (retried)
+                   (let ((stream (%ipc-ensure-connection)))
+                     (unless stream
+                       (return-from attempt nil))
+                     (handler-case
+                         (progn
+                           (%ipc-write-frame stream sexp-string)
+                           (%ipc-read-frame stream))
+                       (error (e)
+                         ;; Broken pipe or read error — reconnect once
+                         (%ipc-disconnect)
+                         (if retried
+                             (progn
+                               (%log :warn "ipc" "IPC call failed after retry: ~A" e)
+                               nil)
+                             (attempt t)))))))
+          (attempt nil)))
+    (sb-sys:deadline-timeout ()
+      (%log :warn "ipc" "IPC call timed out (~Ds): ~A"
+            *ipc-call-timeout-seconds* (subseq sexp-string 0 (min 80 (length sexp-string))))
+      (%ipc-disconnect)
+      nil)))
 
 (defun ipc-cast (sexp-string)
   "Send a fire-and-forget sexp to harmonia-runtime (no reply expected).

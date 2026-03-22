@@ -218,11 +218,44 @@
   "http://127.0.0.1:9100/health")
 
 (defun %phoenix-health ()
-  "Query Phoenix health endpoint. Returns the JSON string or nil on failure."
+  "Query Phoenix health endpoint via raw HTTP GET to localhost:9100.
+   Returns JSON string or nil. Uses sb-bsd-sockets (loaded by ipc-client.lisp
+   before this function is ever called at runtime)."
   (ignore-errors
-    (let ((result (hfetch (%phoenix-health-url) :timeout-ms 3000)))
-      (when (and result (stringp result))
-        result))))
+    ;; sb-bsd-sockets is loaded at runtime by ipc-client.lisp (require :sb-bsd-sockets).
+    ;; We use funcall+find-symbol to avoid read-time package dependency since
+    ;; introspection.lisp loads before ipc-client.lisp.
+    (let* ((pkg (find-package "SB-BSD-SOCKETS"))
+           (make-fn (and pkg (find-symbol "SOCKET-CONNECT" pkg)))
+           (close-fn (and pkg (find-symbol "SOCKET-CLOSE" pkg)))
+           (stream-fn (and pkg (find-symbol "SOCKET-MAKE-STREAM" pkg))))
+      (unless make-fn (return-from %phoenix-health nil))
+      (let ((socket (make-instance (find-symbol "INET-SOCKET" pkg)
+                                   :type :stream :protocol :tcp)))
+        (unwind-protect
+            (progn
+              (funcall make-fn socket #(127 0 0 1) 9100)
+              (let ((stream (funcall stream-fn socket
+                              :element-type 'character
+                              :input t :output t :buffering :full)))
+                (let ((crlf (coerce (list #\Return #\Linefeed) 'string)))
+                (write-string (concatenate 'string
+                  "GET /health HTTP/1.1" crlf
+                  "Host: 127.0.0.1:9100" crlf
+                  "Connection: close" crlf
+                  crlf) stream))
+                (force-output stream)
+                (let ((lines '())
+                      (body-start nil))
+                  (loop for line = (read-line stream nil nil)
+                        while line
+                        do (if body-start
+                               (push line lines)
+                               (when (string= (string-trim '(#\Return) line) "")
+                                 (setf body-start t))))
+                  (let ((body (format nil "~{~A~}" (nreverse lines))))
+                    (when (> (length body) 2) body)))))
+          (ignore-errors (funcall close-fn socket)))))))
 
 (defun %phoenix-identity-block ()
   "Self-knowledge about the process architecture.

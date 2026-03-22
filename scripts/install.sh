@@ -16,6 +16,7 @@ set -euo pipefail
 REPO="harmoniis/harmonia"
 VERSION="${HARMONIA_VERSION:-}"
 INSTALL_PROFILE="${HARMONIA_INSTALL_PROFILE:-full-agent}"
+CONFIG_JSON="${HARMONIA_CONFIG_JSON:-}"
 
 info()  { printf '\033[1;34m==>\033[0m %s\n' "$*"; }
 warn()  { printf '\033[1;33m==>\033[0m %s\n' "$*"; }
@@ -178,6 +179,69 @@ install_shell_integration() {
     fi
 }
 
+apply_config_json() {
+    # Apply a config.json file after install to pre-provision vault secrets,
+    # config-store values, and node identity — enabling headless/automated installs.
+    #
+    # Usage: curl ... | sh -s -- --config /path/to/config.json
+    #    or: HARMONIA_CONFIG_JSON=/path/to/config.json curl ... | sh
+    #
+    # The config.json format is documented in config/install-config.template.json
+    local config_path="$1" bindir="$2" datadir="$3"
+    [ -f "$config_path" ] || error "Config file not found: $config_path"
+
+    # Require jq for JSON parsing
+    if ! command -v jq >/dev/null 2>&1; then
+        warn "jq not found — skipping config.json provisioning"
+        warn "Install jq and re-run, or run 'harmonia setup' manually"
+        return 0
+    fi
+
+    info "Applying configuration from ${config_path}..."
+
+    local system_dir="$datadir"
+    export HARMONIA_STATE_ROOT="$system_dir"
+
+    # Override node label if specified
+    local node_label
+    node_label="$(jq -r '.node.label // empty' "$config_path" 2>/dev/null || true)"
+    if [ -n "$node_label" ]; then
+        export HARMONIA_NODE_LABEL="$node_label"
+        write_node_identity "$datadir" "$INSTALL_PROFILE"
+        info "  node label: $node_label"
+    fi
+
+    # Override install profile if specified
+    local profile
+    profile="$(jq -r '.node.install_profile // empty' "$config_path" 2>/dev/null || true)"
+    if [ -n "$profile" ]; then
+        INSTALL_PROFILE="$profile"
+        validate_install_profile
+        write_node_identity "$datadir" "$INSTALL_PROFILE"
+        info "  profile: $profile"
+    fi
+
+    # Override workspace path if specified
+    local workspace_path
+    workspace_path="$(jq -r '.paths.workspace // empty' "$config_path" 2>/dev/null || true)"
+    if [ -n "$workspace_path" ]; then
+        mkdir -p "$workspace_path"
+        info "  workspace: $workspace_path"
+    fi
+
+    # Run headless setup if the harmonia binary is available:
+    # harmonia reads the config.json and provisions vault + config-store
+    if [ -x "$bindir/harmonia" ]; then
+        "$bindir/harmonia" setup --headless-config "$config_path" 2>&1 || {
+            warn "Headless provisioning via harmonia setup failed"
+            warn "Run 'harmonia setup' manually to complete configuration"
+        }
+    else
+        warn "harmonia binary not ready for headless provisioning"
+        warn "Run 'harmonia setup' manually after install"
+    fi
+}
+
 install_bins() {
     local src="$1" bindir="$2"
     mkdir -p "$bindir"
@@ -258,6 +322,11 @@ install_from_artifact_root() {
     write_node_identity "$datadir" "$INSTALL_PROFILE"
     install_shell_integration "$rc" "$bindir"
 
+    # Apply config.json if provided (headless provisioning)
+    if [ -n "$CONFIG_JSON" ]; then
+        apply_config_json "$CONFIG_JSON" "$bindir" "$datadir"
+    fi
+
     info "Installation complete"
     echo ""
     echo "  Version:   $("$bindir/harmonia" --version 2>/dev/null || echo unknown)"
@@ -328,6 +397,15 @@ parse_args() {
                 ;;
             --version=*)
                 VERSION="${1#*=}"
+                shift
+                ;;
+            --config)
+                [ "$#" -ge 2 ] || error "--config requires a path to config.json"
+                CONFIG_JSON="$2"
+                shift 2
+                ;;
+            --config=*)
+                CONFIG_JSON="${1#*=}"
                 shift
                 ;;
             *)

@@ -153,6 +153,48 @@ async fn dispatch_sexp(sexp: &str, supervisor: &ActorRef<RuntimeMsg>) -> Option<
             trimmed.to_string()
         );
         Some(reply.unwrap_or_else(|_| "(:error \"component call timeout\")".to_string()))
+    } else if trimmed.starts_with("(:modules") {
+        let op = extract_string_value(trimmed, ":op").unwrap_or_default();
+        match op.as_str() {
+            "list" => {
+                let reply = ractor::call_t!(supervisor, RuntimeMsg::ListModules, 5000);
+                Some(reply.unwrap_or_else(|_| "(:error \"list modules timeout\")".to_string()))
+            }
+            "load" => {
+                let name = extract_string_value(trimmed, ":name").unwrap_or_default();
+                if name.is_empty() {
+                    Some("(:error \"missing :name\")".to_string())
+                } else {
+                    let reply = ractor::call_t!(supervisor, RuntimeMsg::LoadModule, 10000, name);
+                    Some(reply.unwrap_or_else(|_| "(:error \"load module timeout\")".to_string()))
+                }
+            }
+            "unload" => {
+                let name = extract_string_value(trimmed, ":name").unwrap_or_default();
+                if name.is_empty() {
+                    Some("(:error \"missing :name\")".to_string())
+                } else {
+                    let reply = ractor::call_t!(supervisor, RuntimeMsg::UnloadModule, 10000, name);
+                    Some(reply.unwrap_or_else(|_| "(:error \"unload module timeout\")".to_string()))
+                }
+            }
+            "reload" => {
+                let name = extract_string_value(trimmed, ":name").unwrap_or_default();
+                if name.is_empty() {
+                    Some("(:error \"missing :name\")".to_string())
+                } else {
+                    // Unload first, then load
+                    let _ =
+                        ractor::call_t!(supervisor, RuntimeMsg::UnloadModule, 10000, name.clone());
+                    let reply = ractor::call_t!(supervisor, RuntimeMsg::LoadModule, 10000, name);
+                    Some(reply.unwrap_or_else(|_| "(:error \"reload module timeout\")".to_string()))
+                }
+            }
+            _ => Some(format!(
+                "(:error \"unknown modules op: {}\")",
+                harmonia_actor_protocol::sexp_escape(&op)
+            )),
+        }
     } else if trimmed.starts_with("(:shutdown") {
         let _ = supervisor.cast(RuntimeMsg::Shutdown);
         Some("(:ok)".to_string())
