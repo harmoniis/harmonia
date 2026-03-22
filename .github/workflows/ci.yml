@@ -111,16 +111,13 @@ jobs:
           - os: windows-latest
             target: x86_64-pc-windows-msvc
             platform: windows-x86_64
-          # FreeBSD via cross
-          - os: ubuntu-latest
+          # FreeBSD — native VM build (no cross-compilation issues)
+          - os: macos-13
             target: x86_64-unknown-freebsd
             platform: freebsd-x86_64
-            use_cross: true
-          - os: ubuntu-latest
-            target: aarch64-unknown-freebsd
-            platform: freebsd-aarch64
-            use_cross: true
-            build_std: true
+            freebsd_vm: true
+            freebsd_version: "14.2"
+            freebsd_arch: x86-64
     steps:
       - uses: actions/checkout@v4
 
@@ -137,7 +134,7 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
         with:
           toolchain: "1.93.0"
-          targets: ${{ !matrix.use_cross && matrix.target || '' }}
+          targets: ${{ !matrix.freebsd_vm && matrix.target || '' }}
 
       - name: Set up MSVC environment
         if: runner.os == 'Windows'
@@ -162,12 +159,35 @@ jobs:
           key: release-${{ matrix.platform }}-${{ hashFiles('Cargo.lock') }}
           restore-keys: release-${{ matrix.platform }}-
 
-      - name: Install cross
-        if: matrix.use_cross
-        run: |
-          rustup toolchain install nightly
-          rustup component add rust-src --toolchain nightly
-          cargo +nightly install cross --git https://github.com/cross-rs/cross
+      - name: Build release binaries (FreeBSD VM)
+        if: matrix.freebsd_vm
+        uses: cross-platform-actions/action@v0.28.0
+        with:
+          operating_system: freebsd
+          version: ${{ matrix.freebsd_version }}
+          architecture: ${{ matrix.freebsd_arch }}
+          memory: 8G
+          cpu_count: 4
+          shell: bash
+          sync_files: runner-to-vm-and-back
+          run: |
+            set -euo pipefail
+            # Install Rust toolchain
+            export IGNORE_OSVERSION=yes
+            sudo pkg install -y curl bash ca_root_nss
+            curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain 1.93.0
+            . "$HOME/.cargo/env"
+            rustup component add rustfmt
+            # Clone sibling wallet dependency
+            WALLET_DIR="../../marketplace/harmoniis-wallet"
+            mkdir -p "../../marketplace"
+            if [ ! -d "${WALLET_DIR}/.git" ]; then
+              git clone --depth 1 https://github.com/harmoniis/harmoniis-wallet.git "${WALLET_DIR}"
+            fi
+            # Build
+            cargo build --workspace --release
+            VERSION=${GITHUB_REF_NAME#harmonia-v}
+            bash scripts/build_release.sh "$VERSION" "${{ matrix.platform }}"
 
       - name: Build release binaries (Windows)
         if: runner.os == 'Windows'
@@ -178,31 +198,20 @@ jobs:
           bash scripts/build_release.sh $version "${{ matrix.platform }}"
 
       - name: Build release binaries
-        if: runner.os != 'Windows'
+        if: runner.os != 'Windows' && !matrix.freebsd_vm
         shell: bash
         run: |
           VERSION=${GITHUB_REF_NAME#harmonia-v}
-          if [ "${{ matrix.build_std }}" = "true" ]; then
-            cross +nightly build --workspace --release --target ${{ matrix.target }} \
-              -Z build-std=std,panic_abort
-          elif [ "${{ matrix.use_cross }}" = "true" ]; then
-            cross build --workspace --release --target ${{ matrix.target }}
-          else
-            HOST_TARGET=$(rustc -vV | grep host | awk '{print $2}')
-            if [ "${{ matrix.target }}" != "$HOST_TARGET" ]; then
-              cargo build --workspace --release --target ${{ matrix.target }}
-            else
-              cargo build --workspace --release
-            fi
-          fi
-          # Copy cross-compiled artifacts to target/release for build_release.sh
-          if [ "${{ matrix.target }}" != "$(rustc -vV | grep host | awk '{print $2}')" ]; then
+          HOST_TARGET=$(rustc -vV | grep host | awk '{print $2}')
+          if [ "${{ matrix.target }}" != "$HOST_TARGET" ]; then
+            cargo build --workspace --release --target ${{ matrix.target }}
+            # Copy cross-compiled artifacts for build_release.sh
             mkdir -p target/release
             cp target/${{ matrix.target }}/release/harmonia target/release/ 2>/dev/null || true
-            cp target/${{ matrix.target }}/release/harmonia.exe target/release/ 2>/dev/null || true
             cp target/${{ matrix.target }}/release/*.so target/release/ 2>/dev/null || true
             cp target/${{ matrix.target }}/release/*.dylib target/release/ 2>/dev/null || true
-            cp target/${{ matrix.target }}/release/*.dll target/release/ 2>/dev/null || true
+          else
+            cargo build --workspace --release
           fi
           bash scripts/build_release.sh "$VERSION" "${{ matrix.platform }}"
 
