@@ -111,8 +111,8 @@ jobs:
           - os: windows-latest
             target: x86_64-pc-windows-msvc
             platform: windows-x86_64
-          # FreeBSD — native VM build (no cross-compilation issues)
-          - os: macos-13
+          # FreeBSD — native VM build via cross-platform-actions
+          - os: ubuntu-latest
             target: x86_64-unknown-freebsd
             platform: freebsd-x86_64
             freebsd_vm: true
@@ -161,7 +161,7 @@ jobs:
 
       - name: Build release binaries (FreeBSD VM)
         if: matrix.freebsd_vm
-        uses: cross-platform-actions/action@v0.28.0
+        uses: cross-platform-actions/action@v0.32.0
         with:
           operating_system: freebsd
           version: ${{ matrix.freebsd_version }}
