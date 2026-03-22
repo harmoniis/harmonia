@@ -14,7 +14,7 @@
 
 <p align="center">
   <a href="https://github.com/harmoniis/harmonia/actions"><img src="https://github.com/harmoniis/harmonia/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
-  <a href="LICENSE"><img src="https://img.shields.io/badge/license-BUSL--1.1-orange.svg" alt="Business Source License 1.1"></a>
+  <a href="LICENSE"><img src="https://img.shields.io/badge/license-HCL--1.0-blue.svg" alt="Harmonia Community License 1.0"></a>
 </p>
 
 ---
@@ -245,10 +245,10 @@ All non-secret configuration (URLs, timeouts, paths, modes, feature flags) is ma
 
 ## License
 
-[Business Source License 1.1 (BUSL-1.1)](LICENSE).
+[Harmonia Community License 1.0 (HCL-1.0)](LICENSE).
 
-- **Free** for personal, non-revenue use.
-- **Production License** required for freelancers, organisations, and any revenue-generating use: **3% of prior-year annual gross revenue** for unlimited use per calendar year (prorated mid-year).
-- Buy instantly at [harmoniis.com/pricing/subscriptions](https://harmoniis.com/pricing/subscriptions).
+- **Free** for individuals, freelancers, companies, nonprofits, and public-sector organizations.
+- Use, modify, redistribute, and deploy commercially — no fees, no revenue thresholds.
+- **Only restriction:** hosting Harmonia as a managed service for third parties requires a separate commercial license from [Harmoniis Agents Ltd.](mailto:license@harmoniis.com)
 
-Change Date: **2030-03-05** → converts to **Apache License, Version 2.0**.
+See the full [LICENSE](LICENSE) for details.

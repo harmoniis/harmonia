@@ -79,7 +79,7 @@ members = [
 
 [workspace.package]
 edition = "2021"
-license = "BUSL-1.1"
+license = "LicenseRef-HCL-1.0"
 repository = "https://github.com/harmoniis/harmonia"
 homepage = "https://harmoniis.com"
 authors = ["Harmoniis <dev@harmoniis.com>"]

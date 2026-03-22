@@ -216,7 +216,7 @@ macOS (Apple Silicon / Intel), Linux (x86_64 / aarch64), FreeBSD, Windows.
 
 ## License
 
-BSL 1.1. Free for personal non-revenue use. Production use: 3% of prior-year revenue. Buy at https://harmoniis.com/pricing/subscriptions. Converts to Apache 2.0 on 2030-03-05.
+Harmonia Community License 1.0 (HCL-1.0). Free for all use — individuals, freelancers, companies. Only restriction: hosting Harmonia as a managed service for third parties requires a commercial license. Contact license@harmoniis.com.
 
 ## Build from Source
 
