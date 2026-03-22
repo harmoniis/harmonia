@@ -162,6 +162,7 @@ pub fn build_tool_envelope(result: &ToolResult) -> ChannelEnvelope {
                 result.status.to_sexp()
             )),
         },
+        routing: None,
     }
 }
 

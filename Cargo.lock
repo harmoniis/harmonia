@@ -2155,6 +2155,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "harmonia-complexity-encoder"
+version = "0.1.0"
+
+[[package]]
 name = "harmonia-config-store"
 version = "0.1.9"
 dependencies = [
@@ -2212,6 +2216,7 @@ name = "harmonia-gateway"
 version = "0.1.9"
 dependencies = [
  "harmonia-baseband-channel-protocol",
+ "harmonia-complexity-encoder",
  "harmonia-config-store",
  "harmonia-node-rpc",
  "harmonia-payment-auth",

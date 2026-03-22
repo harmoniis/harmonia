@@ -107,4 +107,13 @@
   :context-summarizer-threshold-chars 12000
   :orchestrator-delegate-swarm t
   :orchestrator-model "inception/mercury-2"
-  :orchestrator-enabled t))
+  :orchestrator-enabled t)
+ :routing-rules
+ (:version 1
+  :task-tier-hints
+    ((:task :memory-ops :preferred-tier :eco)
+     (:task :critical-reasoning :preferred-tier :premium)
+     (:task :truth-seeking :preferred-tier :auto))
+  :model-bans ()
+  :model-boosts ()
+  :cascade-config (:max-escalations 3 :confidence-threshold 0.7)))

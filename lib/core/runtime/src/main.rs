@@ -107,6 +107,10 @@ async fn main() {
         .await
         .expect("failed to spawn ParallelActor");
 
+    let (router_ref, _) = Actor::spawn(Some("router".to_string()), actors::RouterActor, ())
+        .await
+        .expect("failed to spawn RouterActor");
+
     // Store matrix actor ref for dispatch routing
     let matrix_for_supervisor = harmonic_matrix_ref.clone();
 
@@ -156,6 +160,10 @@ async fn main() {
         "parallel".to_string(),
         parallel_ref.clone(),
     ));
+    let _ = supervisor_ref.cast(msg::RuntimeMsg::RegisterComponent(
+        "router".to_string(),
+        router_ref.clone(),
+    ));
     let _ = supervisor_ref.cast(msg::RuntimeMsg::RegisterMatrixActor(matrix_for_supervisor));
 
     eprintln!("[INFO] [runtime] All actors spawned, starting IPC server");
@@ -174,6 +182,7 @@ async fn main() {
         tailnet_ref.clone(),
         signalograd_ref.clone(),
         observability_ref.clone(),
+        router_ref.clone(),
     ];
     let tick_matrix = harmonic_matrix_ref.clone();
     tokio::spawn(async move {
@@ -199,6 +208,7 @@ async fn main() {
         config_ref,
         provider_router_ref,
         parallel_ref,
+        router_ref,
     ];
     let shutdown_matrix = harmonic_matrix_ref;
     tokio::spawn(async move {

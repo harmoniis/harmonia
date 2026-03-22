@@ -21,6 +21,7 @@ pub enum ActorKind {
     Tool,
     Supervisor,
     Observability,
+    Router,
 }
 
 impl ActorKind {
@@ -35,6 +36,7 @@ impl ActorKind {
             ActorKind::Tool => "tool",
             ActorKind::Supervisor => "supervisor",
             ActorKind::Observability => "observability",
+            ActorKind::Router => "router",
         }
     }
 
@@ -49,6 +51,7 @@ impl ActorKind {
             "tool" => Ok(ActorKind::Tool),
             "supervisor" => Ok(ActorKind::Supervisor),
             "observability" => Ok(ActorKind::Observability),
+            "router" => Ok(ActorKind::Router),
             _ => Err(format!("unknown actor kind: {}", s)),
         }
     }
@@ -160,6 +163,27 @@ pub enum MessagePayload {
         confidence: f64,
         grade: String,
         summary: String,
+    },
+    /// User changed routing tier via /auto /eco /premium /free.
+    TierChanged {
+        tier: String,
+    },
+    /// Feedback from a completed LLM route for experience tracking.
+    RouteFeedback {
+        request_id: u64,
+        model_id: String,
+        task_kind: String,
+        tier: String,
+        success: bool,
+        latency_ms: u64,
+        cost_usd_estimate: f64,
+        complexity_score: f64,
+    },
+    /// Cascade escalation: a model failed, try next in chain.
+    CascadeEscalate {
+        request_id: u64,
+        failed_model: String,
+        reason: String,
     },
 }
 
@@ -290,6 +314,39 @@ impl HarmoniaMessage {
                 confidence,
                 sexp_escape(grade),
                 sexp_escape(summary)
+            ),
+            MessagePayload::TierChanged { tier } => {
+                format!(":tier-changed :tier \"{}\"", sexp_escape(tier))
+            }
+            MessagePayload::RouteFeedback {
+                request_id,
+                model_id,
+                task_kind,
+                tier,
+                success,
+                latency_ms,
+                cost_usd_estimate,
+                complexity_score,
+            } => format!(
+                ":route-feedback :request-id {} :model \"{}\" :task \"{}\" :tier \"{}\" :success {} :latency-ms {} :cost-usd {:.6} :complexity {:.4}",
+                request_id,
+                sexp_escape(model_id),
+                sexp_escape(task_kind),
+                sexp_escape(tier),
+                if *success { "t" } else { "nil" },
+                latency_ms,
+                cost_usd_estimate,
+                complexity_score
+            ),
+            MessagePayload::CascadeEscalate {
+                request_id,
+                failed_model,
+                reason,
+            } => format!(
+                ":cascade-escalate :request-id {} :failed-model \"{}\" :reason \"{}\"",
+                request_id,
+                sexp_escape(failed_model),
+                sexp_escape(reason)
             ),
         };
         format!(

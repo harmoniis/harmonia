@@ -369,7 +369,32 @@
        (ignore-errors (chronicle-record-harmonic ctx))
        (ignore-errors (chronicle-record-graph-snapshot))
        (ignore-errors (signalograd-dispatch-reflection ctx :runtime runtime))
+       ;; Routing: maybe rewrite routing rules based on accumulated experience
+       (ignore-errors (%maybe-rewrite-routing-rules ctx))
        (setf (runtime-state-harmonic-phase runtime) :observe))
       (t
        (setf (runtime-state-harmonic-phase runtime) :observe)))
     runtime))
+
+;;; --- Routing rules self-rewriting ---
+
+(defun %maybe-rewrite-routing-rules (ctx)
+  "Mutate routing rules based on accumulated experience.
+   Only triggers when the harmonic plan is ready (convergent, low chaos, high vitruvian)
+   and enough samples exist. Signalograd evolution_aggression_bias controls frequency."
+  (let ((plan (getf ctx :plan)))
+    (when (and plan (getf plan :ready))
+      (let ((scores (ignore-errors
+                      (when (fboundp '%load-swarm-scores)
+                        (%load-swarm-scores)))))
+        (when (and scores (> (length scores) 10))
+          ;; Ban models with <50% success after 5+ samples
+          (dolist (s scores)
+            (when (and (>= (or (getf s :samples) 0) 5)
+                       (< (or (getf s :success-rate) 1.0) 0.5))
+              (let ((model-id (getf s :model-id)))
+                (unless (member model-id (getf *routing-rules-sexp* :model-bans)
+                                :test #'string=)
+                  (push model-id (getf *routing-rules-sexp* :model-bans))))))
+          ;; Persist rules via model-policy-save
+          (ignore-errors (model-policy-save)))))))

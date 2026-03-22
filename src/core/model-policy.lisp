@@ -44,6 +44,136 @@
 (defparameter *model-evolution-policy* (copy-tree *default-model-evolution-policy*))
 (defparameter *cli-cooloff-until* (make-hash-table :test 'equal))
 
+;;; --- Routing Tier System ---
+
+(defparameter *routing-tier* :auto
+  "Current routing tier: :auto :eco :premium :free.
+   Set via /auto /eco /premium /free TUI commands.")
+
+(defparameter *last-task-kind* :general
+  "Last task kind classified by %task-kind — used for route feedback.")
+
+(defparameter *routing-rules-sexp*
+  '(:version 1
+    :task-tier-hints
+      ((:task :memory-ops :preferred-tier :eco)
+       (:task :critical-reasoning :preferred-tier :premium))
+    :model-bans ()
+    :model-boosts ()
+    :cascade-config (:max-escalations 3 :confidence-threshold 0.7))
+  "Self-rewriting routing rules. Signalograd mutates at runtime.")
+
+(defun %load-routing-tier ()
+  "Load routing tier from config-store (persists across sessions)."
+  (let ((raw (and (fboundp 'config-get-for)
+                  (config-get-for "router" "active-tier"))))
+    (setf *routing-tier*
+          (cond
+            ((and raw (string= raw "eco")) :eco)
+            ((and raw (string= raw "premium")) :premium)
+            ((and raw (string= raw "free")) :free)
+            (t :auto)))))
+
+(defun %tier-model-pool (tier)
+  "Return model IDs eligible for TIER based on profile attributes."
+  (let ((ids '()))
+    (dolist (p *model-profiles* (nreverse ids))
+      (let ((cost (getf p :cost 10))
+            (quality (getf p :quality 1))
+            (ptier (getf p :tier)))
+        (when (case tier
+                (:free nil)  ;; free = CLI only, no LLM profiles
+                (:eco (or (member ptier '(:micro :lite))
+                          (<= cost 2)))
+                (:premium (or (member ptier '(:pro :frontier :fast-smart :thinking))
+                              (>= quality 7)))
+                (:auto t))   ;; all models eligible
+          (push (getf p :id) ids))))))
+
+(defun %tier-weight-bias (tier)
+  "Additive bias to seed weights per routing tier."
+  (case tier
+    (:eco     '(:price 0.15 :speed 0.10 :completion -0.05))
+    (:premium '(:completion 0.10 :correctness 0.08 :price -0.12))
+    (:free    '(:price 0.30 :speed 0.05))
+    (:auto    '())))
+
+(defun %auto-tier-pool-from-routing-context (routing-ctx)
+  "Map encoder complexity tier to model sub-pool for auto mode.
+   ROUTING-CTX is the :routing plist from the signal envelope."
+  (let ((ctier (and routing-ctx (getf routing-ctx :tier))))
+    (cond
+      ((and ctier (string= ctier "simple"))    (%tier-model-pool :eco))
+      ((and ctier (string= ctier "medium"))    (append (%tier-model-pool :eco)
+                                                       (%tier-model-pool :auto)))
+      ((and ctier (string= ctier "complex"))   (%tier-model-pool :premium))
+      ((and ctier (string= ctier "reasoning")) (%tier-model-pool :premium))
+      (t (%tier-model-pool :auto)))))
+
+(defun %seed-score-with-bias (profile bias)
+  "Score like %seed-score but apply tier bias to weights first."
+  (let* ((base-weights (copy-tree (or (getf *model-evolution-policy* :seed-weights) '())))
+         ;; Apply tier bias
+         (weights (progn
+                    (loop for (k v) on bias by #'cddr
+                          do (setf (getf base-weights k)
+                                   (+ (or (getf base-weights k) 0.0) v)))
+                    base-weights))
+         (entry (%score-entry-for-model (getf profile :id)))
+         (w-price (signalograd-routing-weight :price (or (getf weights :price) 0.35) *runtime*))
+         (w-speed (signalograd-routing-weight :speed (or (getf weights :speed) 0.20) *runtime*))
+         (w-success (signalograd-routing-weight :success (or (getf weights :success) 0.20) *runtime*))
+         (w-reasoning (signalograd-routing-weight :reasoning (or (getf weights :reasoning) 0.15) *runtime*))
+         (w-vitruvian (or (getf weights :vitruvian) 0.10))
+         (weight-sum (max 0.001 (+ w-price w-speed w-success w-reasoning w-vitruvian)))
+         (price (/ (%usd-price-score profile) 10.0))
+         (speed (%observed-latency-score entry profile))
+         (success (or (and entry (getf entry :success-rate)) 0.5))
+         (reasoning (%reasoning-score profile))
+         (vitruvian (or (and entry (getf entry :vitruvian-signal))
+                        (%runtime-vitruvian-signal))))
+    (+ (* (/ w-price weight-sum) price)
+       (* (/ w-speed weight-sum) speed)
+       (* (/ w-success weight-sum) success)
+       (* (/ w-reasoning weight-sum) reasoning)
+       (* (/ w-vitruvian weight-sum) vitruvian))))
+
+(defun %score-and-rank-within-tier (model-ids task)
+  "Re-rank MODEL-IDS using tier-biased weights + signalograd."
+  (declare (ignore task))
+  (let* ((bias (%tier-weight-bias *routing-tier*))
+         (scored
+           (mapcar (lambda (id)
+                     (let ((p (%profile-by-id id)))
+                       (if p
+                           (cons id (%seed-score-with-bias p bias))
+                           (cons id 0.0))))
+                   model-ids)))
+    (mapcar #'car (sort scored #'> :key #'cdr))))
+
+(defun %selection-chain-tiered (prompt &optional routing-ctx)
+  "Tier-aware selection chain. Wraps %selection-chain with tier filtering."
+  (%load-routing-tier)
+  (case *routing-tier*
+    (:free
+     ;; Free: CLI-only chain
+     (or (%cli-chain-for-task (%task-kind prompt))
+         (list "cli:claude-code")))
+    (t
+     (let* ((base (%selection-chain prompt))
+            (pool (if (and (eq *routing-tier* :auto) routing-ctx)
+                      (%auto-tier-pool-from-routing-context routing-ctx)
+                      (%tier-model-pool *routing-tier*)))
+            (task (%task-kind prompt))
+            ;; Filter base chain to tier-eligible models (keep CLI models)
+            (filtered (remove-if-not
+                        (lambda (m) (or (%starts-with m "cli:")
+                                        (member m pool :test #'string=)))
+                        base))
+            ;; Re-score within tier using biased weights
+            (scored (%score-and-rank-within-tier filtered task)))
+       (or scored base)))))
+
 (declaim (ftype function backend-complete model-policy-get))
 
 (defun %plist-merge (base override)
@@ -747,8 +877,11 @@ User prompt: ~A"))
             (declare (ignore _))
             fallback)))))
 
-(defun choose-model (prompt)
-  (let ((chain (%selection-chain prompt)))
+(defun choose-model (prompt &optional routing-ctx)
+  "Select the best model for PROMPT, respecting the active routing tier.
+   ROUTING-CTX is the optional :routing plist from the signal envelope."
+  (setf *last-task-kind* (%task-kind prompt))
+  (let ((chain (%selection-chain-tiered prompt routing-ctx)))
     (or (first chain)
         (getf (first *model-profiles*) :id))))
 
@@ -875,7 +1008,22 @@ User prompt: ~A"))
                       :last-updated (%now-secs))))
     (%save-swarm-scores
      (cons entry (remove id scores :key (lambda (e) (getf e :model-id)) :test #'string=)))
+    ;; Send route feedback to RouterActor via IPC for tier stats tracking
+    (%route-feedback-to-actor id success latency-ms cost-usd)
     entry))
+
+(defun %route-feedback-to-actor (model-id success latency-ms cost-usd)
+  "Send route feedback to the RouterActor via IPC for per-tier statistics."
+  (ignore-errors
+    (when (fboundp 'ipc-call)
+      (let ((tier-name (symbol-name (or *routing-tier* :auto)))
+            (task-name (symbol-name (or *last-task-kind* :general))))
+        (ipc-call
+         (format nil "(:component \"router\" :op \"signal\" :payload \"(:route-feedback :model \\\"~A\\\" :task \\\"~A\\\" :tier \\\"~A\\\" :success ~A :latency-ms ~A :cost-usd ~,6f)\")"
+                 model-id task-name tier-name
+                 (if success "t" "nil")
+                 (or latency-ms 0)
+                 (or cost-usd 0.0)))))))
 
 (defun model-policy-selection-trace (prompt chosen chain)
   (let ((task (%task-kind prompt))

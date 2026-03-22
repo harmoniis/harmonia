@@ -986,54 +986,73 @@ fn read_input_line(
 }
 
 const SLASH_COMMANDS: &[(&str, &str)] = &[
-    ("/help", "Show help"),
-    ("/exit", "Quit"),
-    ("/session", "Current session"),
-    ("/resume", "Resume past session"),
-    ("/rewind", "Rewind conversation"),
-    ("/menu", "Interactive menu"),
-    ("/policies", "Channel sender policies"),
-    ("/frontends", "Setup and pair frontends"),
-    ("/clear", "Clear screen"),
-    ("/log", "Recent logs"),
-    ("/status", "System health"),
-    ("/backends", "LLM backends"),
+    ("/help", "Show this help"),
+    ("/exit", "Exit session"),
+    ("/clear", "New session, clear screen"),
+    ("/session", "Current session info"),
+    ("/resume", "Resume a past session"),
+    ("/rewind", "Rewind to a previous turn"),
+    ("/status", "System health + subsystems"),
+    ("/backends", "LLM provider status"),
     ("/tools", "Registered tools"),
-    ("/chronicle", "Chronicle query"),
+    ("/chronicle", "Chronicle event query"),
     ("/metrics", "Runtime metrics"),
     ("/security", "Security posture"),
     ("/identity", "Agent identity"),
-    ("/feedback", "Style feedback"),
-    ("/wallet", "Wallet status"),
+    ("/feedback", "Response style feedback"),
+    ("/wallet", "Wallet/vault status"),
+    ("/menu", "Interactive menu"),
+    ("/policies", "Channel sender policies"),
+    ("/frontends", "Setup and pair frontends"),
+    ("/log", "Recent log entries"),
 ];
 
-const SLASH_MENU_MAX: usize = 5;
+const SLASH_MENU_MAX: usize = 8;
 
 fn slash_matches(partial: &str) -> Vec<(&'static str, &'static str)> {
+    let query = partial.to_lowercase();
     SLASH_COMMANDS
         .iter()
-        .filter(|(cmd, _)| cmd.starts_with(partial))
+        .filter(|(cmd, desc)| {
+            // Match by prefix on command OR substring on command+description
+            cmd.starts_with(partial)
+                || cmd[1..].contains(&query[1..].to_string())
+                || desc.to_lowercase().contains(&query[1..])
+        })
         .copied()
         .collect()
 }
 
-/// Draw the slash command dropdown menu below the input box.
+/// Draw the command palette below the input box — like Claude Code.
+/// Left: command name. Right-aligned: short description.
 fn draw_slash_menu(box_row: u16, box_height: u16, matches: &[(&str, &str)], selected: usize) {
     let mut err = std::io::stderr();
     let _ = queue!(err, SavePosition);
+    let (term_w, _) = terminal::size().unwrap_or((80, 24));
     let visible = matches.len().min(SLASH_MENU_MAX);
     for i in 0..SLASH_MENU_MAX {
         let row = box_row + box_height + i as u16;
         let _ = queue!(err, MoveTo(0, row), Clear(ClearType::CurrentLine));
         if i < visible {
             let (cmd, desc) = matches[i];
+            // Right-align the description
+            let cmd_width = cmd.len() + 4; // "  > /cmd"
+            let desc_width = desc.len();
+            let padding = if term_w as usize > cmd_width + desc_width + 4 {
+                term_w as usize - cmd_width - desc_width - 4
+            } else {
+                2
+            };
+            let spaces = " ".repeat(padding);
             if i == selected {
                 let _ = queue!(
                     err,
-                    Print(format!("  {BOLD_CYAN}  {cmd}{RESET}  {DIM}{desc}{RESET}"))
+                    Print(format!(
+                        "  {BOLD_CYAN}▸ {cmd}{RESET}{spaces}{DIM}{desc}{RESET}"
+                    ))
                 );
             } else {
-                let _ = queue!(err, Print(format!("  {DIM}  {cmd}  {desc}{RESET}")));
+                let _ = queue!(err, Print(format!("  {DIM}  {cmd}{spaces}{desc}{RESET}")));
             }
         }
     }

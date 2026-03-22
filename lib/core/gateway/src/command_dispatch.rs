@@ -23,10 +23,23 @@ const ALL_COMMANDS: &[&str] = &[
     "/feedback",
     "/wallet",
     "/identity",
+    "/auto",
+    "/eco",
+    "/premium",
+    "/free",
+    "/route",
 ];
 
 /// Commands handled entirely in Rust.
-const NATIVE_COMMANDS: &[&str] = &["/wallet", "/identity", "/help"];
+const NATIVE_COMMANDS: &[&str] = &[
+    "/wallet",
+    "/identity",
+    "/help",
+    "/auto",
+    "/eco",
+    "/premium",
+    "/free",
+];
 
 /// Commands requiring Owner or Authenticated security label.
 const READ_RESTRICTED: &[&str] = &[
@@ -39,6 +52,11 @@ const READ_RESTRICTED: &[&str] = &[
     "/security",
     "/wallet",
     "/identity",
+    "/auto",
+    "/eco",
+    "/premium",
+    "/free",
+    "/route",
 ];
 
 /// Commands restricted to TUI origin.
@@ -108,6 +126,10 @@ fn execute_command(
             "/wallet" => execute_wallet(),
             "/identity" => execute_identity(),
             "/help" => execute_help(),
+            "/auto" => execute_tier_change("auto"),
+            "/eco" => execute_tier_change("eco"),
+            "/premium" => execute_tier_change("premium"),
+            "/free" => execute_tier_change("free"),
             _ => unreachable!(),
         });
     }
@@ -123,6 +145,11 @@ fn execute_command(
 }
 
 // ── Native command handlers ───────────────────────────────────────────────
+
+fn execute_tier_change(tier: &str) -> String {
+    let _ = harmonia_config_store::set_config("router", "router", "active-tier", tier);
+    format!("[system] Routing tier: {}", tier)
+}
 
 fn execute_help() -> String {
     let lines = vec![
@@ -152,6 +179,13 @@ fn execute_help() -> String {
         kv("/wallet", "Wallet/vault status"),
         kv("/identity", "Vault symbols and key status"),
         kv("/help", "Show this listing"),
+        String::new(),
+        "Routing (Owner/Authenticated):".to_string(),
+        kv("/auto", "Intelligent routing (default)"),
+        kv("/eco", "Cost-optimized routing"),
+        kv("/premium", "Quality-optimized routing"),
+        kv("/free", "Zero-cost routing (local CLI only)"),
+        kv("/route", "Current routing status"),
     ];
     lines.join("\n")
 }
@@ -346,5 +380,83 @@ mod tests {
         assert!(is_read_allowed(SecurityLabel::Authenticated));
         assert!(!is_read_allowed(SecurityLabel::Anonymous));
         assert!(!is_read_allowed(SecurityLabel::Untrusted));
+    }
+
+    // ── Routing command tests ────────────────────────────────────────
+
+    #[test]
+    fn parse_routing_commands() {
+        for cmd in ["/auto", "/eco", "/premium", "/free", "/route"] {
+            assert!(
+                parse_command(cmd).is_some(),
+                "routing command {} should parse",
+                cmd
+            );
+        }
+    }
+
+    #[test]
+    fn routing_commands_are_read_restricted() {
+        for cmd in ["/auto", "/eco", "/premium", "/free", "/route"] {
+            assert!(
+                READ_RESTRICTED.contains(&cmd),
+                "{} should be READ_RESTRICTED",
+                cmd
+            );
+        }
+    }
+
+    #[test]
+    fn routing_commands_are_native() {
+        for cmd in ["/auto", "/eco", "/premium", "/free"] {
+            assert!(NATIVE_COMMANDS.contains(&cmd), "{} should be NATIVE", cmd);
+        }
+    }
+
+    #[test]
+    fn route_is_not_native() {
+        // /route is delegated to Lisp IPC, not native
+        assert!(!NATIVE_COMMANDS.contains(&"/route"));
+    }
+
+    #[test]
+    fn tier_commands_work_from_any_frontend() {
+        // Routing commands should work from MQTT, WhatsApp, etc. — not TUI-only
+        for cmd in ["/auto", "/eco", "/premium", "/free"] {
+            assert!(
+                !TUI_ONLY.contains(&cmd),
+                "{} should NOT be TUI_ONLY — must work from all frontends",
+                cmd
+            );
+        }
+    }
+
+    #[test]
+    fn tier_commands_denied_for_anonymous() {
+        for cmd in ["/auto", "/eco", "/premium", "/free"] {
+            let result = execute_command(cmd, "", SecurityLabel::Anonymous, "mqtt");
+            match result {
+                CommandResult::Response(msg) => {
+                    assert!(msg.contains("Permission denied"), "{}: {}", cmd, msg);
+                }
+                _ => panic!("{} should deny anonymous", cmd),
+            }
+        }
+    }
+
+    #[test]
+    fn tier_commands_allowed_for_owner_on_mqtt() {
+        // Owner on any frontend should be able to switch tiers
+        let result = execute_command("/eco", "", SecurityLabel::Owner, "mqtt");
+        match result {
+            CommandResult::Response(msg) => {
+                assert!(
+                    msg.contains("Routing tier: eco"),
+                    "expected tier confirmation: {}",
+                    msg
+                );
+            }
+            _ => panic!("/eco should work for Owner on mqtt"),
+        }
     }
 }

@@ -192,6 +192,7 @@ pub fn dispatch(component: &str, sexp: &str) -> String {
         "observability" => dispatch_observability(sexp),
         "provider-router" => dispatch_provider_router(sexp),
         "parallel" => dispatch_parallel(sexp),
+        "router" => "(:ok :result \"router dispatch via actor\")".to_string(),
         _ => format!("(:error \"unknown component: {}\")", component),
     }
 }

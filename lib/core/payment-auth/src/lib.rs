@@ -55,6 +55,7 @@ mod tests {
                 raw_address: "peer/session/default".to_string(),
                 raw_metadata: metadata.map(ToString::to_string),
             },
+            routing: None,
         }
     }
 

@@ -367,7 +367,8 @@
      :presentation-symbolic-density (getf presentation :symbolic-density)
      :presentation-self-reference (getf presentation :self-reference)
      :presentation-decor-density (getf presentation :decor-density)
-     :presentation-user-affinity (getf presentation :user-affinity))))
+     :presentation-user-affinity (getf presentation :user-affinity)
+     :route-tier (symbol-name (or *routing-tier* :auto)))))
 
 (defun %signalograd-feedback-plist (ctx &optional (runtime *runtime*))
   (let* ((projection (%signalograd-projection runtime))

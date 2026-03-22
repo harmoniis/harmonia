@@ -1,0 +1,10 @@
+[package]
+name = "harmonia-complexity-encoder"
+version = "0.1.0"
+edition = "2021"
+description = "14-dimension prompt complexity encoder for intelligent LLM routing"
+
+[lib]
+crate-type = ["rlib", "cdylib"]
+
+[dependencies]

@@ -625,3 +625,323 @@ impl Actor for ParallelActor {
         Ok(())
     }
 }
+
+// ── RouterActor ────────────────────────────────────────────────────
+
+pub struct RouterActor;
+
+/// Per-tier success/cost statistics — 32 bytes, no heap.
+#[derive(Debug, Clone, Copy, Default)]
+pub struct TierStats {
+    pub requests: u64,
+    pub successes: u64,
+    pub total_cost_usd: f64,
+    pub total_latency_ms: u64,
+}
+
+/// Tier index — maps tier name to fixed array slot. No HashMap.
+const TIER_AUTO: usize = 0;
+const TIER_ECO: usize = 1;
+const TIER_PREMIUM: usize = 2;
+const TIER_FREE: usize = 3;
+const TIER_NAMES: [&str; 4] = ["auto", "eco", "premium", "free"];
+
+fn tier_index(tier: &str) -> usize {
+    match tier {
+        "eco" => TIER_ECO,
+        "premium" => TIER_PREMIUM,
+        "free" => TIER_FREE,
+        _ => TIER_AUTO,
+    }
+}
+
+/// Active cascade escalation entry — bounded.
+#[derive(Debug)]
+pub struct CascadeEntry {
+    pub request_id: u64,
+    pub tier_idx: u8,
+    pub attempt_count: u8,
+    pub started_at: u64,
+}
+
+/// Compact route history entry — 40 bytes.
+/// Stores model/task as truncated fixed-size arrays to avoid heap allocation.
+const MODEL_ID_CAP: usize = 48;
+const TASK_KIND_CAP: usize = 24;
+
+#[derive(Debug)]
+pub struct RouteHistoryEntry {
+    model_buf: [u8; MODEL_ID_CAP],
+    model_len: u8,
+    task_buf: [u8; TASK_KIND_CAP],
+    task_len: u8,
+    pub tier_idx: u8,
+    pub success: bool,
+    pub latency_ms: u32,
+    pub timestamp: u64,
+}
+
+impl RouteHistoryEntry {
+    fn new(model_id: &str, task_kind: &str, tier: &str, success: bool, latency_ms: u64) -> Self {
+        let mut model_buf = [0u8; MODEL_ID_CAP];
+        let model_len = model_id.len().min(MODEL_ID_CAP);
+        model_buf[..model_len].copy_from_slice(&model_id.as_bytes()[..model_len]);
+        let mut task_buf = [0u8; TASK_KIND_CAP];
+        let task_len = task_kind.len().min(TASK_KIND_CAP);
+        task_buf[..task_len].copy_from_slice(&task_kind.as_bytes()[..task_len]);
+        Self {
+            model_buf,
+            model_len: model_len as u8,
+            task_buf,
+            task_len: task_len as u8,
+            tier_idx: tier_index(tier) as u8,
+            success,
+            latency_ms: latency_ms.min(u32::MAX as u64) as u32,
+            timestamp: harmonia_actor_protocol::now_unix(),
+        }
+    }
+
+    fn model_id(&self) -> &str {
+        std::str::from_utf8(&self.model_buf[..self.model_len as usize]).unwrap_or("")
+    }
+
+    fn task_kind(&self) -> &str {
+        std::str::from_utf8(&self.task_buf[..self.task_len as usize]).unwrap_or("")
+    }
+
+    fn tier_name(&self) -> &'static str {
+        TIER_NAMES
+            .get(self.tier_idx as usize)
+            .copied()
+            .unwrap_or("auto")
+    }
+}
+
+/// Router state — fixed-size tier stats (128 bytes), bounded history ring.
+/// No HashMap, no unbounded Vec.
+const HISTORY_CAP: usize = 32;
+const CASCADE_CAP: usize = 4;
+
+#[derive(Debug)]
+pub struct RouterState {
+    pub active_tier_idx: u8,
+    pub tier_stats: [TierStats; 4],
+    history: [Option<RouteHistoryEntry>; HISTORY_CAP],
+    history_write: usize,
+    history_count: usize,
+    pub cascade_entries: [Option<CascadeEntry>; CASCADE_CAP],
+}
+
+impl Default for RouterState {
+    fn default() -> Self {
+        Self {
+            active_tier_idx: TIER_AUTO as u8,
+            tier_stats: [TierStats::default(); 4],
+            history: std::array::from_fn(|_| None),
+            history_write: 0,
+            history_count: 0,
+            cascade_entries: std::array::from_fn(|_| None),
+        }
+    }
+}
+
+impl RouterState {
+    fn active_tier_name(&self) -> &'static str {
+        TIER_NAMES
+            .get(self.active_tier_idx as usize)
+            .copied()
+            .unwrap_or("auto")
+    }
+
+    fn record_feedback(
+        &mut self,
+        model_id: &str,
+        task_kind: &str,
+        tier: &str,
+        success: bool,
+        latency_ms: u64,
+        cost_usd: f64,
+    ) {
+        let idx = tier_index(tier);
+        let stats = &mut self.tier_stats[idx];
+        stats.requests += 1;
+        if success {
+            stats.successes += 1;
+        }
+        stats.total_cost_usd += cost_usd;
+        stats.total_latency_ms += latency_ms;
+
+        // Ring buffer: overwrite oldest entry
+        self.history[self.history_write] = Some(RouteHistoryEntry::new(
+            model_id, task_kind, tier, success, latency_ms,
+        ));
+        self.history_write = (self.history_write + 1) % HISTORY_CAP;
+        if self.history_count < HISTORY_CAP {
+            self.history_count += 1;
+        }
+    }
+
+    fn status_sexp(&self) -> String {
+        use std::fmt::Write;
+        let mut out = String::with_capacity(1024);
+        let _ = write!(
+            out,
+            "(:ok :result (:active-tier \"{}\" :history-count {} :tier-stats (",
+            self.active_tier_name(),
+            self.history_count
+        );
+        for (i, stats) in self.tier_stats.iter().enumerate() {
+            if stats.requests == 0 {
+                continue;
+            }
+            let avg_lat = stats.total_latency_ms / stats.requests;
+            let sr = stats.successes as f64 / stats.requests as f64;
+            let _ = write!(
+                out,
+                "(:tier \"{}\" :requests {} :success-rate {:.2} :avg-latency-ms {} :total-cost {:.6})",
+                TIER_NAMES[i], stats.requests, sr, avg_lat, stats.total_cost_usd
+            );
+        }
+        out.push_str(") :recent (");
+        // Show last 5 from ring buffer
+        let mut shown = 0;
+        let start = if self.history_count >= HISTORY_CAP {
+            (self.history_write + HISTORY_CAP - 1) % HISTORY_CAP
+        } else if self.history_count > 0 {
+            self.history_count - 1
+        } else {
+            0
+        };
+        for offset in 0..5 {
+            if offset >= self.history_count {
+                break;
+            }
+            let idx = (start + HISTORY_CAP - offset) % HISTORY_CAP;
+            if let Some(r) = &self.history[idx] {
+                let _ = write!(
+                    out,
+                    "(:model \"{}\" :task \"{}\" :tier \"{}\" :success {} :latency-ms {})",
+                    r.model_id(),
+                    r.task_kind(),
+                    r.tier_name(),
+                    if r.success { "t" } else { "nil" },
+                    r.latency_ms
+                );
+                shown += 1;
+            }
+        }
+        let _ = shown;
+        out.push_str(")))");
+        out
+    }
+}
+
+impl Actor for RouterActor {
+    type Msg = ComponentMsg;
+    type State = RouterState;
+    type Arguments = ();
+
+    async fn pre_start(
+        &self,
+        _myself: ActorRef<Self::Msg>,
+        _args: (),
+    ) -> Result<Self::State, ActorProcessingErr> {
+        let tier_str = harmonia_config_store::get_config("router", "router", "active-tier")
+            .ok()
+            .flatten()
+            .unwrap_or_default();
+        let idx = tier_index(&tier_str) as u8;
+        eprintln!(
+            "[INFO] [runtime] RouterActor started, tier={}",
+            TIER_NAMES[idx as usize]
+        );
+        Ok(RouterState {
+            active_tier_idx: idx,
+            ..Default::default()
+        })
+    }
+
+    async fn handle(
+        &self,
+        _myself: ActorRef<Self::Msg>,
+        message: Self::Msg,
+        state: &mut Self::State,
+    ) -> Result<(), ActorProcessingErr> {
+        match message {
+            ComponentMsg::Tick => {
+                // Sync tier from config-store — picks up changes from any
+                // frontend (TUI, MQTT, WhatsApp, etc.) without needing
+                // direct actor messaging from the gateway.
+                if let Ok(Some(tier_str)) =
+                    harmonia_config_store::get_config("router", "router", "active-tier")
+                {
+                    state.active_tier_idx = tier_index(&tier_str) as u8;
+                }
+                // Expire stale cascade entries (>30s)
+                let now = harmonia_actor_protocol::now_unix();
+                for slot in state.cascade_entries.iter_mut() {
+                    if let Some(c) = slot {
+                        if now - c.started_at >= 30 {
+                            *slot = None;
+                        }
+                    }
+                }
+            }
+            ComponentMsg::Signal { payload_sexp } => {
+                if payload_sexp.contains("tier-changed") {
+                    if let Some(tier) = extract_sexp_value(&payload_sexp, "tier") {
+                        state.active_tier_idx = tier_index(&tier) as u8;
+                    }
+                } else if payload_sexp.contains("route-feedback") {
+                    let model = extract_sexp_value(&payload_sexp, "model").unwrap_or_default();
+                    let task = extract_sexp_value(&payload_sexp, "task").unwrap_or_default();
+                    let tier = extract_sexp_value(&payload_sexp, "tier").unwrap_or_default();
+                    let success = payload_sexp.contains(":success t");
+                    let latency = extract_sexp_u64(&payload_sexp, "latency-ms").unwrap_or(0);
+                    let cost = extract_sexp_f64(&payload_sexp, "cost-usd").unwrap_or(0.0);
+                    state.record_feedback(&model, &task, &tier, success, latency, cost);
+                }
+            }
+            ComponentMsg::Dispatch(_sexp, reply) => {
+                let result = state.status_sexp();
+                let _ = reply.send(result);
+            }
+            ComponentMsg::Shutdown => {
+                eprintln!("[INFO] [runtime] RouterActor shutting down");
+            }
+        }
+        Ok(())
+    }
+}
+
+// ── Router sexp parsing helpers ──────────────────────────────────────
+
+fn extract_sexp_value(sexp: &str, key: &str) -> Option<String> {
+    let pattern = format!(":{}  \"", key);
+    let pattern2 = format!(":{} \"", key);
+    let start = sexp.find(&pattern2).or_else(|| sexp.find(&pattern))?;
+    let after_key = start + pattern2.len();
+    let rest = &sexp[after_key..];
+    let end = rest.find('"')?;
+    Some(rest[..end].to_string())
+}
+
+fn extract_sexp_u64(sexp: &str, key: &str) -> Option<u64> {
+    let pattern = format!(":{} ", key);
+    let start = sexp.find(&pattern)? + pattern.len();
+    let rest = &sexp[start..];
+    let end = rest
+        .find(|c: char| !c.is_ascii_digit())
+        .unwrap_or(rest.len());
+    rest[..end].parse().ok()
+}
+
+fn extract_sexp_f64(sexp: &str, key: &str) -> Option<f64> {
+    let pattern = format!(":{} ", key);
+    let start = sexp.find(&pattern)? + pattern.len();
+    let rest = &sexp[start..];
+    let end = rest
+        .find(|c: char| !c.is_ascii_digit() && c != '.' && c != '-')
+        .unwrap_or(rest.len());
+    rest[..end].parse().ok()
+}

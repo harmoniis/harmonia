@@ -79,6 +79,7 @@
           ((string= command "/metrics")    (%syscmd-metrics))
           ((string= command "/security")   (%syscmd-security args-str))
           ((string= command "/feedback")   (%syscmd-feedback args-str))
+          ((string= command "/route")     (%syscmd-route args-str))
           ((string= command "/exit")       ":system-exit")
           (t nil))
       (error (e)
@@ -168,7 +169,8 @@
   '("/help" "/exit" "/status" "/diagnose"
     "/backends" "/frontends" "/tools"
     "/chronicle" "/metrics" "/security"
-    "/feedback" "/wallet" "/identity")
+    "/feedback" "/wallet" "/identity"
+    "/auto" "/eco" "/premium" "/free" "/route")
   "All known system command prefixes (gateway + delegated).")
 
 (defun %syscmd-known-p (cmd-word)
@@ -573,3 +575,55 @@
               (add (format nil "  ~A" err)))
             (add "  No recent errors.")))
       (format nil "~{~A~%~}" (nreverse lines)))))
+
+;;; --- /route command ---
+
+(defun %syscmd-route (args)
+  "Display routing tier status and model pool."
+  (declare (ignore args))
+  (%load-routing-tier)
+  (let* ((pool (%tier-model-pool *routing-tier*))
+         (scores (ignore-errors (%load-swarm-scores)))
+         (lines '()))
+    (flet ((add (text) (push text lines)))
+      (add "Routing Status")
+      (add (make-string 40 :initial-element #\-))
+      (add (%syscmd-kv "Active tier:" (symbol-name *routing-tier*)))
+      (add (%syscmd-kv "Pool size:" (format nil "~D models" (length pool))))
+      (add "")
+      (add "Model Pool:")
+      (if pool
+          (dolist (m pool)
+            (let* ((profile (%profile-by-id m))
+                   (tier (and profile (getf profile :tier)))
+                   (cost (and profile (getf profile :cost)))
+                   (quality (and profile (getf profile :quality))))
+              (add (format nil "  ~A  tier=~A cost=~A quality=~A"
+                           m (or tier "?") (or cost "?") (or quality "?")))))
+          (add "  (no models — CLI only)"))
+      (add "")
+      (add "Signalograd Routing Deltas:")
+      (add (%syscmd-kv "  price-delta:"
+            (format nil "~,4f" (signalograd-routing-weight :price 0.0 *runtime*))))
+      (add (%syscmd-kv "  speed-delta:"
+            (format nil "~,4f" (signalograd-routing-weight :speed 0.0 *runtime*))))
+      (add (%syscmd-kv "  success-delta:"
+            (format nil "~,4f" (signalograd-routing-weight :success 0.0 *runtime*))))
+      (add (%syscmd-kv "  reasoning-delta:"
+            (format nil "~,4f" (signalograd-routing-weight :reasoning 0.0 *runtime*))))
+      (when scores
+        (add "")
+        (add "Tier Success Rates:")
+        (dolist (tier-kw '(:eco :premium :auto))
+          (let ((tier-models (%tier-model-pool tier-kw))
+                (total 0) (success-sum 0.0))
+            (dolist (s scores)
+              (when (member (getf s :model-id) tier-models :test #'string=)
+                (incf total)
+                (incf success-sum (or (getf s :success-rate) 0.0))))
+            (when (> total 0)
+              (add (format nil "  ~A: ~,2f% (~D models tracked)"
+                           (symbol-name tier-kw)
+                           (* 100.0 (/ success-sum total))
+                           total)))))))
+    (format nil "~{~A~%~}" (nreverse lines))))

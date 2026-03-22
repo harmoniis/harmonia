@@ -1,7 +1,7 @@
 use crate::model::{
     AuditContext, CanonicalMobileEnvelope, ChannelBatch, ChannelBody, ChannelEnvelope, ChannelRef,
-    ConversationRef, OriginContext, PeerRef, SecurityContext, SecurityLabel, SessionContext,
-    TransportContext,
+    ConversationRef, OriginContext, PeerRef, RoutingContext, SecurityContext, SecurityLabel,
+    SessionContext, TransportContext,
 };
 use crate::registry::Registry;
 use harmonia_signal_integrity::{
@@ -214,6 +214,24 @@ fn build_generic_envelope(
         .unwrap_or_else(|| channel.label.clone());
     let body = generic_body(payload);
     let body_text = body.text.clone();
+    // Compute complexity routing metadata for non-command messages.
+    // RoutingContext is fully stack-allocated (130 bytes, zero heap).
+    let routing = if !body_text.starts_with('/') {
+        let profile = harmonia_complexity_encoder::score(&body_text);
+        let active_tier_str = harmonia_config_store::get_config("router", "router", "active-tier")
+            .ok()
+            .flatten()
+            .unwrap_or_default();
+        Some(RoutingContext {
+            tier: crate::model::ComplexityTier::from_str(profile.tier.as_str()),
+            score: profile.score,
+            confidence: profile.confidence,
+            active_tier: crate::model::UserTier::from_str(&active_tier_str),
+            dimensions: profile.dimensions,
+        })
+    } else {
+        None
+    };
     ChannelEnvelope {
         id: next_envelope_id(),
         version: 1,
@@ -241,6 +259,7 @@ fn build_generic_envelope(
             raw_address: address.to_string(),
             raw_metadata: metadata,
         },
+        routing,
     }
 }
 
@@ -327,6 +346,7 @@ fn build_mqtt_envelope(
                     raw_address: topic.to_string(),
                     raw_metadata: metadata,
                 },
+                routing: None,
             }
         }
         Err(_) => build_generic_envelope("mqtt", security, capabilities, topic, payload, metadata),

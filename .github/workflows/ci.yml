@@ -82,6 +82,38 @@ jobs:
         if: runner.os == 'Windows'
         run: cargo test --workspace --exclude harmonia-phoenix --exclude harmonia-runtime --exclude harmonia
 
+  build-freebsd:
+    name: Build + Test (FreeBSD)
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build and test in FreeBSD VM
+        uses: cross-platform-actions/action@v0.32.0
+        with:
+          operating_system: freebsd
+          version: "14.2"
+          architecture: x86-64
+          memory: 8G
+          cpu_count: 4
+          shell: bash
+          sync_files: true
+          run: |
+            set -euo pipefail
+            export IGNORE_OSVERSION=yes
+            sudo pkg install -y curl bash ca_root_nss git
+            curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain 1.93.0 --component rustfmt
+            . "$HOME/.cargo/env"
+            # Clone wallet dependency
+            WALLET_DIR="../../marketplace/harmoniis-wallet"
+            mkdir -p "../../marketplace"
+            git clone --depth 1 https://github.com/harmoniis/harmoniis-wallet.git "${WALLET_DIR}" || true
+            # Build + test
+            cargo build --workspace --release
+            cargo test --workspace
+
       # Bazel smoke build disabled in CI — requires harmoniis-wallet
       # sibling repo which Bazel sandbox cannot access. Bazel builds
       # work locally. Cargo is the authoritative build system.
@@ -89,7 +121,7 @@ jobs:
   release:
     name: Release (${{ matrix.platform }})
     if: startsWith(github.ref, 'refs/tags/')
-    needs: build
+    needs: [build, build-freebsd]
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false

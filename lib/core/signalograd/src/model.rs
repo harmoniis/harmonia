@@ -55,6 +55,9 @@ pub(crate) struct Observation {
     pub(crate) presentation_self_reference: f64,
     pub(crate) presentation_decor_density: f64,
     pub(crate) presentation_user_affinity: f64,
+    #[serde(default)]
+    #[allow(dead_code)] // consumed by Lisp via sexp observation, not read in Rust
+    pub(crate) route_tier: String,
 }
 
 #[derive(Debug, Clone, Default)]

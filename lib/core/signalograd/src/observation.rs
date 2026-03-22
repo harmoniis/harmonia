@@ -58,6 +58,7 @@ pub(crate) fn parse_observation_sexp(sexp: &Sexp) -> Result<Observation, String>
         presentation_self_reference: plist_f64(items, "presentation-self-reference").unwrap_or(0.0),
         presentation_decor_density: plist_f64(items, "presentation-decor-density").unwrap_or(0.0),
         presentation_user_affinity: plist_f64(items, "presentation-user-affinity").unwrap_or(0.5),
+        route_tier: plist_string(items, "route-tier").unwrap_or_else(|| "auto".to_string()),
     })
 }
 

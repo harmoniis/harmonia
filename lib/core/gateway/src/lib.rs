@@ -12,8 +12,8 @@ mod tool_registry;
 pub use baseband::{poll_baseband, send_signal};
 pub use model::{
     AuditContext, CanonicalMobileEnvelope, Capability, ChannelBatch, ChannelBody, ChannelEnvelope,
-    ChannelRef, ConversationRef, OriginContext, PeerRef, SecurityContext, SecurityLabel,
-    SessionContext, TransportContext,
+    ChannelRef, ComplexityTier, ConversationRef, OriginContext, PeerRef, RoutingContext,
+    SecurityContext, SecurityLabel, SessionContext, TransportContext, UserTier,
 };
 pub use registry::Registry;
 pub use sender_policy::is_signal_allowed;

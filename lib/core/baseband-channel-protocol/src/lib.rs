@@ -316,6 +316,102 @@ impl AuditContext {
     }
 }
 
+/// Number of scoring dimensions in the complexity encoder.
+pub const ROUTING_DIMS: usize = 14;
+
+/// Complexity tier — zero-size discriminant, no heap allocation.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ComplexityTier {
+    Simple,
+    Medium,
+    Complex,
+    Reasoning,
+}
+
+impl ComplexityTier {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Self::Simple => "simple",
+            Self::Medium => "medium",
+            Self::Complex => "complex",
+            Self::Reasoning => "reasoning",
+        }
+    }
+
+    pub fn from_str(s: &str) -> Self {
+        match s {
+            "simple" => Self::Simple,
+            "medium" => Self::Medium,
+            "complex" => Self::Complex,
+            "reasoning" => Self::Reasoning,
+            _ => Self::Medium,
+        }
+    }
+}
+
+/// User routing tier — zero-size discriminant.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum UserTier {
+    Auto,
+    Eco,
+    Premium,
+    Free,
+}
+
+impl UserTier {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Self::Auto => "auto",
+            Self::Eco => "eco",
+            Self::Premium => "premium",
+            Self::Free => "free",
+        }
+    }
+
+    pub fn from_str(s: &str) -> Self {
+        match s {
+            "eco" => Self::Eco,
+            "premium" => Self::Premium,
+            "free" => Self::Free,
+            _ => Self::Auto,
+        }
+    }
+}
+
+/// Routing metadata on every signal — fully stack-allocated (130 bytes).
+/// No String, no Vec, no heap indirection.
+#[derive(Debug, Clone, Copy)]
+pub struct RoutingContext {
+    pub tier: ComplexityTier,
+    pub score: f64,
+    pub confidence: f64,
+    pub active_tier: UserTier,
+    pub dimensions: [f64; ROUTING_DIMS],
+}
+
+impl RoutingContext {
+    pub fn to_sexp(&self) -> String {
+        use std::fmt::Write;
+        let mut out = String::with_capacity(256);
+        let _ = write!(
+            out,
+            "(:tier \"{}\" :score {:.4} :confidence {:.4} :active-tier \"{}\" :dimensions (",
+            self.tier.as_str(),
+            self.score,
+            self.confidence,
+            self.active_tier.as_str()
+        );
+        for (i, d) in self.dimensions.iter().enumerate() {
+            if i > 0 {
+                out.push(' ');
+            }
+            let _ = write!(out, "{:.4}", d);
+        }
+        out.push_str("))");
+        out
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct TransportContext {
     pub kind: String,
@@ -351,6 +447,7 @@ pub struct ChannelEnvelope {
     pub audit: AuditContext,
     pub attachments: Vec<String>,
     pub transport: TransportContext,
+    pub routing: Option<RoutingContext>,
 }
 
 impl ChannelEnvelope {
@@ -365,8 +462,13 @@ impl ChannelEnvelope {
                 .collect();
             format!("({})", items.join(" "))
         };
+        let routing_sexp = self
+            .routing
+            .as_ref()
+            .map(|r| r.to_sexp())
+            .unwrap_or_else(|| "nil".to_string());
         format!(
-            "(:id {} :version {} :kind {} :type-name {} :channel {} :peer {} :conversation {} :origin {} :session {} :body {} :capabilities {} :security {} :audit {} :attachments {} :transport {})",
+            "(:id {} :version {} :kind {} :type-name {} :channel {} :peer {} :conversation {} :origin {} :session {} :body {} :capabilities {} :security {} :audit {} :attachments {} :transport {} :routing {})",
             self.id,
             self.version,
             sexp_string(&self.kind),
@@ -387,7 +489,8 @@ impl ChannelEnvelope {
             self.security.to_sexp(),
             self.audit.to_sexp(),
             attachments,
-            self.transport.to_sexp()
+            self.transport.to_sexp(),
+            routing_sexp
         )
     }
 }
@@ -409,5 +512,127 @@ impl ChannelBatch {
             .map(|envelope| envelope.to_sexp())
             .collect();
         format!("({})", items.join(" "))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn routing_context_to_sexp() {
+        let ctx = RoutingContext {
+            tier: ComplexityTier::Complex,
+            score: 0.67,
+            confidence: 0.89,
+            active_tier: UserTier::Auto,
+            dimensions: [
+                0.1, 0.8, 0.3, 0.2, 0.0, -0.5, 0.6, 0.2, 0.4, 0.3, 0.1, 0.0, 0.2, 0.5,
+            ],
+        };
+        let sexp = ctx.to_sexp();
+        assert!(sexp.contains(":tier \"complex\""), "sexp: {}", sexp);
+        assert!(sexp.contains(":score 0.67"), "sexp: {}", sexp);
+        assert!(sexp.contains(":confidence 0.89"), "sexp: {}", sexp);
+        assert!(sexp.contains(":active-tier \"auto\""), "sexp: {}", sexp);
+        assert!(sexp.contains(":dimensions ("), "sexp: {}", sexp);
+    }
+
+    #[test]
+    fn routing_context_is_stack_allocated() {
+        // RoutingContext should be Copy — fully stack-allocated, no heap.
+        let ctx = RoutingContext {
+            tier: ComplexityTier::Simple,
+            score: 0.1,
+            confidence: 0.9,
+            active_tier: UserTier::Eco,
+            dimensions: [0.0; 14],
+        };
+        let copy = ctx; // Copy, not move
+        assert_eq!(copy.tier, ComplexityTier::Simple);
+        assert_eq!(ctx.score, copy.score); // both still valid
+    }
+
+    #[test]
+    fn envelope_with_routing_context() {
+        let envelope = ChannelEnvelope {
+            id: 42,
+            version: 1,
+            kind: "external".to_string(),
+            type_name: "message.text".to_string(),
+            channel: ChannelRef::new("tui", "local"),
+            peer: PeerRef::new("user"),
+            conversation: ConversationRef::new("conv-1"),
+            origin: None,
+            session: None,
+            body: ChannelBody::text("implement a b-tree"),
+            capabilities: Vec::new(),
+            security: SecurityContext {
+                label: SecurityLabel::Owner,
+                source: "test".to_string(),
+                fingerprint_valid: true,
+            },
+            audit: AuditContext {
+                timestamp_ms: 1000,
+                dissonance: 0.0,
+            },
+            attachments: Vec::new(),
+            transport: TransportContext {
+                kind: "tui".to_string(),
+                raw_address: "local".to_string(),
+                raw_metadata: None,
+            },
+            routing: Some(RoutingContext {
+                tier: ComplexityTier::Complex,
+                score: 0.65,
+                confidence: 0.82,
+                active_tier: UserTier::Auto,
+                dimensions: [0.0; 14],
+            }),
+        };
+        let sexp = envelope.to_sexp();
+        assert!(
+            sexp.contains(":routing (:tier \"complex\""),
+            "routing missing from envelope sexp: {}",
+            &sexp[..sexp.len().min(200)]
+        );
+    }
+
+    #[test]
+    fn envelope_without_routing_context() {
+        let envelope = ChannelEnvelope {
+            id: 1,
+            version: 1,
+            kind: "external".to_string(),
+            type_name: "message.text".to_string(),
+            channel: ChannelRef::new("tui", "local"),
+            peer: PeerRef::new("user"),
+            conversation: ConversationRef::new("conv-1"),
+            origin: None,
+            session: None,
+            body: ChannelBody::text("/help"),
+            capabilities: Vec::new(),
+            security: SecurityContext {
+                label: SecurityLabel::Owner,
+                source: "test".to_string(),
+                fingerprint_valid: true,
+            },
+            audit: AuditContext {
+                timestamp_ms: 1000,
+                dissonance: 0.0,
+            },
+            attachments: Vec::new(),
+            transport: TransportContext {
+                kind: "tui".to_string(),
+                raw_address: "local".to_string(),
+                raw_metadata: None,
+            },
+            routing: None,
+        };
+        let sexp = envelope.to_sexp();
+        assert!(
+            sexp.contains(":routing nil"),
+            "command envelope should have :routing nil"
+        );
     }
 }
