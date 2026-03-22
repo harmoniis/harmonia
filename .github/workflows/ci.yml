@@ -110,9 +110,9 @@ jobs:
             WALLET_DIR="../../marketplace/harmoniis-wallet"
             mkdir -p "../../marketplace"
             git clone --depth 1 https://github.com/harmoniis/harmoniis-wallet.git "${WALLET_DIR}" || true
-            # Build + test
+            # Build (release to save disk space in VM) + test
             cargo build --workspace --release
-            cargo test --workspace
+            cargo test --workspace --release
 
       # Bazel smoke build disabled in CI — requires harmoniis-wallet
       # sibling repo which Bazel sandbox cannot access. Bazel builds
