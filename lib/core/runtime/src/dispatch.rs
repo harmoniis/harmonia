@@ -28,7 +28,11 @@ pub async fn dispatch_matrix_via_actor(
             let id = extract_string(sexp, ":id").unwrap_or_default();
             let kind = extract_string(sexp, ":kind").unwrap_or_default();
             if harmonia_observability::harmonia_observability_is_verbose() {
-                obs.trace_event("matrix-topology", "chain", json!({"op": "register-node", "node": id.clone(), "kind": kind.clone()}));
+                obs.trace_event(
+                    "matrix-topology",
+                    "chain",
+                    json!({"op": "register-node", "node": id.clone(), "kind": kind.clone()}),
+                );
             }
             let _ = matrix.cast(MatrixMsg::RegisterNode { id, kind });
             "(:ok)".to_string()
@@ -91,7 +95,11 @@ pub async fn dispatch_matrix_via_actor(
             let node = extract_string(sexp, ":node").unwrap_or_default();
             let enabled = parse_bool(sexp, ":enabled");
             if harmonia_observability::harmonia_observability_is_verbose() {
-                obs.trace_event("matrix-topology", "chain", json!({"op": "set-tool-enabled", "node": node.clone(), "enabled": enabled}));
+                obs.trace_event(
+                    "matrix-topology",
+                    "chain",
+                    json!({"op": "set-tool-enabled", "node": node.clone(), "enabled": enabled}),
+                );
             }
             let _ = matrix.cast(MatrixMsg::SetToolEnabled { node, enabled });
             "(:ok)".to_string()
@@ -176,7 +184,11 @@ fn dispatch_provider_router(sexp: &str) -> String {
             };
             if harmonia_observability::harmonia_observability_is_standard() {
                 let obs_ref = harmonia_observability::get_obs_actor().cloned();
-                obs_ref.trace_event("provider-route", "chain", json!({"model": model.clone(), "op": "complete"}));
+                obs_ref.trace_event(
+                    "provider-route",
+                    "chain",
+                    json!({"model": model.clone(), "op": "complete"}),
+                );
             }
             let result_ptr = harmonia_provider_router::harmonia_provider_router_complete(
                 prompt_c.as_ptr(),
@@ -683,7 +695,11 @@ fn dispatch_gateway(sexp: &str) -> String {
             let result = send_to_frontend(&frontend, &channel, &payload);
             if harmonia_observability::harmonia_observability_is_standard() {
                 let obs_ref = harmonia_observability::get_obs_actor().cloned();
-                obs_ref.trace_event("gateway-send", "tool", json!({"frontend": frontend, "channel": channel, "success": result.is_ok()}));
+                obs_ref.trace_event(
+                    "gateway-send",
+                    "tool",
+                    json!({"frontend": frontend, "channel": channel, "success": result.is_ok()}),
+                );
             }
             match result {
                 Ok(()) => "(:ok)".to_string(),
@@ -1202,8 +1218,7 @@ pub fn dispatch_obs_trace(op: &str, sexp: &str) {
         }
         "trace-end" => {
             let run_id = extract_string(sexp, ":run-id").unwrap_or_default();
-            let status =
-                extract_string(sexp, ":status").unwrap_or_else(|| "success".to_string());
+            let status = extract_string(sexp, ":status").unwrap_or_else(|| "success".to_string());
             let output_str = extract_string(sexp, ":output").unwrap_or_default();
             let output_json = plist_to_json(&output_str);
             let outputs: serde_json::Value =

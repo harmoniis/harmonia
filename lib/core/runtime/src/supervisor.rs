@@ -624,14 +624,10 @@ impl Actor for RuntimeSupervisor {
                     Ok((new_ref, _)) => {
                         harmonia_observability::set_obs_actor(new_ref.clone());
                         state.obs_actor = Some(new_ref);
-                        eprintln!(
-                            "[INFO] [runtime] ObservabilityActor respawned successfully"
-                        );
+                        eprintln!("[INFO] [runtime] ObservabilityActor respawned successfully");
                     }
                     Err(e) => {
-                        eprintln!(
-                            "[ERROR] [runtime] Failed to respawn ObservabilityActor: {e}"
-                        );
+                        eprintln!("[ERROR] [runtime] Failed to respawn ObservabilityActor: {e}");
                     }
                 }
             }

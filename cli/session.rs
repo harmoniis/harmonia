@@ -365,7 +365,8 @@ fn run_input_loop(
         // Read input
         let restore_draft = first_input;
         first_input = false;
-        let input = match read_input_line(running, term, &mut history, &draft_store, restore_draft) {
+        let input = match read_input_line(running, term, &mut history, &draft_store, restore_draft)
+        {
             Ok(s) => s,
             Err(e) => return ExitReason::Error(e.to_string()),
         };
@@ -608,7 +609,8 @@ fn read_input_line(
                         ..
                     } => {
                         if buf.undo() {
-                            box_height = draw_prompt(buf.text(), buf.cursor(), box_row, box_height)?;
+                            box_height =
+                                draw_prompt(buf.text(), buf.cursor(), box_row, box_height)?;
                             draft.save(buf.text());
                         }
                     }
@@ -620,7 +622,8 @@ fn read_input_line(
                         ..
                     } => {
                         if buf.redo() {
-                            box_height = draw_prompt(buf.text(), buf.cursor(), box_row, box_height)?;
+                            box_height =
+                                draw_prompt(buf.text(), buf.cursor(), box_row, box_height)?;
                             draft.save(buf.text());
                         }
                     }
@@ -678,7 +681,8 @@ fn read_input_line(
                         ..
                     } => {
                         if buf.delete_word_back() {
-                            box_height = draw_prompt(buf.text(), buf.cursor(), box_row, box_height)?;
+                            box_height =
+                                draw_prompt(buf.text(), buf.cursor(), box_row, box_height)?;
                             draft.save(buf.text());
                             update_menu(
                                 buf.text(),
@@ -719,7 +723,8 @@ fn read_input_line(
                             if let Some(text) = history.navigate_up(buf.text()) {
                                 let text = text.to_string();
                                 buf.set_text(&text);
-                                box_height = draw_prompt(buf.text(), buf.cursor(), box_row, box_height)?;
+                                box_height =
+                                    draw_prompt(buf.text(), buf.cursor(), box_row, box_height)?;
                             }
                         }
                     },
@@ -753,7 +758,8 @@ fn read_input_line(
                             } else {
                                 buf.set_text("");
                             }
-                            box_height = draw_prompt(buf.text(), buf.cursor(), box_row, box_height)?;
+                            box_height =
+                                draw_prompt(buf.text(), buf.cursor(), box_row, box_height)?;
                         }
                     },
 
@@ -823,7 +829,8 @@ fn read_input_line(
                         if event::poll(std::time::Duration::from_millis(5)).unwrap_or(false) {
                             // More input coming — this is a paste, insert newline
                             buf.insert_char('\n');
-                            box_height = draw_prompt(buf.text(), buf.cursor(), box_row, box_height)?;
+                            box_height =
+                                draw_prompt(buf.text(), buf.cursor(), box_row, box_height)?;
                             draft.save(buf.text());
                             update_menu(
                                 buf.text(),
@@ -864,7 +871,8 @@ fn read_input_line(
                                 for c in m[sel].0.chars() {
                                     buf.insert_char(c);
                                 }
-                                box_height = draw_prompt(buf.text(), buf.cursor(), box_row, box_height)?;
+                                box_height =
+                                    draw_prompt(buf.text(), buf.cursor(), box_row, box_height)?;
                                 draft.save(buf.text());
                                 update_menu(
                                     buf.text(),
@@ -900,7 +908,8 @@ fn read_input_line(
                                 let new_cursor = ts + char_len(&replacement);
                                 buf.set_text(&new_text);
                                 buf.set_cursor(new_cursor);
-                                box_height = draw_prompt(buf.text(), buf.cursor(), box_row, box_height)?;
+                                box_height =
+                                    draw_prompt(buf.text(), buf.cursor(), box_row, box_height)?;
                                 draft.save(buf.text());
                                 if fm.is_dir {
                                     update_menu(
@@ -936,7 +945,8 @@ fn read_input_line(
                         ..
                     } => {
                         if buf.backspace() {
-                            box_height = draw_prompt(buf.text(), buf.cursor(), box_row, box_height)?;
+                            box_height =
+                                draw_prompt(buf.text(), buf.cursor(), box_row, box_height)?;
                             draft.save(buf.text());
                             update_menu(
                                 buf.text(),
@@ -955,7 +965,8 @@ fn read_input_line(
                         ..
                     } => {
                         if buf.delete() {
-                            box_height = draw_prompt(buf.text(), buf.cursor(), box_row, box_height)?;
+                            box_height =
+                                draw_prompt(buf.text(), buf.cursor(), box_row, box_height)?;
                             draft.save(buf.text());
                             update_menu(
                                 buf.text(),
@@ -974,7 +985,8 @@ fn read_input_line(
                         ..
                     } => {
                         if buf.move_left() {
-                            box_height = draw_prompt(buf.text(), buf.cursor(), box_row, box_height)?;
+                            box_height =
+                                draw_prompt(buf.text(), buf.cursor(), box_row, box_height)?;
                         }
                     }
 
@@ -984,7 +996,8 @@ fn read_input_line(
                         ..
                     } => {
                         if buf.move_right() {
-                            box_height = draw_prompt(buf.text(), buf.cursor(), box_row, box_height)?;
+                            box_height =
+                                draw_prompt(buf.text(), buf.cursor(), box_row, box_height)?;
                         }
                     }
 
@@ -1933,8 +1946,8 @@ fn handle_command(
         }
 
         // ── System commands (sent to daemon) ──
-        "/tools" | "/chronicle" | "/metrics" | "/security"
-        | "/identity" | "/feedback" | "/wallet" => CommandResult::SendToAgent(cmd.to_string()),
+        "/tools" | "/chronicle" | "/metrics" | "/security" | "/identity" | "/feedback"
+        | "/wallet" => CommandResult::SendToAgent(cmd.to_string()),
 
         _ => CommandResult::SessionText,
     }
@@ -2543,7 +2556,10 @@ fn print_status() {
                     let mins = (uptime % 3600) / 60;
                     let secs = uptime % 60;
                     if hours > 0 {
-                        eprintln!("  {CYAN}uptime{RESET}              {}h {}m {}s", hours, mins, secs);
+                        eprintln!(
+                            "  {CYAN}uptime{RESET}              {}h {}m {}s",
+                            hours, mins, secs
+                        );
                     } else if mins > 0 {
                         eprintln!("  {CYAN}uptime{RESET}              {}m {}s", mins, secs);
                     } else {
@@ -2562,14 +2578,19 @@ fn print_status() {
                 if let Some(subs) = health.get("subsystems").and_then(|v| v.as_object()) {
                     eprintln!("  {DIM}Subsystems{RESET}");
                     for (name, info) in subs {
-                        let status = info.get("status").and_then(|v| v.as_str()).unwrap_or("unknown");
+                        let status = info
+                            .get("status")
+                            .and_then(|v| v.as_str())
+                            .unwrap_or("unknown");
                         let styled = match status {
                             "running" => format!("{GREEN}{status}{RESET}"),
                             "backoff" | "starting" => format!("{YELLOW}{status}{RESET}"),
                             "stopped" | "crashed" => format!("{RED}{status}{RESET}"),
                             _ => status.to_string(),
                         };
-                        let detail = info.get("attempt").and_then(|v| v.as_u64())
+                        let detail = info
+                            .get("attempt")
+                            .and_then(|v| v.as_u64())
                             .map(|a| format!(" {DIM}(attempt {a}/10){RESET}"))
                             .unwrap_or_default();
                         eprintln!("  {:<20}{styled}{detail}", name);
@@ -2667,7 +2688,8 @@ fn extract_sexp_unquoted(sexp: &str, key: &str) -> Option<String> {
 }
 
 #[cfg(unix)]
-fn query_tui_runtime_modules() -> Result<Vec<(String, String, String)>, Box<dyn std::error::Error>> {
+fn query_tui_runtime_modules() -> Result<Vec<(String, String, String)>, Box<dyn std::error::Error>>
+{
     use std::io::{Read, Write};
 
     let data_dir = crate::paths::data_dir()?;
@@ -2736,7 +2758,8 @@ fn query_tui_runtime_modules() -> Result<Vec<(String, String, String)>, Box<dyn 
 }
 
 #[cfg(not(unix))]
-fn query_tui_runtime_modules() -> Result<Vec<(String, String, String)>, Box<dyn std::error::Error>> {
+fn query_tui_runtime_modules() -> Result<Vec<(String, String, String)>, Box<dyn std::error::Error>>
+{
     Err("module query requires Unix sockets".into())
 }
 
@@ -2760,38 +2783,99 @@ fn print_providers() {
     }
 
     const TEXT_PROVIDERS: &[ProviderEntry] = &[
-        ProviderEntry { id: "openrouter",       display: "OpenRouter",       secrets: &["openrouter-api-key"] },
-        ProviderEntry { id: "openai",           display: "OpenAI",           secrets: &["openai-api-key"] },
-        ProviderEntry { id: "anthropic",        display: "Anthropic",        secrets: &["anthropic-api-key"] },
-        ProviderEntry { id: "xai",              display: "xAI",              secrets: &["xai-api-key"] },
-        ProviderEntry { id: "google-ai-studio", display: "Google AI Studio", secrets: &["google-ai-studio-api-key"] },
-        ProviderEntry { id: "google-vertex",    display: "Google Vertex",    secrets: &["google-vertex-access-token"] },
-        ProviderEntry { id: "bedrock",          display: "Amazon Bedrock",   secrets: &["aws-access-key-id"] },
-        ProviderEntry { id: "groq",             display: "Groq",             secrets: &["groq-api-key"] },
-        ProviderEntry { id: "alibaba",          display: "Alibaba",          secrets: &["alibaba-api-key"] },
+        ProviderEntry {
+            id: "openrouter",
+            display: "OpenRouter",
+            secrets: &["openrouter-api-key"],
+        },
+        ProviderEntry {
+            id: "openai",
+            display: "OpenAI",
+            secrets: &["openai-api-key"],
+        },
+        ProviderEntry {
+            id: "anthropic",
+            display: "Anthropic",
+            secrets: &["anthropic-api-key"],
+        },
+        ProviderEntry {
+            id: "xai",
+            display: "xAI",
+            secrets: &["xai-api-key"],
+        },
+        ProviderEntry {
+            id: "google-ai-studio",
+            display: "Google AI Studio",
+            secrets: &["google-ai-studio-api-key"],
+        },
+        ProviderEntry {
+            id: "google-vertex",
+            display: "Google Vertex",
+            secrets: &["google-vertex-access-token"],
+        },
+        ProviderEntry {
+            id: "bedrock",
+            display: "Amazon Bedrock",
+            secrets: &["aws-access-key-id"],
+        },
+        ProviderEntry {
+            id: "groq",
+            display: "Groq",
+            secrets: &["groq-api-key"],
+        },
+        ProviderEntry {
+            id: "alibaba",
+            display: "Alibaba",
+            secrets: &["alibaba-api-key"],
+        },
     ];
 
     const VOICE_PROVIDERS: &[ProviderEntry] = &[
-        ProviderEntry { id: "elevenlabs", display: "ElevenLabs (TTS)", secrets: &["elevenlabs-api-key"] },
-        ProviderEntry { id: "whisper-groq",  display: "Whisper via Groq (STT)",   secrets: &["groq-api-key"] },
-        ProviderEntry { id: "whisper-openai", display: "Whisper via OpenAI (STT)", secrets: &["openai-api-key"] },
+        ProviderEntry {
+            id: "elevenlabs",
+            display: "ElevenLabs (TTS)",
+            secrets: &["elevenlabs-api-key"],
+        },
+        ProviderEntry {
+            id: "whisper-groq",
+            display: "Whisper via Groq (STT)",
+            secrets: &["groq-api-key"],
+        },
+        ProviderEntry {
+            id: "whisper-openai",
+            display: "Whisper via OpenAI (STT)",
+            secrets: &["openai-api-key"],
+        },
     ];
 
     let categories: &[Category] = &[
-        Category { label: "Text",  providers: TEXT_PROVIDERS },
-        Category { label: "Voice", providers: VOICE_PROVIDERS },
+        Category {
+            label: "Text",
+            providers: TEXT_PROVIDERS,
+        },
+        Category {
+            label: "Voice",
+            providers: VOICE_PROVIDERS,
+        },
         // Future: Image, Video, Environments, Sim2Real
     ];
 
-    let active_provider = harmonia_config_store::get_config("harmonia-cli", "model-policy", "provider")
-        .ok()
-        .flatten()
-        .unwrap_or_default();
+    let active_provider =
+        harmonia_config_store::get_config("harmonia-cli", "model-policy", "provider")
+            .ok()
+            .flatten()
+            .unwrap_or_default();
 
     let mut any_active = false;
     for cat in categories {
-        let active: Vec<&ProviderEntry> = cat.providers.iter()
-            .filter(|p| p.secrets.iter().all(|s| harmonia_vault::has_secret_for_symbol(s)))
+        let active: Vec<&ProviderEntry> = cat
+            .providers
+            .iter()
+            .filter(|p| {
+                p.secrets
+                    .iter()
+                    .all(|s| harmonia_vault::has_secret_for_symbol(s))
+            })
             .collect();
 
         if active.is_empty() {
@@ -2813,7 +2897,9 @@ fn print_providers() {
             // Show seed models for text providers
             if cat.label == "Text" {
                 let provider_key = format!("seed-models-{}", p.id);
-                if let Ok(Some(seeds)) = harmonia_config_store::get_config("harmonia-cli", "model-policy", &provider_key) {
+                if let Ok(Some(seeds)) =
+                    harmonia_config_store::get_config("harmonia-cli", "model-policy", &provider_key)
+                {
                     for model in seeds.split(',').map(|s| s.trim()).filter(|s| !s.is_empty()) {
                         eprintln!("      {DIM}{model}{RESET}");
                     }

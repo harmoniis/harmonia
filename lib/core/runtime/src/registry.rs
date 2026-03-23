@@ -180,7 +180,11 @@ pub fn build_registry() -> Vec<ModuleEntry> {
             config_reqs: vec![ConfigReq::VaultSecret("langsmith-api-key".into())],
             init_fn: || {
                 let rc = harmonia_observability::harmonia_observability_init();
-                if rc == 0 { Ok(()) } else { Err("observability init failed".into()) }
+                if rc == 0 {
+                    Ok(())
+                } else {
+                    Err("observability init failed".into())
+                }
             },
             shutdown_fn: noop_shutdown,
         },

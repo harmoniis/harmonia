@@ -46,8 +46,8 @@ impl ObservabilityConfig {
             .or_else(|| std::env::var("LANGCHAIN_API_KEY").ok())
             .unwrap_or_default();
 
-        let backend = read_config_or_env("backend", "HARMONIA_OBSERVABILITY_BACKEND")
-            .unwrap_or_default();
+        let backend =
+            read_config_or_env("backend", "HARMONIA_OBSERVABILITY_BACKEND").unwrap_or_default();
 
         Self {
             enabled,

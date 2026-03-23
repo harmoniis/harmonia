@@ -34,7 +34,11 @@ pub fn harmonia_observability_init() -> i32 {
         eprintln!(
             "[INFO] [observability] Disabled (enabled={}, backend={})",
             config.enabled,
-            if config.backend.is_empty() { "<none>" } else { &config.backend }
+            if config.backend.is_empty() {
+                "<none>"
+            } else {
+                &config.backend
+            }
         );
     } else {
         eprintln!(
@@ -59,7 +63,10 @@ pub fn start_sender() -> Option<SyncSender<TraceMessage>> {
     }
     let sender = SENDER_HANDLE.get_or_init(|| {
         let provider = crate::providers::from_config(config).unwrap_or_else(|| {
-            eprintln!("[WARN] [observability] Provider '{}' failed to initialize, using noop", config.backend);
+            eprintln!(
+                "[WARN] [observability] Provider '{}' failed to initialize, using noop",
+                config.backend
+            );
             Box::new(NoopBackend)
         });
         eprintln!("[INFO] [observability] Provider: {}", provider.name());
@@ -127,8 +134,14 @@ pub fn harmonia_observability_is_verbose() -> bool {
 struct NoopBackend;
 
 impl crate::backend::TraceBackend for NoopBackend {
-    fn submit_batch(&self, _creates: &[serde_json::Value], _updates: &[serde_json::Value]) -> crate::backend::FlushResult {
+    fn submit_batch(
+        &self,
+        _creates: &[serde_json::Value],
+        _updates: &[serde_json::Value],
+    ) -> crate::backend::FlushResult {
         crate::backend::FlushResult::Ok
     }
-    fn name(&self) -> &'static str { "noop" }
+    fn name(&self) -> &'static str {
+        "noop"
+    }
 }

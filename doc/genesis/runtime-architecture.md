@@ -19,11 +19,12 @@ Phoenix (harmonia-phoenix, ractor supervisor, health at 127.0.0.1:9100)
   │     ├─ ChronicleActor         (DB init, periodic GC)
   │     ├─ TailnetActor           (mesh listener, poll, route)
   │     ├─ SignalogradActor       (kernel init, observe, status)
-  │     ├─ ObservabilityActor     (trace batch management)
+  │     ├─ ObservabilityActor     (provider-agnostic trace sink — sampling, correlation, batch dispatch)
   │     ├─ HarmonicMatrixActor    (matrix topology, route constraints, telemetry)
+  │     ├─ VaultActor, ConfigActor, ProviderRouterActor, ParallelActor, RouterActor
   │     └─ IPC listener (Unix socket, length-prefixed sexp)
   │           └─ dispatch.rs routes to: vault, config, chronicle, gateway,
-  │              signalograd, tailnet, harmonic-matrix (689 lines, 50+ ops)
+  │              signalograd, tailnet, harmonic-matrix, observability, provider-router, parallel
   │
   ├─ sbcl-agent (SBCL/Common Lisp orchestrator)
   │     ├─ ipc-client.lisp        (socket transport, auto-reconnect)
@@ -63,7 +64,7 @@ Boot sequence:
    - vault, store, harmony-policy, model-policy,
    - router, lineage, matrix,
    - tool-runtime, baseband frontends,
-   - swarm, evolution, chronicle, signalograd.
+   - swarm, evolution, chronicle, signalograd, observability.
 7. Restore the evolution-matched `signalograd` checkpoint if present, otherwise continue from live working state.
 
 ## Deterministic Tick Model

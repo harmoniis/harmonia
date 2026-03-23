@@ -35,6 +35,7 @@ This inventory follows the current Cargo workspace members in `../../Cargo.toml`
 | `lib/core/chronicle` | Graph-native knowledge base with time-series observability, concept graph SQL traversal, and pressure-aware GC |
 | `lib/core/tool-channel-protocol` | standardised request/result types for tool channel communication |
 | `lib/core/signalograd` | tiny chaos-computing advisory kernel with Lorenz-style reservoir dynamics, Hopfield-like attractor memory, local online learning, and evolution checkpoint persistence |
+| `lib/core/observability` | Provider-agnostic distributed tracing. ObservabilityActor is the single trace sink (fire-and-forget cast). Pluggable providers: `providers/langsmith.rs` (LangSmith REST API), `providers/otlp.rs` (OpenObserve, Jaeger, Tempo via OTLP/HTTP). Config-driven: set `backend=otlp` + `api-url` to switch. Root-span sampling (default 10%), parent-child correlation via dotted_order |
 | `lib/core/qr-terminal` | QR code terminal rendering utility for device linking |
 | `lib/core/node-rpc` | node-to-node RPC for remote frontend pairing via Tailscale mesh |
 | `lib/core/complexity-encoder` | 14-dimension prompt complexity classifier for LLM routing — zero-allocation hot path, SIMD-optimized keyword matching, 7μs/call in release, outputs ComplexityTier (Simple/Medium/Complex/Reasoning) with confidence score |

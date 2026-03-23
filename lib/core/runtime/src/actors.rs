@@ -69,7 +69,11 @@ impl Actor for ChronicleActor {
                     if let Some(obs) = harmonia_observability::get_obs_actor() {
                         if harmonia_observability::harmonia_observability_is_standard() {
                             let obs_opt: Option<ractor::ActorRef<ObsMsg>> = Some(obs.clone());
-                            obs_opt.trace_event("chronicle-gc", "tool", json!({"rows_deleted": deleted}));
+                            obs_opt.trace_event(
+                                "chronicle-gc",
+                                "tool",
+                                json!({"rows_deleted": deleted}),
+                            );
                         }
                     }
                 }
@@ -331,12 +335,7 @@ impl ObsActorState {
         }));
     }
 
-    fn handle_span_end(
-        &mut self,
-        run_id: String,
-        status: String,
-        outputs: serde_json::Value,
-    ) {
+    fn handle_span_end(&mut self, run_id: String, status: String, outputs: serde_json::Value) {
         if !self.config.enabled {
             return;
         }
@@ -390,7 +389,10 @@ impl ObsActorState {
 
         let (actual_trace_id, actual_dotted_order) = if let Some(ref pid) = parent_run_id {
             if let Some(entry) = self.dotted_orders.get(pid) {
-                (Some(entry.trace_id.clone()), Some(entry.dotted_order.clone()))
+                (
+                    Some(entry.trace_id.clone()),
+                    Some(entry.dotted_order.clone()),
+                )
             } else {
                 (trace_id, None)
             }
@@ -413,7 +415,10 @@ impl ObsActorState {
 impl Actor for ObservabilityActor {
     type Msg = ObsMsg;
     type State = ObsActorState;
-    type Arguments = (Option<SyncSender<TraceMessage>>, Option<ObservabilityConfig>);
+    type Arguments = (
+        Option<SyncSender<TraceMessage>>,
+        Option<ObservabilityConfig>,
+    );
 
     async fn pre_start(
         &self,
@@ -694,8 +699,14 @@ impl Actor for GatewayActor {
                 // Gateway polling: collect inbound signals from all frontends
                 let registry = harmonia_gateway::Registry::new();
                 let batch = harmonia_gateway::poll_baseband(&registry);
-                if harmonia_observability::harmonia_observability_is_verbose() && !batch.envelopes.is_empty() {
-                    state.obs.trace_event("gateway-poll", "tool", json!({"envelopes": batch.envelopes.len()}));
+                if harmonia_observability::harmonia_observability_is_verbose()
+                    && !batch.envelopes.is_empty()
+                {
+                    state.obs.trace_event(
+                        "gateway-poll",
+                        "tool",
+                        json!({"envelopes": batch.envelopes.len()}),
+                    );
                 }
                 for envelope in &batch.envelopes {
                     let msg = HarmoniaMessage {
@@ -1165,7 +1176,11 @@ impl Actor for RouterActor {
                     if let Some(tier) = extract_sexp_value(&payload_sexp, "tier") {
                         let old_tier = state.active_tier_name().to_string();
                         state.active_tier_idx = tier_index(&tier) as u8;
-                        state.obs.trace_event("router-tier-changed", "tool", json!({"old": old_tier, "new": tier}));
+                        state.obs.trace_event(
+                            "router-tier-changed",
+                            "tool",
+                            json!({"old": old_tier, "new": tier}),
+                        );
                     }
                 } else if payload_sexp.contains("route-feedback") {
                     let model = extract_sexp_value(&payload_sexp, "model").unwrap_or_default();

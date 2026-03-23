@@ -51,16 +51,17 @@
 | `src/ports/evolution.lisp` | source-rewrite/artifact-rollout mode dispatch | `lib/core/ouroboros` + phoenix supervision model |
 | `src/ports/chronicle.lisp` | graph-native knowledge base queries, harmonic/memory/delegation recording, concept graph SQL traversal | `lib/core/chronicle` |
 | `src/ports/signalograd.lisp` | chaotic advisory kernel IPC (`observe`, `feedback`, `checkpoint`, `restore`, `status`) | `lib/core/signalograd` |
+| `src/ports/observability.lisp` | provider-agnostic distributed tracing; fire-and-forget `ipc-cast`, client-side UUID run-ids, `with-trace` macro | `lib/core/observability` |
 
 ## Rust Runtime (`lib/core/runtime/src`)
 
 | File | Role |
 |---|---|
 | `supervisor.rs` | RuntimeSupervisor actor — registry, IPC component dispatch, child actor lifecycle |
-| `dispatch.rs` | IPC message dispatch (689 lines, 50+ ops) — routes to vault, config, chronicle, gateway, signalograd, tailnet, harmonic-matrix |
+| `dispatch.rs` | IPC message dispatch — routes to vault, config, chronicle, gateway, signalograd, tailnet, harmonic-matrix, observability, provider-router, parallel |
 | `bridge.rs` | SbclBridgeActor — Unix socket connection handler, drain queue for SBCL |
 | `ipc.rs` | IPC listener — Unix socket accept loop, length-prefixed sexp framing |
-| `actors.rs` | Actor definitions — GatewayActor, ChronicleActor, TailnetActor, SignalogradActor, ObservabilityActor, HarmonicMatrixActor |
+| `actors.rs` | Actor definitions — GatewayActor, ChronicleActor, TailnetActor, SignalogradActor, ObservabilityActor (ObsMsg, sampling, correlation), HarmonicMatrixActor, VaultActor, ConfigActor, ProviderRouterActor, ParallelActor, RouterActor |
 | `msg.rs` | Actor message types and routing enums |
 
 All crates are compiled as rlib and linked into the single `harmonia-runtime` binary. No cdylib shared libraries.
@@ -80,7 +81,7 @@ Based on `src/core/boot.lisp`:
 
 1. Load state/tools/DNA/memory/harmony modules.
 2. Load `supervision-state.lisp`, `signalograd.lisp`, and `evolution-versioning.lisp`.
-3. Load ports in order: vault -> store -> router -> lineage -> matrix -> admin-intent -> tool-runtime -> baseband -> swarm -> evolution -> chronicle -> signalograd.
+3. Load ports in order: vault -> store -> router -> lineage -> matrix -> admin-intent -> tool-runtime -> baseband -> swarm -> evolution -> chronicle -> signalograd -> observability.
 4. Initialize runtime and DNA guard.
 5. Load evolution version state (`init-evolution-versioning`).
 6. Initialize ports, bootstrap matrix, and register configured frontends from `config/baseband.sexp`.

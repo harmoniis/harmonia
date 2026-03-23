@@ -47,7 +47,9 @@ fn sender_loop(rx: Receiver<TraceMessage>, provider: Box<dyn TraceBackend>) {
                 outputs,
                 end_time,
             }) => {
-                updates.push(LangSmith::build_update(&run_id, &status, &outputs, &end_time));
+                updates.push(LangSmith::build_update(
+                    &run_id, &status, &outputs, &end_time,
+                ));
             }
             Ok(TraceMessage::Event(event)) => {
                 let run_id = new_uuid();
@@ -144,7 +146,10 @@ fn do_flush(
     match provider.submit_batch(creates, updates) {
         FlushResult::Ok => {
             if *backoff > Duration::ZERO {
-                eprintln!("[INFO] [observability] {} recovered from rate limit", provider_name);
+                eprintln!(
+                    "[INFO] [observability] {} recovered from rate limit",
+                    provider_name
+                );
             }
             eprintln!(
                 "[INFO] [observability] Flushed {} creates, {} updates to {}",
@@ -156,13 +161,24 @@ fn do_flush(
             updates.clear();
         }
         FlushResult::RateLimited(body) => {
-            *backoff = if backoff.is_zero() { BACKOFF_INITIAL } else { (*backoff * 2).min(BACKOFF_MAX) };
+            *backoff = if backoff.is_zero() {
+                BACKOFF_INITIAL
+            } else {
+                (*backoff * 2).min(BACKOFF_MAX)
+            };
             *backoff_until = Instant::now() + *backoff;
             if !*backoff_logged {
-                let detail = if body.len() > 200 { &body[..200] } else { &body };
+                let detail = if body.len() > 200 {
+                    &body[..200]
+                } else {
+                    &body
+                };
                 eprintln!(
                     "[WARN] [observability] {} 429 — backing off {}s ({} buffered) {}",
-                    provider_name, backoff.as_secs(), creates.len() + updates.len(), detail
+                    provider_name,
+                    backoff.as_secs(),
+                    creates.len() + updates.len(),
+                    detail
                 );
                 *backoff_logged = true;
             }

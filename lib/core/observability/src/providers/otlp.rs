@@ -77,8 +77,16 @@ impl Otlp {
                 .or_else(|| create.get("outputs"));
 
             let mut attributes = Vec::new();
-            attr_str(&mut attributes, "run_type", create["run_type"].as_str().unwrap_or("chain"));
-            attr_str(&mut attributes, "session_name", create["session_name"].as_str().unwrap_or(""));
+            attr_str(
+                &mut attributes,
+                "run_type",
+                create["run_type"].as_str().unwrap_or("chain"),
+            );
+            attr_str(
+                &mut attributes,
+                "session_name",
+                create["session_name"].as_str().unwrap_or(""),
+            );
             if let Some(inputs) = create.get("inputs") {
                 attr_str(&mut attributes, "inputs", &inputs.to_string());
             }
@@ -169,31 +177,61 @@ impl TraceBackend for Otlp {
 
 fn uuid_to_trace_id(uuid: &str) -> String {
     let hex: String = uuid.chars().filter(|c| c.is_ascii_hexdigit()).collect();
-    if hex.len() >= 32 { hex[..32].to_string() } else { format!("{:0>32}", hex) }
+    if hex.len() >= 32 {
+        hex[..32].to_string()
+    } else {
+        format!("{:0>32}", hex)
+    }
 }
 
 fn uuid_to_span_id(uuid: &str) -> String {
     let hex: String = uuid.chars().filter(|c| c.is_ascii_hexdigit()).collect();
-    if hex.len() >= 16 { hex[..16].to_string() } else { format!("{:0>16}", hex) }
+    if hex.len() >= 16 {
+        hex[..16].to_string()
+    } else {
+        format!("{:0>16}", hex)
+    }
 }
 
 fn iso_to_nanos(iso: &str) -> String {
-    if iso.is_empty() { return "0".to_string(); }
+    if iso.is_empty() {
+        return "0".to_string();
+    }
     let parts: Vec<&str> = iso.split('T').collect();
-    if parts.len() != 2 { return "0".to_string(); }
+    if parts.len() != 2 {
+        return "0".to_string();
+    }
     let d: Vec<u64> = parts[0].split('-').filter_map(|s| s.parse().ok()).collect();
-    if d.len() != 3 { return "0".to_string(); }
+    if d.len() != 3 {
+        return "0".to_string();
+    }
     let time_str = parts[1].trim_end_matches('Z');
     let tm: Vec<&str> = time_str.split('.').collect();
     let hms: Vec<u64> = tm[0].split(':').filter_map(|s| s.parse().ok()).collect();
-    if hms.len() != 3 { return "0".to_string(); }
-    let millis: u64 = if tm.len() > 1 { tm[1].parse().unwrap_or(0) } else { 0 };
+    if hms.len() != 3 {
+        return "0".to_string();
+    }
+    let millis: u64 = if tm.len() > 1 {
+        tm[1].parse().unwrap_or(0)
+    } else {
+        0
+    };
     let mut days = 0u64;
-    for y in 1970..d[0] { days += if (y % 4 == 0 && y % 100 != 0) || y % 400 == 0 { 366 } else { 365 }; }
+    for y in 1970..d[0] {
+        days += if (y % 4 == 0 && y % 100 != 0) || y % 400 == 0 {
+            366
+        } else {
+            365
+        };
+    }
     let md: [u64; 12] = if (d[0] % 4 == 0 && d[0] % 100 != 0) || d[0] % 400 == 0 {
-        [31,29,31,30,31,30,31,31,30,31,30,31]
-    } else { [31,28,31,30,31,30,31,31,30,31,30,31] };
-    for i in 0..(d[1].saturating_sub(1) as usize).min(12) { days += md[i]; }
+        [31, 29, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31]
+    } else {
+        [31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31]
+    };
+    for i in 0..(d[1].saturating_sub(1) as usize).min(12) {
+        days += md[i];
+    }
     days += d[2].saturating_sub(1);
     let secs = days * 86400 + hms[0] * 3600 + hms[1] * 60 + hms[2];
     (secs * 1_000_000_000 + millis * 1_000_000).to_string()
@@ -207,12 +245,24 @@ fn base64_encode(input: &[u8]) -> String {
     const C: &[u8] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
     let mut out = String::with_capacity((input.len() + 2) / 3 * 4);
     for chunk in input.chunks(3) {
-        let (b0, b1, b2) = (chunk[0] as u32, chunk.get(1).copied().unwrap_or(0) as u32, chunk.get(2).copied().unwrap_or(0) as u32);
+        let (b0, b1, b2) = (
+            chunk[0] as u32,
+            chunk.get(1).copied().unwrap_or(0) as u32,
+            chunk.get(2).copied().unwrap_or(0) as u32,
+        );
         let n = (b0 << 16) | (b1 << 8) | b2;
         out.push(C[((n >> 18) & 63) as usize] as char);
         out.push(C[((n >> 12) & 63) as usize] as char);
-        out.push(if chunk.len() > 1 { C[((n >> 6) & 63) as usize] as char } else { '=' });
-        out.push(if chunk.len() > 2 { C[(n & 63) as usize] as char } else { '=' });
+        out.push(if chunk.len() > 1 {
+            C[((n >> 6) & 63) as usize] as char
+        } else {
+            '='
+        });
+        out.push(if chunk.len() > 2 {
+            C[(n & 63) as usize] as char
+        } else {
+            '='
+        });
     }
     out
 }

@@ -21,6 +21,7 @@ Each port encapsulates one capability contract and communicates with Rust via IP
 | Evolution | `src/ports/evolution.lisp` | `lib/core/ouroboros` (+ phoenix process) | Rewrite prep/execute/rollback |
 | Chronicle | `src/ports/chronicle.lisp` | `lib/core/chronicle` | Graph-native knowledge base, time-series observability, concept graph SQL traversal |
 | Signalograd | `src/ports/signalograd.lisp` | `lib/core/signalograd` | chaos-computing advisory kernel: observe, feedback, checkpoint, restore, status |
+| Observability | `src/ports/observability.lisp` | `lib/core/observability` | Provider-agnostic distributed tracing (LangSmith, OpenObserve/OTLP); fire-and-forget via `ipc-cast`, client-side UUID run-ids |
 | Signal Integrity | (used by gateway + conductor) | `lib/core/signal-integrity` | Shared injection detection + dissonance scoring |
 | Admin Intent | (used by conductor policy gate) | `lib/core/admin-intent` | Ed25519 admin intent signature verification |
 
@@ -31,7 +32,8 @@ SBCL communicates with `harmonia-runtime` via a Unix domain socket at `$STATE_RO
 - Messages are length-prefixed s-expressions.
 - Socket permissions are restricted to owner-only (0600).
 - The `SbclBridgeActor` inside `harmonia-runtime` handles the Rust side of the socket, with drain-queue semantics.
-- `dispatch.rs` (689 lines, 50+ ops) routes IPC messages to 7 component domains: **vault**, **config**, **chronicle**, **gateway**, **signalograd**, **tailnet**, **harmonic-matrix**.
+- `dispatch.rs` routes IPC messages to component domains: **vault**, **config**, **chronicle**, **gateway**, **signalograd**, **tailnet**, **harmonic-matrix**, **observability**, **provider-router**, **parallel**.
+- Observability trace ops (`trace-start`, `trace-end`, `trace-event`) are short-circuited in `ipc.rs` directly to the ObservabilityActor via `ipc-cast` (fire-and-forget), bypassing the supervisor for zero-overhead trace submission.
 - SBCL side: `ipc-client.lisp` (socket transport, auto-reconnect), `ipc-ports.lisp` (typed port accessors for `ipc-vault-*`, `ipc-config-*`, etc.), and all 14 port files use IPC exclusively.
 
 ## Core Contract Rule
