@@ -141,19 +141,19 @@ Do not edit manually.
 - Migration map targets: port model, IPC transport, Unix domain socket
 - Headings:
   - L8: `## Port Map`
-  - L27: `## IPC Transport`
-  - L37: `## Core Contract Rule`
+  - L28: `## IPC Transport`
+  - L39: `## Core Contract Rule`
 
 ## `../genesis/runtime-architecture.md`
 - Migration map targets: full architecture, IPC surfaces, Phoenix topology, deployment safety
 - Headings:
   - L3: `## Runtime Topology`
   - L11: `### Process Topology`
-  - L51: `## Boot Flow`
-  - L69: `## Deterministic Tick Model`
-  - L90: `## Gateway Signal Processing`
-  - L105: `## Orchestration Flow`
-  - L127: `## Harmonic State Machine`
-  - L156: `## Error Discipline And Self-Repair`
-  - L178: `## Security Architecture`
+  - L52: `## Boot Flow`
+  - L70: `## Deterministic Tick Model`
+  - L91: `## Gateway Signal Processing`
+  - L106: `## Orchestration Flow`
+  - L128: `## Harmonic State Machine`
+  - L157: `## Error Discipline And Self-Repair`
+  - L179: `## Security Architecture`
 
