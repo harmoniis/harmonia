@@ -26,7 +26,9 @@ mod session {
         Err("interactive local sessions currently require Unix domain sockets and are unavailable on this platform".into())
     }
 }
+mod draft_store;
 mod edit_buffer;
+mod input_history;
 mod menus;
 #[cfg(unix)]
 mod modules;

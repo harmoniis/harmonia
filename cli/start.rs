@@ -169,7 +169,19 @@ pub fn run(env: &str, foreground: bool) -> Result<(), Box<dyn std::error::Error>
     let phoenix_config_path = system_dir.join("phoenix.toml");
     let phoenix_bin = find_phoenix_binary(&source_dir)?;
     let runtime_bin = find_sibling_binary(&phoenix_bin, "harmonia-runtime");
-    write_phoenix_config(&phoenix_config_path, &runtime_bin, &boot_file, &source_dir)?;
+    write_phoenix_config(
+        &phoenix_config_path,
+        &runtime_bin,
+        &boot_file,
+        &source_dir,
+        &system_dir,
+        &vault_path,
+        &wallet_db_path,
+        &lib_dir,
+        env,
+        &log_level,
+        &node_identity,
+    )?;
 
     // Common env vars inherited by all Phoenix children
     let env_vars: Vec<(&str, String)> = vec![
@@ -591,12 +603,43 @@ fn write_phoenix_config(
     config_path: &Path,
     runtime_bin: &str,
     boot_file: &Path,
-    _source_dir: &Path,
+    source_dir: &Path,
+    system_dir: &Path,
+    vault_path: &Path,
+    wallet_db_path: &Path,
+    lib_dir: &Path,
+    env: &str,
+    log_level: &str,
+    node_identity: &crate::paths::NodeIdentity,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let sbcl_command = format!(
         "sbcl --noinform --disable-debugger --load {} --eval '(harmonia:start)'",
         boot_file.display()
     );
+
+    // Build env section for subsystems — every child process gets the full
+    // environment so config-store and vault resolve to the correct paths
+    // regardless of how the shell was invoked.
+    let env_toml = format!(
+        r#"HARMONIA_STATE_ROOT = "{state_root}"
+HARMONIA_SYSTEM_DIR = "{state_root}"
+HARMONIA_VAULT_DB = "{vault_db}"
+HARMONIA_VAULT_WALLET_DB = "{wallet_db}"
+HARMONIA_LIB_DIR = "{lib_dir}"
+HARMONIA_SOURCE_DIR = "{source_dir}"
+HARMONIA_NODE_LABEL = "{node_label}"
+HARMONIA_NODE_ROLE = "{node_role}"
+HARMONIA_LOG_LEVEL = "{log_level}"
+HARMONIA_ENV = "{env}""#,
+        state_root = system_dir.display(),
+        vault_db = vault_path.display(),
+        wallet_db = wallet_db_path.display(),
+        lib_dir = lib_dir.display(),
+        source_dir = source_dir.display(),
+        node_label = node_identity.label,
+        node_role = node_identity.role.as_str(),
+    );
+
     let config = format!(
         r#"[phoenix]
 health_port = 9100
@@ -611,6 +654,9 @@ backoff_base_ms = 500
 backoff_max_ms = 60000
 core = true
 
+[subsystem.env]
+{env_toml}
+
 [[subsystem]]
 name = "sbcl-agent"
 command = "{sbcl_command}"
@@ -620,6 +666,9 @@ backoff_base_ms = 2000
 backoff_max_ms = 120000
 startup_delay_ms = 2000
 core = true
+
+[subsystem.env]
+{env_toml}
 "#
     );
 

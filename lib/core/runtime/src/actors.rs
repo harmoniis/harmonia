@@ -4,9 +4,19 @@
 //! pre_start initializes the component, handle() dispatches messages
 //! to the component's public API, and supervision handles recovery.
 
+use std::collections::{HashMap, HashSet};
+use std::sync::mpsc::SyncSender;
+use std::time::{SystemTime, UNIX_EPOCH};
+
 use ractor::{Actor, ActorProcessingErr, ActorRef};
+use serde_json::json;
 
 use harmonia_actor_protocol::{now_unix, ActorKind, HarmoniaMessage, MessagePayload};
+use harmonia_observability::model::{
+    dotted_order_child, dotted_order_for, now_iso, DottedOrderEntry, TraceEvent, TraceLevel,
+    TraceMessage, TraceSpan,
+};
+use harmonia_observability::{ObsMsg, ObservabilityConfig, Traceable};
 
 use crate::msg::BridgeMsg;
 
@@ -54,7 +64,15 @@ impl Actor for ChronicleActor {
     ) -> Result<(), ActorProcessingErr> {
         match message {
             ComponentMsg::Tick => {
-                let _ = harmonia_chronicle::gc();
+                let deleted = harmonia_chronicle::gc().unwrap_or(0);
+                if deleted > 0 {
+                    if let Some(obs) = harmonia_observability::get_obs_actor() {
+                        if harmonia_observability::harmonia_observability_is_standard() {
+                            let obs_opt: Option<ractor::ActorRef<ObsMsg>> = Some(obs.clone());
+                            obs_opt.trace_event("chronicle-gc", "tool", json!({"rows_deleted": deleted}));
+                        }
+                    }
+                }
             }
             ComponentMsg::Dispatch(sexp, reply) => {
                 let result = crate::dispatch::dispatch("chronicle", &sexp);
@@ -75,21 +93,23 @@ pub struct TailnetActor;
 
 pub struct TailnetState {
     bridge: ActorRef<BridgeMsg>,
+    #[allow(dead_code)]
+    obs: Option<ActorRef<ObsMsg>>,
 }
 
 impl Actor for TailnetActor {
     type Msg = ComponentMsg;
     type State = TailnetState;
-    type Arguments = ActorRef<BridgeMsg>;
+    type Arguments = (ActorRef<BridgeMsg>, Option<ActorRef<ObsMsg>>);
 
     async fn pre_start(
         &self,
         _myself: ActorRef<Self::Msg>,
-        bridge: ActorRef<BridgeMsg>,
+        (bridge, obs): Self::Arguments,
     ) -> Result<Self::State, ActorProcessingErr> {
         let _ = harmonia_tailnet::transport::start_listener();
         eprintln!("[INFO] [runtime] TailnetActor started");
-        Ok(TailnetState { bridge })
+        Ok(TailnetState { bridge, obs })
     }
 
     async fn handle(
@@ -143,21 +163,23 @@ pub struct SignalogradActor;
 
 pub struct SignalogradState {
     bridge: ActorRef<BridgeMsg>,
+    #[allow(dead_code)]
+    obs: Option<ActorRef<ObsMsg>>,
 }
 
 impl Actor for SignalogradActor {
     type Msg = ComponentMsg;
     type State = SignalogradState;
-    type Arguments = ActorRef<BridgeMsg>;
+    type Arguments = (ActorRef<BridgeMsg>, Option<ActorRef<ObsMsg>>);
 
     async fn pre_start(
         &self,
         _myself: ActorRef<Self::Msg>,
-        bridge: ActorRef<BridgeMsg>,
+        (bridge, obs): Self::Arguments,
     ) -> Result<Self::State, ActorProcessingErr> {
         harmonia_signalograd::harmonia_signalograd_init();
         eprintln!("[INFO] [runtime] SignalogradActor started");
-        Ok(SignalogradState { bridge })
+        Ok(SignalogradState { bridge, obs })
     }
 
     async fn handle(
@@ -204,49 +226,275 @@ impl Actor for SignalogradActor {
 }
 
 // ── ObservabilityActor ───────────────────────────────────────────────
+//
+// The single trace sink. All trace data flows as ractor cast (fire-and-forget).
+// Owns the sender thread, sampling decisions, and parent→child correlation.
 
 pub struct ObservabilityActor;
 
+pub struct ObsActorState {
+    pub sender: Option<SyncSender<TraceMessage>>,
+    pub config: ObservabilityConfig,
+    /// Parent→child dotted_order correlation.
+    dotted_orders: HashMap<String, DottedOrderEntry>,
+    /// Active sampled-in trace_ids (root spans).
+    active_traces: HashSet<String>,
+    /// Rejected (sampled-out) trace_ids — bounded to 1024.
+    rejected_traces: HashSet<String>,
+}
+
+impl ObsActorState {
+    fn handle_span_start(
+        &mut self,
+        run_id: String,
+        parent_run_id: Option<String>,
+        trace_id: Option<String>,
+        name: String,
+        run_type: String,
+        metadata: serde_json::Value,
+    ) {
+        if !self.config.enabled {
+            return;
+        }
+        let sender = match &self.sender {
+            Some(s) => s,
+            None => return,
+        };
+
+        let is_root = parent_run_id.is_none() && trace_id.is_none();
+
+        if is_root {
+            // Sampling decision at root span
+            if self.config.sample_rate < 1.0 {
+                let nanos = SystemTime::now()
+                    .duration_since(UNIX_EPOCH)
+                    .map(|d| d.as_nanos() as u64)
+                    .unwrap_or(0);
+                let roll: f64 = (nanos % 10000) as f64 / 10000.0;
+                if roll >= self.config.sample_rate {
+                    if self.rejected_traces.len() >= 1024 {
+                        self.rejected_traces.clear();
+                    }
+                    self.rejected_traces.insert(run_id);
+                    return;
+                }
+            }
+            self.active_traces.insert(run_id.clone());
+        } else {
+            // Child span: check if parent trace was sampled out
+            if let Some(ref tid) = trace_id {
+                if self.rejected_traces.contains(tid) {
+                    return;
+                }
+            }
+            if let Some(ref pid) = parent_run_id {
+                if self.rejected_traces.contains(pid) {
+                    return;
+                }
+            }
+        }
+
+        let actual_trace_id = trace_id.unwrap_or_else(|| run_id.clone());
+
+        let dotted_order = if let Some(ref parent_rid) = parent_run_id {
+            if let Some(parent_entry) = self.dotted_orders.get(parent_rid) {
+                dotted_order_child(&parent_entry.dotted_order, &run_id)
+            } else {
+                dotted_order_for(&run_id)
+            }
+        } else {
+            dotted_order_for(&run_id)
+        };
+
+        self.dotted_orders.insert(
+            run_id.clone(),
+            DottedOrderEntry {
+                dotted_order: dotted_order.clone(),
+                trace_id: actual_trace_id.clone(),
+            },
+        );
+
+        let _ = sender.try_send(TraceMessage::StartRun(TraceSpan {
+            run_id,
+            parent_run_id,
+            trace_id: actual_trace_id,
+            dotted_order,
+            name,
+            run_type,
+            start_time: now_iso(),
+            end_time: None,
+            status: None,
+            inputs: metadata,
+            outputs: None,
+            extra: json!({}),
+            project_name: self.config.project_name.clone(),
+        }));
+    }
+
+    fn handle_span_end(
+        &mut self,
+        run_id: String,
+        status: String,
+        outputs: serde_json::Value,
+    ) {
+        if !self.config.enabled {
+            return;
+        }
+        let sender = match &self.sender {
+            Some(s) => s,
+            None => return,
+        };
+
+        if self.rejected_traces.remove(&run_id) {
+            return;
+        }
+
+        self.active_traces.remove(&run_id);
+        self.dotted_orders.remove(&run_id);
+
+        let _ = sender.try_send(TraceMessage::EndRun {
+            run_id,
+            status,
+            outputs,
+            end_time: now_iso(),
+        });
+    }
+
+    fn handle_event(
+        &mut self,
+        name: String,
+        run_type: String,
+        metadata: serde_json::Value,
+        parent_run_id: Option<String>,
+        trace_id: Option<String>,
+    ) {
+        if !self.config.enabled {
+            return;
+        }
+        let sender = match &self.sender {
+            Some(s) => s,
+            None => return,
+        };
+
+        // Check if parent was sampled out
+        if let Some(ref tid) = trace_id {
+            if self.rejected_traces.contains(tid) {
+                return;
+            }
+        }
+        if let Some(ref pid) = parent_run_id {
+            if self.rejected_traces.contains(pid) {
+                return;
+            }
+        }
+
+        let (actual_trace_id, actual_dotted_order) = if let Some(ref pid) = parent_run_id {
+            if let Some(entry) = self.dotted_orders.get(pid) {
+                (Some(entry.trace_id.clone()), Some(entry.dotted_order.clone()))
+            } else {
+                (trace_id, None)
+            }
+        } else {
+            (trace_id, None)
+        };
+
+        let _ = sender.try_send(TraceMessage::Event(TraceEvent {
+            name,
+            run_type,
+            metadata,
+            project_name: self.config.project_name.clone(),
+            trace_id: actual_trace_id,
+            parent_run_id,
+            dotted_order: actual_dotted_order,
+        }));
+    }
+}
+
 impl Actor for ObservabilityActor {
-    type Msg = ComponentMsg;
-    type State = ();
-    type Arguments = ();
+    type Msg = ObsMsg;
+    type State = ObsActorState;
+    type Arguments = (Option<SyncSender<TraceMessage>>, Option<ObservabilityConfig>);
 
     async fn pre_start(
         &self,
         _myself: ActorRef<Self::Msg>,
-        _args: (),
+        (sender, config): Self::Arguments,
     ) -> Result<Self::State, ActorProcessingErr> {
-        // Init is handled by Lisp via IPC dispatch ("observability" "init").
-        // The actor only owns flush/shutdown lifecycle.
-        eprintln!("[INFO] [runtime] ObservabilityActor started");
-        Ok(())
+        let config = config.unwrap_or_default();
+        eprintln!(
+            "[INFO] [runtime] ObservabilityActor started (level={}, sample_rate={})",
+            config.trace_level.as_str(),
+            config.sample_rate
+        );
+        Ok(ObsActorState {
+            sender,
+            config,
+            dotted_orders: HashMap::new(),
+            active_traces: HashSet::new(),
+            rejected_traces: HashSet::new(),
+        })
     }
 
     async fn handle(
         &self,
         _myself: ActorRef<Self::Msg>,
         message: Self::Msg,
-        _state: &mut Self::State,
+        state: &mut Self::State,
     ) -> Result<(), ActorProcessingErr> {
         match message {
-            ComponentMsg::Tick => {
-                // No-op: the background sender thread auto-flushes every 2s
-                // when items are pending. Forcing flush here on every tick (5s)
-                // causes redundant HTTP POSTs that trigger 429 rate limits.
+            ObsMsg::SpanStart {
+                run_id,
+                parent_run_id,
+                trace_id,
+                name,
+                run_type,
+                metadata,
+            } => {
+                state.handle_span_start(run_id, parent_run_id, trace_id, name, run_type, metadata);
             }
-            ComponentMsg::Dispatch(sexp, reply) => {
-                let result = crate::dispatch::dispatch("observability", &sexp);
-                let _ = reply.send(result);
+            ObsMsg::SpanEnd {
+                run_id,
+                status,
+                outputs,
+            } => {
+                state.handle_span_end(run_id, status, outputs);
             }
-            ComponentMsg::Signal { payload_sexp } => {
-                let _ = payload_sexp;
+            ObsMsg::Event {
+                name,
+                run_type,
+                metadata,
+                parent_run_id,
+                trace_id,
+            } => {
+                state.handle_event(name, run_type, metadata, parent_run_id, trace_id);
             }
-            ComponentMsg::Shutdown => {
-                // Flush remaining traces before shutdown, then stop sender thread.
-                harmonia_observability::harmonia_observability_flush();
-                harmonia_observability::harmonia_observability_shutdown();
+            ObsMsg::Flush => {
+                if let Some(ref sender) = state.sender {
+                    let _ = sender.try_send(TraceMessage::Flush);
+                }
+            }
+            ObsMsg::Shutdown => {
+                if let Some(ref sender) = state.sender {
+                    let _ = sender.try_send(TraceMessage::Flush);
+                    std::thread::sleep(std::time::Duration::from_millis(50));
+                    let _ = sender.try_send(TraceMessage::Shutdown);
+                }
                 eprintln!("[INFO] [runtime] ObservabilityActor shutting down");
+            }
+            ObsMsg::Reconfigure {
+                trace_level,
+                sample_rate,
+                enabled,
+            } => {
+                if let Some(level_str) = trace_level {
+                    state.config.trace_level = TraceLevel::from_str(&level_str);
+                }
+                if let Some(rate) = sample_rate {
+                    state.config.sample_rate = rate.clamp(0.0, 1.0);
+                }
+                if let Some(en) = enabled {
+                    state.config.enabled = en;
+                }
             }
         }
         Ok(())
@@ -418,20 +666,21 @@ pub struct GatewayActor;
 
 pub struct GatewayState {
     bridge: ActorRef<BridgeMsg>,
+    obs: Option<ActorRef<ObsMsg>>,
 }
 
 impl Actor for GatewayActor {
     type Msg = ComponentMsg;
     type State = GatewayState;
-    type Arguments = ActorRef<BridgeMsg>;
+    type Arguments = (ActorRef<BridgeMsg>, Option<ActorRef<ObsMsg>>);
 
     async fn pre_start(
         &self,
         _myself: ActorRef<Self::Msg>,
-        bridge: ActorRef<BridgeMsg>,
+        (bridge, obs): Self::Arguments,
     ) -> Result<Self::State, ActorProcessingErr> {
         eprintln!("[INFO] [runtime] GatewayActor started");
-        Ok(GatewayState { bridge })
+        Ok(GatewayState { bridge, obs })
     }
 
     async fn handle(
@@ -445,6 +694,9 @@ impl Actor for GatewayActor {
                 // Gateway polling: collect inbound signals from all frontends
                 let registry = harmonia_gateway::Registry::new();
                 let batch = harmonia_gateway::poll_baseband(&registry);
+                if harmonia_observability::harmonia_observability_is_verbose() && !batch.envelopes.is_empty() {
+                    state.obs.trace_event("gateway-poll", "tool", json!({"envelopes": batch.envelopes.len()}));
+                }
                 for envelope in &batch.envelopes {
                     let msg = HarmoniaMessage {
                         id: 0,
@@ -480,26 +732,33 @@ pub struct VaultActor;
 
 impl Actor for VaultActor {
     type Msg = ComponentMsg;
-    type State = ();
-    type Arguments = ();
+    type State = Option<ActorRef<ObsMsg>>;
+    type Arguments = Option<ActorRef<ObsMsg>>;
 
     async fn pre_start(
         &self,
         _myself: ActorRef<Self::Msg>,
-        _args: (),
+        obs: Self::Arguments,
     ) -> Result<Self::State, ActorProcessingErr> {
         eprintln!("[INFO] [runtime] VaultActor started");
-        Ok(())
+        Ok(obs)
     }
 
     async fn handle(
         &self,
         _myself: ActorRef<Self::Msg>,
         message: Self::Msg,
-        _state: &mut Self::State,
+        state: &mut Self::State,
     ) -> Result<(), ActorProcessingErr> {
         match message {
             ComponentMsg::Dispatch(sexp, reply) => {
+                if harmonia_observability::harmonia_observability_is_verbose() {
+                    // Trace vault access (symbol name only, never the value)
+                    let symbol = crate::dispatch::extract_vault_symbol(&sexp);
+                    if !symbol.is_empty() {
+                        state.trace_event("vault-access", "tool", json!({"symbol": symbol}));
+                    }
+                }
                 let result = crate::dispatch::dispatch("vault", &sexp);
                 let _ = reply.send(result);
             }
@@ -730,6 +989,7 @@ pub struct RouterState {
     history_write: usize,
     history_count: usize,
     pub cascade_entries: [Option<CascadeEntry>; CASCADE_CAP],
+    pub obs: Option<ActorRef<ObsMsg>>,
 }
 
 impl Default for RouterState {
@@ -741,6 +1001,7 @@ impl Default for RouterState {
             history_write: 0,
             history_count: 0,
             cascade_entries: std::array::from_fn(|_| None),
+            obs: None,
         }
     }
 }
@@ -820,17 +1081,28 @@ impl RouterState {
             if let Some(r) = &self.history[idx] {
                 let _ = write!(
                     out,
-                    "(:model \"{}\" :task \"{}\" :tier \"{}\" :success {} :latency-ms {})",
+                    "(:model \"{}\" :task \"{}\" :tier \"{}\" :success {} :latency-ms {} :timestamp {})",
                     r.model_id(),
                     r.task_kind(),
                     r.tier_name(),
                     if r.success { "t" } else { "nil" },
-                    r.latency_ms
+                    r.latency_ms,
+                    r.timestamp
                 );
                 shown += 1;
             }
         }
         let _ = shown;
+        out.push_str(") :cascades (");
+        for slot in &self.cascade_entries {
+            if let Some(c) = slot {
+                let _ = write!(
+                    out,
+                    "(:request-id {} :tier-idx {} :attempts {} :started-at {})",
+                    c.request_id, c.tier_idx, c.attempt_count, c.started_at
+                );
+            }
+        }
         out.push_str(")))");
         out
     }
@@ -839,12 +1111,12 @@ impl RouterState {
 impl Actor for RouterActor {
     type Msg = ComponentMsg;
     type State = RouterState;
-    type Arguments = ();
+    type Arguments = Option<ActorRef<ObsMsg>>;
 
     async fn pre_start(
         &self,
         _myself: ActorRef<Self::Msg>,
-        _args: (),
+        obs: Self::Arguments,
     ) -> Result<Self::State, ActorProcessingErr> {
         let tier_str = harmonia_config_store::get_config("router", "router", "active-tier")
             .ok()
@@ -857,6 +1129,7 @@ impl Actor for RouterActor {
         );
         Ok(RouterState {
             active_tier_idx: idx,
+            obs,
             ..Default::default()
         })
     }
@@ -890,7 +1163,9 @@ impl Actor for RouterActor {
             ComponentMsg::Signal { payload_sexp } => {
                 if payload_sexp.contains("tier-changed") {
                     if let Some(tier) = extract_sexp_value(&payload_sexp, "tier") {
+                        let old_tier = state.active_tier_name().to_string();
                         state.active_tier_idx = tier_index(&tier) as u8;
+                        state.obs.trace_event("router-tier-changed", "tool", json!({"old": old_tier, "new": tier}));
                     }
                 } else if payload_sexp.contains("route-feedback") {
                     let model = extract_sexp_value(&payload_sexp, "model").unwrap_or_default();
@@ -900,6 +1175,9 @@ impl Actor for RouterActor {
                     let latency = extract_sexp_u64(&payload_sexp, "latency-ms").unwrap_or(0);
                     let cost = extract_sexp_f64(&payload_sexp, "cost-usd").unwrap_or(0.0);
                     state.record_feedback(&model, &task, &tier, success, latency, cost);
+                    if !success && harmonia_observability::harmonia_observability_is_standard() {
+                        state.obs.trace_event("router-cascade-escalate", "tool", json!({"model": model, "reason": "route-feedback-failure", "tier": tier}));
+                    }
                 }
             }
             ComponentMsg::Dispatch(_sexp, reply) => {

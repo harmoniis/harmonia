@@ -3,6 +3,9 @@
 ;;; Non-blocking background trace submission. All trace calls are no-ops when
 ;;; observability is disabled or the API key is not configured.
 ;;; Observability must NEVER block the agent — all errors are silently ignored.
+;;;
+;;; Architecture: trace-start/trace-end/trace-event use ipc-cast (fire-and-forget).
+;;; Run-ids are pre-generated client-side as UUID strings — no server round-trip.
 
 (in-package :harmonia)
 
@@ -25,10 +28,26 @@
 
 ;;; --- Parent-child trace correlation ---
 
-(defparameter *current-trace-handle* 0
-  "Dynamic variable holding the active trace span handle.
-   Child trace-event calls use this as :parent-id for correlation.
-   Bound by with-trace; 0 means no active parent span.")
+(defparameter *current-trace-handle* ""
+  "Dynamic variable holding the active trace span run-id string.
+   Child trace-event calls use this as :parent-run-id for correlation.
+   Bound by with-trace; empty string means no active parent span.")
+
+;;; --- UUID generation ---
+
+(defun %new-run-id ()
+  "Generate a UUID v4 string for trace run-ids."
+  (let ((bytes (make-array 16 :element-type '(unsigned-byte 8))))
+    (with-open-file (s "/dev/urandom" :element-type '(unsigned-byte 8))
+      (read-sequence bytes s))
+    ;; Set UUID v4 variant bits
+    (setf (aref bytes 6) (logior #x40 (logand (aref bytes 6) #x0f)))
+    (setf (aref bytes 8) (logior #x80 (logand (aref bytes 8) #x3f)))
+    (format nil "~(~2,'0x~2,'0x~2,'0x~2,'0x-~2,'0x~2,'0x-~2,'0x~2,'0x-~2,'0x~2,'0x-~2,'0x~2,'0x~2,'0x~2,'0x~2,'0x~2,'0x~)"
+            (aref bytes 0) (aref bytes 1) (aref bytes 2) (aref bytes 3)
+            (aref bytes 4) (aref bytes 5) (aref bytes 6) (aref bytes 7)
+            (aref bytes 8) (aref bytes 9) (aref bytes 10) (aref bytes 11)
+            (aref bytes 12) (aref bytes 13) (aref bytes 14) (aref bytes 15))))
 
 ;;; --- Port API ---
 
@@ -37,9 +56,13 @@
    Non-fatal on failure — the agent runs without tracing."
   (handler-case
       (progn
-        (let ((reply (ipc-call "(:component \"observability\" :op \"init\")")))
-          (when (and reply (ipc-reply-ok-p reply))
-            (setf *observability-initialized* t)))
+        (let* ((reply (ipc-call "(:component \"observability\" :op \"init\")"))
+               (parsed (when (ipc-reply-ok-p reply) (ipc-parse-sexp-reply reply))))
+          (when parsed
+            (if (getf (cdr parsed) :enabled)
+                (setf *observability-initialized* t)
+                (%log :warn "observability"
+                      "Rust init OK but tracing DISABLED — set LANGCHAIN_API_KEY"))))
         ;; Load trace level from config store
         (when *observability-initialized*
           (ignore-errors
@@ -67,32 +90,32 @@
 
 ;;; --- Public tracing API ---
 
-(defun trace-start (name kind &key (parent-id 0) metadata)
-  "Start a new trace span. Returns a handle (>0) or 0 if disabled.
+(defun trace-start (name kind &key parent-run-id metadata)
+  "Start a new trace span. Returns a run-id string, or \"\" if disabled.
    KIND is one of: :chain :llm :tool :agent
-   PARENT-ID: use *current-trace-handle* for automatic parent correlation."
+   PARENT-RUN-ID: string run-id from parent span, or nil."
   (when *observability-initialized*
     (ignore-errors
-      (let* ((pid (if (and parent-id (plusp parent-id))
-                      parent-id
-                      (if (plusp *current-trace-handle*)
-                          *current-trace-handle*
-                          0)))
-             (reply (ipc-call
-                     (format nil "(:component \"observability\" :op \"trace-start\" :name \"~A\" :kind \"~A\" :parent-id ~D :metadata \"~A\")"
-                             (sexp-escape-lisp (or name "unknown"))
-                             (string-downcase (symbol-name (or kind :chain)))
-                             pid
-                             (sexp-escape-lisp (if metadata (format nil "~S" metadata) ""))))))
-        (or (ipc-extract-u64 reply ":handle") 0)))))
+      (let* ((run-id (%new-run-id))
+             (parent (or parent-run-id
+                         (when (> (length *current-trace-handle*) 0)
+                           *current-trace-handle*))))
+        (ipc-cast
+         (format nil "(:component \"observability\" :op \"trace-start\" :run-id \"~A\" :name \"~A\" :kind \"~A\"~@[ :parent-run-id \"~A\"~] :metadata \"~A\")"
+                 (sexp-escape-lisp run-id)
+                 (sexp-escape-lisp (or name "unknown"))
+                 (string-downcase (symbol-name (or kind :chain)))
+                 (when parent (sexp-escape-lisp parent))
+                 (sexp-escape-lisp (if metadata (format nil "~S" metadata) ""))))
+        run-id))))
 
 (defun trace-end (handle &key (status :success) output)
-  "End a trace span. HANDLE 0 = no-op."
-  (when (and *observability-initialized* handle (plusp handle))
+  "End a trace span. Empty string handle = no-op."
+  (when (and *observability-initialized* handle (stringp handle) (> (length handle) 0))
     (ignore-errors
-      (ipc-call
-       (format nil "(:component \"observability\" :op \"trace-end\" :handle ~D :status \"~A\" :output \"~A\")"
-               handle
+      (ipc-cast
+       (format nil "(:component \"observability\" :op \"trace-end\" :run-id \"~A\" :status \"~A\" :output \"~A\")"
+               (sexp-escape-lisp handle)
                (string-downcase (symbol-name (or status :success)))
                (sexp-escape-lisp (if output (format nil "~S" output) "")))))))
 
@@ -100,11 +123,14 @@
   "Fire-and-forget trace event. Inherits parent from *current-trace-handle*."
   (when *observability-initialized*
     (ignore-errors
-      (ipc-call
-       (format nil "(:component \"observability\" :op \"trace-event\" :name \"~A\" :kind \"~A\" :metadata \"~A\")"
-               (sexp-escape-lisp (or name "unknown"))
-               (string-downcase (symbol-name (or kind :chain)))
-               (sexp-escape-lisp (if metadata (format nil "~S" metadata) "")))))))
+      (let ((parent (when (> (length *current-trace-handle*) 0)
+                      *current-trace-handle*)))
+        (ipc-cast
+         (format nil "(:component \"observability\" :op \"trace-event\" :name \"~A\" :kind \"~A\"~@[ :parent-run-id \"~A\"~] :metadata \"~A\")"
+                 (sexp-escape-lisp (or name "unknown"))
+                 (string-downcase (symbol-name (or kind :chain)))
+                 (when parent (sexp-escape-lisp parent))
+                 (sexp-escape-lisp (if metadata (format nil "~S" metadata) ""))))))))
 
 (defun trace-flush ()
   "Flush pending traces."
@@ -129,10 +155,8 @@
   (let ((handle (gensym "TRACE-HANDLE-"))
         (result (gensym "TRACE-RESULT-"))
         (errorp (gensym "TRACE-ERROR-")))
-    `(let* ((,handle (trace-start ,name ,kind
-                                  :parent-id *current-trace-handle*
-                                  :metadata ,metadata))
-            (*current-trace-handle* (or ,handle 0))
+    `(let* ((,handle (trace-start ,name ,kind :metadata ,metadata))
+            (*current-trace-handle* (or ,handle ""))
             (,errorp nil)
             (,result nil))
        (unwind-protect

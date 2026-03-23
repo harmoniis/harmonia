@@ -104,6 +104,10 @@
      :test #'string=)))
 
 (defun memory-put (class content &key (depth 0) (tags '()) (source-ids '()))
+  (when (and (fboundp '%trace-level-p) (%trace-level-p :verbose))
+    (ignore-errors
+      (trace-event "memory-write" :tool
+                   :metadata (list :class class :depth depth))))
   (incf *memory-seq*)
   (let* ((now (get-universal-time))
          (id (format nil "~A-~A-~A" class now *memory-seq*))

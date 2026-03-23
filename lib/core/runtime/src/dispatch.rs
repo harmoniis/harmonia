@@ -9,27 +9,27 @@ use std::ffi::{CStr, CString};
 use std::os::raw::c_char;
 
 use ractor::ActorRef;
+use serde_json::json;
+
+use harmonia_observability::{ObsMsg, Traceable};
 
 use crate::actors::MatrixMsg;
 
 /// Route matrix commands through the HarmonicMatrixActor for serialized access.
-/// Observability traces matrix operations in-process (no IPC round-trip) so
-/// LangSmith shows the full matrix decision surface: topology changes, route
-/// decisions with signal/noise/cost dimensions, and component event flow.
-pub async fn dispatch_matrix_via_actor(matrix: &ActorRef<MatrixMsg>, sexp: &str) -> String {
+/// Observability traces matrix operations via the obs actor (no statics, no mutex).
+pub async fn dispatch_matrix_via_actor(
+    matrix: &ActorRef<MatrixMsg>,
+    obs: &Option<ActorRef<ObsMsg>>,
+    sexp: &str,
+) -> String {
     let op = extract_keyword(sexp, ":op");
     match op.as_deref() {
         Some("register-node") => {
             let id = extract_string(sexp, ":id").unwrap_or_default();
             let kind = extract_string(sexp, ":kind").unwrap_or_default();
-            trace_matrix_verbose(
-                "matrix-topology",
-                &format!(
-                    r#"{{"op":"register-node","node":"{}","kind":"{}"}}"#,
-                    esc(&id),
-                    esc(&kind)
-                ),
-            );
+            if harmonia_observability::harmonia_observability_is_verbose() {
+                obs.trace_event("matrix-topology", "chain", json!({"op": "register-node", "node": id.clone(), "kind": kind.clone()}));
+            }
             let _ = matrix.cast(MatrixMsg::RegisterNode { id, kind });
             "(:ok)".to_string()
         }
@@ -38,16 +38,9 @@ pub async fn dispatch_matrix_via_actor(matrix: &ActorRef<MatrixMsg>, sexp: &str)
             let to = extract_string(sexp, ":to").unwrap_or_default();
             let weight = parse_f64(sexp, ":weight");
             let min_harmony = parse_f64(sexp, ":min-harmony");
-            trace_matrix_verbose(
-                "matrix-topology",
-                &format!(
-                    r#"{{"op":"register-edge","from":"{}","to":"{}","weight":{},"min_harmony":{}}}"#,
-                    esc(&from),
-                    esc(&to),
-                    weight,
-                    min_harmony
-                ),
-            );
+            if harmonia_observability::harmonia_observability_is_verbose() {
+                obs.trace_event("matrix-topology", "chain", json!({"op": "register-edge", "from": from.clone(), "to": to.clone(), "weight": weight, "min_harmony": min_harmony}));
+            }
             let _ = matrix.cast(MatrixMsg::RegisterEdge {
                 from,
                 to,
@@ -62,17 +55,9 @@ pub async fn dispatch_matrix_via_actor(matrix: &ActorRef<MatrixMsg>, sexp: &str)
             let success = parse_bool(sexp, ":success");
             let latency_ms = extract_u64(sexp, ":latency-ms");
             let cost_usd = parse_f64(sexp, ":cost-usd");
-            trace_matrix_standard(
-                "matrix-route-observed",
-                &format!(
-                    r#"{{"from":"{}","to":"{}","success":{},"latency_ms":{},"cost_usd":{}}}"#,
-                    esc(&from),
-                    esc(&to),
-                    success,
-                    latency_ms,
-                    cost_usd
-                ),
-            );
+            if harmonia_observability::harmonia_observability_is_standard() {
+                obs.trace_event("matrix-route-observed", "chain", json!({"from": from.clone(), "to": to.clone(), "success": success, "latency_ms": latency_ms, "cost_usd": cost_usd}));
+            }
             let _ = matrix.cast(MatrixMsg::ObserveRoute {
                 from,
                 to,
@@ -89,17 +74,9 @@ pub async fn dispatch_matrix_via_actor(matrix: &ActorRef<MatrixMsg>, sexp: &str)
             let payload = extract_string(sexp, ":payload").unwrap_or_default();
             let success = parse_bool(sexp, ":success");
             let error = extract_string(sexp, ":error").unwrap_or_default();
-            trace_matrix_verbose(
-                "matrix-event",
-                &format!(
-                    r#"{{"component":"{}","direction":"{}","channel":"{}","success":{},"error":"{}"}}"#,
-                    esc(&component),
-                    esc(&direction),
-                    esc(&channel),
-                    success,
-                    esc(&error)
-                ),
-            );
+            if harmonia_observability::harmonia_observability_is_verbose() {
+                obs.trace_event("matrix-event", "chain", json!({"component": component.clone(), "direction": direction.clone(), "channel": channel.clone(), "success": success, "error": error.clone()}));
+            }
             let _ = matrix.cast(MatrixMsg::LogEvent {
                 component,
                 direction,
@@ -113,14 +90,9 @@ pub async fn dispatch_matrix_via_actor(matrix: &ActorRef<MatrixMsg>, sexp: &str)
         Some("set-tool-enabled") => {
             let node = extract_string(sexp, ":node").unwrap_or_default();
             let enabled = parse_bool(sexp, ":enabled");
-            trace_matrix_verbose(
-                "matrix-topology",
-                &format!(
-                    r#"{{"op":"set-tool-enabled","node":"{}","enabled":{}}}"#,
-                    esc(&node),
-                    enabled
-                ),
-            );
+            if harmonia_observability::harmonia_observability_is_verbose() {
+                obs.trace_event("matrix-topology", "chain", json!({"op": "set-tool-enabled", "node": node.clone(), "enabled": enabled}));
+            }
             let _ = matrix.cast(MatrixMsg::SetToolEnabled { node, enabled });
             "(:ok)".to_string()
         }
@@ -141,19 +113,9 @@ pub async fn dispatch_matrix_via_actor(matrix: &ActorRef<MatrixMsg>, sexp: &str)
                 5000
             ) {
                 Ok(allowed) => {
-                    // Trace the route decision with full signal/noise dimensions
-                    trace_matrix_standard(
-                        "matrix-route-decision",
-                        &format!(
-                            r#"{{"from":"{}","to":"{}","signal":{},"noise":{},"snr":{},"allowed":{}}}"#,
-                            esc(&from),
-                            esc(&to),
-                            signal,
-                            noise,
-                            if noise > 0.0 { signal / noise } else { signal },
-                            allowed
-                        ),
-                    );
+                    if harmonia_observability::harmonia_observability_is_standard() {
+                        obs.trace_event("matrix-route-decision", "chain", json!({"from": from.clone(), "to": to.clone(), "signal": signal, "noise": noise, "snr": if noise > 0.0 { signal / noise } else { signal }, "allowed": allowed}));
+                    }
                     if allowed {
                         "(:ok :allowed t)".to_string()
                     } else {
@@ -212,6 +174,10 @@ fn dispatch_provider_router(sexp: &str) -> String {
             } else {
                 model_c.as_ptr()
             };
+            if harmonia_observability::harmonia_observability_is_standard() {
+                let obs_ref = harmonia_observability::get_obs_actor().cloned();
+                obs_ref.trace_event("provider-route", "chain", json!({"model": model.clone(), "op": "complete"}));
+            }
             let result_ptr = harmonia_provider_router::harmonia_provider_router_complete(
                 prompt_c.as_ptr(),
                 model_ptr,
@@ -714,7 +680,12 @@ fn dispatch_gateway(sexp: &str) -> String {
             let frontend = extract_string(sexp, ":frontend").unwrap_or_default();
             let channel = extract_string(sexp, ":channel").unwrap_or_default();
             let payload = extract_string(sexp, ":payload").unwrap_or_default();
-            match send_to_frontend(&frontend, &channel, &payload) {
+            let result = send_to_frontend(&frontend, &channel, &payload);
+            if harmonia_observability::harmonia_observability_is_standard() {
+                let obs_ref = harmonia_observability::get_obs_actor().cloned();
+                obs_ref.trace_event("gateway-send", "tool", json!({"frontend": frontend, "channel": channel, "success": result.is_ok()}));
+            }
+            match result {
                 Ok(()) => "(:ok)".to_string(),
                 Err(e) => format!("(:error \"{}\")", esc(&e)),
             }
@@ -1067,20 +1038,10 @@ fn dispatch_matrix(sexp: &str) -> String {
                 dissonance,
             ) {
                 Ok(allowed) => {
-                    trace_matrix_standard(
-                        "matrix-route-decision",
-                        &format!(
-                            r#"{{"from":"{}","to":"{}","signal":{},"noise":{},"snr":{},"security_weight":{},"dissonance":{},"allowed":{}}}"#,
-                            esc(&from),
-                            esc(&to),
-                            signal,
-                            noise,
-                            if noise > 0.0 { signal / noise } else { signal },
-                            security_weight,
-                            dissonance,
-                            allowed
-                        ),
-                    );
+                    if harmonia_observability::harmonia_observability_is_standard() {
+                        let obs_ref = harmonia_observability::get_obs_actor().cloned();
+                        obs_ref.trace_event("matrix-route-decision", "chain", json!({"from": from.clone(), "to": to.clone(), "signal": signal, "noise": noise, "snr": if noise > 0.0 { signal / noise } else { signal }, "security_weight": security_weight, "dissonance": dissonance, "allowed": allowed}));
+                    }
                     format!("(:ok :allowed {})", if allowed { "t" } else { "nil" })
                 }
                 Err(e) => format!("(:error \"{}\")", esc(&e)),
@@ -1150,79 +1111,50 @@ fn dispatch_matrix(sexp: &str) -> String {
     }
 }
 
-// ── Matrix observability ─────────────────────────────────────────────
-//
-// Observability OBSERVES the matrix — it does not route through it.
-// Events go directly to the sender thread (in-process, no IPC).
-//
-// Level policy:
-//   standard: route decisions (allowed/denied), route observations (success/fail)
-//   verbose:  topology changes, component events
-
-/// Trace a matrix operation at standard level (route decisions + observations).
-fn trace_matrix_standard(name: &str, metadata_json: &str) {
-    if harmonia_observability::harmonia_observability_is_standard() {
-        harmonia_observability::harmonia_observability_trace_event(name, "chain", metadata_json);
-    }
-}
-
-/// Trace a matrix operation at verbose level (topology + events).
-fn trace_matrix_verbose(name: &str, metadata_json: &str) {
-    if harmonia_observability::harmonia_observability_is_verbose() {
-        harmonia_observability::harmonia_observability_trace_event(name, "chain", metadata_json);
-    }
-}
-
 // ── Observability ────────────────────────────────────────────────────
 
+/// Dispatch observability commands. Called from the supervisor for init/status,
+/// and as a fallback path for trace ops.
 fn dispatch_observability(sexp: &str) -> String {
     let op = extract_keyword(sexp, ":op");
     match op.as_deref() {
         Some("init") => {
             let rc = harmonia_observability::harmonia_observability_init();
             if rc == 0 {
-                "(:ok)".to_string()
+                let enabled = harmonia_observability::harmonia_observability_enabled();
+                if enabled {
+                    "(:ok :enabled t)".to_string()
+                } else {
+                    "(:ok :enabled nil)".to_string()
+                }
             } else {
                 "(:error \"observability init failed\")".to_string()
             }
         }
-        Some("trace-start") => {
-            let name = extract_string(sexp, ":name").unwrap_or_default();
-            let kind = extract_string(sexp, ":kind").unwrap_or_else(|| "chain".to_string());
-            let parent_id: i64 = extract_string(sexp, ":parent-id")
-                .and_then(|s| s.parse().ok())
-                .unwrap_or(0);
-            let metadata = extract_string(sexp, ":metadata").unwrap_or_default();
-            // Convert Lisp plist metadata to JSON
-            let metadata_json = plist_to_json(&metadata);
-            let handle = harmonia_observability::harmonia_observability_trace_start(
-                &name,
-                &kind,
-                parent_id,
-                &metadata_json,
-            );
-            format!("(:ok :handle {})", handle)
+        Some("status") => {
+            let enabled = harmonia_observability::harmonia_observability_enabled();
+            let verbose = harmonia_observability::harmonia_observability_is_verbose();
+            let standard = harmonia_observability::harmonia_observability_is_standard();
+            let level = if verbose {
+                "verbose"
+            } else if standard {
+                "standard"
+            } else {
+                "minimal"
+            };
+            let sample_rate = harmonia_observability::get_config()
+                .map(|c| c.sample_rate)
+                .unwrap_or(0.1);
+            format!(
+                "(:ok :enabled {} :level \"{}\" :sample-rate {})",
+                if enabled { "t" } else { "nil" },
+                level,
+                sample_rate
+            )
         }
-        Some("trace-end") => {
-            let handle: i64 = extract_string(sexp, ":handle")
-                .and_then(|s| s.parse().ok())
-                .unwrap_or(0);
-            let status = extract_string(sexp, ":status").unwrap_or_else(|| "success".to_string());
-            let output = extract_string(sexp, ":output").unwrap_or_default();
-            let output_json = plist_to_json(&output);
-            harmonia_observability::harmonia_observability_trace_end(handle, &status, &output_json);
-            "(:ok)".to_string()
-        }
-        Some("trace-event") => {
-            let name = extract_string(sexp, ":name").unwrap_or_default();
-            let kind = extract_string(sexp, ":kind").unwrap_or_else(|| "chain".to_string());
-            let metadata = extract_string(sexp, ":metadata").unwrap_or_default();
-            let metadata_json = plist_to_json(&metadata);
-            harmonia_observability::harmonia_observability_trace_event(
-                &name,
-                &kind,
-                &metadata_json,
-            );
+        // Trace ops — cast to obs actor (fire-and-forget)
+        Some(op @ "trace-start") | Some(op @ "trace-end") | Some(op @ "trace-event") => {
+            dispatch_obs_trace(op, sexp);
             "(:ok)".to_string()
         }
         Some("flush") => {
@@ -1237,6 +1169,69 @@ fn dispatch_observability(sexp: &str) -> String {
             "(:error \"unknown observability op: {}\")",
             op.unwrap_or_default()
         ),
+    }
+}
+
+/// Fast-path dispatch for observability trace ops.
+/// Casts to the ObservabilityActor and returns immediately.
+/// Called from ipc.rs (fire-and-forget) and dispatch_observability (fallback).
+pub fn dispatch_obs_trace(op: &str, sexp: &str) {
+    let obs = match harmonia_observability::get_obs_actor() {
+        Some(o) => o,
+        None => return,
+    };
+    match op {
+        "trace-start" => {
+            let run_id = extract_string(sexp, ":run-id").unwrap_or_default();
+            let name = extract_string(sexp, ":name").unwrap_or_default();
+            let kind = extract_string(sexp, ":kind").unwrap_or_else(|| "chain".to_string());
+            let parent_run_id = extract_string(sexp, ":parent-run-id");
+            let trace_id = extract_string(sexp, ":trace-id");
+            let metadata_str = extract_string(sexp, ":metadata").unwrap_or_default();
+            let metadata_json = plist_to_json(&metadata_str);
+            let metadata_val: serde_json::Value =
+                serde_json::from_str(&metadata_json).unwrap_or(json!({}));
+            let _ = obs.cast(ObsMsg::SpanStart {
+                run_id,
+                parent_run_id,
+                trace_id,
+                name,
+                run_type: kind,
+                metadata: metadata_val,
+            });
+        }
+        "trace-end" => {
+            let run_id = extract_string(sexp, ":run-id").unwrap_or_default();
+            let status =
+                extract_string(sexp, ":status").unwrap_or_else(|| "success".to_string());
+            let output_str = extract_string(sexp, ":output").unwrap_or_default();
+            let output_json = plist_to_json(&output_str);
+            let outputs: serde_json::Value =
+                serde_json::from_str(&output_json).unwrap_or(json!({}));
+            let _ = obs.cast(ObsMsg::SpanEnd {
+                run_id,
+                status,
+                outputs,
+            });
+        }
+        "trace-event" => {
+            let name = extract_string(sexp, ":name").unwrap_or_default();
+            let kind = extract_string(sexp, ":kind").unwrap_or_else(|| "chain".to_string());
+            let metadata_str = extract_string(sexp, ":metadata").unwrap_or_default();
+            let metadata_json = plist_to_json(&metadata_str);
+            let metadata_val: serde_json::Value =
+                serde_json::from_str(&metadata_json).unwrap_or(json!({}));
+            let parent_run_id = extract_string(sexp, ":parent-run-id");
+            let trace_id = extract_string(sexp, ":trace-id");
+            let _ = obs.cast(ObsMsg::Event {
+                name,
+                run_type: kind,
+                metadata: metadata_val,
+                parent_run_id,
+                trace_id,
+            });
+        }
+        _ => {}
     }
 }
 
@@ -1411,4 +1406,9 @@ fn parse_bool(sexp: &str, key: &str) -> bool {
     extract_string(sexp, key)
         .map(|s| matches!(s.as_str(), "t" | "true" | "1"))
         .unwrap_or(false)
+}
+
+/// Extract the vault symbol name from a dispatch sexp (for tracing — never extracts values).
+pub fn extract_vault_symbol(sexp: &str) -> String {
+    extract_string(sexp, ":symbol").unwrap_or_default()
 }

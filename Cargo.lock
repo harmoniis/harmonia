@@ -2050,7 +2050,7 @@ dependencies = [
 
 [[package]]
 name = "harmonia"
-version = "0.1.9"
+version = "0.2.0"
 dependencies = [
  "async-trait",
  "base64 0.22.1",
@@ -2378,6 +2378,7 @@ dependencies = [
  "harmonia-actor-protocol",
  "harmonia-config-store",
  "harmonia-vault",
+ "ractor",
  "serde",
  "serde_json",
  "ureq 2.12.1",

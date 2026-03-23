@@ -145,6 +145,17 @@ async fn dispatch_sexp(sexp: &str, supervisor: &ActorRef<RuntimeMsg>) -> Option<
     } else if trimmed.starts_with("(:component") {
         // Component dispatch: (:component "vault" :op "set-secret" :symbol "x" :value "y")
         let component = extract_string_value(trimmed, ":component").unwrap_or_default();
+
+        // Fast path: observability trace ops are fire-and-forget.
+        // Cast directly to the obs actor, bypass supervisor entirely.
+        if component == "observability" {
+            let op = extract_string_value(trimmed, ":op").unwrap_or_default();
+            if matches!(op.as_str(), "trace-start" | "trace-end" | "trace-event") {
+                crate::dispatch::dispatch_obs_trace(&op, trimmed);
+                return None;
+            }
+        }
+
         let reply = ractor::call_t!(
             supervisor,
             RuntimeMsg::ComponentCall,

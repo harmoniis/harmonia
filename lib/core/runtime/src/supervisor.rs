@@ -6,6 +6,8 @@ use harmonia_actor_protocol::{
     now_unix, ActorId, ActorKind, ActorRegistration, ActorState, HarmoniaMessage, MessagePayload,
 };
 
+use harmonia_observability::ObsMsg;
+
 use crate::actors::{ComponentMsg, MatrixMsg};
 use crate::msg::{BridgeMsg, RuntimeMsg};
 use crate::registry::{self, ModuleEntry, ModuleStatus};
@@ -30,6 +32,8 @@ pub struct RuntimeState {
     component_actors: HashMap<String, ActorRef<ComponentMsg>>,
     /// Matrix actor (separate message type).
     matrix_actor: Option<ActorRef<MatrixMsg>>,
+    /// Observability actor (ObsMsg, not ComponentMsg).
+    obs_actor: Option<ActorRef<ObsMsg>>,
     /// Module registry for runtime load/unload management.
     pub module_registry: HashMap<String, ModuleEntry>,
     /// Respawn counters for crash-loop prevention.
@@ -191,6 +195,7 @@ impl Actor for RuntimeSupervisor {
             shutting_down: false,
             component_actors: HashMap::new(),
             matrix_actor: None,
+            obs_actor: None,
             module_registry,
             respawn_counts: HashMap::new(),
         })
@@ -306,12 +311,20 @@ impl Actor for RuntimeSupervisor {
 
             RuntimeMsg::ComponentCall(component, sexp, reply) => {
                 // The supervisor ROUTES, it never EXECUTES component logic.
-                // Every component has an actor — dispatch runs in the actor's
-                // mailbox, keeping the supervisor free for heartbeats/drains/shutdown.
-                if component == "harmonic-matrix" {
+                // Observability: dispatch directly (obs actor uses ObsMsg, not ComponentMsg).
+                // Matrix: dispatch through actor for serialized access.
+                // Others: route through component actor mailbox.
+                if component == "observability" {
+                    let result = crate::dispatch::dispatch("observability", &sexp);
+                    let _ = reply.send(result);
+                } else if component == "harmonic-matrix" {
                     if let Some(ref matrix) = state.matrix_actor {
-                        let result =
-                            crate::dispatch::dispatch_matrix_via_actor(matrix, &sexp).await;
+                        let result = crate::dispatch::dispatch_matrix_via_actor(
+                            matrix,
+                            &state.obs_actor,
+                            &sexp,
+                        )
+                        .await;
                         let _ = reply.send(result);
                     } else {
                         let _ = reply.send("(:error \"matrix actor not available\")".to_string());
@@ -349,6 +362,14 @@ impl Actor for RuntimeSupervisor {
                     actor_ref.get_id()
                 );
                 state.matrix_actor = Some(actor_ref);
+            }
+
+            RuntimeMsg::RegisterObsActor(actor_ref) => {
+                eprintln!(
+                    "[INFO] [runtime] Registered observability actor (ractor id={})",
+                    actor_ref.get_id()
+                );
+                state.obs_actor = Some(actor_ref);
             }
 
             RuntimeMsg::ListModules(reply) => {
@@ -482,7 +503,7 @@ impl Actor for RuntimeSupervisor {
                 "gateway" => Actor::spawn_linked(
                     Some(name.clone()),
                     crate::actors::GatewayActor,
-                    state.bridge.clone(),
+                    (state.bridge.clone(), state.obs_actor.clone()),
                     myself.get_cell(),
                 )
                 .await
@@ -490,7 +511,7 @@ impl Actor for RuntimeSupervisor {
                 "tailnet" => Actor::spawn_linked(
                     Some(name.clone()),
                     crate::actors::TailnetActor,
-                    state.bridge.clone(),
+                    (state.bridge.clone(), state.obs_actor.clone()),
                     myself.get_cell(),
                 )
                 .await
@@ -498,15 +519,7 @@ impl Actor for RuntimeSupervisor {
                 "signalograd" => Actor::spawn_linked(
                     Some(name.clone()),
                     crate::actors::SignalogradActor,
-                    state.bridge.clone(),
-                    myself.get_cell(),
-                )
-                .await
-                .map(|(r, _)| r),
-                "observability" => Actor::spawn_linked(
-                    Some(name.clone()),
-                    crate::actors::ObservabilityActor,
-                    (),
+                    (state.bridge.clone(), state.obs_actor.clone()),
                     myself.get_cell(),
                 )
                 .await
@@ -514,7 +527,7 @@ impl Actor for RuntimeSupervisor {
                 "vault" => Actor::spawn_linked(
                     Some(name.clone()),
                     crate::actors::VaultActor,
-                    (),
+                    state.obs_actor.clone(),
                     myself.get_cell(),
                 )
                 .await
@@ -539,6 +552,14 @@ impl Actor for RuntimeSupervisor {
                     Some(name.clone()),
                     crate::actors::ParallelActor,
                     (),
+                    myself.get_cell(),
+                )
+                .await
+                .map(|(r, _)| r),
+                "router" => Actor::spawn_linked(
+                    Some(name.clone()),
+                    crate::actors::RouterActor,
+                    state.obs_actor.clone(),
                     myself.get_cell(),
                 )
                 .await
@@ -580,6 +601,37 @@ impl Actor for RuntimeSupervisor {
                     }
                     Err(e) => {
                         eprintln!("[ERROR] [runtime] Failed to respawn HarmonicMatrixActor: {e}");
+                    }
+                }
+                return Ok(());
+            }
+        }
+
+        // Try to restart the observability actor
+        if let Some(ref obs) = state.obs_actor {
+            if obs.get_id() == failed_id {
+                eprintln!("[INFO] [runtime] Respawning ObservabilityActor after failure");
+                let sender = harmonia_observability::start_sender();
+                let config = harmonia_observability::get_config().cloned();
+                match Actor::spawn_linked(
+                    Some("observability".to_string()),
+                    crate::actors::ObservabilityActor,
+                    (sender, config),
+                    myself.get_cell(),
+                )
+                .await
+                {
+                    Ok((new_ref, _)) => {
+                        harmonia_observability::set_obs_actor(new_ref.clone());
+                        state.obs_actor = Some(new_ref);
+                        eprintln!(
+                            "[INFO] [runtime] ObservabilityActor respawned successfully"
+                        );
+                    }
+                    Err(e) => {
+                        eprintln!(
+                            "[ERROR] [runtime] Failed to respawn ObservabilityActor: {e}"
+                        );
                     }
                 }
             }

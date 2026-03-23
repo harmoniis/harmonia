@@ -103,6 +103,10 @@
 (defun evolution-execute (&key component patch-body)
   "Dispatch to mode-specific execution."
   (%log :warn "evolution" "evolution-execute called on unwired IPC stub")
+  (when (%trace-level-p :standard)
+    (trace-event "evolution-execute" :tool
+                 :metadata (list :mode *evolution-mode*
+                                 :component (or component "nil"))))
   (ecase *evolution-mode*
     (:artifact-rollout
      (let ((snapshot (ignore-errors

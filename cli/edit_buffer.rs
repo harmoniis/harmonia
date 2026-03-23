@@ -1,4 +1,3 @@
-#![allow(dead_code)]
 //! EditBuffer — text buffer with undo/redo history.
 //!
 //! Every mutation (insert, delete, replace) is recorded as an `Edit`.
@@ -68,28 +67,21 @@ impl EditBuffer {
         self.text.chars().count()
     }
 
-    pub fn is_empty(&self) -> bool {
-        self.text.trim().is_empty()
-    }
-
-    pub fn clear(&mut self) {
-        if !self.text.is_empty() {
-            let old = self.text.clone();
-            let cursor_before = self.cursor;
-            self.text.clear();
-            self.cursor = 0;
-            self.undo_stack
-                .push((Edit::Delete { pos: 0, text: old }, cursor_before));
-            self.redo_stack.clear();
-        }
-    }
-
     pub fn take(&mut self) -> String {
         let result = std::mem::take(&mut self.text);
         self.cursor = 0;
         self.undo_stack.clear();
         self.redo_stack.clear();
         result
+    }
+
+    /// Replace buffer contents entirely (for history navigation).
+    /// Clears undo/redo stacks and positions cursor at end.
+    pub fn set_text(&mut self, text: &str) {
+        self.text = text.to_string();
+        self.cursor = self.char_len();
+        self.undo_stack.clear();
+        self.redo_stack.clear();
     }
 
     // ── Mutations (all recorded for undo) ──────────────────────────
@@ -100,12 +92,20 @@ impl EditBuffer {
         let mut s = String::new();
         s.push(ch);
 
-        // Coalesce with previous insert if it was at the adjacent position
-        // (typing consecutive characters = one undo step)
+        // Coalesce with previous insert if adjacent AND within the same word.
+        // Whitespace boundaries break coalescing so each word is a separate
+        // undo step (typing "hello world" = two undo steps: "hello " + "world").
         let coalesced = if let Some((Edit::Insert { pos, text }, _)) = self.undo_stack.last_mut() {
             if *pos + text.len() == byte_pos {
-                text.push(ch);
-                true
+                let prev_is_ws = text.ends_with(char::is_whitespace);
+                let cur_is_ws = ch.is_whitespace();
+                // Break on word boundary: space→letter or letter→space
+                if prev_is_ws != cur_is_ws {
+                    false
+                } else {
+                    text.push(ch);
+                    true
+                }
             } else {
                 false
             }
@@ -391,5 +391,36 @@ mod tests {
         assert_eq!(buf.cursor(), 0);
         buf.move_end();
         assert_eq!(buf.cursor(), 3);
+    }
+
+    #[test]
+    fn word_level_undo() {
+        let mut buf = EditBuffer::new();
+        for c in "hello world".chars() {
+            buf.insert_char(c);
+        }
+        assert_eq!(buf.text(), "hello world");
+        // Undo removes "world" (second word)
+        buf.undo();
+        assert_eq!(buf.text(), "hello ");
+        // Undo removes " " (whitespace group)
+        buf.undo();
+        assert_eq!(buf.text(), "hello");
+        // Undo removes "hello" (first word)
+        buf.undo();
+        assert_eq!(buf.text(), "");
+    }
+
+    #[test]
+    fn set_text_clears_stacks() {
+        let mut buf = EditBuffer::new();
+        for c in "old".chars() {
+            buf.insert_char(c);
+        }
+        buf.set_text("new text");
+        assert_eq!(buf.text(), "new text");
+        assert_eq!(buf.cursor(), 8);
+        // Undo stack was cleared
+        assert!(!buf.undo());
     }
 }

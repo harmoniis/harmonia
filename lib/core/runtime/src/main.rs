@@ -12,6 +12,7 @@ use std::env;
 use ractor::Actor;
 
 use actors::ComponentMsg;
+use harmonia_observability::ObsMsg;
 
 const COMPONENT: &str = "harmonia-runtime";
 
@@ -28,6 +29,28 @@ fn state_root() -> String {
 async fn main() {
     eprintln!("[INFO] [runtime] harmonia-runtime starting");
 
+    // 0. Bootstrap core infrastructure — config-store and vault must be
+    //    initialized before any module validation or actor startup.
+    //    Without this, vault lookups silently fall back to /tmp/harmonia/
+    //    if HARMONIA_STATE_ROOT or HARMONIA_VAULT_DB are unset.
+    if let Err(e) = harmonia_config_store::init_v2() {
+        eprintln!("[WARN] [runtime] config-store init failed: {e}");
+    }
+    if let Err(e) = harmonia_vault::init_from_env() {
+        eprintln!("[WARN] [runtime] vault init failed: {e}");
+    }
+
+    // Log resolved paths for debuggability
+    eprintln!(
+        "[INFO] [runtime] config-db: {}",
+        harmonia_config_store::get_config_or(COMPONENT, "global", "state-root", "(default)")
+            .unwrap_or_else(|_| "(error)".into())
+    );
+    eprintln!(
+        "[INFO] [runtime] vault-db: {}",
+        harmonia_vault::store_path().display()
+    );
+
     // 1. Initialize only enabled components (config-driven)
     let module_registry = init::init_all();
 
@@ -35,13 +58,26 @@ async fn main() {
     let socket_path = env::var("HARMONIA_RUNTIME_SOCKET")
         .unwrap_or_else(|_| format!("{}/runtime.sock", state_root()));
 
-    // 3. Spawn SbclBridgeActor
+    // 3. Spawn ObservabilityActor FIRST — other actors receive its ref
+    let obs_sender = harmonia_observability::start_sender();
+    let obs_config = harmonia_observability::get_config().cloned();
+    let (obs_ref, _obs_handle) = Actor::spawn(
+        Some("observability".to_string()),
+        actors::ObservabilityActor,
+        (obs_sender, obs_config),
+    )
+    .await
+    .expect("failed to spawn ObservabilityActor");
+    harmonia_observability::set_obs_actor(obs_ref.clone());
+    let obs_opt: Option<ractor::ActorRef<ObsMsg>> = Some(obs_ref.clone());
+
+    // 4. Spawn SbclBridgeActor
     let (bridge_ref, _bridge_handle) =
         Actor::spawn(Some("sbcl-bridge".to_string()), bridge::SbclBridgeActor, ())
             .await
             .expect("failed to spawn SbclBridgeActor");
 
-    // 4. Spawn component actors (all linked to supervisor later)
+    // 5. Spawn component actors — all receive obs ref
     let (chronicle_ref, _) =
         Actor::spawn(Some("chronicle".to_string()), actors::ChronicleActor, ())
             .await
@@ -50,7 +86,7 @@ async fn main() {
     let (gateway_ref, _) = Actor::spawn(
         Some("gateway".to_string()),
         actors::GatewayActor,
-        bridge_ref.clone(),
+        (bridge_ref.clone(), obs_opt.clone()),
     )
     .await
     .expect("failed to spawn GatewayActor");
@@ -58,7 +94,7 @@ async fn main() {
     let (tailnet_ref, _) = Actor::spawn(
         Some("tailnet".to_string()),
         actors::TailnetActor,
-        bridge_ref.clone(),
+        (bridge_ref.clone(), obs_opt.clone()),
     )
     .await
     .expect("failed to spawn TailnetActor");
@@ -66,18 +102,10 @@ async fn main() {
     let (signalograd_ref, _) = Actor::spawn(
         Some("signalograd".to_string()),
         actors::SignalogradActor,
-        bridge_ref.clone(),
+        (bridge_ref.clone(), obs_opt.clone()),
     )
     .await
     .expect("failed to spawn SignalogradActor");
-
-    let (observability_ref, _) = Actor::spawn(
-        Some("observability".to_string()),
-        actors::ObservabilityActor,
-        (),
-    )
-    .await
-    .expect("failed to spawn ObservabilityActor");
 
     let (harmonic_matrix_ref, _) = Actor::spawn(
         Some("harmonic-matrix".to_string()),
@@ -87,9 +115,13 @@ async fn main() {
     .await
     .expect("failed to spawn HarmonicMatrixActor");
 
-    let (vault_ref, _) = Actor::spawn(Some("vault".to_string()), actors::VaultActor, ())
-        .await
-        .expect("failed to spawn VaultActor");
+    let (vault_ref, _) = Actor::spawn(
+        Some("vault".to_string()),
+        actors::VaultActor,
+        obs_opt.clone(),
+    )
+    .await
+    .expect("failed to spawn VaultActor");
 
     let (config_ref, _) = Actor::spawn(Some("config".to_string()), actors::ConfigActor, ())
         .await
@@ -107,14 +139,18 @@ async fn main() {
         .await
         .expect("failed to spawn ParallelActor");
 
-    let (router_ref, _) = Actor::spawn(Some("router".to_string()), actors::RouterActor, ())
-        .await
-        .expect("failed to spawn RouterActor");
+    let (router_ref, _) = Actor::spawn(
+        Some("router".to_string()),
+        actors::RouterActor,
+        obs_opt.clone(),
+    )
+    .await
+    .expect("failed to spawn RouterActor");
 
     // Store matrix actor ref for dispatch routing
     let matrix_for_supervisor = harmonic_matrix_ref.clone();
 
-    // 5. Spawn RuntimeSupervisor (with module registry)
+    // 6. Spawn RuntimeSupervisor (with module registry)
     let (supervisor_ref, supervisor_handle) = Actor::spawn(
         Some("runtime-supervisor".to_string()),
         supervisor::RuntimeSupervisor,
@@ -123,7 +159,7 @@ async fn main() {
     .await
     .expect("failed to spawn RuntimeSupervisor");
 
-    // 5b. Register component actors with the supervisor for restart tracking
+    // 6b. Register component actors with the supervisor for restart tracking
     let _ = supervisor_ref.cast(msg::RuntimeMsg::RegisterComponent(
         "chronicle".to_string(),
         chronicle_ref.clone(),
@@ -139,10 +175,6 @@ async fn main() {
     let _ = supervisor_ref.cast(msg::RuntimeMsg::RegisterComponent(
         "signalograd".to_string(),
         signalograd_ref.clone(),
-    ));
-    let _ = supervisor_ref.cast(msg::RuntimeMsg::RegisterComponent(
-        "observability".to_string(),
-        observability_ref.clone(),
     ));
     let _ = supervisor_ref.cast(msg::RuntimeMsg::RegisterComponent(
         "vault".to_string(),
@@ -165,23 +197,23 @@ async fn main() {
         router_ref.clone(),
     ));
     let _ = supervisor_ref.cast(msg::RuntimeMsg::RegisterMatrixActor(matrix_for_supervisor));
+    let _ = supervisor_ref.cast(msg::RuntimeMsg::RegisterObsActor(obs_ref.clone()));
 
     eprintln!("[INFO] [runtime] All actors spawned, starting IPC server");
 
-    // 6. Spawn IPC listener
+    // 7. Spawn IPC listener
     let ipc_sup = supervisor_ref.clone();
     let ipc_path = socket_path.clone();
     tokio::spawn(async move {
         ipc::serve(&ipc_path, ipc_sup).await;
     });
 
-    // 7. Spawn tick loop — drives periodic polling for all component actors
+    // 8. Spawn tick loop — drives periodic polling for all component actors
     let tick_actors = vec![
         chronicle_ref.clone(),
         gateway_ref.clone(),
         tailnet_ref.clone(),
         signalograd_ref.clone(),
-        observability_ref.clone(),
         router_ref.clone(),
     ];
     let tick_matrix = harmonic_matrix_ref.clone();
@@ -196,14 +228,14 @@ async fn main() {
         }
     });
 
-    // 8. Wait for SIGTERM/SIGINT → coordinated shutdown with timeout
+    // 9. Wait for SIGTERM/SIGINT → coordinated shutdown with timeout
     let shutdown_sup = supervisor_ref.clone();
+    let shutdown_obs = obs_ref;
     let shutdown_actors = vec![
         chronicle_ref,
         gateway_ref,
         tailnet_ref,
         signalograd_ref,
-        observability_ref,
         vault_ref,
         config_ref,
         provider_router_ref,
@@ -225,7 +257,10 @@ async fn main() {
             }
         }
 
-        // Shutdown all component actors first
+        // Shutdown observability actor first (flushes traces)
+        let _ = shutdown_obs.cast(ObsMsg::Shutdown);
+
+        // Shutdown all component actors
         for actor in &shutdown_actors {
             let _ = actor.cast(ComponentMsg::Shutdown);
         }
@@ -241,10 +276,10 @@ async fn main() {
         std::process::exit(0);
     });
 
-    // 9. Await supervisor exit
+    // 10. Await supervisor exit
     let _ = supervisor_handle.await;
 
-    // 10. Clean up socket file
+    // 11. Clean up socket file
     let _ = std::fs::remove_file(&socket_path);
     eprintln!("[INFO] [runtime] harmonia-runtime exited");
 }

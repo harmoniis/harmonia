@@ -1,4 +1,5 @@
 use harmonia_actor_protocol::{ActorId, ActorKind, HarmoniaMessage};
+use harmonia_observability::ObsMsg;
 use ractor::{ActorRef, RpcReplyPort};
 
 use crate::actors::{ComponentMsg, MatrixMsg};
@@ -33,6 +34,8 @@ pub enum RuntimeMsg {
     RegisterComponent(String, ActorRef<ComponentMsg>),
     /// Register the matrix actor (separate message type).
     RegisterMatrixActor(ActorRef<MatrixMsg>),
+    /// Register the observability actor (separate message type — ObsMsg, not ComponentMsg).
+    RegisterObsActor(ActorRef<ObsMsg>),
     /// List all modules and their status. call_t!(sup, ListModules, timeout) → String
     ListModules(RpcReplyPort<String>),
     /// Load a module by name. call_t!(sup, LoadModule, name, timeout) → String

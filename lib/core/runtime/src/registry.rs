@@ -177,8 +177,11 @@ pub fn build_registry() -> Vec<ModuleEntry> {
             name: "observability".into(),
             status: ModuleStatus::Unloaded,
             core: false,
-            config_reqs: vec![],
-            init_fn: || Ok(()), // initialized via actor spawn
+            config_reqs: vec![ConfigReq::VaultSecret("langsmith-api-key".into())],
+            init_fn: || {
+                let rc = harmonia_observability::harmonia_observability_init();
+                if rc == 0 { Ok(()) } else { Err("observability init failed".into()) }
+            },
             shutdown_fn: noop_shutdown,
         },
         // ── Frontends (with config requirements) ──────────────────

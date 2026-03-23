@@ -253,6 +253,19 @@ fn wait_for_socket(
 /// Drain the shared response buffer and render all lines.
 /// Called from the main thread AFTER the spinner has cleaned up,
 /// so there's no cursor conflict.
+/// Unwrap gateway `{"text": "..."}` wrappers. Plain text passes through.
+fn try_unwrap_json_text(line: &str) -> String {
+    let trimmed = line.trim();
+    if trimmed.starts_with('{') {
+        if let Ok(v) = serde_json::from_str::<serde_json::Value>(trimmed) {
+            if let Some(t) = v.get("text").and_then(|t| t.as_str()) {
+                return t.to_string();
+            }
+        }
+    }
+    line.to_string()
+}
+
 fn render_buffered_response(response_buf: &Arc<Mutex<Vec<String>>>, assistant_label: &str) {
     let lines: Vec<String> = {
         let mut buf = match response_buf.lock() {
@@ -269,7 +282,10 @@ fn render_buffered_response(response_buf: &Arc<Mutex<Vec<String>>>, assistant_la
     eprintln!();
     eprintln!("  {BOLD_CYAN}╭─{RESET} {DIM}{assistant_label}{RESET}");
     for line in &lines {
-        print_agent_line(line);
+        let unwrapped = try_unwrap_json_text(line);
+        for sub_line in unwrapped.lines() {
+            print_agent_line(sub_line);
+        }
     }
     eprintln!("  {BOLD_CYAN}╰─{RESET}");
     eprintln!();
@@ -296,6 +312,9 @@ fn run_input_loop(
 ) -> ExitReason {
     let mut stdout = std::io::stdout();
     let mut queued_input: Option<String> = None;
+    let mut history = crate::input_history::InputHistory::load(&session.identity.node_label);
+    let draft_store = crate::draft_store::DraftStore::new(session);
+    let mut first_input = true;
 
     loop {
         if !running.load(Ordering::Relaxed) {
@@ -344,7 +363,9 @@ fn run_input_loop(
         }
 
         // Read input
-        let input = match read_input_line(running, term) {
+        let restore_draft = first_input;
+        first_input = false;
+        let input = match read_input_line(running, term, &mut history, &draft_store, restore_draft) {
             Ok(s) => s,
             Err(e) => return ExitReason::Error(e.to_string()),
         };
@@ -445,11 +466,20 @@ fn dispatch_input(
 fn read_input_line(
     running: &Arc<AtomicBool>,
     _term: &Term,
+    history: &mut crate::input_history::InputHistory,
+    draft: &crate::draft_store::DraftStore,
+    restore_draft: bool,
 ) -> Result<String, Box<dyn std::error::Error>> {
-    let mut input = String::new();
-    let mut cursor_pos: usize = 0;
-    let mut undo_stack: Vec<(String, usize)> = Vec::new();
-    let mut redo_stack: Vec<(String, usize)> = Vec::new();
+    let mut buf = crate::edit_buffer::EditBuffer::new();
+
+    // Restore draft from crash/kill
+    if restore_draft {
+        if let Some(saved) = draft.load() {
+            buf.set_text(&saved);
+            eprintln!("  {DIM}Restored draft{RESET}");
+        }
+    }
+
     let mut ac_mode = AutocompleteMode::None;
     let mut box_height: u16 = 3; // initial: top border + 1 line + bottom border
 
@@ -480,7 +510,7 @@ fn read_input_line(
         start_row
     };
 
-    box_height = draw_prompt(&input, cursor_pos, box_row, box_height)?;
+    box_height = draw_prompt(buf.text(), buf.cursor(), box_row, box_height)?;
 
     // Helper: update autocomplete menu after input changes
     let update_menu = |input: &str,
@@ -560,38 +590,38 @@ fn read_input_line(
                         modifiers: KeyModifiers::CONTROL,
                         ..
                     } => {
-                        if input.is_empty() {
+                        if buf.text().is_empty() {
                             clear_menu(box_row, box_height);
                             running.store(false, Ordering::Relaxed);
                             break Ok(String::new());
                         }
                     }
 
-                    // Ctrl+Z — undo
+                    // Undo — Ctrl+Z
+                    // Note: Cmd+Z cannot be captured in terminal apps — the terminal
+                    // emulator intercepts it before it reaches the application. Ctrl+Z
+                    // is the standard undo binding for all terminal applications on
+                    // every platform (macOS, Linux, Windows).
                     KeyEvent {
                         code: KeyCode::Char('z'),
                         modifiers: KeyModifiers::CONTROL,
                         ..
                     } => {
-                        if let Some((prev_text, prev_cursor)) = undo_stack.pop() {
-                            redo_stack.push((input.clone(), cursor_pos));
-                            input = prev_text;
-                            cursor_pos = prev_cursor;
-                            box_height = draw_prompt(&input, cursor_pos, box_row, box_height)?;
+                        if buf.undo() {
+                            box_height = draw_prompt(buf.text(), buf.cursor(), box_row, box_height)?;
+                            draft.save(buf.text());
                         }
                     }
 
-                    // Ctrl+Y — redo
+                    // Redo — Ctrl+Y
                     KeyEvent {
                         code: KeyCode::Char('y'),
                         modifiers: KeyModifiers::CONTROL,
                         ..
                     } => {
-                        if let Some((next_text, next_cursor)) = redo_stack.pop() {
-                            undo_stack.push((input.clone(), cursor_pos));
-                            input = next_text;
-                            cursor_pos = next_cursor;
-                            box_height = draw_prompt(&input, cursor_pos, box_row, box_height)?;
+                        if buf.redo() {
+                            box_height = draw_prompt(buf.text(), buf.cursor(), box_row, box_height)?;
+                            draft.save(buf.text());
                         }
                     }
 
@@ -601,14 +631,12 @@ fn read_input_line(
                         modifiers: KeyModifiers::CONTROL,
                         ..
                     } => {
-                        undo_stack.push((input.clone(), cursor_pos));
-                        redo_stack.clear();
-                        input.clear();
-                        cursor_pos = 0;
-                        box_height = draw_prompt(&input, cursor_pos, box_row, box_height)?;
+                        buf.clear_line();
+                        box_height = draw_prompt(buf.text(), buf.cursor(), box_row, box_height)?;
+                        draft.save(buf.text());
                         update_menu(
-                            &input,
-                            cursor_pos,
+                            buf.text(),
+                            buf.cursor(),
                             &mut ac_mode,
                             box_row,
                             box_height,
@@ -626,8 +654,8 @@ fn read_input_line(
                         code: KeyCode::Home,
                         ..
                     } => {
-                        cursor_pos = 0;
-                        box_height = draw_prompt(&input, cursor_pos, box_row, box_height)?;
+                        buf.move_home();
+                        box_height = draw_prompt(buf.text(), buf.cursor(), box_row, box_height)?;
                     }
 
                     // Ctrl+E — end of line
@@ -639,8 +667,8 @@ fn read_input_line(
                     | KeyEvent {
                         code: KeyCode::End, ..
                     } => {
-                        cursor_pos = char_len(&input);
-                        box_height = draw_prompt(&input, cursor_pos, box_row, box_height)?;
+                        buf.move_end();
+                        box_height = draw_prompt(buf.text(), buf.cursor(), box_row, box_height)?;
                     }
 
                     // Ctrl+W — delete word backward
@@ -649,32 +677,12 @@ fn read_input_line(
                         modifiers: KeyModifiers::CONTROL,
                         ..
                     } => {
-                        if cursor_pos > 0 {
-                            undo_stack.push((input.clone(), cursor_pos));
-                            redo_stack.clear();
-                            let mut new_pos = cursor_pos;
-                            while new_pos > 0
-                                && char_at(&input, new_pos - 1)
-                                    .map(|ch| ch.is_whitespace())
-                                    .unwrap_or(false)
-                            {
-                                new_pos -= 1;
-                            }
-                            while new_pos > 0
-                                && !char_at(&input, new_pos - 1)
-                                    .map(|ch| ch.is_whitespace())
-                                    .unwrap_or(true)
-                            {
-                                new_pos -= 1;
-                            }
-                            let start = byte_index_for_char(&input, new_pos);
-                            let end = byte_index_for_char(&input, cursor_pos);
-                            input.drain(start..end);
-                            cursor_pos = new_pos;
-                            box_height = draw_prompt(&input, cursor_pos, box_row, box_height)?;
+                        if buf.delete_word_back() {
+                            box_height = draw_prompt(buf.text(), buf.cursor(), box_row, box_height)?;
+                            draft.save(buf.text());
                             update_menu(
-                                &input,
-                                cursor_pos,
+                                buf.text(),
+                                buf.cursor(),
                                 &mut ac_mode,
                                 box_row,
                                 box_height,
@@ -683,12 +691,12 @@ fn read_input_line(
                         }
                     }
 
-                    // Up arrow — navigate menu
+                    // Up arrow — navigate menu or history
                     KeyEvent {
                         code: KeyCode::Up, ..
                     } => match &mut ac_mode {
                         AutocompleteMode::Slash { selected } => {
-                            let m = slash_matches(&input);
+                            let m = slash_matches(buf.text());
                             if !m.is_empty() {
                                 *selected = if *selected == 0 {
                                     m.len().min(SLASH_MENU_MAX) - 1
@@ -707,16 +715,22 @@ fn read_input_line(
                                 draw_file_menu(box_row, box_height, matches, *selected);
                             }
                         }
-                        AutocompleteMode::None => {}
+                        AutocompleteMode::None => {
+                            if let Some(text) = history.navigate_up(buf.text()) {
+                                let text = text.to_string();
+                                buf.set_text(&text);
+                                box_height = draw_prompt(buf.text(), buf.cursor(), box_row, box_height)?;
+                            }
+                        }
                     },
 
-                    // Down arrow — navigate menu
+                    // Down arrow — navigate menu or history
                     KeyEvent {
                         code: KeyCode::Down,
                         ..
                     } => match &mut ac_mode {
                         AutocompleteMode::Slash { selected } => {
-                            let m = slash_matches(&input);
+                            let m = slash_matches(buf.text());
                             if !m.is_empty() {
                                 let max = m.len().min(SLASH_MENU_MAX) - 1;
                                 *selected = if *selected >= max { 0 } else { *selected + 1 };
@@ -732,7 +746,15 @@ fn read_input_line(
                                 draw_file_menu(box_row, box_height, matches, *selected);
                             }
                         }
-                        AutocompleteMode::None => {}
+                        AutocompleteMode::None => {
+                            if let Some(text) = history.navigate_down() {
+                                let text = text.to_string();
+                                buf.set_text(&text);
+                            } else {
+                                buf.set_text("");
+                            }
+                            box_height = draw_prompt(buf.text(), buf.cursor(), box_row, box_height)?;
+                        }
                     },
 
                     // Enter — submit or select file
@@ -742,9 +764,12 @@ fn read_input_line(
                     } => {
                         match &ac_mode {
                             AutocompleteMode::Slash { selected } => {
-                                let m = slash_matches(&input);
+                                let m = slash_matches(buf.text());
                                 if *selected < m.len() {
-                                    input = m[*selected].0.to_string();
+                                    buf.clear_line();
+                                    for c in m[*selected].0.chars() {
+                                        buf.insert_char(c);
+                                    }
                                 }
                             }
                             AutocompleteMode::File {
@@ -755,22 +780,30 @@ fn read_input_line(
                                 // Insert selected file path, don't submit
                                 if *selected < matches.len() {
                                     let fm = &matches[*selected];
-                                    let at_start = byte_index_for_char(&input, *token_start);
-                                    let at_end = byte_index_for_char(&input, cursor_pos);
                                     let replacement = if fm.is_dir {
                                         format!("@{}", fm.full_path)
                                     } else {
                                         format!("@{} ", fm.full_path)
                                     };
-                                    let new_cursor = *token_start + char_len(&replacement);
-                                    input.replace_range(at_start..at_end, &replacement);
-                                    cursor_pos = new_cursor;
+                                    let ts = *token_start;
+                                    let cur = buf.cursor();
+                                    let text = buf.text().to_string();
+                                    let at_start = byte_index_for_char(&text, ts);
+                                    let at_end = byte_index_for_char(&text, cur);
+                                    let mut new_text = String::new();
+                                    new_text.push_str(&text[..at_start]);
+                                    new_text.push_str(&replacement);
+                                    new_text.push_str(&text[at_end..]);
+                                    let new_cursor = ts + char_len(&replacement);
+                                    buf.set_text(&new_text);
+                                    buf.set_cursor(new_cursor);
                                     box_height =
-                                        draw_prompt(&input, cursor_pos, box_row, box_height)?;
+                                        draw_prompt(buf.text(), buf.cursor(), box_row, box_height)?;
+                                    draft.save(buf.text());
                                     if fm.is_dir {
                                         update_menu(
-                                            &input,
-                                            cursor_pos,
+                                            buf.text(),
+                                            buf.cursor(),
                                             &mut ac_mode,
                                             box_row,
                                             box_height,
@@ -789,13 +822,12 @@ fn read_input_line(
                         // this Enter is part of a paste — insert newline instead of submitting.
                         if event::poll(std::time::Duration::from_millis(5)).unwrap_or(false) {
                             // More input coming — this is a paste, insert newline
-                            let byte_idx = byte_index_for_char(&input, cursor_pos);
-                            input.insert(byte_idx, '\n');
-                            cursor_pos += 1;
-                            box_height = draw_prompt(&input, cursor_pos, box_row, box_height)?;
+                            buf.insert_char('\n');
+                            box_height = draw_prompt(buf.text(), buf.cursor(), box_row, box_height)?;
+                            draft.save(buf.text());
                             update_menu(
-                                &input,
-                                cursor_pos,
+                                buf.text(),
+                                buf.cursor(),
                                 &mut ac_mode,
                                 box_row,
                                 box_height,
@@ -813,7 +845,11 @@ fn read_input_line(
                         }
                         let _ = queue!(err, MoveTo(0, box_row));
                         let _ = err.flush();
-                        break Ok(input);
+                        let submitted = buf.take();
+                        draft.clear();
+                        history.push(&submitted);
+                        history.reset_navigation();
+                        break Ok(submitted);
                     }
 
                     // Tab — accept selected into input
@@ -822,14 +858,17 @@ fn read_input_line(
                     } => match &ac_mode {
                         AutocompleteMode::Slash { selected } => {
                             let sel = *selected;
-                            let m = slash_matches(&input);
+                            let m = slash_matches(buf.text());
                             if sel < m.len() {
-                                input = m[sel].0.to_string();
-                                cursor_pos = char_len(&input);
-                                box_height = draw_prompt(&input, cursor_pos, box_row, box_height)?;
+                                buf.clear_line();
+                                for c in m[sel].0.chars() {
+                                    buf.insert_char(c);
+                                }
+                                box_height = draw_prompt(buf.text(), buf.cursor(), box_row, box_height)?;
+                                draft.save(buf.text());
                                 update_menu(
-                                    &input,
-                                    cursor_pos,
+                                    buf.text(),
+                                    buf.cursor(),
                                     &mut ac_mode,
                                     box_row,
                                     box_height,
@@ -845,21 +884,28 @@ fn read_input_line(
                             if *selected < matches.len() {
                                 let fm = matches[*selected].clone();
                                 let ts = *token_start;
-                                let at_start = byte_index_for_char(&input, ts);
-                                let at_end = byte_index_for_char(&input, cursor_pos);
+                                let cur = buf.cursor();
                                 let replacement = if fm.is_dir {
                                     format!("@{}", fm.full_path)
                                 } else {
                                     format!("@{} ", fm.full_path)
                                 };
+                                let text = buf.text().to_string();
+                                let at_start = byte_index_for_char(&text, ts);
+                                let at_end = byte_index_for_char(&text, cur);
+                                let mut new_text = String::new();
+                                new_text.push_str(&text[..at_start]);
+                                new_text.push_str(&replacement);
+                                new_text.push_str(&text[at_end..]);
                                 let new_cursor = ts + char_len(&replacement);
-                                input.replace_range(at_start..at_end, &replacement);
-                                cursor_pos = new_cursor;
-                                box_height = draw_prompt(&input, cursor_pos, box_row, box_height)?;
+                                buf.set_text(&new_text);
+                                buf.set_cursor(new_cursor);
+                                box_height = draw_prompt(buf.text(), buf.cursor(), box_row, box_height)?;
+                                draft.save(buf.text());
                                 if fm.is_dir {
                                     update_menu(
-                                        &input,
-                                        cursor_pos,
+                                        buf.text(),
+                                        buf.cursor(),
                                         &mut ac_mode,
                                         box_row,
                                         box_height,
@@ -889,17 +935,12 @@ fn read_input_line(
                         code: KeyCode::Backspace,
                         ..
                     } => {
-                        if cursor_pos > 0 {
-                            undo_stack.push((input.clone(), cursor_pos));
-                            redo_stack.clear();
-                            let start = byte_index_for_char(&input, cursor_pos - 1);
-                            let end = byte_index_for_char(&input, cursor_pos);
-                            input.drain(start..end);
-                            cursor_pos -= 1;
-                            box_height = draw_prompt(&input, cursor_pos, box_row, box_height)?;
+                        if buf.backspace() {
+                            box_height = draw_prompt(buf.text(), buf.cursor(), box_row, box_height)?;
+                            draft.save(buf.text());
                             update_menu(
-                                &input,
-                                cursor_pos,
+                                buf.text(),
+                                buf.cursor(),
                                 &mut ac_mode,
                                 box_row,
                                 box_height,
@@ -913,16 +954,12 @@ fn read_input_line(
                         code: KeyCode::Delete,
                         ..
                     } => {
-                        if cursor_pos < char_len(&input) {
-                            undo_stack.push((input.clone(), cursor_pos));
-                            redo_stack.clear();
-                            let start = byte_index_for_char(&input, cursor_pos);
-                            let end = byte_index_for_char(&input, cursor_pos + 1);
-                            input.drain(start..end);
-                            box_height = draw_prompt(&input, cursor_pos, box_row, box_height)?;
+                        if buf.delete() {
+                            box_height = draw_prompt(buf.text(), buf.cursor(), box_row, box_height)?;
+                            draft.save(buf.text());
                             update_menu(
-                                &input,
-                                cursor_pos,
+                                buf.text(),
+                                buf.cursor(),
                                 &mut ac_mode,
                                 box_row,
                                 box_height,
@@ -936,9 +973,8 @@ fn read_input_line(
                         code: KeyCode::Left,
                         ..
                     } => {
-                        if cursor_pos > 0 {
-                            cursor_pos -= 1;
-                            box_height = draw_prompt(&input, cursor_pos, box_row, box_height)?;
+                        if buf.move_left() {
+                            box_height = draw_prompt(buf.text(), buf.cursor(), box_row, box_height)?;
                         }
                     }
 
@@ -947,9 +983,8 @@ fn read_input_line(
                         code: KeyCode::Right,
                         ..
                     } => {
-                        if cursor_pos < char_len(&input) {
-                            cursor_pos += 1;
-                            box_height = draw_prompt(&input, cursor_pos, box_row, box_height)?;
+                        if buf.move_right() {
+                            box_height = draw_prompt(buf.text(), buf.cursor(), box_row, box_height)?;
                         }
                     }
 
@@ -959,15 +994,12 @@ fn read_input_line(
                         modifiers: KeyModifiers::NONE | KeyModifiers::SHIFT,
                         ..
                     } => {
-                        undo_stack.push((input.clone(), cursor_pos));
-                        redo_stack.clear();
-                        let byte_index = byte_index_for_char(&input, cursor_pos);
-                        input.insert(byte_index, c);
-                        cursor_pos += 1;
-                        box_height = draw_prompt(&input, cursor_pos, box_row, box_height)?;
+                        buf.insert_char(c);
+                        box_height = draw_prompt(buf.text(), buf.cursor(), box_row, box_height)?;
+                        draft.save(buf.text());
                         update_menu(
-                            &input,
-                            cursor_pos,
+                            buf.text(),
+                            buf.cursor(),
                             &mut ac_mode,
                             box_row,
                             box_height,
@@ -989,22 +1021,22 @@ const SLASH_COMMANDS: &[(&str, &str)] = &[
     ("/help", "Show this help"),
     ("/exit", "Exit session"),
     ("/clear", "New session, clear screen"),
-    ("/session", "Current session info"),
     ("/resume", "Resume a past session"),
     ("/rewind", "Rewind to a previous turn"),
     ("/status", "System health + subsystems"),
-    ("/backends", "LLM provider status"),
+    ("/providers", "Active providers by category"),
     ("/tools", "Registered tools"),
+    ("/session", "Current session info"),
+    ("/frontends", "Setup and pair frontends"),
+    ("/log", "Recent log entries"),
+    ("/menu", "Interactive menu"),
     ("/chronicle", "Chronicle event query"),
     ("/metrics", "Runtime metrics"),
     ("/security", "Security posture"),
-    ("/identity", "Agent identity"),
     ("/feedback", "Response style feedback"),
+    ("/identity", "Agent identity"),
     ("/wallet", "Wallet/vault status"),
-    ("/menu", "Interactive menu"),
     ("/policies", "Channel sender policies"),
-    ("/frontends", "Setup and pair frontends"),
-    ("/log", "Recent log entries"),
 ];
 
 const SLASH_MENU_MAX: usize = 8;
@@ -1105,10 +1137,6 @@ fn term_width() -> u16 {
 
 fn char_len(input: &str) -> usize {
     input.chars().count()
-}
-
-fn char_at(input: &str, char_index: usize) -> Option<char> {
-    input.chars().nth(char_index)
 }
 
 fn byte_index_for_char(input: &str, char_index: usize) -> usize {
@@ -1892,8 +1920,20 @@ fn handle_command(
             CommandResult::Handled
         }
 
+        // ── Status (handled locally for proper formatting) ──
+        "/status" => {
+            print_status();
+            CommandResult::Handled
+        }
+
+        // ── Providers (handled locally) ──
+        "/providers" | "/backends" => {
+            print_providers();
+            CommandResult::Handled
+        }
+
         // ── System commands (sent to daemon) ──
-        "/status" | "/backends" | "/tools" | "/chronicle" | "/metrics" | "/security"
+        "/tools" | "/chronicle" | "/metrics" | "/security"
         | "/identity" | "/feedback" | "/wallet" => CommandResult::SendToAgent(cmd.to_string()),
 
         _ => CommandResult::SessionText,
@@ -2455,33 +2495,338 @@ fn print_help() {
     eprintln!("  {DIM}──────────────────────────────────────{RESET}");
     eprintln!();
     eprintln!("  {DIM}Session{RESET}");
-    eprintln!("  {CYAN}/menu{RESET}                Interactive menu");
     eprintln!("  {CYAN}/help{RESET}                Show this help");
-    eprintln!("  {CYAN}/session{RESET}             Current session info");
+    eprintln!("  {CYAN}/exit{RESET}                Exit");
+    eprintln!("  {CYAN}/clear{RESET}               New session, clear screen");
     eprintln!("  {CYAN}/resume{RESET}              Resume a past session");
     eprintln!("  {CYAN}/rewind{RESET}              Rewind to a previous turn");
-    eprintln!("  {CYAN}/clear{RESET}               Clear screen");
+    eprintln!("  {CYAN}/session{RESET}             Current session info");
     eprintln!("  {CYAN}/log{RESET}                 Recent log entries");
-    eprintln!("  {CYAN}/exit{RESET}                Exit");
+    eprintln!("  {CYAN}/menu{RESET}                Interactive menu");
     eprintln!();
-    eprintln!("  {DIM}Security{RESET}");
-    eprintln!("  {CYAN}/policies{RESET}            Channel sender allowlists");
-    eprintln!();
-    eprintln!("  {DIM}System (works from any frontend){RESET}");
+    eprintln!("  {DIM}System{RESET}");
     eprintln!("  {CYAN}/status{RESET}              System health & info");
-    eprintln!("  {CYAN}/backends{RESET} {DIM}[name]{RESET}     LLM backend config");
-    eprintln!("  {CYAN}/frontends{RESET} {DIM}[name]{RESET}    Frontend channels");
+    eprintln!("  {CYAN}/providers{RESET}           Active providers by category");
+    eprintln!("  {CYAN}/frontends{RESET}           Frontend channels");
     eprintln!("  {CYAN}/tools{RESET}               Tool API status");
     eprintln!();
     eprintln!("  {DIM}Observability{RESET}");
     eprintln!("  {CYAN}/chronicle{RESET} {DIM}[sub]{RESET}     History & knowledge");
     eprintln!("  {CYAN}/metrics{RESET}             Model performance");
     eprintln!("  {CYAN}/security{RESET} {DIM}[sub]{RESET}      Security audit");
-    eprintln!("  {CYAN}/identity{RESET}            Wallet & vault keys");
     eprintln!("  {CYAN}/feedback{RESET} {DIM}<note>{RESET}    Record style feedback");
+    eprintln!("  {CYAN}/identity{RESET}            Agent identity");
+    eprintln!("  {CYAN}/wallet{RESET}              Wallet/vault status");
+    eprintln!("  {CYAN}/policies{RESET}            Channel sender policies");
     eprintln!();
     eprintln!("  {DIM}──────────────────────────────────────{RESET}");
     eprintln!("  {DIM}Everything else is sent to the agent.{RESET}");
+    eprintln!("  {DIM}Shortcuts{RESET}");
+    eprintln!("  {DIM}Up/Down             Input history{RESET}");
+    eprintln!("  {DIM}Ctrl+Z / Ctrl+Y     Undo / Redo (word-level){RESET}");
+    eprintln!("  {DIM}Ctrl+W              Delete word back{RESET}");
+    eprintln!("  {DIM}Ctrl+U              Clear line{RESET}");
+    eprintln!();
+}
+
+fn print_status() {
+    eprintln!();
+    eprintln!("  {BOLD_CYAN}◆{RESET} {BOLD}Status{RESET}");
+    eprintln!("  {DIM}──────────────────────────────────────{RESET}");
+
+    // ── Phoenix health (HTTP) ──
+    match query_tui_phoenix_health() {
+        Ok(json) => {
+            if let Ok(health) = serde_json::from_str::<serde_json::Value>(&json) {
+                if let Some(uptime) = health.get("uptime_secs").and_then(|v| v.as_u64()) {
+                    let hours = uptime / 3600;
+                    let mins = (uptime % 3600) / 60;
+                    let secs = uptime % 60;
+                    if hours > 0 {
+                        eprintln!("  {CYAN}uptime{RESET}              {}h {}m {}s", hours, mins, secs);
+                    } else if mins > 0 {
+                        eprintln!("  {CYAN}uptime{RESET}              {}m {}s", mins, secs);
+                    } else {
+                        eprintln!("  {CYAN}uptime{RESET}              {}s", secs);
+                    }
+                }
+                if let Some(mode) = health.pointer("/mode/mode").and_then(|v| v.as_str()) {
+                    let styled = match mode {
+                        "full" => format!("{GREEN}{mode}{RESET}"),
+                        "starting" => format!("{YELLOW}{mode}{RESET}"),
+                        _ => mode.to_string(),
+                    };
+                    eprintln!("  {CYAN}mode{RESET}                {styled}");
+                }
+                eprintln!();
+                if let Some(subs) = health.get("subsystems").and_then(|v| v.as_object()) {
+                    eprintln!("  {DIM}Subsystems{RESET}");
+                    for (name, info) in subs {
+                        let status = info.get("status").and_then(|v| v.as_str()).unwrap_or("unknown");
+                        let styled = match status {
+                            "running" => format!("{GREEN}{status}{RESET}"),
+                            "backoff" | "starting" => format!("{YELLOW}{status}{RESET}"),
+                            "stopped" | "crashed" => format!("{RED}{status}{RESET}"),
+                            _ => status.to_string(),
+                        };
+                        let detail = info.get("attempt").and_then(|v| v.as_u64())
+                            .map(|a| format!(" {DIM}(attempt {a}/10){RESET}"))
+                            .unwrap_or_default();
+                        eprintln!("  {:<20}{styled}{detail}", name);
+                    }
+                }
+            } else {
+                eprintln!("  {DIM}health{RESET}              {json}");
+            }
+        }
+        Err(_) => {
+            eprintln!("  {DIM}health{RESET}              {RED}unavailable{RESET}");
+        }
+    }
+
+    // ── Modules (runtime IPC) ──
+    if let Ok(modules) = query_tui_runtime_modules() {
+        eprintln!();
+        eprintln!("  {DIM}Modules{RESET}");
+
+        let mut loaded = Vec::new();
+        let mut unconfigured = Vec::new();
+        for m in &modules {
+            match m.1.as_str() {
+                "loaded" => loaded.push(m.0.as_str()),
+                _ => unconfigured.push(m),
+            }
+        }
+        if !loaded.is_empty() {
+            eprintln!(
+                "  {GREEN}{}{RESET} loaded          {DIM}{}{RESET}",
+                loaded.len(),
+                loaded.join(", ")
+            );
+        }
+        if !unconfigured.is_empty() {
+            eprintln!("  {YELLOW}{}{RESET} unconfigured", unconfigured.len());
+            for (name, _, needs) in &unconfigured {
+                if !needs.is_empty() {
+                    let clean = needs.replace("\\\"", "\"").replace("\\\\", "\\");
+                    eprintln!("    {:<18} {DIM}needs: {clean}{RESET}", name);
+                } else {
+                    eprintln!("    {name}");
+                }
+            }
+        }
+    }
+
+    eprintln!();
+}
+
+fn query_tui_phoenix_health() -> Result<String, Box<dyn std::error::Error>> {
+    let url = "http://127.0.0.1:9100/health";
+    let resp = ureq::get(url)
+        .timeout(std::time::Duration::from_secs(3))
+        .call()?;
+    Ok(resp.into_string()?)
+}
+
+fn extract_sexp_quoted(sexp: &str, key: &str) -> Option<String> {
+    let idx = sexp.find(key)?;
+    let after = sexp[idx + key.len()..].trim_start();
+    if !after.starts_with('"') {
+        return None;
+    }
+    let bytes = after[1..].as_bytes();
+    let mut end = 0;
+    while end < bytes.len() {
+        if bytes[end] == b'"' {
+            return Some(
+                after[1..1 + end]
+                    .replace("\\\"", "\"")
+                    .replace("\\\\", "\\"),
+            );
+        }
+        if bytes[end] == b'\\' {
+            end += 1;
+        }
+        end += 1;
+    }
+    None
+}
+
+fn extract_sexp_unquoted(sexp: &str, key: &str) -> Option<String> {
+    let idx = sexp.find(key)?;
+    let after = sexp[idx + key.len()..].trim_start();
+    let val: String = after
+        .chars()
+        .take_while(|c| !c.is_whitespace() && *c != ')' && *c != '"')
+        .collect();
+    if val.is_empty() {
+        None
+    } else {
+        Some(val)
+    }
+}
+
+#[cfg(unix)]
+fn query_tui_runtime_modules() -> Result<Vec<(String, String, String)>, Box<dyn std::error::Error>> {
+    use std::io::{Read, Write};
+
+    let data_dir = crate::paths::data_dir()?;
+    if std::env::var_os("HARMONIA_STATE_ROOT").is_none() {
+        std::env::set_var("HARMONIA_STATE_ROOT", data_dir.to_string_lossy().as_ref());
+    }
+    let _ = harmonia_config_store::init_v2();
+    let default = std::env::temp_dir()
+        .join("harmonia")
+        .to_string_lossy()
+        .to_string();
+    let state_root =
+        harmonia_config_store::get_config_or("harmonia-runtime", "global", "state-root", &default)
+            .unwrap_or(default);
+    let sock_path = std::path::PathBuf::from(state_root).join("runtime.sock");
+    if !sock_path.exists() {
+        return Err("runtime socket not found".into());
+    }
+
+    let mut stream = UnixStream::connect(&sock_path)?;
+    stream.set_read_timeout(Some(std::time::Duration::from_secs(3)))?;
+    let msg = b"(:modules :op \"list\")";
+    let len = (msg.len() as u32).to_be_bytes();
+    stream.write_all(&len)?;
+    stream.write_all(msg)?;
+    stream.flush()?;
+
+    let mut hdr = [0u8; 4];
+    stream.read_exact(&mut hdr)?;
+    let rlen = u32::from_be_bytes(hdr) as usize;
+    let mut buf = vec![0u8; rlen];
+    stream.read_exact(&mut buf)?;
+    let sexp = String::from_utf8_lossy(&buf).to_string();
+
+    let mut result = Vec::new();
+    let chars: Vec<char> = sexp.chars().collect();
+    let mut i = 0;
+    while i < chars.len() {
+        if i + 5 < chars.len() && chars[i] == '(' && chars[i + 1] == ':' && chars[i + 2] == 'n' {
+            let start = i;
+            let mut depth = 0;
+            let mut end = i;
+            for j in start..chars.len() {
+                if chars[j] == '(' {
+                    depth += 1;
+                } else if chars[j] == ')' {
+                    depth -= 1;
+                    if depth == 0 {
+                        end = j + 1;
+                        break;
+                    }
+                }
+            }
+            let entry: String = chars[start..end].iter().collect();
+            if let Some(name) = extract_sexp_quoted(&entry, ":name") {
+                let status = extract_sexp_unquoted(&entry, ":status").unwrap_or_default();
+                let needs = extract_sexp_quoted(&entry, ":needs").unwrap_or_default();
+                result.push((name, status, needs));
+            }
+            i = end;
+        } else {
+            i += 1;
+        }
+    }
+    Ok(result)
+}
+
+#[cfg(not(unix))]
+fn query_tui_runtime_modules() -> Result<Vec<(String, String, String)>, Box<dyn std::error::Error>> {
+    Err("module query requires Unix sockets".into())
+}
+
+fn print_providers() {
+    eprintln!();
+    eprintln!("  {BOLD_CYAN}◆{RESET} {BOLD}Providers{RESET}");
+    eprintln!("  {DIM}──────────────────────────────────────{RESET}");
+
+    // Provider registry: (id, display_name, vault_symbols)
+    // grouped by category.
+
+    struct ProviderEntry {
+        id: &'static str,
+        display: &'static str,
+        secrets: &'static [&'static str],
+    }
+
+    struct Category {
+        label: &'static str,
+        providers: &'static [ProviderEntry],
+    }
+
+    const TEXT_PROVIDERS: &[ProviderEntry] = &[
+        ProviderEntry { id: "openrouter",       display: "OpenRouter",       secrets: &["openrouter-api-key"] },
+        ProviderEntry { id: "openai",           display: "OpenAI",           secrets: &["openai-api-key"] },
+        ProviderEntry { id: "anthropic",        display: "Anthropic",        secrets: &["anthropic-api-key"] },
+        ProviderEntry { id: "xai",              display: "xAI",              secrets: &["xai-api-key"] },
+        ProviderEntry { id: "google-ai-studio", display: "Google AI Studio", secrets: &["google-ai-studio-api-key"] },
+        ProviderEntry { id: "google-vertex",    display: "Google Vertex",    secrets: &["google-vertex-access-token"] },
+        ProviderEntry { id: "bedrock",          display: "Amazon Bedrock",   secrets: &["aws-access-key-id"] },
+        ProviderEntry { id: "groq",             display: "Groq",             secrets: &["groq-api-key"] },
+        ProviderEntry { id: "alibaba",          display: "Alibaba",          secrets: &["alibaba-api-key"] },
+    ];
+
+    const VOICE_PROVIDERS: &[ProviderEntry] = &[
+        ProviderEntry { id: "elevenlabs", display: "ElevenLabs (TTS)", secrets: &["elevenlabs-api-key"] },
+        ProviderEntry { id: "whisper-groq",  display: "Whisper via Groq (STT)",   secrets: &["groq-api-key"] },
+        ProviderEntry { id: "whisper-openai", display: "Whisper via OpenAI (STT)", secrets: &["openai-api-key"] },
+    ];
+
+    let categories: &[Category] = &[
+        Category { label: "Text",  providers: TEXT_PROVIDERS },
+        Category { label: "Voice", providers: VOICE_PROVIDERS },
+        // Future: Image, Video, Environments, Sim2Real
+    ];
+
+    let active_provider = harmonia_config_store::get_config("harmonia-cli", "model-policy", "provider")
+        .ok()
+        .flatten()
+        .unwrap_or_default();
+
+    let mut any_active = false;
+    for cat in categories {
+        let active: Vec<&ProviderEntry> = cat.providers.iter()
+            .filter(|p| p.secrets.iter().all(|s| harmonia_vault::has_secret_for_symbol(s)))
+            .collect();
+
+        if active.is_empty() {
+            continue;
+        }
+        any_active = true;
+
+        eprintln!();
+        eprintln!("  {DIM}{}{RESET}", cat.label);
+        for p in &active {
+            let is_primary = p.id == active_provider;
+            let label = if is_primary {
+                format!("{GREEN}●{RESET} {BOLD}{}{RESET}", p.display)
+            } else {
+                format!("{GREEN}●{RESET} {}", p.display)
+            };
+            eprintln!("  {label}");
+
+            // Show seed models for text providers
+            if cat.label == "Text" {
+                let provider_key = format!("seed-models-{}", p.id);
+                if let Ok(Some(seeds)) = harmonia_config_store::get_config("harmonia-cli", "model-policy", &provider_key) {
+                    for model in seeds.split(',').map(|s| s.trim()).filter(|s| !s.is_empty()) {
+                        eprintln!("      {DIM}{model}{RESET}");
+                    }
+                }
+            }
+        }
+    }
+
+    if !any_active {
+        eprintln!();
+        eprintln!("  {DIM}No providers configured. Run {RESET}{CYAN}harmonia setup{RESET}{DIM} to add API keys.{RESET}");
+    }
+
     eprintln!();
 }
 

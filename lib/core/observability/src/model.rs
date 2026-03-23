@@ -218,3 +218,51 @@ pub fn dotted_order_child(parent_order: &str, child_run_id: &str) -> String {
         child_run_id
     )
 }
+
+// ─── Actor-native trace messages ────────────────────────────────────
+
+/// Messages for the ObservabilityActor. Fire-and-forget via ractor cast.
+#[derive(Debug)]
+pub enum ObsMsg {
+    /// Start a new trace span.
+    SpanStart {
+        run_id: String,
+        parent_run_id: Option<String>,
+        trace_id: Option<String>,
+        name: String,
+        run_type: String,
+        metadata: serde_json::Value,
+    },
+    /// End a trace span.
+    SpanEnd {
+        run_id: String,
+        status: String,
+        outputs: serde_json::Value,
+    },
+    /// Fire-and-forget event.
+    Event {
+        name: String,
+        run_type: String,
+        metadata: serde_json::Value,
+        parent_run_id: Option<String>,
+        trace_id: Option<String>,
+    },
+    /// Flush pending batches.
+    Flush,
+    /// Shut down the actor and sender thread.
+    Shutdown,
+    /// Reconfigure at runtime.
+    Reconfigure {
+        trace_level: Option<String>,
+        sample_rate: Option<f64>,
+        enabled: Option<bool>,
+    },
+}
+
+/// Tracks parent→child dotted_order correlation within the actor.
+#[derive(Debug, Clone)]
+pub struct DottedOrderEntry {
+    pub dotted_order: String,
+    pub trace_id: String,
+}
+

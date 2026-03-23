@@ -163,6 +163,12 @@
   (when (and (listp proposal) (eq (first proposal) :signalograd-proposal))
     (setf proposal (rest proposal)))
   (setf proposal (%signalograd-sanitize-proposal proposal))
+  (when (%trace-level-p :verbose)
+    (trace-event "signalograd-kernel-step" :chain
+                 :metadata (list :cycle (getf proposal :cycle)
+                                 :confidence (getf proposal :confidence)
+                                 :stability (getf proposal :stability)
+                                 :novelty (getf proposal :novelty))))
   (when runtime
     (setf (runtime-state-signalograd-projection runtime) proposal)
     (setf (runtime-state-signalograd-last-updated-at runtime) (get-universal-time))

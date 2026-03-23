@@ -5,21 +5,25 @@ use crate::model::TraceLevel;
 const COMPONENT: &str = "observability";
 
 /// Read observability configuration from config-store + vault + env vars.
-pub(crate) struct ObservabilityConfig {
+#[derive(Debug, Clone)]
+pub struct ObservabilityConfig {
     pub enabled: bool,
     pub trace_level: TraceLevel,
     pub sample_rate: f64,
     pub project_name: String,
     pub api_url: String,
     pub api_key: String,
+    /// Backend: "langsmith" (default), "otlp", or "openobserve".
+    pub backend: String,
 }
 
 impl ObservabilityConfig {
     /// Load configuration with fallback chain: config-store -> env var -> default.
     pub fn load() -> Self {
+        // Default: enabled — config_reqs gates module loading; this is an opt-out override
         let enabled = read_config_or_env("enabled", "HARMONIA_OBSERVABILITY_ENABLED")
             .map(|v| v == "1" || v.eq_ignore_ascii_case("true"))
-            .unwrap_or(false);
+            .unwrap_or(true);
 
         let trace_level = read_config_or_env("trace-level", "HARMONIA_OBSERVABILITY_TRACE_LEVEL")
             .map(|v| TraceLevel::from_str(&v))
@@ -27,7 +31,7 @@ impl ObservabilityConfig {
 
         let sample_rate = read_config_or_env("sample-rate", "HARMONIA_OBSERVABILITY_SAMPLE_RATE")
             .and_then(|v| v.parse::<f64>().ok())
-            .unwrap_or(1.0)
+            .unwrap_or(0.1)
             .clamp(0.0, 1.0);
 
         let project_name =
@@ -42,6 +46,9 @@ impl ObservabilityConfig {
             .or_else(|| std::env::var("LANGCHAIN_API_KEY").ok())
             .unwrap_or_default();
 
+        let backend = read_config_or_env("backend", "HARMONIA_OBSERVABILITY_BACKEND")
+            .unwrap_or_default();
+
         Self {
             enabled,
             trace_level,
@@ -49,6 +56,7 @@ impl ObservabilityConfig {
             project_name,
             api_url,
             api_key,
+            backend,
         }
     }
 }
@@ -69,4 +77,18 @@ fn read_vault_key() -> Option<String> {
     harmonia_vault::get_secret_for_component("observability", "langsmith-api-key")
         .ok()
         .flatten()
+}
+
+impl Default for ObservabilityConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            trace_level: TraceLevel::Standard,
+            sample_rate: 0.1,
+            project_name: "harmonia".to_string(),
+            api_url: "https://api.smith.langchain.com".to_string(),
+            api_key: String::new(),
+            backend: "langsmith".to_string(),
+        }
+    }
 }
