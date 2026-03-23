@@ -140,9 +140,10 @@ jobs:
           - os: macos-latest
             target: x86_64-apple-darwin
             platform: macos-x86_64
-          - os: windows-latest
-            target: x86_64-pc-windows-msvc
-            platform: windows-x86_64
+          # Windows excluded from release: agent requires Unix domain sockets,
+          # Unix signals, and SBCL. Windows users should use WSL2.
+          # Library crates are validated in the Build+Test job.
+          #
           # FreeBSD — native VM build via cross-platform-actions
           - os: ubuntu-latest
             target: x86_64-unknown-freebsd
@@ -167,20 +168,6 @@ jobs:
         with:
           toolchain: "1.93.0"
           targets: ${{ !matrix.freebsd_vm && matrix.target || '' }}
-
-      - name: Set up MSVC environment
-        if: runner.os == 'Windows'
-        uses: ilammy/msvc-dev-cmd@v1
-
-      - name: Force MSVC compiler tools
-        if: runner.os == 'Windows'
-        shell: pwsh
-        run: |
-          "CC=cl.exe" >> $env:GITHUB_ENV
-          "CXX=cl.exe" >> $env:GITHUB_ENV
-          "AR=lib.exe" >> $env:GITHUB_ENV
-          "CC_x86_64_pc_windows_msvc=cl.exe" >> $env:GITHUB_ENV
-          "CXX_x86_64_pc_windows_msvc=cl.exe" >> $env:GITHUB_ENV
 
       - uses: actions/cache@v4
         with:
@@ -221,16 +208,8 @@ jobs:
             VERSION=${GITHUB_REF_NAME#harmonia-v}
             bash scripts/build_release.sh "$VERSION" "${{ matrix.platform }}"
 
-      - name: Build release binaries (Windows)
-        if: runner.os == 'Windows'
-        shell: pwsh
-        run: |
-          $version = $env:GITHUB_REF_NAME -replace '^harmonia-v', ''
-          cargo build --workspace --release --exclude harmonia-phoenix --exclude harmonia-runtime --exclude harmonia
-          bash scripts/build_release.sh $version "${{ matrix.platform }}"
-
       - name: Build release binaries
-        if: runner.os != 'Windows' && !matrix.freebsd_vm
+        if: "!matrix.freebsd_vm"
         shell: bash
         run: |
           VERSION=${GITHUB_REF_NAME#harmonia-v}
