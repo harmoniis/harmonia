@@ -408,6 +408,15 @@ parse_args() {
                 CONFIG_JSON="${1#*=}"
                 shift
                 ;;
+            --setup)
+                [ "$#" -ge 2 ] || error "--setup requires a path to config.json"
+                CONFIG_JSON="$2"
+                shift 2
+                ;;
+            --setup=*)
+                CONFIG_JSON="${1#*=}"
+                shift
+                ;;
             *)
                 error "Unknown installer option: $1"
                 ;;
