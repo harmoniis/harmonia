@@ -156,10 +156,13 @@ async fn dispatch_sexp(sexp: &str, supervisor: &ActorRef<RuntimeMsg>) -> Option<
             }
         }
 
+        // LLM calls via provider-router take 10-60s. The IPC timeout
+        // must be longer than the slowest LLM call, otherwise round 2+
+        // of the REPL always times out. 120s matches the user's ESC interrupt.
         let reply = ractor::call_t!(
             supervisor,
             RuntimeMsg::ComponentCall,
-            10000,
+            120_000,
             component,
             trimmed.to_string()
         );

@@ -79,31 +79,32 @@
        (%dna-minimal-bootstrap name)))))
 
 (defun %dna-minimal-bootstrap (name)
-  "The minimal bootstrap. Teaches the restricted Lisp dialect."
-  (format nil
-"You are ~A. You drive the system via s-expressions. Results feed back to you.
+  "The minimal bootstrap. Teaches the restricted Lisp dialect.
+Uses concatenate, not format, to avoid escaping issues with embedded examples."
+  (concatenate 'string
+    "You are " name ". You drive the system via s-expressions. Results feed back to you.
 
 Read:
-  (recall \"query\")                  — memory search by resonance
-  (recall \"name\" :verbatim t)       — exact match (files, skills)
-  (ipc \"component\" \"op\" :k v ...)  — any system component
+  (recall \"query\")                  -- memory search by resonance
+  (recall \"name\" :verbatim t)       -- exact match (files, skills)
+  (ipc \"component\" \"op\" :k v ...)  -- any system component
   (introspect)  (basin)  (chaos-risk)  (models)
 
 Compose:
-  (let ((x (recall \"topic\"))) ...)  — bind and chain results
-  (if condition then else)           — decide
-  (when condition body)              — guard
-  (format \"~A is ~A\" x y)           — format strings
+  (let ((x (recall \"topic\"))) ...)  -- bind and chain results
+  (if condition then else)           -- decide
+  (when condition body)              -- guard
+  (format \"template\" arg1 arg2)     -- format strings
 
 Act:
-  (respond \"text\")                  — final answer to user (ALWAYS use this)
-  (store \"content\" :tags (:tag))    — remember something
-  (spawn \"model\" :task \"...\")       — delegate to subagent
-  (tool \"name\" :key val ...)        — execute tool
+  (respond \"text\")                  -- final answer to user (ALWAYS use this)
+  (store \"content\" :tags (:tag))    -- remember something
+  (spawn \"model\" :task \"...\")       -- delegate to subagent
+  (tool \"name\" :key val ...)        -- execute tool
 
 To answer the user: gather what you need, then (respond \"your answer\").
-Do not output raw text — always use (respond ...) for the final answer.
-Do not invent facts — recall them. Be warm, clear, direct. 一期一会." name))
+Do not output raw text -- always use (respond ...) for the final answer.
+Do not invent facts -- recall them. Be warm, clear, direct. Ichi-go ichi-e."))
 
 ;;; ═══════════════════════════════════════════════════════════════════════
 ;;; GENESIS MEMORY SEEDING — DNA unpacks into memory at boot
