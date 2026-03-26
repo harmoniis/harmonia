@@ -91,15 +91,29 @@ Multiple cheap calls are better than one expensive call."
 ;;; ═══════════════════════════════════════════════════════════════════════
 
 (defun %is-sexp-output-p (text)
-  "Does the LLM output contain s-expression code to evaluate?"
-  (when (and text (stringp text) (> (length text) 0))
+  "Does the LLM output look like s-expression code?
+Checks: starts with ( AND contains known operation names.
+More permissive than %extract-sexp-ops — catches truncated/malformed sexps too."
+  (when (and text (stringp text) (> (length text) 2))
     (let ((trimmed (string-trim '(#\Space #\Newline #\Return #\Tab) text)))
       (and (> (length trimmed) 2)
            (char= (char trimmed 0) #\()
-           (%extract-sexp-ops trimmed)))))
+           ;; Check if ANY known operation name appears after a (.
+           (let ((lower (string-downcase trimmed)))
+             (or (search "(recall " lower)
+                 (search "(recall-verbatim " lower)
+                 (search "(status)" lower)
+                 (search "(basin)" lower)
+                 (search "(introspect)" lower)
+                 (search "(signalograd)" lower)
+                 (search "(tools)" lower)
+                 (search "(tool " lower)
+                 (search "(source " lower)
+                 (search "(store " lower)))))))
 
 (defun %extract-sexp-ops (text)
-  "Extract all s-expression operations from text."
+  "Extract all s-expression operations from text.
+Handles truncated sexps by closing them with ) if needed."
   (let ((ops '())
         (start 0))
     (loop while (< start (length text)) do
@@ -108,6 +122,7 @@ Multiple cheap calls are better than one expensive call."
             (return)
             (let ((paren-end (%find-matching-paren text paren-start)))
               (if paren-end
+                  ;; Complete sexp — parse normally.
                   (let* ((form-str (subseq text paren-start (1+ paren-end)))
                          (*read-eval* nil)
                          (form (ignore-errors (read-from-string form-str))))
@@ -117,7 +132,17 @@ Multiple cheap calls are better than one expensive call."
                                                     basin source)))
                       (push form-str ops))
                     (setf start (1+ paren-end)))
-                  (return))))))
+                  ;; Truncated sexp — try to salvage by closing it.
+                  (let* ((rest (subseq text paren-start))
+                         (fixed (concatenate 'string rest "\")"))
+                         (*read-eval* nil)
+                         (form (ignore-errors (read-from-string fixed))))
+                    (when (and (listp form) (symbolp (car form))
+                               (member (car form) '(recall recall-verbatim store status
+                                                    tools tool introspect signalograd
+                                                    basin source)))
+                      (push fixed ops))
+                    (return)))))))
     (nreverse ops)))
 
 (defun %find-matching-paren (text start)
@@ -326,8 +351,28 @@ Flow:
              (setf last-eval-result (%eval-all-sexps llm-output)))
 
             (t
-             (%log :info "sexp-eval" "REPL round ~D: response (~D chars)" round (length llm-output))
-             (return-from %orchestrate-repl llm-output))))))
+             ;; Double-check: if the "natural language" still looks like code,
+             ;; don't show it to the user. Evaluate it and do one more round.
+             (if (and (> (length llm-output) 3)
+                      (char= (char (string-trim '(#\Space #\Newline) llm-output) 0) #\())
+                 (progn
+                   (%log :info "sexp-eval" "REPL round ~D: looks like code, evaluating" round)
+                   (setf last-eval-result (%eval-all-sexps llm-output)))
+                 ;; Genuine natural language — return to user.
+                 (progn
+                   (%log :info "sexp-eval" "REPL round ~D: response (~D chars)" round (length llm-output))
+                   (return-from %orchestrate-repl llm-output))))))))
 
-    (%log :warn "sexp-eval" "REPL exceeded ~D rounds" max-rounds)
+    ;; Exceeded rounds. If we have eval results, ask LLM one final time
+    ;; to summarize in natural language. This is the "always answer" guarantee.
+    (when last-eval-result
+      (%log :info "sexp-eval" "REPL: final summary round from eval results")
+      (let ((summary-prompt
+              (format nil "~A~%~%Based on this data:~%~A~%~%Answer the user's question in natural language: ~A"
+                      bootstrap (subseq last-eval-result 0 (min 1200 (length last-eval-result)))
+                      user-text)))
+        (return-from %orchestrate-repl
+          (or (handler-case (backend-complete summary-prompt (or model "auto"))
+                (error () nil))
+              nil))))
     nil))
