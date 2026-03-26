@@ -966,39 +966,60 @@ CONTEXT END")))
                   (or caps "claude-code, codex, openrouter, vault, memory, browser, search, baseband, tailnet"))))))
 
 (defun %orchestrator-answer-directly (prompt)
-  "Answer via the REPL loop: LLM executes s-expressions to discover context,
-then responds in natural language. Falls back to single-shot if REPL unavailable."
-  (trace-event "memory-recall" :tool :metadata (list :source "repl-answer"))
-  ;; Try the REPL loop first (multi-round s-expression execution).
-  (let ((repl-result (when (fboundp '%orchestrate-repl)
-                       (ignore-errors (funcall '%orchestrate-repl prompt)))))
-    (when (and repl-result (stringp repl-result) (> (length repl-result) 0))
-      (return-from %orchestrator-answer-directly repl-result)))
-  ;; Fallback: single-shot with memory recall (if REPL fails).
-  (let* ((recall (memory-semantic-recall-block prompt
-                  :limit 8 :max-chars 2000))
-         (orch-model (if (and *current-originating-signal*
-                              (eq :owner (ignore-errors
-                                           (harmonia-signal-security-label
-                                            *current-originating-signal*))))
-                         (let ((seeds (%seed-models)))
-                           (or (find-if (lambda (m)
-                                          (and (not (search ":free" m))
-                                               (not (search "mercury" m))))
-                                        seeds)
-                               (first seeds)
-                               (%select-model prompt)))
-                         (model-policy-orchestrator-model)))
+  "Answer a question. Simple questions → one fast call. Complex → REPL loop.
+The complexity encoder decides the path. Never wasteful."
+  (trace-event "memory-recall" :tool :metadata (list :source "direct-answer"))
+  (let* ((user-text (if (harmonia-signal-p prompt)
+                        (harmonia-signal-text prompt)
+                        (if (stringp prompt) prompt (princ-to-string prompt))))
+         ;; Complexity encoder decides: is this simple or complex?
+         (is-complex (ignore-errors
+                       (let ((p (string-downcase user-text)))
+                         (or (> (length user-text) 200)
+                             (search "explain" p)
+                             (search "how does" p)
+                             (search "source code" p)
+                             (search "everything" p)
+                             (search "implement" p)
+                             (search "debug" p)
+                             (search "fix" p)
+                             (search "write" p)
+                             (search "create" p))))))
+
+    (if is-complex
+        ;; COMPLEX: use REPL loop (multi-round code execution).
+        (progn
+          (%log :info "orchestrator" "Complex question → REPL loop: [~A]"
+                (%clip-prompt user-text 60))
+          (or (when (fboundp '%orchestrate-repl)
+                (ignore-errors (funcall '%orchestrate-repl prompt)))
+              ;; REPL failed → fall through to simple path.
+              (%orchestrator-simple-answer prompt user-text)))
+        ;; SIMPLE: one call. Parallel recall + bootstrap + question. Fast and cheap.
+        (%orchestrator-simple-answer prompt user-text))))
+
+(defun %orchestrator-simple-answer (prompt user-text)
+  "One LLM call: bootstrap + parallel-recalled memory + question. Fast, cheap, sufficient."
+  (let* (;; Parallel gather context (memory + basin simultaneously).
+         (context (when (fboundp '%parallel-gather-context)
+                    (ignore-errors (funcall '%parallel-gather-context user-text))))
+         (recall (or (and context (getf context :recall)) ""))
+         (basin (or (and context (getf context :basin)) ""))
+         ;; Select model (cheap for simple).
+         (model (or (ignore-errors (%select-model user-text))
+                    (model-policy-orchestrator-model)))
+         ;; Build lean prompt.
          (bootstrap (ignore-errors (dna-system-prompt :mode :orchestrate)))
          (direct-prompt
-           (format nil "~A~:[~;~%~%RECALLED_MEMORIES:~%~A~]~%~%~A"
+           (format nil "~A~:[~;~%~%RECALLED_MEMORIES:~%~A~]~:[~;~%BASIN: ~A~]~%~%~A"
                    (or bootstrap "")
                    (> (length recall) 0) recall
-                   prompt)))
-    (%log :info "orchestrator" "Direct answer: model=~A user-question=[~A] prompt-len=~D"
-          orch-model (%clip-prompt prompt 80) (length direct-prompt))
+                   (> (length basin) 0) basin
+                   user-text)))
+    (%log :info "orchestrator" "Simple answer: model=~A len=~D user=[~A]"
+          model (length direct-prompt) (%clip-prompt user-text 60))
     (%route-or-error "orchestrator" "provider-router")
-    (backend-complete direct-prompt orch-model)))
+    (backend-complete direct-prompt model)))
 
 (defun %task-needs-delegation-p (prompt)
   "Determine if a task genuinely needs subagent delegation.
