@@ -4,9 +4,15 @@
 ;;; is parsed, validated against a whitelist, and executed. Results feed
 ;;; back to the LLM for the next round of reasoning.
 ;;;
+;;; Design principles:
+;;;   - NO TIMEOUTS. Each LLM call takes as long as it needs.
+;;;     If the task is hard, use a better model, not a deadline.
+;;;   - MINIMIZE TOKENS. Each round sends only what's new, not the full history.
+;;;   - COMPLEXITY-DRIVEN MODEL. Hard tasks get premium models. Simple tasks get cheap ones.
+;;;   - MICRO-TASKS. Each round is a focused question, not a monologue.
+;;;
 ;;; Security: WHITELIST ONLY. No eval, no load, no arbitrary code.
 ;;; *read-eval* is always nil. Only 10 operations are permitted.
-;;; Results are bounded (max 2000 chars). All evals are logged.
 
 (in-package :harmonia)
 
@@ -14,11 +20,11 @@
 ;;; CONSTANTS
 ;;; ═══════════════════════════════════════════════════════════════════════
 
-(defparameter *sexp-eval-max-result-chars* 2000
-  "Maximum characters in a single eval result.")
+(defparameter *sexp-eval-max-result-chars* 1500
+  "Maximum characters in a single eval result. Keeps tokens lean.")
 
 (defparameter *sexp-eval-max-rounds* 5
-  "Maximum REPL rounds per user query.")
+  "Maximum REPL rounds per user query. Each round is a micro-task.")
 
 ;;; ═══════════════════════════════════════════════════════════════════════
 ;;; DETECTION — is LLM output code or prose?
@@ -26,12 +32,11 @@
 
 (defun %is-sexp-output-p (text)
   "Does the LLM output contain s-expression code to evaluate?
-Lines starting with ( are code. Pure prose has none."
+Lines starting with ( that match known operations are code."
   (when (and text (stringp text) (> (length text) 0))
     (let ((trimmed (string-trim '(#\Space #\Newline #\Return #\Tab) text)))
       (and (> (length trimmed) 2)
            (char= (char trimmed 0) #\()
-           ;; Must be a known operation, not just any parenthesized text.
            (%extract-sexp-ops trimmed)))))
 
 (defun %extract-sexp-ops (text)
@@ -105,14 +110,9 @@ NEVER calls eval. Only dispatches to known safe functions."
   "Evaluate all s-expression operations in text. Returns combined results."
   (let* ((ops (%extract-sexp-ops text))
          (results (mapcar (lambda (op)
-                            (%log :info "sexp-eval" "Evaluating: ~A"
+                            (%log :info "sexp-eval" "Eval: ~A"
                                   (subseq op 0 (min 80 (length op))))
                             (let ((result (%eval-safe-sexp op)))
-                              ;; Log to Chronicle
-                              (ignore-errors
-                                (ipc-call
-                                 (format nil "(:component \"chronicle\" :op \"record-ouroboros-event\" :event-type \"sexp-eval\" :generation 0 :fitness 0.0 :mutation-count 0 :crossover-count 0 :detail \"~A\")"
-                                         (sexp-escape-lisp (subseq op 0 (min 60 (length op)))))))
                               (format nil "~A → ~A" op result)))
                           ops)))
     (format nil "~{~A~%~}" results)))
@@ -134,7 +134,7 @@ NEVER calls eval. Only dispatches to known safe functions."
   "Search memory field by resonance."
   (let ((q (if (stringp query) query (princ-to-string query))))
     (or (ignore-errors
-          (let ((results (memory-semantic-recall-block q :limit 5 :max-chars 1800)))
+          (let ((results (memory-semantic-recall-block q :limit 5 :max-chars 1200)))
             (if (and results (> (length results) 0))
                 results
                 "(no memories found)")))
@@ -168,17 +168,13 @@ NEVER calls eval. Only dispatches to known safe functions."
 (defun %safe-status ()
   "System health snapshot."
   (let ((field (ignore-errors
-                 (when (fboundp 'memory-field-port-ready-p)
-                   (if (funcall 'memory-field-port-ready-p)
-                       (ipc-call "(:component \"memory-field\" :op \"status\")")
-                       "field: not ready"))))
-        (sig (ignore-errors
-               (ipc-call "(:component \"signalograd\" :op \"status\")")))
+                 (when (and (fboundp 'memory-field-port-ready-p)
+                            (funcall 'memory-field-port-ready-p))
+                   (ipc-call "(:component \"memory-field\" :op \"status\")"))))
         (health (ignore-errors
                   (ipc-call "(:component \"provider-router\" :op \"healthcheck\")"))))
-    (format nil "SYSTEM_STATUS:~%field: ~A~%signalograd: ~A~%router: ~A"
+    (format nil "field: ~A~%router: ~A"
             (or field "unavailable")
-            (or (and sig (subseq sig 0 (min 120 (length sig)))) "unavailable")
             (or health "unavailable"))))
 
 (defun %safe-tools ()
@@ -194,7 +190,6 @@ NEVER calls eval. Only dispatches to known safe functions."
 (defun %safe-tool (name rest-args)
   "Execute a registered tool via the existing tool dispatch."
   (let ((tool-name (if (stringp name) name (princ-to-string name))))
-    ;; Delegate to existing tool system
     (or (ignore-errors
           (let ((cmd (format nil "tool op=~A~{ ~A~}"
                              tool-name
@@ -231,79 +226,116 @@ NEVER calls eval. Only dispatches to known safe functions."
 (defun %safe-source (query)
   "Search source code in memory field."
   (let ((q (if (stringp query) query (princ-to-string query))))
-    ;; Try verbatim recall first (exact file path match)
     (or (ignore-errors
           (let ((verbatim (%safe-recall-verbatim q)))
             (when (and verbatim (not (search "no verbatim" verbatim)))
               verbatim)))
-        ;; Fall back to field recall for concept-level search
         (%safe-recall (format nil "source code ~A" q)))))
 
 ;;; ═══════════════════════════════════════════════════════════════════════
-;;; THE REPL LOOP — multi-round LLM ↔ code execution
+;;; COMPLEXITY-DRIVEN MODEL SELECTION
+;;; ═══════════════════════════════════════════════════════════════════════
+
+(defun %repl-select-model (user-text)
+  "Select model based on task complexity. Hard tasks get premium models.
+Uses the existing complexity encoder via the router, but biases toward
+better models for orchestration-level reasoning."
+  (or (ignore-errors
+        ;; Try the existing model selection which uses complexity encoding.
+        (when (fboundp '%select-model)
+          (let ((model (funcall '%select-model user-text)))
+            ;; If the selected model is a free/tiny model, upgrade for orchestration.
+            (if (and model
+                     (or (search ":free" model)
+                         (search "mercury" model)
+                         (search "nano" model)))
+                ;; Upgrade: pick from seed models (configured premium models).
+                (when (fboundp '%seed-models)
+                  (let ((seeds (funcall '%seed-models)))
+                    (or (find-if (lambda (m)
+                                   (and (not (search ":free" m))
+                                        (not (search "mercury" m))))
+                                 seeds)
+                        model)))
+                model))))
+      ;; Fallback: let router decide.
+      "auto"))
+
+;;; ═══════════════════════════════════════════════════════════════════════
+;;; THE REPL LOOP — no timeouts, micro-tasks, lean context
 ;;; ═══════════════════════════════════════════════════════════════════════
 
 (defun %orchestrate-repl (prompt &key (max-rounds *sexp-eval-max-rounds*))
   "Multi-round REPL: LLM outputs code → agent evaluates → feeds back → repeat.
-LLM receives minimal bootstrap. When it outputs s-expressions, they're evaluated.
-When it outputs natural language, that's the response to the user."
+
+Design:
+  - NO TIMEOUTS. Each LLM call takes as long as it needs.
+  - LEAN CONTEXT. Each round sends only: bootstrap + latest eval result + user question.
+    NOT the full accumulated conversation. This minimizes tokens.
+  - COMPLEXITY MODEL. Harder tasks get better models via %repl-select-model.
+  - MICRO-TASKS. The LLM can execute multiple s-expressions per round."
   (let* ((bootstrap (dna-system-prompt :mode :orchestrate))
-         ;; Seed with automatic memory recall for context
-         (initial-recall (ignore-errors
-                           (memory-semantic-recall-block
-                            (if (harmonia-signal-p prompt)
-                                (harmonia-signal-text prompt)
-                                prompt)
-                            :limit 3 :max-chars 800)))
+         ;; Seed with automatic memory recall for context.
          (user-text (if (harmonia-signal-p prompt)
                         (harmonia-signal-text prompt)
-                        prompt))
-         (conversation
+                        (if (stringp prompt) prompt (princ-to-string prompt))))
+         (initial-recall (ignore-errors
+                           (memory-semantic-recall-block user-text
+                             :limit 5 :max-chars 1000)))
+         ;; Select model based on complexity.
+         (model (%repl-select-model user-text))
+         ;; Build the first prompt: bootstrap + recall + question.
+         (current-context
            (format nil "~A~:[~;~%~%RECALLED_CONTEXT:~%~A~]~%~%USER: ~A"
                    bootstrap
                    (and initial-recall (> (length initial-recall) 0))
                    initial-recall
                    user-text))
          (round 0)
-         (model (ignore-errors (%select-model user-text))))
+         (last-eval-result nil))
+
+    (%log :info "sexp-eval" "REPL start: model=~A user=[~A]"
+          model (subseq user-text 0 (min 60 (length user-text))))
 
     (loop while (< round max-rounds) do
       (incf round)
-      (let ((llm-output
-              (handler-case
-                  (sb-sys:with-deadline (:seconds 45)
-                    (backend-complete conversation (or model "auto")))
-                (sb-sys:deadline-timeout ()
-                  (%log :warn "sexp-eval" "LLM timeout in REPL round ~D" round)
-                  nil)
-                (error (c)
-                  (%log :warn "sexp-eval" "LLM error in REPL round ~D: ~A" round c)
-                  nil))))
 
-        (cond
-          ;; LLM failed — return what we have
-          ((null llm-output)
-           (%log :info "sexp-eval" "REPL: LLM unavailable at round ~D, returning fallback" round)
-           (return-from %orchestrate-repl
-             (or (when (> round 1)
-                   "I was exploring your question but lost connection to my reasoning engine. Let me try again.")
-                 nil)))
+      ;; Build this round's prompt. After round 1, send ONLY the eval result + reminder.
+      ;; This keeps tokens minimal — no accumulated conversation bloat.
+      (let ((round-prompt
+              (if (= round 1)
+                  current-context
+                  ;; Subsequent rounds: lean. Only bootstrap + eval result + reminder.
+                  (format nil "~A~%~%EVAL_RESULT from your previous code:~%~A~%~%The user asked: ~A~%~%Continue: execute more code or respond in natural language."
+                          bootstrap
+                          (or last-eval-result "(no result)")
+                          user-text))))
 
-          ;; LLM output contains s-expression code → evaluate and loop
-          ((%is-sexp-output-p llm-output)
-           (%log :info "sexp-eval" "REPL round ~D: evaluating s-expressions" round)
-           (let ((eval-results (%eval-all-sexps llm-output)))
-             ;; Append the exchange to conversation
-             (setf conversation
-                   (format nil "~A~%~%AGENT_CODE:~%~A~%~%EVAL_RESULT:~%~A"
-                           conversation llm-output eval-results))))
+        ;; Call LLM — NO DEADLINE. Let it think as long as it needs.
+        (let ((llm-output
+                (handler-case
+                    (backend-complete round-prompt (or model "auto"))
+                  (error (c)
+                    (%log :warn "sexp-eval" "REPL round ~D LLM error: ~A" round c)
+                    nil))))
 
-          ;; LLM output is natural language → that's the response
-          (t
-           (%log :info "sexp-eval" "REPL round ~D: natural language response (~D chars)"
-                 round (length llm-output))
-           (return-from %orchestrate-repl llm-output)))))
+          (cond
+            ;; LLM failed — return fallback.
+            ((null llm-output)
+             (%log :info "sexp-eval" "REPL round ~D: LLM unavailable" round)
+             (return-from %orchestrate-repl nil))
 
-    ;; Exceeded max rounds without natural language response
-    (%log :warn "sexp-eval" "REPL exceeded ~D rounds without final response" max-rounds)
-    "I explored extensively but need to think more. Let me summarize what I found so far."))
+            ;; LLM output contains s-expression code → evaluate and loop.
+            ((%is-sexp-output-p llm-output)
+             (%log :info "sexp-eval" "REPL round ~D: evaluating s-expressions" round)
+             (setf last-eval-result (%eval-all-sexps llm-output)))
+
+            ;; LLM output is natural language → that's the response.
+            (t
+             (%log :info "sexp-eval" "REPL round ~D: natural language (~D chars)"
+                   round (length llm-output))
+             (return-from %orchestrate-repl llm-output))))))
+
+    ;; Exceeded max rounds — this shouldn't happen often with lean context.
+    (%log :warn "sexp-eval" "REPL exceeded ~D rounds" max-rounds)
+    nil))
