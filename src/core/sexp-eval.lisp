@@ -168,7 +168,9 @@ ENV is an alist of (symbol . value) bindings. No global mutation."
 ;; ── ipc: generic system query ───────────────────────────────────────
 
 (defun %prim-ipc (component op &rest kwargs)
-  "Call any IPC component. Fully generic."
+  "Call any IPC component. Full power. Security is enforced in Rust,
+not here — vault requires admin-intent signature, policy requires owner auth.
+The REPL has full Lisp power; Rust is the boundary."
   (let* ((comp (if (stringp component) component (princ-to-string component)))
          (operation (if (stringp op) op (princ-to-string op)))
          (kv-str (with-output-to-string (out)
@@ -428,6 +430,13 @@ Parallel context pre-gathered. Complexity selects model. No timeouts.
             (cond
               ((null llm-output)
                (%log :info "sexp-eval" "REPL ~D: LLM unavailable" round)
+               ;; If we have eval results from previous rounds, summarize them.
+               (when last-eval-result
+                 (%log :info "sexp-eval" "REPL: using eval data from previous rounds")
+                 (return-from %orchestrate-repl
+                   (format nil "Based on what I found: ~A"
+                           (subseq last-eval-result 0
+                                   (min 800 (length last-eval-result))))))
                (return-from %orchestrate-repl nil))
 
               ;; Output starts with ( → it's code. Evaluate via restricted interpreter.
