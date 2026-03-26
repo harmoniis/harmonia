@@ -155,4 +155,17 @@
    :preserved "Inflection points (high chaos_risk > 0.7, rewrite_ready, failed/recovery events). harmony_trajectory never pruned."
    :integration ("harmonic machine :stabilize phase" "memory compression events" "conductor delegation decisions"
                  "Phoenix supervisor lifecycle" "Ouroboros crash/patch events")
-   :a2ui-dashboard "chronicle-dashboard-json: 8-panel Composite"))
+   :a2ui-dashboard "chronicle-dashboard-json: 8-panel Composite")
+
+ :memory-field
+  (:status :active
+   :description "Graph Laplacian field propagation engine for dynamical memory recall with attractor basin assignment and hysteresis."
+   :graph-reload :per-harmonic-cycle
+   :attractors (:thomas :aizawa :halvorsen)
+   :basin-persistence :chronicle
+   :warm-start :from-chronicle
+   :feedback-to-signalograd :active
+   :spectral-modes 8
+   :activation-scoring "0.40×field + 0.30×eigenmode + 0.20×basin + 0.10×access (warm-up ramp first 10 cycles)"
+   :integration ("harmonic machine :observe pushes graph" ":attractor-sync steps attractors"
+                 ":stabilize persists basin to chronicle" "signalograd receives field metrics")))

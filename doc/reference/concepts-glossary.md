@@ -27,6 +27,19 @@
 - `Token Harmony`: efficiency-aware extensions to harmonic scoring.
 - `Attractor`: stable dynamics target for runtime evolution.
 - `Lambdoma`: harmonic relation matrix used in theory/scoring framing.
+- `Memory Field`: potential field on the concept graph where recall is relaxation into attractor basins rather than substring search. See `memory-as-a-field.md`.
+- `Graph Laplacian`: L = D - A; the discrete wave equation on the concept graph. Sparse solve produces field potentials identifying relevant memory paths.
+- `Field Propagation`: solving L·φ = b on the concept graph to route recall activation from source context nodes to memory nodes via optimal paths (lightning pathfinding).
+- `Spectral Decomposition`: eigendecomposition of the graph Laplacian into standing-wave modes (Chladni patterns) for frequency-selective recall.
+- `Attractor Basin`: stable region in dynamical state space; memories within the current basin are preferentially recalled. Basin switching requires coercive energy exceeding a hysteresis threshold.
+- `Hysteresis`: path-dependent state retention; the system remembers which attractor basin it occupies and resists casual drift between basins.
+- `Coercive Threshold`: minimum signal energy required to switch between attractor basins, preventing weak associations from triggering basin transitions. Grows with dwell time.
+- `Thomas Attractor`: cyclically symmetric chaotic system (dx=sin(y)-bx, dy=sin(z)-by, dz=sin(x)-bz) with up to 6 coexisting attractors at b≈0.208; models multi-domain memory routing.
+- `Aizawa Attractor`: sphere-plus-tube topology (Langford system); models depth recall where shallow memories orbit the surface and crystal memories inhabit the tube.
+- `Halvorsen Attractor`: 3-lobed cyclically symmetric propeller attractor; models interdisciplinary bridging where each lobe maps to a domain cluster.
+- `Chladni Mode`: eigenfunction of the graph Laplacian — a standing wave pattern on the concept graph. Different signal frequencies excite different modes, giving frequency-selective recall.
+- `Context Collapse`: query-as-measurement analogy where a signal collapses the memory superposition into a specific attractor basin, activating resonant memories while leaving others unchanged.
+- `Topological Pruning`: Kolmogorov-guided memory compression where entries are pruned by topological redundancy (betweenness centrality, graph community position) rather than temporal age.
 
 ## Recovery And Evolution
 

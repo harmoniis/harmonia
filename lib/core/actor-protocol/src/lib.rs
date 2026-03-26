@@ -22,6 +22,7 @@ pub enum ActorKind {
     Supervisor,
     Observability,
     Router,
+    MemoryField,
 }
 
 impl ActorKind {
@@ -37,6 +38,7 @@ impl ActorKind {
             ActorKind::Supervisor => "supervisor",
             ActorKind::Observability => "observability",
             ActorKind::Router => "router",
+            ActorKind::MemoryField => "memory-field",
         }
     }
 
@@ -52,6 +54,7 @@ impl ActorKind {
             "supervisor" => Ok(ActorKind::Supervisor),
             "observability" => Ok(ActorKind::Observability),
             "router" => Ok(ActorKind::Router),
+            "memory-field" => Ok(ActorKind::MemoryField),
             _ => Err(format!("unknown actor kind: {}", s)),
         }
     }

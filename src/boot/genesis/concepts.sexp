@@ -56,5 +56,27 @@
       "Pressure-aware GC preserves high-signal data while thinning noise.")
     :insight "The agent does not just log — it builds a queryable knowledge graph that it can reason over to inform its next evolution.")
 
+   (:name "Memory As Energy In Fields"
+    :content "Memory recall is field relaxation on the concept graph, not database search. The graph Laplacian propagates activation from query concepts to resonant memory nodes. Attractor basins (Thomas, Aizawa, Halvorsen) partition memory into dynamical regimes with hysteresis barriers. Spectral eigenmodes (Chladni patterns) give frequency-selective recall."
+    :components
+     ((:name "Field propagation" :description "Solving L·φ = b on the concept graph via conjugate gradient — lightning finds the path.")
+      (:name "Attractor basins" :description "Thomas (6 domains), Aizawa (depth), Halvorsen (bridging) — each basin geometry serves a memory dimension.")
+      (:name "Hysteresis" :description "Basin switching requires sustained coercive energy. Weak signals don't hijack context.")
+      (:name "Chladni modes" :description "Spectral eigenvectors of the Laplacian — standing wave patterns for frequency-selective recall.")
+      (:name "Warm-start" :description "Basin state persists in Chronicle across restarts. The system remembers where it was."))
+    :principle "Memory is resonance, not matching. The system vibrates at the frequency of the incoming signal, and memories that resonate naturally activate.")
+
+   (:name "Guardian Healer — LLM-Guarded Self-Healing"
+    :content "A guardian LLM diagnoses failures and proposes SAFE actions from a whitelist. The healer can never execute arbitrary code or bypass the policy gate — it can only restart components, switch models, skip features, reload config, and report to operators."
+    :levels
+     ((:level 0 :name "Retry" :description "Transient errors: IPC timeout, temporary backend unavailability.")
+      (:level 1 :name "Fallback" :description "Use simpler method: field recall falls back to substring, expensive model falls back to cheaper one.")
+      (:level 2 :name "Pattern" :description "Detect repeating errors, classify root cause from error ring history.")
+      (:level 3 :name "Guardian" :description "LLM diagnoses from error context, proposes one safe action from whitelist.")
+      (:level 4 :name "Restart" :description "Restart failed component via IPC reset. Complements Phoenix process-level restarts.")
+      (:level 5 :name "Report" :description "Honest, helpful message to user. Never 'internal error'."))
+    :guardian-principle "The healer operates with :internal taint and a whitelist of safe actions. It cannot mutate vault, change policy, rewrite security, or execute code. All recovery events are recorded to Chronicle for learning."
+    :principle "Resilience is not enough. A living system must heal, not just survive.")
+
    (:name "Evolution With Rollback"
     :content "Every meaningful rewrite path must preserve rollback viability. Improvement without rollback is treated as unsafe mutation, not evolution.")))

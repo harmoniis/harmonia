@@ -5,7 +5,7 @@ use std::sync::{Mutex, OnceLock};
 use crate::error::seeded_weight;
 
 pub(crate) const LATENT_DIM: usize = 32;
-pub(crate) const INPUT_DIM: usize = 25;
+pub(crate) const INPUT_DIM: usize = 28;
 pub(crate) const MEMORY_SLOTS: usize = 32;
 pub(crate) const HEAD_COUNT: usize = 5;
 pub(crate) const PHI: f64 = 1.618_033_988_749_895;
@@ -48,6 +48,10 @@ pub(crate) struct Observation {
     pub(crate) error_pressure: f64,
     pub(crate) supervision: f64,
     pub(crate) prior_confidence: f64,
+    // Memory-field feedback metrics.
+    pub(crate) field_recall_strength: f64,
+    pub(crate) field_basin_stability: f64,
+    pub(crate) field_eigenmode_coherence: f64,
     pub(crate) presentation_cleanliness: f64,
     pub(crate) presentation_verbosity: f64,
     pub(crate) presentation_markdown_density: f64,

@@ -244,6 +244,10 @@
        (setf (runtime-state-harmonic-context runtime)
              (list :map (%denoise-map (memory-map-sexp :entry-limit 120 :edge-limit 160))
                    :cycle (runtime-state-cycle runtime)))
+       ;; Push updated concept graph to memory-field for spectral recomputation.
+       (when (and (fboundp 'memory-field-port-ready-p)
+                  (funcall 'memory-field-port-ready-p))
+         (ignore-errors (funcall 'memory-field-load-graph)))
        (setf (runtime-state-harmonic-phase runtime) (%next-phase phase)))
       (:evaluate-global
        (let* ((map (getf ctx :map))
@@ -271,9 +275,19 @@
                (append (list :projection projection) ctx))
          (setf (runtime-state-harmonic-phase runtime) (%next-phase phase))))
       (:attractor-sync
-       (let ((lorenz (%step-lorenz runtime)))
+       (let* ((plan (getf ctx :plan))
+              (vitruvian (and plan (getf plan :vitruvian)))
+              (sig (or (and vitruvian (getf vitruvian :signal)) 0.5))
+              (noi (or (and vitruvian (getf vitruvian :noise)) 0.5))
+              (lorenz (%step-lorenz runtime))
+              ;; Step memory-field attractors (Thomas/Aizawa/Halvorsen) with harmonic signal.
+              (field-basin (when (and (fboundp 'memory-field-port-ready-p)
+                                      (funcall 'memory-field-port-ready-p))
+                             (ignore-errors
+                               (funcall 'memory-field-step-attractors :signal sig :noise noi))
+                             (ignore-errors (funcall 'memory-field-basin-status)))))
          (setf (runtime-state-harmonic-context runtime)
-               (append (list :lorenz lorenz) ctx))
+               (append (list :lorenz lorenz :field-basin field-basin) ctx))
          (setf (runtime-state-harmonic-phase runtime) (%next-phase phase))))
       (:rewrite-plan
        (let* ((projection (getf ctx :projection))
@@ -346,6 +360,13 @@
                        ctx))
          (setf (runtime-state-harmonic-phase runtime) (%next-phase phase))))
       (:stabilize
+       ;; Inject memory-field basin state for chronicle persistence.
+       (when (and (fboundp 'memory-field-port-ready-p)
+                  (funcall 'memory-field-port-ready-p))
+         (let ((basin (ignore-errors (funcall 'memory-field-basin-status))))
+           (when basin
+             (setf ctx (append (list :field-basin basin) ctx))
+             (setf (runtime-state-harmonic-context runtime) ctx))))
        (runtime-log runtime :harmonic-stabilized
                     (list :phase :stabilize
                           :rewrite-count (runtime-state-rewrite-count runtime)))

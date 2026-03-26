@@ -27,8 +27,9 @@ Harmonia is layered as a constrained orchestration system:
   - SignalogradActor — kernel init, observe, status
   - ObservabilityActor — provider-agnostic trace sink (sampling, correlation, batch dispatch to configured provider)
   - HarmonicMatrixActor — matrix topology, route constraints, telemetry
+  - MemoryFieldActor — field propagation, basin monitoring, StateChanged events on basin transitions
   - VaultActor, ConfigActor, ProviderRouterActor, ParallelActor, RouterActor
-  - IPC dispatch routes to: vault, config, chronicle, gateway, signalograd, tailnet, harmonic-matrix, observability, provider-router, parallel
+  - IPC dispatch routes to: vault, config, chronicle, gateway, signalograd, tailnet, harmonic-matrix, observability, provider-router, parallel, memory-field
 - `core/phoenix`: ractor-based process supervisor, health endpoint (`127.0.0.1:9100`), pidfile management
 - `core/`: vault, gateway, matrix, recovery, forge, etc.
 - `signalograd`: tiny chaotic advisory kernel with local online learning and evolution checkpoints.
@@ -54,6 +55,144 @@ Harmonia is layered as a constrained orchestration system:
 - Runtime logs, memory entries, matrix telemetry, recovery logs, and evolution snapshots feed future behavior.
 - Chronicle knowledge base (`lib/core/chronicle`) durably records harmonic snapshots, memory evolution, delegation decisions, and concept graph decompositions in SQLite — queryable with complex SQL returning s-expressions. Pressure-aware GC preserves high-signal data (inflection points, failures, recoveries) while thinning noise.
 - `signalograd` adds a bounded epigenetic layer: it learns from telemetry, stores a compact attractor state, emits advisory overlays, and now records `observe` / `feedback` / `proposal` / `checkpoint` / `restore` events into chronicle.
+- `memory-field` adds dynamical recall: field propagation on the concept graph via graph Laplacian, spectral eigenmode decomposition for frequency-selective recall, multi-attractor basin assignment (Thomas, Aizawa, Halvorsen) with hysteresis-protected switching, and topological pruning via Kolmogorov complexity approximation. MemoryFieldActor receives concept signatures from Gateway, propagates the field asynchronously, and posts activated memory IDs to the conductor as late-binding context enrichment.
+
+## System Architecture Diagram
+
+```
+                                    ┌─────────────────────────────┐
+                                    │     GOVERNANCE LAYER        │
+                                    │  genesis/*.sexp (immutable) │
+                                    │  evolution/latest/*.sexp    │
+                                    │  constitution, DNA, laws    │
+                                    └──────────────┬──────────────┘
+                                                   │ constrains
+    ┌──────────────────────────────────────────────────────────────────────────────┐
+    │                         SIGNAL / CHANNEL LAYER                               │
+    │  14 frontends: TUI, MQTT, HTTP/2, Tailscale, Telegram, WhatsApp, Signal,    │
+    │  iMessage, Slack, Discord, Email, Mattermost, Nostr, SMS                     │
+    └──────────────────────────────────┬───────────────────────────────────────────┘
+                                       │ poll / flush
+    ┌──────────────────────────────────▼───────────────────────────────────────────┐
+    │                           GATEWAY (Rust)                                     │
+    │  baseband.rs: envelope construction, dissonance scoring                      │
+    │  sender_policy.rs: deny-all allowlist filter                                 │
+    │  command_dispatch.rs: /command interception                                   │
+    │  complexity_encoder: 14-dim prompt classification (7μs)                       │
+    └──────────────────────────────────┬───────────────────────────────────────────┘
+                                       │ harmonia-signal struct
+    ┌──────────────────────────────────▼───────────────────────────────────────────┐
+    │                         TICK LOOP (Lisp)                                     │
+    │  10 supervised actions per tick:                                              │
+    │  1. poll gateway  2. poll tailnet  3. supervise actors  4. process prompt    │
+    │  5. deliver actors  6. memory heartbeat  7. harmonic step  8. flush chronicle│
+    │  9. flush gateway  10. flush tailnet                                          │
+    └───────┬──────────────────────┬────────────────────────────┬──────────────────┘
+            │                      │                            │
+            ▼                      ▼                            ▼
+    ┌───────────────┐  ┌───────────────────────┐  ┌─────────────────────────────┐
+    │  CONDUCTOR     │  │  HARMONIC MACHINE      │  │  MEMORY SYSTEM              │
+    │  (Lisp)        │  │  (Lisp, 9 phases)      │  │                             │
+    │                │  │                         │  │  ┌───────────────────────┐  │
+    │  DNA prompt    │  │  :observe               │  │  │ Memory Store (Lisp)   │  │
+    │  assembly      │  │    Load concept graph   │  │  │ 4 classes:            │  │
+    │                │  │    Push to memory-field  │  │  │  :soul (immutable)    │  │
+    │  Memory recall │  │  :evaluate-global       │  │  │  :skill (compressed)  │  │
+    │  context       │  │    Global harmony score  │  │  │  :daily (raw)        │  │
+    │                │  │  :evaluate-local         │  │  │  :tool (metrics)     │  │
+    │  LLM routing   │  │    Focus concept score   │  │  └───────────┬─────────┘  │
+    │  via swarm     │  │  :logistic-balance       │  │              │             │
+    │                │  │    Chaos risk (logistic)  │  │  ┌───────────▼─────────┐  │
+    │  Policy gate   │  │  :lambdoma-project       │  │  │ Concept Graph       │  │
+    │  (14 priv ops) │  │    Convergence check     │  │  │ Nodes: word→domain  │  │
+    │                │  │  :attractor-sync          │  │  │ Edges: co-occur     │  │
+    │  Score +       │  │    Step Lorenz attractor  │  │  │ 6 domains           │  │
+    │  persist       │  │    Step memory-field      │  │  └───────────┬─────────┘  │
+    │                │  │  :rewrite-plan            │  │              │ serialized  │
+    │  Tool dispatch │  │    Vitruvian triad:       │  │  ┌───────────▼─────────┐  │
+    └───────┬───────┘  │    strength×utility×beauty │  │  │ MEMORY FIELD (Rust) │  │
+            │          │  :security-audit           │  │  │                     │  │
+            │          │    Injection monitoring     │  │  │ Graph Laplacian     │  │
+            │          │  :stabilize                 │  │  │   L = D - A         │  │
+            │          │    Chronicle snapshot       │  │  │ CG solver: L·φ = b │  │
+            │          │    Signalograd feedback     │  │  │                     │  │
+            │          └───────────┬─────────────────┘  │  │ Spectral modes      │  │
+            │                      │                     │  │   Chladni patterns  │  │
+            │                      │                     │  │                     │  │
+            │                      ▼                     │  │ 3 Attractors:       │  │
+            │          ┌───────────────────────┐         │  │   Thomas (6 basins) │  │
+            │          │  SIGNALOGRAD (Rust)    │         │  │   Aizawa (depth)    │  │
+            │          │                       │         │  │   Halvorsen (bridge) │  │
+            │          │  32-dim latent space   │         │  │                     │  │
+            │          │  Lorenz chaos reservoir│         │  │ Hysteresis tracker  │  │
+            │          │  32 Hopfield memory    │         │  │   Basin switching   │  │
+            │          │  5 readout heads:      │         │  │   Coercive energy   │  │
+            │          │   harmony, routing,    │         │  └───────────┬─────────┘  │
+            │          │   memory, evolution,   │         │              │ activation  │
+            │          │   security             │         │              │ scores      │
+            │          │  Hebbian + Oja learning│         │  ┌───────────▼─────────┐  │
+            │          └───────────┬───────────┘         │  │ Recall Dispatcher   │  │
+            │                      │ proposals            │  │  field → entries    │  │
+            │                      ▼                     │  │  or substring       │  │
+            │          ┌───────────────────────┐         │  │  fallback           │  │
+            │          │  HARMONIC MATRIX       │         │  └─────────────────────┘  │
+            │          │  Route constraints     │         └─────────────────────────────┘
+            │          │  Security-aware routing│
+            │          │  Telemetry accumulation│
+            │          └───────────────────────┘
+            │
+            ▼
+    ┌───────────────────────────────────────────────────────┐
+    │                    CHRONICLE (Rust/SQLite)             │
+    │                                                       │
+    │  harmonic_snapshots: vitruvian scores, chaos, Lorenz  │
+    │  graph_nodes/edges: concept graph decomposition       │
+    │  delegation_log: model choice, cost, success          │
+    │  signalograd_events: observe, feedback, checkpoint    │
+    │  memory_events: crystallize, compress                 │
+    │  harmony_trajectory: 5-min buckets (never pruned)     │
+    │                                                       │
+    │  Pressure-aware GC: preserves inflection points       │
+    └───────────────────────────────────────────────────────┘
+```
+
+## Data Encoding: Signal → Concept Graph → Field Energy → Recall
+
+```
+Signal ("How does the Rust compiler optimize code?")
+  │
+  ▼ [%split-words: normalize, filter stopwords, min 3 chars]
+Concepts: ["rust", "compiler", "optimize", "code"]
+  │
+  ▼ [%upsert-concept-node: create/update nodes with domain classification]
+Nodes: rust(:engineering, count+1), compiler(:generic, count+1),
+       optimize(:generic, count+1), code(:engineering, count+1)
+  │
+  ▼ [%upsert-concept-edge: all-pairs co-occurrence]
+Edges: rust↔compiler(+1), rust↔optimize(+1), rust↔code(+1),
+       compiler↔optimize(+1), compiler↔code(+1), optimize↔code(+1)
+  │
+  ▼ [memory-field load-graph: build CSR, compute spectral]
+SparseGraph(n nodes, CSR adjacency) → L = D - A → eigenvectors v₁..v₈
+  │
+  ▼ [On next query: "What Rust optimizations exist?"]
+Source nodes: rust(:eng), optimizations→optimize(:gen)
+  │
+  ▼ [CG solve: (L+εI)·φ = b → field potentials]
+φ(rust)=0.92, φ(code)=0.71, φ(compiler)=0.65, φ(optimize)=0.88, ...
+  │
+  ▼ [Eigenmode projection: sₖ = ⟨signal, vₖ⟩ → Chladni activation]
+a(node) = Σₖ sₖ · vₖ(node) — nodes at anti-nodes (peaks) activated
+  │
+  ▼ [Basin filter: current Thomas basin + hysteresis]
+In-basin nodes: ×1.0 factor. Out-of-basin nodes: ×0.15 factor.
+  │
+  ▼ [Scoring: 0.40×field + 0.30×eigenmode + 0.20×basin + 0.10×access]
+Ranked activations → top-k concept nodes with entry IDs
+  │
+  ▼ [Lisp maps entry IDs back to memory-entry structs]
+Recalled memories: SKILL-3 (code patterns), SKILL-6 (compiler internals), ...
+```
 
 ## Core Runtime Flows
 
@@ -105,6 +244,7 @@ Harmonia is layered as a constrained orchestration system:
 | Evolution changelog and state | `../evolution/changelog.md`, `../evolution/current-state.md` |
 | Rewrite roadmap | `../evolution/rewrite-roadmap.md` |
 | Chronicle knowledge base | `lib/core/chronicle/` — graph-native observability, SQL-traversable concept graphs |
+| Memory field dynamics, attractor recall, spectral decomposition | `memory-as-a-field.md`, `memory-field-theory.md`, `memory-field-crate.md` |
 
 ## Architectural Guardrails
 
@@ -116,3 +256,4 @@ Harmonia is layered as a constrained orchestration system:
 6. External signal taint must propagate through the entire orchestration chain.
 7. `signalograd` is advisory only; it cannot become a second sovereign controller.
 8. Reference docs must preserve, not truncate, concept coverage from canonical docs.
+9. `memory-field` is a recall advisor; it emits activation weights but cannot mutate memory entries or bypass conductor policy.

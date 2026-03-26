@@ -100,6 +100,16 @@ The chronicle knowledge base (`lib/core/chronicle`) is the agent's durable, quer
 
 The key insight: the agent doesn't just log — it builds a queryable knowledge graph that it can reason over to inform its next evolution.
 
+## Memory As Energy In Fields
+
+Memory recall is field relaxation, not database search. The concept graph carries a potential field; incoming signals set source potentials; the graph Laplacian propagates activation to resonant memory nodes.
+
+Attractor basins from Signalograd (Lorenz, Thomas, Aizawa, Halvorsen) partition memory into dynamical regimes with energy barriers between them. Switching basins requires sufficient coercive signal — this prevents weak associations from polluting recall.
+
+Spectral decomposition of the graph Laplacian produces Chladni-like standing wave modes. Different signal frequencies excite different eigenmodes, giving the system frequency-selective recall without explicit categorization.
+
+Key principle: **Memory is resonance, not matching.** The system vibrates at the frequency of the incoming signal, and memories that resonate naturally activate. Non-resonant memories stay silent — not suppressed, just not excited.
+
 ## Evolution With Rollback
 
 Every meaningful rewrite path must preserve rollback viability.

@@ -7,7 +7,7 @@ use std::sync::{Mutex, OnceLock};
 static DB_CONN: OnceLock<Mutex<Connection>> = OnceLock::new();
 
 // ─── Schema version for migrations ────────────────────────────────────
-const SCHEMA_VERSION: i32 = 3;
+const SCHEMA_VERSION: i32 = 4;
 
 fn state_root() -> PathBuf {
     let default = env::temp_dir()
@@ -86,6 +86,9 @@ fn run_migrations(conn: &Connection) -> Result<(), String> {
     }
     if current_version < 3 {
         migrate_v3(conn)?;
+    }
+    if current_version < 4 {
+        migrate_v4(conn)?;
     }
 
     conn.execute(
@@ -341,6 +344,21 @@ fn migrate_v3(conn: &Connection) -> Result<(), String> {
         ",
     )
     .map_err(|e| e.to_string())?;
+    Ok(())
+}
+
+fn migrate_v4(conn: &Connection) -> Result<(), String> {
+    // Memory-field basin state columns for warm-start across restarts.
+    // Each ALTER is separate so already-existing columns don't block others.
+    let columns = [
+        "ALTER TABLE harmonic_snapshots ADD COLUMN field_basin TEXT NOT NULL DEFAULT 'thomas-0'",
+        "ALTER TABLE harmonic_snapshots ADD COLUMN field_coercive_energy REAL NOT NULL DEFAULT 0.0",
+        "ALTER TABLE harmonic_snapshots ADD COLUMN field_dwell_ticks INTEGER NOT NULL DEFAULT 0",
+        "ALTER TABLE harmonic_snapshots ADD COLUMN field_threshold REAL NOT NULL DEFAULT 0.35",
+    ];
+    for sql in &columns {
+        let _ = conn.execute_batch(sql); // Ignore "duplicate column" errors.
+    }
     Ok(())
 }
 

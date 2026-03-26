@@ -7,7 +7,7 @@ This file proves coverage from canonical source docs into this reference set.
 | Source (boot sexp) | Source (doc md) | Main Concepts | Reference Targets |
 |---|---|---|---|
 | `../../src/boot/genesis/README.sexp` | `../genesis/README.md` | corpus navigation, reading order, scope | `README.md`, `system-map.md`, this file |
-| `../../src/boot/genesis/concepts.sexp` | `../genesis/concepts.md` | harmonic theory, lambdoma, attractors, complexity | `concepts-glossary.md`, `system-map.md` |
+| `../../src/boot/genesis/concepts.sexp` | `../genesis/concepts.md` | harmonic theory, lambdoma, attractors, complexity, memory field dynamics | `concepts-glossary.md`, `system-map.md`, `memory-as-a-field.md`, `memory-field-theory.md` |
 | `../../src/boot/genesis/constitution.sexp` | `../genesis/constitution.md` | engineering constitution, code harmony rules | `system-map.md`, `operations-runbook.md` |
 | `../../src/boot/genesis/runtime-architecture.sexp` | `../genesis/runtime-architecture.md` | full architecture, IPC surfaces, Phoenix topology, deployment safety | `system-map.md`, `src-runtime-reference.md`, `lib-crate-reference.md`, `policy-and-state-reference.md` |
 | `../../src/boot/genesis/ports-and-ffi.sexp` | `../genesis/ports-and-ffi.md` | port model, IPC transport, Unix domain socket | `src-runtime-reference.md`, `lib-crate-reference.md`, `system-map.md` |

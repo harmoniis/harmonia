@@ -39,6 +39,7 @@ This inventory follows the current Cargo workspace members in `../../Cargo.toml`
 | `lib/core/qr-terminal` | QR code terminal rendering utility for device linking |
 | `lib/core/node-rpc` | node-to-node RPC for remote frontend pairing via Tailscale mesh |
 | `lib/core/complexity-encoder` | 14-dimension prompt complexity classifier for LLM routing — zero-allocation hot path, SIMD-optimized keyword matching, 7μs/call in release, outputs ComplexityTier (Simple/Medium/Complex/Reasoning) with confidence score |
+| `lib/core/memory-field` | Graph Laplacian field propagation engine for dynamical memory recall — spectral eigenmode decomposition (Chladni patterns), Thomas/Aizawa/Halvorsen attractor basin assignment with hysteresis tracking, conjugate gradient solver on sparse concept graph, topological pruning via Kolmogorov complexity approximation, async MemoryFieldActor integration |
 
 ## Backends (`lib/backends`)
 

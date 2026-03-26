@@ -107,6 +107,14 @@ async fn main() {
     .await
     .expect("failed to spawn SignalogradActor");
 
+    let (memory_field_ref, _) = Actor::spawn(
+        Some("memory-field".to_string()),
+        actors::MemoryFieldActor,
+        (bridge_ref.clone(), obs_opt.clone()),
+    )
+    .await
+    .expect("failed to spawn MemoryFieldActor");
+
     let (harmonic_matrix_ref, _) = Actor::spawn(
         Some("harmonic-matrix".to_string()),
         actors::HarmonicMatrixActor,
@@ -177,6 +185,10 @@ async fn main() {
         signalograd_ref.clone(),
     ));
     let _ = supervisor_ref.cast(msg::RuntimeMsg::RegisterComponent(
+        "memory-field".to_string(),
+        memory_field_ref.clone(),
+    ));
+    let _ = supervisor_ref.cast(msg::RuntimeMsg::RegisterComponent(
         "vault".to_string(),
         vault_ref.clone(),
     ));
@@ -214,6 +226,7 @@ async fn main() {
         gateway_ref.clone(),
         tailnet_ref.clone(),
         signalograd_ref.clone(),
+        memory_field_ref.clone(),
         router_ref.clone(),
     ];
     let tick_matrix = harmonic_matrix_ref.clone();
@@ -236,6 +249,7 @@ async fn main() {
         gateway_ref,
         tailnet_ref,
         signalograd_ref,
+        memory_field_ref,
         vault_ref,
         config_ref,
         provider_router_ref,

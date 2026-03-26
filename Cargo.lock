@@ -2330,6 +2330,15 @@ name = "harmonia-memory"
 version = "0.1.9"
 
 [[package]]
+name = "harmonia-memory-field"
+version = "0.1.9"
+dependencies = [
+ "harmonia-config-store",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "harmonia-mqtt-client"
 version = "0.1.9"
 dependencies = [
@@ -2523,6 +2532,7 @@ dependencies = [
  "harmonia-imessage",
  "harmonia-mattermost",
  "harmonia-memory",
+ "harmonia-memory-field",
  "harmonia-mqtt-client",
  "harmonia-nostr",
  "harmonia-observability",

@@ -29,6 +29,7 @@ members = [
     "lib/core/node-rpc",
     "lib/core/qr-terminal",
     "lib/core/complexity-encoder",
+    "lib/core/memory-field",
 
     # Backends — provider protocol + LLM providers + storage + HTTP
     "lib/backends/llms/provider-protocol",

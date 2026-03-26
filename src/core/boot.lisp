@@ -197,6 +197,8 @@
 (%load-module (%core-path "../memory/store.lisp") "memory")
 (%load-module (%core-path "conditions.lisp"))
 (%load-module (%core-path "introspection.lisp"))
+(%load-module (%core-path "recovery-cascade.lisp") "recovery-cascade")
+(%load-module (%core-path "sexp-eval.lisp") "sexp-eval")
 (%load-module (%core-path "supervision-state.lisp") "supervision-state")
 (%load-module (%core-path "../harmony/scorer.lisp") "harmony-scorer")
 (%load-module (%core-path "harmony-policy.lisp"))
@@ -223,6 +225,7 @@
 (%load-module (%core-path "../ports/evolution.lisp") "port/evolution")
 (%load-module (%core-path "../ports/chronicle.lisp") "port/chronicle")
 (%load-module (%core-path "../ports/signalograd.lisp") "port/signalograd")
+(%load-module (%core-path "../ports/memory-field.lisp") "port/memory-field")
 (%load-module (%core-path "supervisor.lisp") "supervisor")
 (%load-module (%core-path "system-commands.lisp") "system-commands")
 (%load-module (%core-path "../orchestrator/conductor.lisp") "conductor")
@@ -337,8 +340,15 @@
   (init-signalograd-port)
   (ignore-errors
     (signalograd-restore-for-current-evolution :runtime *runtime*))
+  ;; Memory-field: initialize port and warm-start basin from Chronicle.
+  (ignore-errors (init-memory-field-port))
+  (ignore-errors (memory-field-warm-start-from-chronicle))
   (%log :info "chronicle" "Initialized.")
   (%log :info "signalograd" "Initialized.")
+  (%log :info "memory-field" "Initialized (basin: ~A)."
+        (if (and (fboundp 'memory-field-port-ready-p)
+                 (funcall 'memory-field-port-ready-p))
+            "active" "unavailable"))
   (%log :info "boot" "Bootstrap complete (~D tools registered)."
         (hash-table-count (runtime-state-tools *runtime*)))
   ;; Handle SIGTERM for graceful shutdown (Phoenix sends this on stop)

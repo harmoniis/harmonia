@@ -27,6 +27,10 @@ It is not a replacement for canonical long-form docs. It is the structured map t
 | `operations-runbook.md` | startup checks, verification commands, recovery workflow | `../evolution/scorecard.md` |
 | `security-architecture.md` | comprehensive security architecture reference | security kernel, adaptive shell, transport security, threat model |
 | `distributed-evolution-todo.md` | publish/subscribe algorithm backlog for org-wide evolution | evolution ports, swarm policy, s3 storage model |
+| `memory-as-a-field.md` | memory field architecture: field propagation, attractor basins, spectral recall, topological pruning, actor integration | `src/memory/store/concept-map.lisp`, `lib/core/chronicle/src/tables/graph.rs`, `lib/core/signalograd` |
+| `memory-field-theory.md` | theoretical foundations: attractor dynamics, hysteresis, spectral graph theory, Kolmogorov pruning, context collapse | `memory-as-a-field.md`, `signalograd-architecture.md` |
+| `memory-field-crate.md` | memory-field Rust crate: Laplacian solver, spectral cache, activation engine, topology analysis, IPC port | `lib/core/memory-field/`, `lib/core/chronicle/`, `lib/core/signalograd/` |
+| `memory-field-observations.md` | test results (71 tests), basin state insight, cold-start analysis, encoding path, multi-modal proposals, improvement roadmap | `lib/core/memory-field/tests/`, `memory-as-a-field.md` |
 | `concepts-glossary.md` | normalized vocabulary across docs | genesis and evolution corpora |
 | `migration-map.md` | source-to-reference coverage matrix | `../genesis/*`, `../evolution/*` |
 | `source-section-coverage.md` | heading-level coverage index | generated from canonical docs |
@@ -43,6 +47,7 @@ This reference set explicitly covers:
 6. Self-rewrite, recovery, and versioned evolution snapshots.
 7. UI/UX and A2UI concept surfaces (not ignored).
 8. CI/CD, genesis development flow, and operational readiness.
+9. Memory field dynamics: attractor-based recall, spectral decomposition, topological pruning.
 
 ## Usage Order
 
@@ -52,6 +57,7 @@ This reference set explicitly covers:
 4. Use `src-runtime-reference.md` and `lib-crate-reference.md` for code navigation.
 5. Use `policy-and-state-reference.md` and `operations-runbook.md` for runtime changes.
 6. Use `evolution-reference.md` when changing self-modification behavior.
+7. Read `memory-as-a-field.md` when changing memory recall, concept graph dynamics, or attractor-based routing.
 
 ## Maintenance Rules
 

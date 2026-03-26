@@ -144,11 +144,14 @@ pub(crate) fn head_targets(
         1.0,
     );
     let memory = clamp(
-        (1.0 - obs.memory_pressure) * 0.55
-            + 0.20 * obs.stability
-            + 0.15 * recall_strength
-            + 0.10 * obs.presentation_user_affinity
-            - 0.10 * obs.presentation_verbosity,
+        (1.0 - obs.memory_pressure) * 0.40
+            + 0.18 * obs.stability
+            + 0.10 * recall_strength
+            + 0.10 * obs.field_recall_strength
+            + 0.08 * obs.field_basin_stability
+            + 0.07 * obs.field_eigenmode_coherence
+            + 0.07 * obs.presentation_user_affinity
+            - 0.08 * obs.presentation_verbosity,
         -1.0,
         1.0,
     );

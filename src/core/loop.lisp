@@ -721,7 +721,9 @@
                  (let* ((raw-payload (if response
                                          (if (stringp response) response
                                              (princ-to-string response))
-                                         "[internal error — please try again]"))
+                                         (if (fboundp '%build-honest-error-message)
+                                             (%build-honest-error-message "orchestration" "process-prompt")
+                                             "I encountered a temporary issue. Let me try a different approach.")))
                         (visible-payload (%presentation-sanitize-visible-text raw-payload)))
                    (when (null response)
                      (ignore-errors
@@ -836,6 +838,10 @@
         (ok2b (%tick-actor-deliver runtime))
         (ok3 (%supervised-action "memory-heartbeat"
                (lambda () (memory-heartbeat :runtime runtime))))
+        (ok3b (%supervised-action "recovery-heartbeat"
+                (lambda ()
+                  (when (fboundp '%tick-recovery-heartbeat)
+                    (%tick-recovery-heartbeat)))))
         (ok4 (%supervised-action "harmonic-step"
                (lambda () (harmonic-state-step :runtime runtime))))
         (ok4b (%tick-chronicle-flush runtime))

@@ -12,8 +12,9 @@
       "Validate DNA (dna-valid-p)."
       "Register tools from config/tools.sexp."
       "Seed soul memory from DNA."
-      "Initialize ports in strict order: vault, store, harmony-policy, model-policy, router, lineage, matrix, tool-runtime, baseband frontends, swarm, evolution, chronicle, signalograd."
-      "Restore the evolution-matched signalograd checkpoint if present."))
+      "Initialize ports in strict order: vault, store, harmony-policy, model-policy, router, lineage, matrix, tool-runtime, baseband frontends, swarm, evolution, chronicle, signalograd, memory-field."
+      "Restore the evolution-matched signalograd checkpoint if present."
+      "Warm-start memory-field basin from last Chronicle harmonic snapshot (session continuity)."))
 
    (:name "Deterministic Tick Model"
     :source "src/core/loop.lisp"
@@ -51,7 +52,12 @@
       "Rust advances the chaotic reservoir / attractor memory state"
       "Rust posts a bounded proposal through the unified actor mailbox"
       "Lisp applies that proposal only on the next cycle after policy clamps")
-    :property "This makes the adaptive layer causal, auditable, and actor-model aligned.")
+    :memory-field-coupling
+     (":observe pushes updated concept graph to memory-field for spectral recomputation"
+      ":attractor-sync steps Thomas/Aizawa/Halvorsen attractors with vitruvian signal/noise"
+      ":stabilize persists basin state to Chronicle for warm-start across restarts"
+      "memory-field recall_strength feeds back to signalograd observation vector (3 dimensions)")
+    :property "This makes the adaptive layer causal, auditable, and actor-model aligned. Memory-field basin dynamics evolve with the harmonic cycle.")
 
    (:name "Error Discipline And Self-Repair"
     :content "Runtime errors are classified (compiler, backend, evolution) and recorded via src/core/conditions.lisp."

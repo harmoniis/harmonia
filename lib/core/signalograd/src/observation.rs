@@ -49,6 +49,9 @@ pub(crate) fn parse_observation_sexp(sexp: &Sexp) -> Result<Observation, String>
         error_pressure: plist_f64(items, "error-pressure").unwrap_or(0.0),
         supervision: plist_f64(items, "supervision").unwrap_or(0.5),
         prior_confidence: plist_f64(items, "prior-confidence").unwrap_or(0.0),
+        field_recall_strength: plist_f64(items, "field-recall-strength").unwrap_or(0.0),
+        field_basin_stability: plist_f64(items, "field-basin-stability").unwrap_or(0.0),
+        field_eigenmode_coherence: plist_f64(items, "field-eigenmode-coherence").unwrap_or(0.0),
         presentation_cleanliness: plist_f64(items, "presentation-cleanliness").unwrap_or(1.0),
         presentation_verbosity: plist_f64(items, "presentation-verbosity").unwrap_or(0.0),
         presentation_markdown_density: plist_f64(items, "presentation-markdown-density")
@@ -145,6 +148,10 @@ pub(crate) fn observation_vector(obs: &Observation) -> [f64; INPUT_DIM] {
         clamp(obs.error_pressure, 0.0, 1.0),
         clamp(obs.supervision, 0.0, 1.0),
         clamp(obs.prior_confidence, 0.0, 1.0),
+        // Memory-field feedback (3 new dimensions).
+        clamp(obs.field_recall_strength, 0.0, 1.0),
+        clamp(obs.field_basin_stability, 0.0, 1.0),
+        clamp(obs.field_eigenmode_coherence, 0.0, 1.0),
     ]
 }
 

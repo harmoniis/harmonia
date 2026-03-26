@@ -966,18 +966,21 @@ CONTEXT END")))
                   (or caps "claude-code, codex, openrouter, vault, memory, browser, search, baseband, tailnet"))))))
 
 (defun %orchestrator-answer-directly (prompt)
-  "Answer an internal/system question directly using the orchestrator's own model.
-   Uses cheap fast model + system context + memory recall. No swarm delegation."
-  (trace-event "memory-recall" :tool :metadata (list :source "direct-answer"))
-  (let* ((sys-ctx (%orchestrator-system-context))
-         (recall (memory-semantic-recall-block prompt
-                  :limit 5 :max-chars 1500))
-         ;; Use a capable model for owner prompts, cheap orchestrator model for internals
+  "Answer via the REPL loop: LLM executes s-expressions to discover context,
+then responds in natural language. Falls back to single-shot if REPL unavailable."
+  (trace-event "memory-recall" :tool :metadata (list :source "repl-answer"))
+  ;; Try the REPL loop first (multi-round s-expression execution).
+  (let ((repl-result (when (fboundp '%orchestrate-repl)
+                       (ignore-errors (funcall '%orchestrate-repl prompt)))))
+    (when (and repl-result (stringp repl-result) (> (length repl-result) 0))
+      (return-from %orchestrator-answer-directly repl-result)))
+  ;; Fallback: single-shot with memory recall (if REPL fails).
+  (let* ((recall (memory-semantic-recall-block prompt
+                  :limit 8 :max-chars 2000))
          (orch-model (if (and *current-originating-signal*
                               (eq :owner (ignore-errors
                                            (harmonia-signal-security-label
                                             *current-originating-signal*))))
-                         ;; Owner: pick from seed models, prefer capable ones
                          (let ((seeds (%seed-models)))
                            (or (find-if (lambda (m)
                                           (and (not (search ":free" m))
@@ -986,11 +989,12 @@ CONTEXT END")))
                                (first seeds)
                                (%select-model prompt)))
                          (model-policy-orchestrator-model)))
+         (bootstrap (ignore-errors (dna-system-prompt :mode :orchestrate)))
          (direct-prompt
-           (format nil "Answer the following question directly and concisely.~%~%~A~%~:[~;~%Background context (for reference only):~%~A~%~]~:[~;~%Relevant memories:~%~A~%~]"
-                   prompt
-                   (and sys-ctx (> (length sys-ctx) 0)) sys-ctx
-                   (> (length recall) 0) recall)))
+           (format nil "~A~:[~;~%~%RECALLED_MEMORIES:~%~A~]~%~%~A"
+                   (or bootstrap "")
+                   (> (length recall) 0) recall
+                   prompt)))
     (%log :info "orchestrator" "Direct answer: model=~A user-question=[~A] prompt-len=~D"
           orch-model (%clip-prompt prompt 80) (length direct-prompt))
     (%route-or-error "orchestrator" "provider-router")
