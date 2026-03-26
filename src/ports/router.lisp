@@ -25,6 +25,11 @@
         (or (ipc-extract-value reply) "")
         (error "LLM request failed: ~A" (or reply "IPC unreachable")))))
 
+(defun backend-complete-safe (prompt &optional model)
+  "Like backend-complete but returns NIL on failure instead of signaling."
+  (handler-case (backend-complete prompt model)
+    (error () nil)))
+
 (defun backend-complete-for-task (prompt task-hint)
   (let ((reply (ipc-call
                 (format nil "(:component \"provider-router\" :op \"complete-for-task\" :prompt \"~A\" :task \"~A\")"
