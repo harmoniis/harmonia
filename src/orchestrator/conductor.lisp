@@ -966,37 +966,24 @@ CONTEXT END")))
                   (or caps "claude-code, codex, openrouter, vault, memory, browser, search, baseband, tailnet"))))))
 
 (defun %orchestrator-answer-directly (prompt)
-  "Answer a question. Simple questions → one fast call. Complex → REPL loop.
-The complexity encoder decides the path. Never wasteful."
+  "ONE path for all questions. The REPL always runs — simple questions
+are just one round where the LLM outputs (respond ...) immediately.
+No separate 'simple path' that bypasses eval."
   (trace-event "memory-recall" :tool :metadata (list :source "direct-answer"))
-  (let* ((user-text (if (harmonia-signal-p prompt)
-                        (harmonia-signal-payload prompt)
-                        (if (stringp prompt) prompt (princ-to-string prompt))))
-         ;; Complexity encoder decides: is this simple or complex?
-         (is-complex (ignore-errors
-                       (let ((p (string-downcase user-text)))
-                         (or (> (length user-text) 200)
-                             (search "explain" p)
-                             (search "how does" p)
-                             (search "source code" p)
-                             (search "everything" p)
-                             (search "implement" p)
-                             (search "debug" p)
-                             (search "fix" p)
-                             (search "write" p)
-                             (search "create" p))))))
-
-    (if is-complex
-        ;; COMPLEX: use REPL loop (multi-round code execution).
-        (progn
-          (%log :info "orchestrator" "Complex question → REPL loop: [~A]"
-                (%clip-prompt user-text 60))
-          (or (when (fboundp '%orchestrate-repl)
-                (ignore-errors (funcall '%orchestrate-repl prompt)))
-              ;; REPL failed → fall through to simple path.
-              (%orchestrator-simple-answer prompt user-text)))
-        ;; SIMPLE: one call. Parallel recall + bootstrap + question. Fast and cheap.
-        (%orchestrator-simple-answer prompt user-text))))
+  (or (when (fboundp '%orchestrate-repl)
+        (ignore-errors (funcall '%orchestrate-repl prompt)))
+      ;; REPL unavailable or failed → raw LLM call as last resort.
+      (let* ((user-text (if (harmonia-signal-p prompt)
+                            (harmonia-signal-payload prompt)
+                            (if (stringp prompt) prompt (princ-to-string prompt))))
+             (bootstrap (ignore-errors (dna-system-prompt :mode :orchestrate)))
+             (model (or (ignore-errors (%select-model user-text))
+                        (model-policy-orchestrator-model))))
+        (%log :info "orchestrator" "Fallback raw LLM: model=~A user=[~A]"
+              model (%clip-prompt user-text 60))
+        (backend-complete
+         (format nil "~A~%~%Answer naturally: ~A" (or bootstrap "") user-text)
+         model))))
 
 (defun %orchestrator-simple-answer (prompt user-text)
   "One LLM call: bootstrap + parallel-recalled memory + question. Fast, cheap, sufficient."
