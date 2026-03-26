@@ -1,5 +1,6 @@
 mod actors;
 mod bridge;
+mod component_registry;
 mod dispatch;
 mod init;
 mod ipc;
@@ -213,11 +214,26 @@ async fn main() {
 
     eprintln!("[INFO] [runtime] All actors spawned, starting IPC server");
 
-    // 7. Spawn IPC listener
+    // 7. Build shared component registry for direct IPC dispatch.
+    //    Data calls bypass the supervisor — each component actor handles its own.
+    let registry = component_registry::new();
+    component_registry::register(&registry, "chronicle", chronicle_ref.clone());
+    component_registry::register(&registry, "gateway", gateway_ref.clone());
+    component_registry::register(&registry, "tailnet", tailnet_ref.clone());
+    component_registry::register(&registry, "signalograd", signalograd_ref.clone());
+    component_registry::register(&registry, "memory-field", memory_field_ref.clone());
+    component_registry::register(&registry, "vault", vault_ref.clone());
+    component_registry::register(&registry, "config", config_ref.clone());
+    component_registry::register(&registry, "provider-router", provider_router_ref.clone());
+    component_registry::register(&registry, "parallel", parallel_ref.clone());
+    component_registry::register(&registry, "router", router_ref.clone());
+
+    // 8. Spawn IPC listener — dispatches directly to component actors via registry.
     let ipc_sup = supervisor_ref.clone();
     let ipc_path = socket_path.clone();
+    let ipc_reg = registry.clone();
     tokio::spawn(async move {
-        ipc::serve(&ipc_path, ipc_sup).await;
+        ipc::serve(&ipc_path, ipc_sup, ipc_reg).await;
     });
 
     // 8. Spawn tick loop — drives periodic polling for all component actors

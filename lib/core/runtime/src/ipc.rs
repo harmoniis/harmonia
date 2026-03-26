@@ -6,13 +6,15 @@ use tokio::net::{UnixListener, UnixStream};
 
 use harmonia_actor_protocol::ActorKind;
 
+use crate::actors::ComponentMsg;
+use crate::component_registry::SharedRegistry;
 use crate::msg::RuntimeMsg;
 
 /// Start the Unix domain socket IPC listener.
 ///
-/// Accepts connections, reads length-prefixed sexp requests, dispatches
-/// to the RuntimeSupervisor, and writes length-prefixed sexp replies.
-pub async fn serve(socket_path: &str, supervisor: ActorRef<RuntimeMsg>) {
+/// Component data calls dispatch DIRECTLY to actor mailboxes via the registry,
+/// bypassing the supervisor entirely. Only lifecycle calls go through the supervisor.
+pub async fn serve(socket_path: &str, supervisor: ActorRef<RuntimeMsg>, registry: SharedRegistry) {
     // Remove stale socket file
     let _ = std::fs::remove_file(socket_path);
 
@@ -43,8 +45,9 @@ pub async fn serve(socket_path: &str, supervisor: ActorRef<RuntimeMsg>) {
         match listener.accept().await {
             Ok((stream, _addr)) => {
                 let sup = supervisor.clone();
+                let reg = registry.clone();
                 tokio::spawn(async move {
-                    if let Err(e) = handle_connection(stream, sup).await {
+                    if let Err(e) = handle_connection(stream, sup, reg).await {
                         eprintln!("[WARN] [runtime] IPC connection error: {e}");
                     }
                 });
@@ -59,14 +62,14 @@ pub async fn serve(socket_path: &str, supervisor: ActorRef<RuntimeMsg>) {
 async fn handle_connection(
     mut stream: UnixStream,
     supervisor: ActorRef<RuntimeMsg>,
+    registry: SharedRegistry,
 ) -> Result<(), Box<dyn std::error::Error>> {
     loop {
-        // Read length-prefixed sexp: [4 bytes u32 BE length][sexp payload]
         let mut len_buf = [0u8; 4];
         match stream.read_exact(&mut len_buf).await {
             Ok(_) => {}
             Err(e) if e.kind() == std::io::ErrorKind::UnexpectedEof => {
-                return Ok(()); // Client disconnected
+                return Ok(());
             }
             Err(e) => return Err(e.into()),
         }
@@ -79,8 +82,7 @@ async fn handle_connection(
         stream.read_exact(&mut payload).await?;
         let sexp = String::from_utf8_lossy(&payload).to_string();
 
-        // Dispatch and get reply
-        let reply = dispatch_sexp(&sexp, &supervisor).await;
+        let reply = dispatch_sexp(&sexp, &supervisor, &registry).await;
 
         // Write length-prefixed reply
         if let Some(reply_sexp) = reply {
@@ -92,10 +94,12 @@ async fn handle_connection(
     }
 }
 
-/// Parse a sexp request and dispatch to the RuntimeSupervisor.
+/// Parse a sexp request and dispatch.
 ///
-/// Returns Some(reply_sexp) for requests that expect a reply, None for fire-and-forget.
-async fn dispatch_sexp(sexp: &str, supervisor: &ActorRef<RuntimeMsg>) -> Option<String> {
+/// Component data calls go DIRECTLY to actor mailboxes via the registry.
+/// Lifecycle calls (register, deregister, list) go through the supervisor.
+/// No supervisor bottleneck on the hot path.
+async fn dispatch_sexp(sexp: &str, supervisor: &ActorRef<RuntimeMsg>, registry: &SharedRegistry) -> Option<String> {
     let trimmed = sexp.trim();
 
     if trimmed.starts_with("(:drain") {
@@ -156,17 +160,29 @@ async fn dispatch_sexp(sexp: &str, supervisor: &ActorRef<RuntimeMsg>) -> Option<
             }
         }
 
-        // LLM calls via provider-router take 10-60s. The IPC timeout
-        // must be longer than the slowest LLM call, otherwise round 2+
-        // of the REPL always times out. 120s matches the user's ESC interrupt.
-        let reply = ractor::call_t!(
-            supervisor,
-            RuntimeMsg::ComponentCall,
-            120_000,
-            component,
-            trimmed.to_string()
-        );
-        Some(reply.unwrap_or_else(|_| "(:error \"component call timeout\")".to_string()))
+        // DIRECT DISPATCH — bypass supervisor entirely for data calls.
+        // The component actor processes the request in its own mailbox.
+        // No supervisor bottleneck. Parallel calls don't block each other.
+        if let Some(actor) = crate::component_registry::get(registry, &component) {
+            // Dispatch directly to the component actor. No supervisor in the path.
+            // Timeout is generous because LLM calls take 10-60s and the user
+            // interrupts with ESC, not a forced timeout.
+            match ractor::call_t!(actor, ComponentMsg::Dispatch, 120_000, trimmed.to_string()) {
+                Ok(result) => Some(result),
+                Err(_) => Some(format!("(:error \"component '{}' dispatch timeout\")", component)),
+            }
+        } else {
+            // Component not in registry — fall back to supervisor (lifecycle ops).
+            let comp_name = component.clone();
+            let reply = ractor::call_t!(
+                supervisor,
+                RuntimeMsg::ComponentCall,
+                10_000,
+                component,
+                trimmed.to_string()
+            );
+            Some(reply.unwrap_or_else(|_| format!("(:error \"unknown component '{}'\")", comp_name)))
+        }
     } else if trimmed.starts_with("(:modules") {
         let op = extract_string_value(trimmed, ":op").unwrap_or_default();
         match op.as_str() {
