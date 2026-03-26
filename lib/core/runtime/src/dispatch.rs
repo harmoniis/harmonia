@@ -564,6 +564,37 @@ fn dispatch_chronicle(sexp: &str) -> String {
                 Err(e) => format!("(:error \"{}\")", esc(&e)),
             }
         }
+        // ── Persistent memory entries ──────────────────────────
+        Some("persist-entry") => {
+            let id = extract_string(sexp, ":id").unwrap_or_default();
+            let ts: i64 = extract_string(sexp, ":ts").and_then(|s| s.parse().ok()).unwrap_or(0);
+            let content = extract_string(sexp, ":content").unwrap_or_default();
+            let tags = extract_string(sexp, ":tags").unwrap_or_default();
+            let source_ids = extract_string(sexp, ":source-ids").unwrap_or_default();
+            match harmonia_chronicle::memory::persist_entry(&id, ts, &content, &tags, &source_ids) {
+                Ok(_) => "(:ok)".to_string(),
+                Err(e) => format!("(:error \"{}\")", esc(&e)),
+            }
+        }
+        Some("load-all-entries") => {
+            match harmonia_chronicle::memory::load_all_entries() {
+                Ok(result) => result,
+                Err(e) => format!("(:error \"{}\")", esc(&e)),
+            }
+        }
+        Some("entry-count") => {
+            match harmonia_chronicle::memory::entry_count() {
+                Ok(count) => format!("(:ok :count {})", count),
+                Err(e) => format!("(:error \"{}\")", esc(&e)),
+            }
+        }
+        Some("update-access") => {
+            let id = extract_string(sexp, ":id").unwrap_or_default();
+            match harmonia_chronicle::memory::update_access(&id) {
+                Ok(_) => "(:ok)".to_string(),
+                Err(e) => format!("(:error \"{}\")", esc(&e)),
+            }
+        }
         Some("record-delegation") => {
             let task_hint = extract_string(sexp, ":task-hint");
             let model_chosen = extract_string(sexp, ":model-chosen").unwrap_or_default();

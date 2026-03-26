@@ -7,7 +7,7 @@ use std::sync::{Mutex, OnceLock};
 static DB_CONN: OnceLock<Mutex<Connection>> = OnceLock::new();
 
 // ─── Schema version for migrations ────────────────────────────────────
-const SCHEMA_VERSION: i32 = 4;
+const SCHEMA_VERSION: i32 = 5;
 
 fn state_root() -> PathBuf {
     let default = env::temp_dir()
@@ -89,6 +89,9 @@ fn run_migrations(conn: &Connection) -> Result<(), String> {
     }
     if current_version < 4 {
         migrate_v4(conn)?;
+    }
+    if current_version < 5 {
+        migrate_v5(conn)?;
     }
 
     conn.execute(
@@ -359,6 +362,31 @@ fn migrate_v4(conn: &Connection) -> Result<(), String> {
     for sql in &columns {
         let _ = conn.execute_batch(sql); // Ignore "duplicate column" errors.
     }
+    Ok(())
+}
+
+fn migrate_v5(conn: &Connection) -> Result<(), String> {
+    // Persistent memory entries — the agent's living memory.
+    // No fixed categories. Tags are freeform. The field's topology is the classification.
+    // Dedup via content_hash — same content never stored twice.
+    conn.execute_batch(
+        "
+        CREATE TABLE IF NOT EXISTS memory_entries (
+            id TEXT PRIMARY KEY,
+            ts INTEGER NOT NULL,
+            content TEXT NOT NULL,
+            tags TEXT DEFAULT '',
+            source_ids TEXT DEFAULT '',
+            access_count INTEGER DEFAULT 0,
+            last_access INTEGER,
+            content_hash TEXT
+        );
+        CREATE INDEX IF NOT EXISTS idx_me_ts ON memory_entries(ts);
+        CREATE INDEX IF NOT EXISTS idx_me_hash ON memory_entries(content_hash);
+        CREATE INDEX IF NOT EXISTS idx_me_access ON memory_entries(access_count DESC);
+        ",
+    )
+    .map_err(|e| e.to_string())?;
     Ok(())
 }
 

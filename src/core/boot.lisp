@@ -337,18 +337,28 @@
   (handler-case (init-observability-port)
     (error (e)
       (%log :warn "boot" "Observability init failed (non-fatal): ~A" e)))
+  ;; Load persistent memories from Chronicle BEFORE signalograd and memory-field.
+  ;; If Chronicle has entries, load them. If empty (first boot), seed from DNA.
+  (let ((loaded (ignore-errors
+                  (when (fboundp '%load-memories-from-chronicle)
+                    (%load-memories-from-chronicle)))))
+    (when (or (null loaded) (= (or loaded 0) 0))
+      ;; First boot or empty Chronicle — seed from DNA and persist.
+      (%log :info "boot" "First boot — seeding genesis memories from DNA.")
+      (memory-seed-soul-from-dna)))
   (init-signalograd-port)
   (ignore-errors
     (signalograd-restore-for-current-evolution :runtime *runtime*))
-  ;; Memory-field: initialize port and warm-start basin from Chronicle.
+  ;; Memory-field: initialize port, push graph, warm-start basin.
   (ignore-errors (init-memory-field-port))
   (ignore-errors (memory-field-warm-start-from-chronicle))
   (%log :info "chronicle" "Initialized.")
   (%log :info "signalograd" "Initialized.")
-  (%log :info "memory-field" "Initialized (basin: ~A)."
+  (%log :info "memory-field" "Initialized (basin: ~A, memories: ~D)."
         (if (and (fboundp 'memory-field-port-ready-p)
                  (funcall 'memory-field-port-ready-p))
-            "active" "unavailable"))
+            "active" "unavailable")
+        (hash-table-count *memory-store*))
   (%log :info "boot" "Bootstrap complete (~D tools registered)."
         (hash-table-count (runtime-state-tools *runtime*)))
   ;; Handle SIGTERM for graceful shutdown (Phoenix sends this on stop)

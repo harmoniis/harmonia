@@ -125,6 +125,8 @@
     (%index-entry-concepts id class depth content)
     (when (eq class :skill)
       (%upsert-concept-edge "skill" "memory" :skill-memory))
+    ;; Persist to Chronicle (non-blocking, fire-and-forget).
+    (ignore-errors (%persist-entry-to-chronicle id now content tags source-ids))
     id))
 
 (defun memory-seed-soul-from-dna ()
@@ -390,3 +392,86 @@ Falls back to substring recall on any error — the field is an enhancement, not
   (setf *memory-concept-edges* (make-hash-table :test 'equal))
   (memory-seed-soul-from-dna)
   t)
+
+;;; ═══════════════════════════════════════════════════════════════════════
+;;; PERSISTENT MEMORY — Chronicle as the durable store
+;;; ═══════════════════════════════════════════════════════════════════════
+
+(defun %simple-split (string char)
+  "Split STRING by CHAR. No dependencies."
+  (let ((result '()) (start 0))
+    (loop for i from 0 to (length string) do
+      (when (or (= i (length string)) (char= (char string i) char))
+        (let ((w (subseq string start i)))
+          (when (> (length w) 0) (push w result)))
+        (setf start (1+ i))))
+    (nreverse result)))
+
+(defun %persist-entry-to-chronicle (id ts content tags source-ids)
+  "Persist a memory entry to Chronicle. Dedup via content hash.
+Non-blocking — errors are silently ignored."
+  (when (fboundp 'ipc-call)
+    (let* ((content-str (if (stringp content) content (princ-to-string content)))
+           (tags-str (format nil "~{~A~^ ~}" (or tags '())))
+           (source-str (format nil "~{~A~^ ~}" (or source-ids '()))))
+      (funcall 'ipc-call
+               (format nil "(:component \"chronicle\" :op \"persist-entry\" :id \"~A\" :ts ~D :content \"~A\" :tags \"~A\" :source-ids \"~A\")"
+                       (sexp-escape-lisp id) ts
+                       (sexp-escape-lisp content-str)
+                       (sexp-escape-lisp tags-str)
+                       (sexp-escape-lisp source-str))))))
+
+(defun %load-memories-from-chronicle ()
+  "Load all persistent memory entries from Chronicle into RAM.
+Rebuilds the concept graph from loaded entries.
+Called once at boot, before memory-field initialization."
+  (when (not (fboundp 'ipc-call))
+    (return-from %load-memories-from-chronicle 0))
+  (let ((reply (funcall 'ipc-call "(:component \"chronicle\" :op \"load-all-entries\")")))
+    (when (and reply (funcall 'ipc-reply-ok-p reply))
+      (let* ((*read-eval* nil)
+             (parsed (ignore-errors (read-from-string reply)))
+             ;; Strip :ok marker if present.
+             (plist (if (and (listp parsed) (eq (car parsed) :ok))
+                        (cdr parsed)
+                        parsed))
+             (count (or (getf plist :count) 0))
+             (entries (getf plist :entries)))
+        (when (and entries (listp entries) (> count 0))
+          (%log :info "memory" "Loading ~D persistent memories from Chronicle..." count)
+          (dolist (entry-plist entries)
+            (when (listp entry-plist)
+              (let* ((id (getf entry-plist :id))
+                     (ts (or (getf entry-plist :ts) (get-universal-time)))
+                     (content (getf entry-plist :content))
+                     (tags-str (or (getf entry-plist :tags) ""))
+                     (source-str (or (getf entry-plist :source-ids) ""))
+                     (access (or (getf entry-plist :access-count) 0))
+                     ;; Infer class from id prefix or tags.
+                     (class (cond
+                              ((search "SOUL" (or id "")) :soul)
+                              ((search "SKILL" (or id "")) :skill)
+                              ((search "TOOL" (or id "")) :tool)
+                              (t :daily)))
+                     (tags (mapcar (lambda (s) (intern (string-upcase s) :keyword))
+                                   (remove-if (lambda (s) (= (length s) 0))
+                                              (%simple-split tags-str #\Space))))
+                     (entry (make-memory-entry :id id
+                                               :time ts
+                                               :class class
+                                               :depth 0
+                                               :content content
+                                               :tags tags
+                                               :source-ids nil
+                                               :access-count access
+                                               :last-access nil)))
+                (when (and id content)
+                  (setf (gethash id *memory-store*) entry)
+                  (%push-class-id class id)
+                  (incf *memory-seq*)
+                  ;; Index concepts into graph.
+                  (ignore-errors
+                    (%index-entry-concepts id class 0 content)))))))
+        (%log :info "memory" "Loaded ~D memories, ~D concept nodes."
+              count (hash-table-count *memory-concept-nodes*))
+        count))))
