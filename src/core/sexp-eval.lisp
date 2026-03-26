@@ -111,6 +111,9 @@ ENV is an alist of (symbol . value) bindings. No global mutation."
      (subseq          (apply #'subseq args))
      (concatenate     (apply #'concatenate 'string args))
      (string-downcase (string-downcase (first args)))
+     (+               (apply #'+ args))
+     (-               (apply #'- args))
+     (*               (apply #'* args))
      (>               (> (first args) (second args)))
      (<               (< (first args) (second args)))
      (=               (= (first args) (second args)))
@@ -393,7 +396,7 @@ The REPL has full Lisp power; Rust is the boundary."
 Parallel context pre-gathered. Complexity selects model. No timeouts.
 (respond ...) in the dialect terminates the loop and returns to user."
   (let* ((user-text (if (harmonia-signal-p prompt)
-                        (harmonia-signal-text prompt)
+                        (harmonia-signal-payload prompt)
                         (if (stringp prompt) prompt (princ-to-string prompt))))
          (bootstrap (dna-system-prompt :mode :orchestrate))
          (context (%parallel-gather-context user-text))

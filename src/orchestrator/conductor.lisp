@@ -970,7 +970,7 @@ CONTEXT END")))
 The complexity encoder decides the path. Never wasteful."
   (trace-event "memory-recall" :tool :metadata (list :source "direct-answer"))
   (let* ((user-text (if (harmonia-signal-p prompt)
-                        (harmonia-signal-text prompt)
+                        (harmonia-signal-payload prompt)
                         (if (stringp prompt) prompt (princ-to-string prompt))))
          ;; Complexity encoder decides: is this simple or complex?
          (is-complex (ignore-errors

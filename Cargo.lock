@@ -2761,7 +2761,9 @@ dependencies = [
 
 [[package]]
 name = "harmoniis-wallet"
-version = "0.1.38"
+version = "0.1.39"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "295ec1da076c4301f47b20d89b86289e1c58548ceb7c5054bb438a2d1d94aecf"
 dependencies = [
  "anyhow",
  "ark-bdk-wallet",
