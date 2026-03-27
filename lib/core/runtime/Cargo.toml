@@ -69,3 +69,15 @@ interprocess = { version = "2", features = ["tokio"] }
 arc-swap = "1"
 # Nonce token generation for IPC security
 rand = "0.8"
+
+# Process hardening (Unix)
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"
+
+[dev-dependencies]
+criterion = { version = "0.5", features = ["async_tokio"] }
+tokio = { version = "1.44", features = ["rt-multi-thread", "macros", "time", "sync", "io-util"] }
+
+[[bench]]
+name = "runtime_bench"
+harness = false

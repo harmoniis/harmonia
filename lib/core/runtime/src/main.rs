@@ -2,6 +2,7 @@ mod actors;
 mod bridge;
 mod component_registry;
 mod dispatch;
+mod hardening;
 mod init;
 mod ipc;
 mod msg;
@@ -59,7 +60,10 @@ fn persist_ipc_name(state_root: &str, name: &str) {
 async fn main() {
     eprintln!("[INFO] [runtime] harmonia-runtime starting");
 
-    // 0. Bootstrap core infrastructure
+    // 0. Harden the process before anything else
+    hardening::harden();
+
+    // 0b. Bootstrap core infrastructure
     if let Err(e) = harmonia_config_store::init_v2() {
         eprintln!("[WARN] [runtime] config-store init failed: {e}");
     }

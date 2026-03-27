@@ -133,3 +133,24 @@ async-trait = "0.1"
 
 [target.'cfg(unix)'.dependencies]
 libc = "0.2"
+
+# ── Build profiles ───────────────────────────────────────────────────
+
+[profile.release]
+# Security: abort on panic (no unwinding attack surface, smaller binary)
+panic = "abort"
+# Security: detect integer overflow in release builds
+overflow-checks = true
+# Performance: link-time optimization across all crates
+lto = "thin"
+# Performance: single codegen unit for maximum optimization
+codegen-units = 1
+# Strip debug info from release binaries
+strip = "symbols"
+
+[profile.bench]
+# Benchmarks need accurate timing — use release optimizations
+inherits = "release"
+# But keep debug info for profiling
+strip = false
+debug = true
