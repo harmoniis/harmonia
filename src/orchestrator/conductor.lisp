@@ -966,31 +966,20 @@ CONTEXT END")))
                   (or caps "claude-code, codex, openrouter, vault, memory, browser, search, baseband, tailnet"))))))
 
 (defun %orchestrator-answer-directly (prompt)
-  "Answer a question. Encoder decides the path:
-Simple/medium → one fast call with auto-recalled context, RECALL: keyword for more.
-Complex/reasoning → REPL with full s-expression power."
+  "ONE generic path. Encoder score tunes everything continuously.
+No if/else, no hardcoded keywords, no separate paths."
   (trace-event "memory-recall" :tool :metadata (list :source "direct-answer"))
-  (let* ((user-text (if (harmonia-signal-p prompt)
-                        (harmonia-signal-payload prompt)
-                        (if (stringp prompt) prompt (princ-to-string prompt))))
-         ;; Use complexity encoder to decide the path.
-         (is-complex (ignore-errors
-                       (let ((p (string-downcase user-text)))
-                         (or (> (length user-text) 200)
-                             (search "explain" p)
-                             (search "implement" p)
-                             (search "debug" p)
-                             (search "fix" p)
-                             (search "write code" p)
-                             (search "create" p)
-                             (search "source code" p))))))
-    (if is-complex
-        ;; COMPLEX: REPL with restricted Lisp (premium model).
-        (or (when (fboundp '%orchestrate-repl)
-              (ignore-errors (funcall '%orchestrate-repl prompt)))
-            (%orchestrator-simple-call prompt user-text))
-        ;; SIMPLE: one fast call with auto-recall. Any model can do this.
-        (%orchestrator-simple-call prompt user-text))))
+  (or (when (fboundp '%orchestrate-repl)
+        (ignore-errors (funcall '%orchestrate-repl prompt)))
+      ;; REPL unavailable → raw fallback
+      (let* ((user-text (if (harmonia-signal-p prompt)
+                            (harmonia-signal-payload prompt)
+                            (if (stringp prompt) prompt (princ-to-string prompt))))
+             (model (or (ignore-errors (model-policy-orchestrator-model)) "auto"))
+             (bootstrap (ignore-errors (dna-system-prompt :mode :orchestrate :simple t))))
+        (backend-complete
+         (concatenate 'string (or bootstrap "") (string #\Newline) user-text)
+         model))))
 
 (defun %orchestrator-simple-call (prompt user-text)
   "One LLM call: simple bootstrap + parallel-recalled context + question.

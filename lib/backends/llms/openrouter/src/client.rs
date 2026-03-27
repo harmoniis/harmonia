@@ -15,7 +15,7 @@ const COMPONENT: &str = "openrouter-backend";
 /// Prices are OpenRouter passthrough prices (may include markup).
 pub static OFFERINGS: &[ModelOffering] = &[
     ModelOffering {
-        id: "google/gemini-2.5-flash-lite-preview-06-2025",
+        id: "google/gemini-2.5-flash-lite-preview-09-2025",
         tier: "lite",
         usd_in_1k: 0.0,
         usd_out_1k: 0.0,

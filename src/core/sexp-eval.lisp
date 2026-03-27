@@ -367,34 +367,58 @@ The REPL has full Lisp power; Rust is the boundary."
 ;;; MODEL SELECTION
 ;;; ═══════════════════════════════════════════════════════════════════════
 
-(defun %repl-select-model (user-text)
-  "Select the orchestrator model — fast, reliable, cheap.
-The REPL does multiple rounds. Each must be fast. Use the orchestrator
-model (configured, proven), not %select-model (which may pick slow models)."
-  (declare (ignore user-text))
-  (or (ignore-errors
-        (when (fboundp 'model-policy-orchestrator-model)
-          (funcall 'model-policy-orchestrator-model)))
-      "auto"))
+(defun %repl-select-model (score)
+  "Select model by continuous complexity score 0.0-1.0.
+Low score → cheapest/fastest. High score → premium. No if/else."
+  (let* ((models (or (ignore-errors
+                       (when (fboundp '%seed-models)
+                         (funcall '%seed-models)))
+                     '()))
+         (orchestrator (or (ignore-errors
+                             (when (fboundp 'model-policy-orchestrator-model)
+                               (funcall 'model-policy-orchestrator-model)))
+                           "auto"))
+         ;; Score 0.0-0.5 → orchestrator (cheap). 0.5-1.0 → from seeds (premium).
+         (idx (min (floor (* score (length models))) (1- (max 1 (length models))))))
+    (if (< score 0.5)
+        orchestrator
+        (or (nth idx models) orchestrator))))
 
 ;;; ═══════════════════════════════════════════════════════════════════════
 ;;; THE HARMONIC REPL — the orchestration core
 ;;; ═══════════════════════════════════════════════════════════════════════
 
 (defun %orchestrate-repl (prompt &key (max-rounds *repl-max-rounds*))
-  "The Harmonic REPL. LLM drives the system via restricted Lisp.
-Parallel context pre-gathered. Complexity selects model. No timeouts.
-(respond ...) in the dialect terminates the loop and returns to user."
+  "ONE generic path. Encoder score tunes everything continuously:
+  score 0.0→1.0 maps to: model (cheap→premium), rounds (1→5), bootstrap (simple→full).
+  No if/else, no cases, no hardcoded keywords. Score is the only input."
   (let* ((user-text (if (harmonia-signal-p prompt)
                         (harmonia-signal-payload prompt)
                         (if (stringp prompt) prompt (princ-to-string prompt))))
-         (bootstrap (dna-system-prompt :mode :orchestrate))
+         ;; Complexity score: the ONLY decision variable.
+         (score (or (ignore-errors
+                      (when (fboundp 'ipc-call)
+                        (let* ((escaped (sexp-escape-lisp
+                                          (subseq user-text 0 (min 200 (length user-text)))))
+                               (reply (funcall 'ipc-call
+                                        (format nil "(:component \"router\" :op \"complexity\" :prompt \"~A\")" escaped))))
+                          (when reply
+                            (let ((pos (search ":score" reply)))
+                              (when pos
+                                (let ((*read-eval* nil))
+                                  (ignore-errors
+                                    (read-from-string reply :start (+ pos 7))))))))))
+                    0.3)) ;; default: medium-low
+         ;; Score tunes everything. No branching.
+         (effective-rounds (max 1 (min max-rounds (1+ (floor (* score 4))))))
+         (model (%repl-select-model score))
+         (bootstrap (dna-system-prompt :mode :orchestrate :simple (< score 0.5)))
+         ;; Parallel context.
          (context (%parallel-gather-context user-text))
          (recall (getf context :recall))
          (basin (getf context :basin))
-         (model (%repl-select-model user-text))
          (current-prompt
-           (format nil "~A~:[~;~%~%RECALLED_CONTEXT:~%~A~]~:[~;~%BASIN: ~A~]~%~%USER: ~A"
+           (format nil "~A~:[~;~%~%CONTEXT:~%~A~]~:[~;~%BASIN: ~A~]~%~%USER: ~A"
                    bootstrap
                    (and recall (> (length recall) 0)) recall
                    (and basin (> (length basin) 0)) basin
@@ -402,12 +426,13 @@ Parallel context pre-gathered. Complexity selects model. No timeouts.
          (round 0)
          (last-eval-result nil))
 
-    (%log :info "sexp-eval" "REPL: model=~A len=~D user=[~A]"
-          model (length current-prompt) (subseq user-text 0 (min 60 (length user-text))))
+    (%log :info "sexp-eval" "REPL: score=~,2F rounds=~D model=~A len=~D user=[~A]"
+          score effective-rounds model (length current-prompt)
+          (subseq user-text 0 (min 60 (length user-text))))
 
     ;; The (respond ...) primitive throws 'repl-respond to exit the loop.
     (catch 'repl-respond
-      (loop while (< round max-rounds) do
+      (loop while (< round effective-rounds) do
         (incf round)
         (let ((round-prompt
                 (if (= round 1)
@@ -434,8 +459,19 @@ Parallel context pre-gathered. Complexity selects model. No timeouts.
 
               ;; Output starts with ( → it's code. Evaluate via restricted interpreter.
               ((%is-sexp-output-p llm-output)
-               (%log :info "sexp-eval" "REPL ~D: evaluating restricted Lisp" round)
+               (%log :info "sexp-eval" "REPL ~D: evaluating code" round)
                (setf last-eval-result (%eval-all-forms llm-output)))
+
+              ;; RECALL: keyword → the simple model wants more context.
+              ((search "RECALL:" llm-output)
+               (let* ((pos (search "RECALL:" llm-output))
+                      (query (string-trim '(#\Space #\Newline #\Return)
+                                          (subseq llm-output (+ pos 7))))
+                      (more (ignore-errors
+                              (memory-semantic-recall-block query :limit 3 :max-chars 800))))
+                 (%log :info "sexp-eval" "REPL ~D: RECALL query=[~A]" round
+                       (subseq query 0 (min 40 (length query))))
+                 (setf last-eval-result (or more "(no additional context found)"))))
 
               ;; Natural language → return to user.
               (t
