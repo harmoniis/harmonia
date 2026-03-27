@@ -24,7 +24,6 @@ use crate::msg::BridgeMsg;
 
 use ractor::RpcReplyPort;
 
-#[allow(dead_code)]
 pub enum ComponentMsg {
     /// Periodic tick — poll, flush, or heartbeat.
     Tick,
@@ -85,7 +84,7 @@ impl Actor for ChronicleActor {
             ComponentMsg::Shutdown => {
                 eprintln!("[INFO] [runtime] ChronicleActor shutting down");
             }
-            _ => {}
+            ComponentMsg::Signal { .. } => { /* chronicle does not handle signals */ }
         }
         Ok(())
     }
@@ -881,7 +880,8 @@ impl Actor for VaultActor {
             ComponentMsg::Shutdown => {
                 eprintln!("[INFO] [runtime] VaultActor shutting down");
             }
-            _ => {}
+            ComponentMsg::Tick => { /* vault does not tick */ }
+            ComponentMsg::Signal { .. } => { /* vault does not handle signals */ }
         }
         Ok(())
     }
@@ -919,7 +919,8 @@ impl Actor for ConfigActor {
             ComponentMsg::Shutdown => {
                 eprintln!("[INFO] [runtime] ConfigActor shutting down");
             }
-            _ => {}
+            ComponentMsg::Tick => { /* config does not tick */ }
+            ComponentMsg::Signal { .. } => { /* config does not handle signals */ }
         }
         Ok(())
     }
@@ -957,7 +958,8 @@ impl Actor for ProviderRouterActor {
             ComponentMsg::Shutdown => {
                 eprintln!("[INFO] [runtime] ProviderRouterActor shutting down");
             }
-            _ => {}
+            ComponentMsg::Tick => { /* provider-router does not tick */ }
+            ComponentMsg::Signal { .. } => { /* provider-router does not handle signals */ }
         }
         Ok(())
     }
@@ -995,7 +997,8 @@ impl Actor for ParallelActor {
             ComponentMsg::Shutdown => {
                 eprintln!("[INFO] [runtime] ParallelActor shutting down");
             }
-            _ => {}
+            ComponentMsg::Tick => { /* parallel does not tick */ }
+            ComponentMsg::Signal { .. } => { /* parallel does not handle signals */ }
         }
         Ok(())
     }

@@ -1,39 +1,95 @@
-//! Component Actor Registry — direct dispatch, no supervisor bottleneck.
+//! Component Actor Registry — lock-free direct dispatch.
 //!
 //! The IPC handler dispatches component calls DIRECTLY to actor mailboxes
 //! via this shared registry. The supervisor is never in the hot path.
 //!
-//! This eliminates the supervisor single-threaded bottleneck:
-//!   Before: IPC → supervisor → component actor → dispatch → result
-//!   After:  IPC → component actor → dispatch → result
+//!   IPC → component actor → dispatch → result
 //!
-//! The supervisor only handles lifecycle (register, restart, module management).
-//! Data calls bypass it entirely.
+//! Uses a slot-indexed array: lookup is a single array index,
+//! no hashing, no locking, no allocation on the read path.
+//! Writes (actor restart) use ArcSwap for wait-free reads.
 
-use std::collections::HashMap;
-use std::sync::{Arc, RwLock};
+use std::sync::Arc;
 
+use arc_swap::ArcSwap;
 use ractor::ActorRef;
 
 use crate::actors::ComponentMsg;
 
-/// Shared component actor registry.
-/// Arc<RwLock<>> for concurrent reads from IPC tasks, rare writes on actor registration.
-pub type SharedRegistry = Arc<RwLock<HashMap<String, ActorRef<ComponentMsg>>>>;
-
-/// Create an empty registry.
-pub fn new() -> SharedRegistry {
-    Arc::new(RwLock::new(HashMap::new()))
+/// Fixed component slots — indexed by discriminant for O(1) lookup.
+#[repr(u8)]
+#[derive(Clone, Copy, Debug)]
+pub enum ComponentSlot {
+    Chronicle = 0,
+    Gateway = 1,
+    Tailnet = 2,
+    Signalograd = 3,
+    MemoryField = 4,
+    Vault = 5,
+    Config = 6,
+    ProviderRouter = 7,
+    Parallel = 8,
+    Router = 9,
 }
 
-/// Register a component actor. Called from main.rs during startup.
-pub fn register(registry: &SharedRegistry, name: &str, actor: ActorRef<ComponentMsg>) {
-    if let Ok(mut map) = registry.write() {
-        map.insert(name.to_string(), actor);
+pub const NUM_SLOTS: usize = 10;
+
+impl ComponentSlot {
+    /// Map a component name to its slot. Returns None for unknown names.
+    pub fn from_name(name: &str) -> Option<Self> {
+        match name {
+            "chronicle" => Some(Self::Chronicle),
+            "gateway" => Some(Self::Gateway),
+            "tailnet" => Some(Self::Tailnet),
+            "signalograd" => Some(Self::Signalograd),
+            "memory-field" => Some(Self::MemoryField),
+            "vault" => Some(Self::Vault),
+            "config" => Some(Self::Config),
+            "provider-router" => Some(Self::ProviderRouter),
+            "parallel" => Some(Self::Parallel),
+            "router" => Some(Self::Router),
+            _ => None,
+        }
     }
 }
 
-/// Look up a component actor by name. Lock-free read path.
+/// Inner array — immutable once constructed, swapped atomically on restart.
+#[derive(Clone)]
+pub struct RegistryInner {
+    slots: [Option<ActorRef<ComponentMsg>>; NUM_SLOTS],
+}
+
+impl RegistryInner {
+    fn empty() -> Self {
+        Self {
+            slots: std::array::from_fn(|_| None),
+        }
+    }
+}
+
+/// Shared component actor registry.
+/// ArcSwap gives wait-free reads (a single atomic load on the hot path).
+/// Writes clone-and-swap, which is fine for the rare restart case.
+pub type SharedRegistry = Arc<ArcSwap<RegistryInner>>;
+
+/// Create an empty registry.
+pub fn new() -> SharedRegistry {
+    Arc::new(ArcSwap::from_pointee(RegistryInner::empty()))
+}
+
+/// Register a component actor by slot name.
+/// Clones the inner array and swaps atomically — O(1) read path unaffected.
+pub fn register(registry: &SharedRegistry, name: &str, actor: ActorRef<ComponentMsg>) {
+    if let Some(slot) = ComponentSlot::from_name(name) {
+        let mut inner = (**registry.load()).clone();
+        inner.slots[slot as usize] = Some(actor);
+        registry.store(Arc::new(inner));
+    }
+}
+
+/// Look up a component actor by name. Wait-free: one atomic load + array index.
 pub fn get(registry: &SharedRegistry, name: &str) -> Option<ActorRef<ComponentMsg>> {
-    registry.read().ok().and_then(|map| map.get(name).cloned())
+    let slot = ComponentSlot::from_name(name)?;
+    let inner = registry.load();
+    inner.slots[slot as usize].clone()
 }

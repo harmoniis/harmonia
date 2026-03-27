@@ -90,20 +90,27 @@ async fn main() {
     }
     let _ = std::fs::write(&pidfile_path, std::process::id().to_string());
 
-    // 6. Wait for SIGTERM/SIGINT → send Shutdown
+    // 6. Wait for SIGTERM/SIGINT → send Shutdown (cross-platform)
     let shutdown_sup = supervisor_ref.clone();
     tokio::spawn(async move {
-        let mut sigterm =
-            tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate()).unwrap();
-        let sigint = tokio::signal::ctrl_c();
-
-        tokio::select! {
-            _ = sigterm.recv() => {
-                eprintln!("[INFO] [phoenix] Received SIGTERM");
+        #[cfg(unix)]
+        {
+            let mut sigterm =
+                tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate()).unwrap();
+            let sigint = tokio::signal::ctrl_c();
+            tokio::select! {
+                _ = sigterm.recv() => {
+                    eprintln!("[INFO] [phoenix] Received SIGTERM");
+                }
+                _ = sigint => {
+                    eprintln!("[INFO] [phoenix] Received SIGINT");
+                }
             }
-            _ = sigint => {
-                eprintln!("[INFO] [phoenix] Received SIGINT");
-            }
+        }
+        #[cfg(not(unix))]
+        {
+            let _ = tokio::signal::ctrl_c().await;
+            eprintln!("[INFO] [phoenix] Received Ctrl-C");
         }
 
         let _ = shutdown_sup.cast(msg::SupervisorMsg::Shutdown);

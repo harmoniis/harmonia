@@ -1,8 +1,13 @@
-use std::path::Path;
+use std::sync::Arc;
 
 use ractor::ActorRef;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
-use tokio::net::{UnixListener, UnixStream};
+use tokio::sync::Notify;
+
+use interprocess::local_socket::{
+    tokio::{prelude::*, Stream},
+    GenericNamespaced, ListenerOptions,
+};
 
 use harmonia_actor_protocol::ActorKind;
 
@@ -10,44 +15,69 @@ use crate::actors::ComponentMsg;
 use crate::component_registry::SharedRegistry;
 use crate::msg::RuntimeMsg;
 
-/// Start the Unix domain socket IPC listener.
+/// FNV-1a 64-bit hash — deterministic across all platforms and Rust versions.
+/// Used to derive the IPC socket/pipe name from the state root.
+/// The same algorithm is implemented in Common Lisp (ipc-client.lisp).
+pub fn fnv1a_64(data: &[u8]) -> u64 {
+    let mut hash: u64 = 0xCBF29CE484222325;
+    for &byte in data {
+        hash ^= byte as u64;
+        hash = hash.wrapping_mul(0x100000001B3);
+    }
+    hash
+}
+
+/// Compute the IPC socket/pipe name from the state root.
+/// Format: `harmonia-runtime-{16-hex-digit-hash}`
 ///
+/// On Linux: abstract namespace socket
+/// On macOS/FreeBSD: /tmp/harmonia-runtime-{hash} filesystem socket
+/// On Windows: \\.\pipe\harmonia-runtime-{hash} named pipe
+pub fn ipc_name(state_root: &str) -> String {
+    format!("harmonia-runtime-{:016X}", fnv1a_64(state_root.as_bytes()))
+}
+
+/// Nonce token length (32 bytes = 64 hex chars).
+pub const TOKEN_LEN: usize = 64;
+
+/// Start the cross-platform IPC listener.
+///
+/// Uses `interprocess` crate: Unix domain sockets on Unix, named pipes on Windows.
 /// Component data calls dispatch DIRECTLY to actor mailboxes via the registry,
 /// bypassing the supervisor entirely. Only lifecycle calls go through the supervisor.
-pub async fn serve(socket_path: &str, supervisor: ActorRef<RuntimeMsg>, registry: SharedRegistry) {
-    // Remove stale socket file
-    let _ = std::fs::remove_file(socket_path);
-
-    // Ensure parent directory exists
-    if let Some(parent) = Path::new(socket_path).parent() {
-        let _ = std::fs::create_dir_all(parent);
-    }
-
-    let listener = match UnixListener::bind(socket_path) {
+pub async fn serve(
+    name: &str,
+    supervisor: ActorRef<RuntimeMsg>,
+    registry: SharedRegistry,
+    token: Arc<String>,
+    ready: Arc<Notify>,
+) {
+    let printable_name = name.to_string();
+    let listener = match ListenerOptions::new()
+        .name(name.to_ns_name::<GenericNamespaced>().expect("invalid IPC name"))
+        .create_tokio()
+    {
         Ok(l) => {
-            // Restrict socket to owner only (mode 0600)
-            #[cfg(unix)]
-            {
-                use std::os::unix::fs::PermissionsExt;
-                let _ =
-                    std::fs::set_permissions(socket_path, std::fs::Permissions::from_mode(0o600));
-            }
-            eprintln!("[INFO] [runtime] IPC listening on {socket_path}");
+            eprintln!("[INFO] [runtime] IPC listening: {printable_name}");
             l
         }
         Err(e) => {
-            eprintln!("[ERROR] [runtime] Failed to bind IPC socket {socket_path}: {e}");
+            eprintln!("[ERROR] [runtime] Failed to create IPC listener '{printable_name}': {e}");
             return;
         }
     };
 
+    // Signal that IPC is ready — main.rs waits on this before announcing startup.
+    ready.notify_waiters();
+
     loop {
         match listener.accept().await {
-            Ok((stream, _addr)) => {
+            Ok(stream) => {
                 let sup = supervisor.clone();
                 let reg = registry.clone();
+                let tok = token.clone();
                 tokio::spawn(async move {
-                    if let Err(e) = handle_connection(stream, sup, reg).await {
+                    if let Err(e) = handle_connection(stream, sup, reg, tok).await {
                         eprintln!("[WARN] [runtime] IPC connection error: {e}");
                     }
                 });
@@ -60,10 +90,22 @@ pub async fn serve(socket_path: &str, supervisor: ActorRef<RuntimeMsg>, registry
 }
 
 async fn handle_connection(
-    mut stream: UnixStream,
+    mut stream: Stream,
     supervisor: ActorRef<RuntimeMsg>,
     registry: SharedRegistry,
-) -> Result<(), Box<dyn std::error::Error>> {
+    expected_token: Arc<String>,
+) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    // ── Nonce handshake: verify client knows the token ──
+    let mut token_buf = [0u8; TOKEN_LEN];
+    stream.read_exact(&mut token_buf).await?;
+    let client_token = std::str::from_utf8(&token_buf)
+        .map_err(|_| "invalid token encoding")?;
+    // Constant-time compare to prevent timing attacks
+    if !constant_time_eq(client_token.as_bytes(), expected_token.as_bytes()) {
+        return Err("IPC token mismatch — connection rejected".into());
+    }
+
+    // ── Framed sexp protocol ──
     loop {
         let mut len_buf = [0u8; 4];
         match stream.read_exact(&mut len_buf).await {
@@ -80,11 +122,10 @@ async fn handle_connection(
 
         let mut payload = vec![0u8; len];
         stream.read_exact(&mut payload).await?;
-        let sexp = String::from_utf8_lossy(&payload).to_string();
+        let sexp = String::from_utf8_lossy(&payload).into_owned();
 
-        let reply = dispatch_sexp(&sexp, &supervisor, &registry).await;
+        let reply = dispatch_sexp(sexp, &supervisor, &registry).await;
 
-        // Write length-prefixed reply
         if let Some(reply_sexp) = reply {
             let reply_bytes = reply_sexp.as_bytes();
             let reply_len = (reply_bytes.len() as u32).to_be_bytes();
@@ -94,12 +135,28 @@ async fn handle_connection(
     }
 }
 
+/// Constant-time byte comparison to prevent timing side-channels on the nonce.
+fn constant_time_eq(a: &[u8], b: &[u8]) -> bool {
+    if a.len() != b.len() {
+        return false;
+    }
+    let mut diff = 0u8;
+    for (x, y) in a.iter().zip(b.iter()) {
+        diff |= x ^ y;
+    }
+    diff == 0
+}
+
 /// Parse a sexp request and dispatch.
 ///
 /// Component data calls go DIRECTLY to actor mailboxes via the registry.
 /// Lifecycle calls (register, deregister, list) go through the supervisor.
-/// No supervisor bottleneck on the hot path.
-async fn dispatch_sexp(sexp: &str, supervisor: &ActorRef<RuntimeMsg>, registry: &SharedRegistry) -> Option<String> {
+/// Owns the sexp String to avoid redundant copies on the hot path.
+async fn dispatch_sexp(
+    sexp: String,
+    supervisor: &ActorRef<RuntimeMsg>,
+    registry: &SharedRegistry,
+) -> Option<String> {
     let trimmed = sexp.trim();
 
     if trimmed.starts_with("(:drain") {
@@ -147,11 +204,9 @@ async fn dispatch_sexp(sexp: &str, supervisor: &ActorRef<RuntimeMsg>, registry: 
         let reply = ractor::call_t!(supervisor, RuntimeMsg::ListAll, 5000);
         Some(reply.unwrap_or_else(|_| "()".to_string()))
     } else if trimmed.starts_with("(:component") {
-        // Component dispatch: (:component "vault" :op "set-secret" :symbol "x" :value "y")
         let component = extract_string_value(trimmed, ":component").unwrap_or_default();
 
         // Fast path: observability trace ops are fire-and-forget.
-        // Cast directly to the obs actor, bypass supervisor entirely.
         if component == "observability" {
             let op = extract_string_value(trimmed, ":op").unwrap_or_default();
             if matches!(op.as_str(), "trace-start" | "trace-end" | "trace-event") {
@@ -161,27 +216,29 @@ async fn dispatch_sexp(sexp: &str, supervisor: &ActorRef<RuntimeMsg>, registry: 
         }
 
         // DIRECT DISPATCH — bypass supervisor entirely for data calls.
-        // The component actor processes the request in its own mailbox.
-        // No supervisor bottleneck. Parallel calls don't block each other.
         if let Some(actor) = crate::component_registry::get(registry, &component) {
-            // Dispatch directly to the component actor. No supervisor in the path.
-            // Timeout is generous because LLM calls take 10-60s and the user
-            // interrupts with ESC, not a forced timeout.
-            match ractor::call_t!(actor, ComponentMsg::Dispatch, 120_000, trimmed.to_string()) {
+            // Pass the owned String directly — no extra .to_string() copy.
+            match ractor::call_t!(actor, ComponentMsg::Dispatch, 120_000, sexp) {
                 Ok(result) => Some(result),
-                Err(_) => Some(format!("(:error \"component '{}' dispatch timeout\")", component)),
+                Err(_) => Some(format!(
+                    "(:error \"component '{}' dispatch timeout\")",
+                    component
+                )),
             }
         } else {
-            // Component not in registry — fall back to supervisor (lifecycle ops).
             let comp_name = component.clone();
             let reply = ractor::call_t!(
                 supervisor,
                 RuntimeMsg::ComponentCall,
                 10_000,
                 component,
-                trimmed.to_string()
+                sexp
             );
-            Some(reply.unwrap_or_else(|_| format!("(:error \"unknown component '{}'\")", comp_name)))
+            Some(
+                reply.unwrap_or_else(|_| {
+                    format!("(:error \"unknown component '{}'\")", comp_name)
+                }),
+            )
         }
     } else if trimmed.starts_with("(:modules") {
         let op = extract_string_value(trimmed, ":op").unwrap_or_default();
@@ -204,8 +261,12 @@ async fn dispatch_sexp(sexp: &str, supervisor: &ActorRef<RuntimeMsg>, registry: 
                 if name.is_empty() {
                     Some("(:error \"missing :name\")".to_string())
                 } else {
-                    let reply = ractor::call_t!(supervisor, RuntimeMsg::UnloadModule, 10000, name);
-                    Some(reply.unwrap_or_else(|_| "(:error \"unload module timeout\")".to_string()))
+                    let reply =
+                        ractor::call_t!(supervisor, RuntimeMsg::UnloadModule, 10000, name);
+                    Some(
+                        reply
+                            .unwrap_or_else(|_| "(:error \"unload module timeout\")".to_string()),
+                    )
                 }
             }
             "reload" => {
@@ -213,11 +274,13 @@ async fn dispatch_sexp(sexp: &str, supervisor: &ActorRef<RuntimeMsg>, registry: 
                 if name.is_empty() {
                     Some("(:error \"missing :name\")".to_string())
                 } else {
-                    // Unload first, then load
                     let _ =
                         ractor::call_t!(supervisor, RuntimeMsg::UnloadModule, 10000, name.clone());
                     let reply = ractor::call_t!(supervisor, RuntimeMsg::LoadModule, 10000, name);
-                    Some(reply.unwrap_or_else(|_| "(:error \"reload module timeout\")".to_string()))
+                    Some(
+                        reply
+                            .unwrap_or_else(|_| "(:error \"reload module timeout\")".to_string()),
+                    )
                 }
             }
             _ => Some(format!(
@@ -258,7 +321,6 @@ fn extract_string_value(sexp: &str, key: &str) -> Option<String> {
             }
             if bytes[end] == b'\\' {
                 end += 1;
-                // Bounds check: ensure the escaped char is within the string
                 if end >= bytes.len() {
                     return None;
                 }
@@ -285,4 +347,53 @@ fn extract_u64_value(sexp: &str, key: &str) -> Option<u64> {
     let after = after.trim_start();
     let num_str: String = after.chars().take_while(|c| c.is_ascii_digit()).collect();
     num_str.parse().ok()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn fnv1a_deterministic() {
+        assert_eq!(fnv1a_64(b""), 0xCBF29CE484222325);
+        // Same input always produces same output
+        assert_eq!(fnv1a_64(b"test"), fnv1a_64(b"test"));
+        // Different inputs produce different outputs
+        assert_ne!(fnv1a_64(b"test"), fnv1a_64(b"test2"));
+        // Verify known value for "/tmp/harmonia"
+        let hash = fnv1a_64(b"/tmp/harmonia");
+        assert_ne!(hash, 0);
+        assert_eq!(hash, fnv1a_64(b"/tmp/harmonia"));
+    }
+
+    #[test]
+    fn ipc_name_format() {
+        let name = ipc_name("/tmp/harmonia");
+        assert!(name.starts_with("harmonia-runtime-"));
+        assert_eq!(name.len(), "harmonia-runtime-".len() + 16);
+    }
+
+    #[test]
+    fn constant_time_eq_works() {
+        assert!(constant_time_eq(b"abcdef", b"abcdef"));
+        assert!(!constant_time_eq(b"abcdef", b"abcdeg"));
+        assert!(!constant_time_eq(b"abc", b"abcd"));
+    }
+
+    #[test]
+    fn extract_sexp_values() {
+        let sexp = r#"(:component "vault" :op "set-secret" :symbol "api-key" :value "sk-123")"#;
+        assert_eq!(
+            extract_string_value(sexp, ":component"),
+            Some("vault".to_string())
+        );
+        assert_eq!(
+            extract_string_value(sexp, ":op"),
+            Some("set-secret".to_string())
+        );
+        assert_eq!(
+            extract_string_value(sexp, ":value"),
+            Some("sk-123".to_string())
+        );
+    }
 }

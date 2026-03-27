@@ -1,0 +1,16 @@
+# Deterministic builds
+build --incompatible_strict_action_env
+build --nolegacy_external_runfiles
+
+# Reproducibility
+build --stamp=false
+
+# CI remote cache (requires BUILDBUDDY_API_KEY secret)
+build:ci --remote_cache=grpcs://remote.buildbuddy.io
+build:ci --remote_header=x-buildbuddy-api-key=${BUILDBUDDY_API_KEY}
+build:ci --remote_upload_local_results=true
+
+# Platform configs
+build:linux --platforms=@rules_rust//rust/platform:linux_x86_64
+build:macos --platforms=@rules_rust//rust/platform:macos_aarch64
+build:windows --platforms=@rules_rust//rust/platform:windows_x86_64

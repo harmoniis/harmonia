@@ -375,7 +375,7 @@ mod tests {
 
     #[test]
     fn grok_truth_payload_enables_reasoning_and_native_search() {
-        let payload = request_payload("verify this claim", "x-ai/grok-4.1-fast");
+        let payload = request_payload("verify this claim", "x-ai/grok-4.1-fast", None, None);
         assert_eq!(payload["reasoning"]["enabled"], json!(true));
         assert_eq!(payload["plugins"][0]["id"], json!("web"));
         assert_eq!(payload["plugins"][0]["engine"], json!("native"));
@@ -387,7 +387,7 @@ mod tests {
 
     #[test]
     fn non_grok_payload_has_no_plugins() {
-        let payload = request_payload("hello", "anthropic/claude-sonnet-4.6");
+        let payload = request_payload("hello", "anthropic/claude-sonnet-4.6", None, None);
         assert!(payload.get("reasoning").is_none());
         assert!(payload.get("plugins").is_none());
     }

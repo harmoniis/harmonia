@@ -360,6 +360,77 @@ impl HarmoniaMessage {
             payload_sexp
         )
     }
+
+    /// Append sexp representation to an existing buffer (zero intermediate allocation).
+    pub fn write_sexp(&self, buf: &mut String) {
+        use std::fmt::Write;
+        let _ = write!(buf, "(:actor-id {} :kind :{} :timestamp {} :payload (",
+            self.source, self.kind.as_str(), self.timestamp);
+        match &self.payload {
+            MessagePayload::InboundSignal { envelope_sexp } => {
+                let _ = write!(buf, ":inbound-signal :envelope \"{}\"", sexp_escape(envelope_sexp));
+            }
+            MessagePayload::OutboundSignal { frontend, sub_channel, payload } => {
+                let _ = write!(buf, ":outbound-signal :frontend \"{}\" :sub-channel \"{}\" :payload \"{}\"",
+                    sexp_escape(frontend), sexp_escape(sub_channel), sexp_escape(payload));
+            }
+            MessagePayload::TaskCompleted { output, exit_code, duration_ms } => {
+                let _ = write!(buf, ":completed :output \"{}\" :exit-code {} :duration-ms {}",
+                    sexp_escape(output), exit_code, duration_ms);
+            }
+            MessagePayload::TaskFailed { error, duration_ms } => {
+                let _ = write!(buf, ":failed :error \"{}\" :duration-ms {}",
+                    sexp_escape(error), duration_ms);
+            }
+            MessagePayload::ProgressHeartbeat { bytes_delta } => {
+                let _ = write!(buf, ":progress-heartbeat :bytes-delta {}", bytes_delta);
+            }
+            MessagePayload::StateChanged { to } => {
+                let _ = write!(buf, ":state-changed :to {}", to);
+            }
+            MessagePayload::MeshInbound { from_node, msg_type, payload } => {
+                let _ = write!(buf, ":mesh-inbound :from-node \"{}\" :msg-type \"{}\" :payload \"{}\"",
+                    sexp_escape(from_node), sexp_escape(msg_type), sexp_escape(payload));
+            }
+            MessagePayload::RecordAck { table, count } => {
+                let _ = write!(buf, ":record-ack :table \"{}\" :count {}", sexp_escape(table), count);
+            }
+            MessagePayload::ToolInvoked { tool_name, operation, request_id } => {
+                let _ = write!(buf, ":tool-invoked :tool \"{}\" :operation \"{}\" :request-id {}",
+                    sexp_escape(tool_name), sexp_escape(operation), request_id);
+            }
+            MessagePayload::ToolCompleted { tool_name, operation, request_id, envelope_sexp, duration_ms } => {
+                let _ = write!(buf, ":tool-completed :tool \"{}\" :operation \"{}\" :request-id {} :envelope \"{}\" :duration-ms {}",
+                    sexp_escape(tool_name), sexp_escape(operation), request_id, sexp_escape(envelope_sexp), duration_ms);
+            }
+            MessagePayload::ToolFailed { tool_name, operation, request_id, error, duration_ms } => {
+                let _ = write!(buf, ":tool-failed :tool \"{}\" :operation \"{}\" :request-id {} :error \"{}\" :duration-ms {}",
+                    sexp_escape(tool_name), sexp_escape(operation), request_id, sexp_escape(error), duration_ms);
+            }
+            MessagePayload::Shutdown => { buf.push_str(":shutdown"); }
+            MessagePayload::SupervisionReady { task, spec, taxonomy, assertions } => {
+                let _ = write!(buf, ":supervision-ready :task {} :spec {} :taxonomy \"{}\" :assertions {}",
+                    task, spec, sexp_escape(taxonomy), assertions);
+            }
+            MessagePayload::SupervisionVerdict { task, spec, passed, failed, skipped, confidence, grade, summary } => {
+                let _ = write!(buf, ":supervision-verdict :task {} :spec {} :passed {} :failed {} :skipped {} :confidence {:.4} :grade \"{}\" :summary \"{}\"",
+                    task, spec, passed, failed, skipped, confidence, sexp_escape(grade), sexp_escape(summary));
+            }
+            MessagePayload::TierChanged { tier } => {
+                let _ = write!(buf, ":tier-changed :tier \"{}\"", sexp_escape(tier));
+            }
+            MessagePayload::RouteFeedback { request_id, model_id, task_kind, tier, success, latency_ms, cost_usd_estimate, complexity_score } => {
+                let _ = write!(buf, ":route-feedback :request-id {} :model \"{}\" :task \"{}\" :tier \"{}\" :success {} :latency-ms {} :cost-usd {:.6} :complexity {:.4}",
+                    request_id, sexp_escape(model_id), sexp_escape(task_kind), sexp_escape(tier),
+                    if *success { "t" } else { "nil" }, latency_ms, cost_usd_estimate, complexity_score);
+            }
+            MessagePayload::CascadeEscalate { request_id, failed_model, reason } => {
+                let _ = write!(buf, ":cascade-escalate :request-id {} :failed-model \"{}\" :reason \"{}\"",
+                    request_id, sexp_escape(failed_model), sexp_escape(reason));
+            }
+        }
+        buf.push_str("))");
+    }
 }
 
 // ─── Actor registration ────────────────────────────────────────────────

@@ -199,8 +199,18 @@ fn spawn_process(state: &mut SubsystemActorState, myself: &ActorRef<SubsystemMsg
     let env_vars = state.config.env.clone();
     let name = state.config.name.clone();
 
-    let mut cmd = Command::new("sh");
-    cmd.arg("-lc").arg(&cmd_str);
+    #[cfg(unix)]
+    let mut cmd = {
+        let mut c = Command::new("sh");
+        c.arg("-lc").arg(&cmd_str);
+        c
+    };
+    #[cfg(windows)]
+    let mut cmd = {
+        let mut c = Command::new("cmd");
+        c.arg("/C").arg(&cmd_str);
+        c
+    };
     for (k, v) in &env_vars {
         cmd.env(k, v);
     }
@@ -287,7 +297,25 @@ fn send_signal(pid: u32, kind: SignalKind) {
             libc::kill(pid as i32, sig);
         }
     }
-    #[cfg(not(unix))]
+    #[cfg(windows)]
+    {
+        use std::process::Command as StdCommand;
+        match kind {
+            SignalKind::Term => {
+                // taskkill sends WM_CLOSE (graceful)
+                let _ = StdCommand::new("taskkill")
+                    .args(["/PID", &pid.to_string()])
+                    .output();
+            }
+            SignalKind::Kill => {
+                // taskkill /F is forceful termination
+                let _ = StdCommand::new("taskkill")
+                    .args(["/F", "/PID", &pid.to_string()])
+                    .output();
+            }
+        }
+    }
+    #[cfg(not(any(unix, windows)))]
     {
         let _ = (pid, kind);
     }

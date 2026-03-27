@@ -21,16 +21,6 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Clone sibling harmoniis-wallet for local path dependencies
-        shell: bash
-        run: |
-          WORK_ROOT="$(cd "${GITHUB_WORKSPACE}/../.." && pwd)"
-          WALLET_DIR="${WORK_ROOT}/marketplace/harmoniis-wallet"
-          mkdir -p "${WORK_ROOT}/marketplace"
-          if [ ! -d "${WALLET_DIR}/.git" ]; then
-            git clone --depth 1 https://github.com/harmoniis/harmoniis-wallet.git "${WALLET_DIR}"
-          fi
-
       - uses: dtolnay/rust-toolchain@stable
         with:
           toolchain: "1.93.0"
@@ -50,14 +40,9 @@ jobs:
           "CC_x86_64_pc_windows_msvc=cl.exe" >> $env:GITHUB_ENV
           "CXX_x86_64_pc_windows_msvc=cl.exe" >> $env:GITHUB_ENV
 
-      - uses: actions/cache@v4
+      - uses: Swatinem/rust-cache@v2
         with:
-          path: |
-            ~/.cargo/registry
-            ~/.cargo/git
-            target
-          key: cargo-${{ matrix.os }}-${{ hashFiles('Cargo.lock') }}
-          restore-keys: cargo-${{ matrix.os }}-
+          shared-key: ${{ matrix.os }}
 
       - name: Check documentation coverage
         if: runner.os != 'Windows'
@@ -70,17 +55,17 @@ jobs:
         if: runner.os != 'Windows'
         run: cargo build --workspace --release
 
-      - name: Build all crates (Windows — exclude Unix-only daemons)
+      - name: Build all crates (Windows — exclude macOS-only crates)
         if: runner.os == 'Windows'
-        run: cargo build --workspace --release --exclude harmonia-phoenix --exclude harmonia-runtime --exclude harmonia
+        run: cargo build --workspace --release --exclude harmonia-imessage
 
       - name: Run all tests (Unix)
         if: runner.os != 'Windows'
         run: cargo test --workspace
 
-      - name: Run all tests (Windows — exclude Unix-only daemons)
+      - name: Run all tests (Windows — exclude macOS-only crates)
         if: runner.os == 'Windows'
-        run: cargo test --workspace --exclude harmonia-phoenix --exclude harmonia-runtime --exclude harmonia
+        run: cargo test --workspace --exclude harmonia-imessage
 
   build-freebsd:
     name: Build + Test (FreeBSD)
@@ -106,17 +91,8 @@ jobs:
             sudo pkg install -y curl bash ca_root_nss git
             curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain 1.93.0 --component rustfmt
             . "$HOME/.cargo/env"
-            # Clone wallet dependency
-            WALLET_DIR="../../marketplace/harmoniis-wallet"
-            mkdir -p "../../marketplace"
-            git clone --depth 1 https://github.com/harmoniis/harmoniis-wallet.git "${WALLET_DIR}" || true
-            # Build (release to save disk space in VM) + test
             cargo build --workspace --release
             cargo test --workspace --release
-
-      # Bazel smoke build disabled in CI — requires harmoniis-wallet
-      # sibling repo which Bazel sandbox cannot access. Bazel builds
-      # work locally. Cargo is the authoritative build system.
 
   release:
     name: Release (${{ matrix.platform }})
@@ -140,10 +116,10 @@ jobs:
           - os: macos-latest
             target: x86_64-apple-darwin
             platform: macos-x86_64
-          # Windows excluded from release: agent requires Unix domain sockets,
-          # Unix signals, and SBCL. Windows users should use WSL2.
-          # Library crates are validated in the Build+Test job.
-          #
+          # Windows — full agent support via interprocess named pipes
+          - os: windows-latest
+            target: x86_64-pc-windows-msvc
+            platform: windows-x86_64
           # FreeBSD — native VM build via cross-platform-actions
           - os: ubuntu-latest
             target: x86_64-unknown-freebsd
@@ -154,29 +130,26 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Clone sibling harmoniis-wallet for local path dependencies
-        shell: bash
-        run: |
-          WORK_ROOT="$(cd "${GITHUB_WORKSPACE}/../.." && pwd)"
-          WALLET_DIR="${WORK_ROOT}/marketplace/harmoniis-wallet"
-          mkdir -p "${WORK_ROOT}/marketplace"
-          if [ ! -d "${WALLET_DIR}/.git" ]; then
-            git clone --depth 1 https://github.com/harmoniis/harmoniis-wallet.git "${WALLET_DIR}"
-          fi
-
       - uses: dtolnay/rust-toolchain@stable
         with:
           toolchain: "1.93.0"
           targets: ${{ !matrix.freebsd_vm && matrix.target || '' }}
 
-      - uses: actions/cache@v4
+      - uses: Swatinem/rust-cache@v2
         with:
-          path: |
-            ~/.cargo/registry
-            ~/.cargo/git
-            target
-          key: release-${{ matrix.platform }}-${{ hashFiles('Cargo.lock') }}
-          restore-keys: release-${{ matrix.platform }}-
+          shared-key: release-${{ matrix.platform }}
+
+      - name: Set up MSVC environment
+        if: runner.os == 'Windows'
+        uses: ilammy/msvc-dev-cmd@v1
+
+      - name: Force MSVC compiler tools
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          "CC=cl.exe" >> $env:GITHUB_ENV
+          "CXX=cl.exe" >> $env:GITHUB_ENV
+          "AR=lib.exe" >> $env:GITHUB_ENV
 
       - name: Build release binaries (FreeBSD VM)
         if: matrix.freebsd_vm
@@ -191,19 +164,11 @@ jobs:
           sync_files: true
           run: |
             set -euo pipefail
-            # Install Rust toolchain
             export IGNORE_OSVERSION=yes
             sudo pkg install -y curl bash ca_root_nss
             curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain 1.93.0
             . "$HOME/.cargo/env"
             rustup component add rustfmt
-            # Clone sibling wallet dependency
-            WALLET_DIR="../../marketplace/harmoniis-wallet"
-            mkdir -p "../../marketplace"
-            if [ ! -d "${WALLET_DIR}/.git" ]; then
-              git clone --depth 1 https://github.com/harmoniis/harmoniis-wallet.git "${WALLET_DIR}"
-            fi
-            # Build
             cargo build --workspace --release
             VERSION=${GITHUB_REF_NAME#harmonia-v}
             bash scripts/build_release.sh "$VERSION" "${{ matrix.platform }}"
@@ -216,11 +181,12 @@ jobs:
           HOST_TARGET=$(rustc -vV | grep host | awk '{print $2}')
           if [ "${{ matrix.target }}" != "$HOST_TARGET" ]; then
             cargo build --workspace --release --target ${{ matrix.target }}
-            # Copy cross-compiled artifacts for build_release.sh
             mkdir -p target/release
             cp target/${{ matrix.target }}/release/harmonia target/release/ 2>/dev/null || true
+            cp target/${{ matrix.target }}/release/harmonia.exe target/release/ 2>/dev/null || true
             cp target/${{ matrix.target }}/release/*.so target/release/ 2>/dev/null || true
             cp target/${{ matrix.target }}/release/*.dylib target/release/ 2>/dev/null || true
+            cp target/${{ matrix.target }}/release/*.dll target/release/ 2>/dev/null || true
           else
             cargo build --workspace --release
           fi
@@ -232,6 +198,8 @@ jobs:
           files: |
             harmonia-*-${{ matrix.platform }}.tar.gz
             harmonia-*-${{ matrix.platform }}.tar.gz.sha256
+            harmonia-*-${{ matrix.platform }}.zip
+            harmonia-*-${{ matrix.platform }}.zip.sha256
 
       - name: Upload install script
         if: matrix.platform == 'linux-x86_64'
@@ -264,16 +232,6 @@ jobs:
       CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
     steps:
       - uses: actions/checkout@v4
-
-      - name: Clone sibling harmoniis-wallet for local path dependencies
-        shell: bash
-        run: |
-          WORK_ROOT="$(cd "${GITHUB_WORKSPACE}/../.." && pwd)"
-          WALLET_DIR="${WORK_ROOT}/marketplace/harmoniis-wallet"
-          mkdir -p "${WORK_ROOT}/marketplace"
-          if [ ! -d "${WALLET_DIR}/.git" ]; then
-            git clone --depth 1 https://github.com/harmoniis/harmoniis-wallet.git "${WALLET_DIR}"
-          fi
 
       - uses: dtolnay/rust-toolchain@stable
         with:
