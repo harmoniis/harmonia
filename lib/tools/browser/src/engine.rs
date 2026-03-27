@@ -10,8 +10,8 @@ use std::io::Read as _;
 use std::sync::{OnceLock, RwLock};
 use std::time::Duration;
 
-/// Global browser engine state.
-struct BrowserState {
+/// Browser engine state.
+pub struct BrowserState {
     user_agent: String,
     timeout_ms: u64,
     max_response_bytes: usize,
@@ -31,10 +31,11 @@ impl Default for BrowserState {
     }
 }
 
-static STATE: OnceLock<RwLock<BrowserState>> = OnceLock::new();
+/// Deprecated: legacy global singleton. Will be replaced by injected state.
+static LEGACY_STATE: OnceLock<RwLock<BrowserState>> = OnceLock::new();
 
 fn state() -> &'static RwLock<BrowserState> {
-    STATE.get_or_init(|| RwLock::new(BrowserState::default()))
+    LEGACY_STATE.get_or_init(|| RwLock::new(BrowserState::default()))
 }
 
 /// Initialize the browser engine from an s-expression config string.

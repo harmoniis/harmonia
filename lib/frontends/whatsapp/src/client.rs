@@ -14,17 +14,18 @@ struct WaMessage {
 }
 
 /// Runtime state for the WhatsApp frontend.
-pub(crate) struct WhatsAppState {
+pub struct WhatsAppState {
     pub api_url: String,
     pub api_key: String,
     pub last_poll_ms: u64,
     pub initialized: bool,
 }
 
-static STATE: OnceLock<RwLock<WhatsAppState>> = OnceLock::new();
+/// Legacy singleton — deprecated. Frontend actor should own this state.
+static LEGACY_STATE: OnceLock<RwLock<WhatsAppState>> = OnceLock::new();
 
 fn state() -> &'static RwLock<WhatsAppState> {
-    STATE.get_or_init(|| {
+    LEGACY_STATE.get_or_init(|| {
         RwLock::new(WhatsAppState {
             api_url: String::new(),
             api_key: String::new(),

@@ -3,44 +3,52 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use crate::model::{State, StoreConfig};
 
+// DEPRECATED: singleton globals — the runtime actor should own State directly.
+// Kept for legacy FFI wrappers in ops/reports/store that still lock-and-mutate.
+#[deprecated(note = "singleton elimination: runtime actor owns State directly")]
 #[allow(dead_code)]
-static STATE: OnceLock<RwLock<State>> = OnceLock::new();
+static LEGACY_STATE: OnceLock<RwLock<State>> = OnceLock::new();
+#[deprecated(note = "singleton elimination: runtime actor owns error slot directly")]
 #[allow(dead_code)]
-static LAST_ERROR: OnceLock<RwLock<String>> = OnceLock::new();
+static LEGACY_LAST_ERROR: OnceLock<RwLock<String>> = OnceLock::new();
+#[deprecated(note = "singleton elimination: runtime actor owns StoreConfig directly")]
 #[allow(dead_code)]
-static STORE_CONFIG: OnceLock<RwLock<StoreConfig>> = OnceLock::new();
+static LEGACY_STORE_CONFIG: OnceLock<RwLock<StoreConfig>> = OnceLock::new();
 
-#[allow(dead_code)]
-pub(super) fn state() -> &'static RwLock<State> {
-    STATE.get_or_init(|| RwLock::new(State::default()))
+#[deprecated(note = "singleton elimination: use actor-owned State")]
+#[allow(dead_code, deprecated)]
+pub fn state() -> &'static RwLock<State> {
+    LEGACY_STATE.get_or_init(|| RwLock::new(State::default()))
 }
 
-#[allow(dead_code)]
+#[deprecated(note = "singleton elimination: use actor-owned error slot")]
+#[allow(dead_code, deprecated)]
 fn last_error_slot() -> &'static RwLock<String> {
-    LAST_ERROR.get_or_init(|| RwLock::new(String::new()))
+    LEGACY_LAST_ERROR.get_or_init(|| RwLock::new(String::new()))
 }
 
-#[allow(dead_code)]
-pub(super) fn store_config() -> &'static RwLock<StoreConfig> {
-    STORE_CONFIG.get_or_init(|| RwLock::new(StoreConfig::default()))
+#[deprecated(note = "singleton elimination: use actor-owned StoreConfig")]
+#[allow(dead_code, deprecated)]
+pub fn store_config() -> &'static RwLock<StoreConfig> {
+    LEGACY_STORE_CONFIG.get_or_init(|| RwLock::new(StoreConfig::default()))
 }
 
-#[allow(dead_code)]
-pub(crate) fn set_last_error(msg: impl Into<String>) {
+#[allow(dead_code, deprecated)]
+pub fn set_last_error(msg: impl Into<String>) {
     if let Ok(mut slot) = last_error_slot().write() {
         *slot = msg.into();
     }
 }
 
-#[allow(dead_code)]
-pub(crate) fn clear_last_error() {
+#[allow(dead_code, deprecated)]
+pub fn clear_last_error() {
     if let Ok(mut slot) = last_error_slot().write() {
         slot.clear();
     }
 }
 
-#[allow(dead_code)]
-pub(crate) fn last_error_message() -> String {
+#[allow(dead_code, deprecated)]
+pub fn last_error_message() -> String {
     last_error_slot()
         .read()
         .map(|v| v.clone())
@@ -48,7 +56,7 @@ pub(crate) fn last_error_message() -> String {
 }
 
 #[allow(dead_code)]
-pub(super) fn now_unix() -> u64 {
+pub fn now_unix() -> u64 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .map(|d| d.as_secs())
@@ -56,7 +64,7 @@ pub(super) fn now_unix() -> u64 {
 }
 
 #[allow(dead_code)]
-pub(super) fn history_limit() -> usize {
+pub fn history_limit() -> usize {
     harmonia_config_store::get_own("harmonic-matrix", "history-limit")
         .ok()
         .flatten()
@@ -66,7 +74,7 @@ pub(super) fn history_limit() -> usize {
 }
 
 #[allow(dead_code)]
-pub(super) fn truncate_payload(s: &str, max_chars: usize) -> String {
+pub fn truncate_payload(s: &str, max_chars: usize) -> String {
     if s.chars().count() <= max_chars {
         return s.to_string();
     }
@@ -74,7 +82,7 @@ pub(super) fn truncate_payload(s: &str, max_chars: usize) -> String {
 }
 
 #[allow(dead_code)]
-pub(super) fn push_limited<T>(v: &mut Vec<T>, item: T, limit: usize) {
+pub fn push_limited<T>(v: &mut Vec<T>, item: T, limit: usize) {
     v.push(item);
     if v.len() > limit {
         let over = v.len() - limit;
@@ -83,12 +91,12 @@ pub(super) fn push_limited<T>(v: &mut Vec<T>, item: T, limit: usize) {
 }
 
 #[allow(dead_code)]
-pub(super) fn bump_revision(st: &mut State) {
+pub fn bump_revision(st: &mut State) {
     st.revision = st.revision.saturating_add(1);
 }
 
 #[allow(dead_code)]
-pub(super) fn reset_state(st: &mut State) {
+pub fn reset_state(st: &mut State) {
     st.nodes.clear();
     st.edges.clear();
     st.plugged.clear();

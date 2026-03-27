@@ -35,10 +35,11 @@ fn metrics_db_path() -> String {
         .unwrap_or_else(|| format!("{}/metrics.db", state_root()))
 }
 
-static DB: OnceLock<Mutex<Connection>> = OnceLock::new();
+/// Deprecated: legacy global singleton. Will be replaced by injected state.
+static LEGACY_DB: OnceLock<Mutex<Connection>> = OnceLock::new();
 
 fn db() -> &'static Mutex<Connection> {
-    DB.get_or_init(|| {
+    LEGACY_DB.get_or_init(|| {
         let path = metrics_db_path();
         if let Some(parent) = std::path::Path::new(&path).parent() {
             let _ = std::fs::create_dir_all(parent);

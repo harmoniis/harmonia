@@ -6,13 +6,15 @@ use crate::model::{DeviceInfo, MessageEnvelope, RemoteDeviceRecord, COMPONENT};
 use crate::queue::flush_offline_queue;
 
 pub(crate) fn device_registry() -> &'static RwLock<HashMap<String, DeviceInfo>> {
-    static REG: OnceLock<RwLock<HashMap<String, DeviceInfo>>> = OnceLock::new();
-    REG.get_or_init(|| RwLock::new(HashMap::new()))
+    /// Legacy singleton — deprecated. Frontend actor should own this state.
+    static LEGACY_REG: OnceLock<RwLock<HashMap<String, DeviceInfo>>> = OnceLock::new();
+    LEGACY_REG.get_or_init(|| RwLock::new(HashMap::new()))
 }
 
 pub(crate) fn push_config() -> &'static RwLock<Option<harmonia_push::PushConfig>> {
-    static CFG: OnceLock<RwLock<Option<harmonia_push::PushConfig>>> = OnceLock::new();
-    CFG.get_or_init(|| RwLock::new(None))
+    /// Legacy singleton — deprecated. Frontend actor should own this state.
+    static LEGACY_CFG: OnceLock<RwLock<Option<harmonia_push::PushConfig>>> = OnceLock::new();
+    LEGACY_CFG.get_or_init(|| RwLock::new(None))
 }
 
 pub(crate) fn load_remote_device_registry() {

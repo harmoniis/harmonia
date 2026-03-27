@@ -43,10 +43,11 @@ static PROVIDERS: &[VoiceProvider] = &[
 
 // ── Active Provider Detection ──────────────────────────────────────────────
 
-static ACTIVE_PROVIDERS: OnceLock<Vec<String>> = OnceLock::new();
+/// Deprecated: legacy global singleton. Will be replaced by injected state.
+static LEGACY_ACTIVE_PROVIDERS: OnceLock<Vec<String>> = OnceLock::new();
 
 fn active_providers() -> &'static Vec<String> {
-    ACTIVE_PROVIDERS.get_or_init(|| {
+    LEGACY_ACTIVE_PROVIDERS.get_or_init(|| {
         let mut active = Vec::new();
         for p in PROVIDERS {
             if get_secret_any(p.vault_component, p.vault_symbols)

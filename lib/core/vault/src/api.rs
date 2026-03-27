@@ -9,7 +9,11 @@ use crate::store::{
     load_store_file, normalize_symbol, upsert_secret,
 };
 
-static COMPONENT_POLICY_OVERRIDES: OnceLock<HashMap<String, Vec<String>>> = OnceLock::new();
+/// Component policy overrides type. Public so VaultActor can own one directly.
+pub type ComponentPolicyMap = HashMap<String, Vec<String>>;
+
+/// Legacy global policy overrides — deprecated. Use actor-owned ComponentPolicyMap instead.
+static LEGACY_COMPONENT_POLICY_OVERRIDES: OnceLock<ComponentPolicyMap> = OnceLock::new();
 
 fn load_all_sources(map: &mut HashMap<String, String>) {
     map.clear();
@@ -141,8 +145,9 @@ fn parse_component_policy_env() -> HashMap<String, Vec<String>> {
     out
 }
 
-fn component_policy_overrides() -> &'static HashMap<String, Vec<String>> {
-    COMPONENT_POLICY_OVERRIDES.get_or_init(parse_component_policy_env)
+/// Legacy accessor — returns the global singleton. Deprecated.
+fn component_policy_overrides() -> &'static ComponentPolicyMap {
+    LEGACY_COMPONENT_POLICY_OVERRIDES.get_or_init(parse_component_policy_env)
 }
 
 fn pattern_matches(pattern: &str, symbol: &str) -> bool {

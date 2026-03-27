@@ -17,10 +17,11 @@ pub struct SlackState {
     pub initialized: bool,
 }
 
-static STATE: OnceLock<RwLock<SlackState>> = OnceLock::new();
+/// Legacy singleton — deprecated. Frontend actor should own this state.
+static LEGACY_STATE: OnceLock<RwLock<SlackState>> = OnceLock::new();
 
 fn state() -> &'static RwLock<SlackState> {
-    STATE.get_or_init(|| {
+    LEGACY_STATE.get_or_init(|| {
         RwLock::new(SlackState {
             bot_token: String::new(),
             app_token: String::new(),

@@ -14,10 +14,11 @@ pub struct SignalState {
     pub initialized: bool,
 }
 
-static STATE: OnceLock<RwLock<SignalState>> = OnceLock::new();
+/// Legacy singleton — deprecated. Frontend actor should own this state.
+static LEGACY_STATE: OnceLock<RwLock<SignalState>> = OnceLock::new();
 
 fn state() -> &'static RwLock<SignalState> {
-    STATE.get_or_init(|| {
+    LEGACY_STATE.get_or_init(|| {
         RwLock::new(SignalState {
             rpc_url: String::new(),
             account: String::new(),

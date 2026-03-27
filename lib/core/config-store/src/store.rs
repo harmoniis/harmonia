@@ -7,7 +7,11 @@ use std::sync::{Mutex, OnceLock, RwLock};
 
 // ─── Singleton connection ───────────────────────────────────────────
 
-static DB_CONN: OnceLock<Mutex<Connection>> = OnceLock::new();
+/// The config DB connection type. Public so ConfigStoreActor can own one directly.
+pub type ConfigDbConn = Mutex<Connection>;
+
+/// Legacy global DB connection — deprecated. Use actor-owned ConfigDbConn instead.
+static LEGACY_DB_CONN: OnceLock<ConfigDbConn> = OnceLock::new();
 
 fn state_root() -> PathBuf {
     if let Ok(v) = env::var("HARMONIA_STATE_ROOT") {
@@ -62,20 +66,26 @@ fn open_connection() -> Result<Connection, String> {
     Ok(conn)
 }
 
-fn conn() -> Result<&'static Mutex<Connection>, String> {
-    if let Some(c) = DB_CONN.get() {
+/// Legacy accessor — returns the global singleton connection. Deprecated.
+fn conn() -> Result<&'static ConfigDbConn, String> {
+    if let Some(c) = LEGACY_DB_CONN.get() {
         return Ok(c);
     }
     let connection = open_connection()?;
-    Ok(DB_CONN.get_or_init(|| Mutex::new(connection)))
+    Ok(LEGACY_DB_CONN.get_or_init(|| Mutex::new(connection)))
 }
 
 // ─── In-memory cache ────────────────────────────────────────────────
 
-static CACHE: OnceLock<RwLock<HashMap<(String, String), String>>> = OnceLock::new();
+/// The config cache type. Public so ConfigStoreActor can own one directly.
+pub type ConfigCache = RwLock<HashMap<(String, String), String>>;
 
-fn cache() -> &'static RwLock<HashMap<(String, String), String>> {
-    CACHE.get_or_init(|| RwLock::new(HashMap::new()))
+/// Legacy global cache — deprecated. Use actor-owned ConfigCache instead.
+static LEGACY_CACHE: OnceLock<ConfigCache> = OnceLock::new();
+
+/// Legacy accessor — returns the global singleton cache. Deprecated.
+fn cache() -> &'static ConfigCache {
+    LEGACY_CACHE.get_or_init(|| RwLock::new(HashMap::new()))
 }
 
 pub(crate) fn cache_get(scope: &str, key: &str) -> Option<String> {

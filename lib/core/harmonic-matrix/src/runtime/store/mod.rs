@@ -4,8 +4,8 @@ use crate::model::{State, StoreKind};
 
 use super::shared::{reset_state, state, store_config};
 
-#[allow(dead_code)]
-pub(super) fn persist_if_needed(st: &State) -> Result<(), String> {
+#[allow(dead_code, deprecated)]
+pub fn persist_if_needed(st: &State) -> Result<(), String> {
     let cfg = store_config()
         .read()
         .map_err(|_| "harmonic matrix store config lock poisoned".to_string())?

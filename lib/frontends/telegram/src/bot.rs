@@ -42,16 +42,17 @@ struct TgSendResponse {
 // State
 // ---------------------------------------------------------------------------
 
-pub(crate) struct TelegramState {
+pub struct TelegramState {
     pub bot_token: String,
     pub last_update_id: i64,
     pub initialized: bool,
 }
 
-static STATE: OnceLock<RwLock<TelegramState>> = OnceLock::new();
+/// Legacy singleton — deprecated. Frontend actor should own this state.
+static LEGACY_STATE: OnceLock<RwLock<TelegramState>> = OnceLock::new();
 
 fn state() -> &'static RwLock<TelegramState> {
-    STATE.get_or_init(|| {
+    LEGACY_STATE.get_or_init(|| {
         RwLock::new(TelegramState {
             bot_token: String::new(),
             last_update_id: 0,

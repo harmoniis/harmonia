@@ -20,51 +20,51 @@ fn default_matrix_db() -> String {
 
 #[derive(Clone, Debug)]
 #[allow(dead_code)]
-pub(crate) struct Edge {
-    pub(crate) weight: f64,
-    pub(crate) min_harmony: f64,
-    pub(crate) uses: u64,
-    pub(crate) successes: u64,
-    pub(crate) total_latency_ms: u64,
-    pub(crate) total_cost_usd: f64,
+pub struct Edge {
+    pub weight: f64,
+    pub min_harmony: f64,
+    pub uses: u64,
+    pub successes: u64,
+    pub total_latency_ms: u64,
+    pub total_cost_usd: f64,
 }
 
 #[derive(Clone, Debug)]
 #[allow(dead_code)]
-pub(crate) struct RouteSample {
-    pub(crate) ts: u64,
-    pub(crate) success: bool,
-    pub(crate) latency_ms: u64,
-    pub(crate) cost_usd: f64,
+pub struct RouteSample {
+    pub ts: u64,
+    pub success: bool,
+    pub latency_ms: u64,
+    pub cost_usd: f64,
 }
 
 #[derive(Clone, Debug)]
 #[allow(dead_code)]
-pub(crate) struct MatrixEvent {
-    pub(crate) ts: u64,
-    pub(crate) component: String,
-    pub(crate) direction: String,
-    pub(crate) channel: String,
-    pub(crate) payload: String,
-    pub(crate) success: bool,
-    pub(crate) error: String,
+pub struct MatrixEvent {
+    pub ts: u64,
+    pub component: String,
+    pub direction: String,
+    pub channel: String,
+    pub payload: String,
+    pub success: bool,
+    pub error: String,
 }
 
 #[derive(Default, Clone)]
 #[allow(dead_code)]
-pub(crate) struct State {
-    pub(crate) nodes: HashMap<String, String>,
-    pub(crate) edges: HashMap<(String, String), Edge>,
-    pub(crate) plugged: HashMap<String, bool>,
-    pub(crate) route_history: HashMap<(String, String), Vec<RouteSample>>,
-    pub(crate) events: Vec<MatrixEvent>,
-    pub(crate) epoch: u64,
-    pub(crate) revision: u64,
+pub struct State {
+    pub nodes: HashMap<String, String>,
+    pub edges: HashMap<(String, String), Edge>,
+    pub plugged: HashMap<String, bool>,
+    pub route_history: HashMap<(String, String), Vec<RouteSample>>,
+    pub events: Vec<MatrixEvent>,
+    pub epoch: u64,
+    pub revision: u64,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 #[allow(dead_code)]
-pub(crate) enum StoreKind {
+pub enum StoreKind {
     Memory,
     Sqlite,
     Graph,
@@ -72,9 +72,9 @@ pub(crate) enum StoreKind {
 
 #[derive(Clone, Debug)]
 #[allow(dead_code)]
-pub(crate) struct StoreConfig {
-    pub(crate) kind: StoreKind,
-    pub(crate) path: String,
+pub struct StoreConfig {
+    pub kind: StoreKind,
+    pub path: String,
 }
 
 impl Default for StoreConfig {
@@ -106,7 +106,7 @@ impl Default for StoreConfig {
 
 impl StoreConfig {
     #[allow(dead_code)]
-    pub(crate) fn kind_name(&self) -> &'static str {
+    pub fn kind_name(&self) -> &'static str {
         match self.kind {
             StoreKind::Memory => "memory",
             StoreKind::Sqlite => "sqlite",

@@ -8,20 +8,22 @@ use std::sync::{OnceLock, RwLock};
 const VERSION: &[u8] = b"harmonia-memory/0.2.0\0";
 
 #[derive(Default)]
-struct MemoryState {
+pub struct MemoryState {
     file_path: Option<PathBuf>,
     entries: HashMap<String, String>,
 }
 
-static MEMORY: OnceLock<RwLock<MemoryState>> = OnceLock::new();
-static LAST_ERROR: OnceLock<RwLock<String>> = OnceLock::new();
+/// Deprecated: legacy global singleton. Will be replaced by injected state.
+static LEGACY_MEMORY: OnceLock<RwLock<MemoryState>> = OnceLock::new();
+/// Deprecated: legacy global singleton. Will be replaced by returning Result<T, String>.
+static LEGACY_LAST_ERROR: OnceLock<RwLock<String>> = OnceLock::new();
 
 fn state() -> &'static RwLock<MemoryState> {
-    MEMORY.get_or_init(|| RwLock::new(MemoryState::default()))
+    LEGACY_MEMORY.get_or_init(|| RwLock::new(MemoryState::default()))
 }
 
 fn last_error() -> &'static RwLock<String> {
-    LAST_ERROR.get_or_init(|| RwLock::new(String::new()))
+    LEGACY_LAST_ERROR.get_or_init(|| RwLock::new(String::new()))
 }
 
 fn set_error(msg: impl Into<String>) {

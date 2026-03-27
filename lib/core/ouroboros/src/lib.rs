@@ -8,10 +8,11 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 const VERSION: &[u8] = b"harmonia-ouroboros/0.2.0\0";
 const COMPONENT: &str = "ouroboros-core";
-static LAST_ERROR: OnceLock<RwLock<String>> = OnceLock::new();
+/// Deprecated: legacy global singleton. Will be replaced by returning Result<T, String>.
+static LEGACY_LAST_ERROR: OnceLock<RwLock<String>> = OnceLock::new();
 
 fn last_error() -> &'static RwLock<String> {
-    LAST_ERROR.get_or_init(|| RwLock::new(String::new()))
+    LEGACY_LAST_ERROR.get_or_init(|| RwLock::new(String::new()))
 }
 
 fn now_secs() -> u64 {

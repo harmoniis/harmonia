@@ -1,9 +1,15 @@
+// Legacy FFI modules — suppress deprecation warnings for singleton access
+// until the runtime actor migration is complete.
+#[allow(deprecated)]
 pub mod ops;
+#[allow(deprecated)]
 pub mod reports;
 pub mod shared;
+#[allow(deprecated)]
 pub mod store;
 
 #[cfg(test)]
+#[allow(deprecated)]
 mod tests {
     use std::sync::{Mutex, MutexGuard, OnceLock};
 

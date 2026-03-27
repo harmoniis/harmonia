@@ -14,10 +14,11 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 const VERSION: &[u8] = b"harmonia-git-ops/0.2.0\0";
 
-static LAST_ERROR: OnceLock<RwLock<String>> = OnceLock::new();
+/// Deprecated: legacy global singleton. Will be replaced by returning Result<T, String>.
+static LEGACY_LAST_ERROR: OnceLock<RwLock<String>> = OnceLock::new();
 
 fn last_error() -> &'static RwLock<String> {
-    LAST_ERROR.get_or_init(|| RwLock::new(String::new()))
+    LEGACY_LAST_ERROR.get_or_init(|| RwLock::new(String::new()))
 }
 
 fn set_error(msg: impl Into<String>) {

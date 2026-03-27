@@ -13,10 +13,11 @@ pub struct DiscordState {
     pub initialized: bool,
 }
 
-static STATE: OnceLock<RwLock<DiscordState>> = OnceLock::new();
+/// Legacy singleton — deprecated. Frontend actor should own this state.
+static LEGACY_STATE: OnceLock<RwLock<DiscordState>> = OnceLock::new();
 
 fn state() -> &'static RwLock<DiscordState> {
-    STATE.get_or_init(|| {
+    LEGACY_STATE.get_or_init(|| {
         RwLock::new(DiscordState {
             bot_token: String::new(),
             channels: Vec::new(),

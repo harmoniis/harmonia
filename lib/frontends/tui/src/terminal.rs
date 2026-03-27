@@ -16,10 +16,11 @@ pub struct TuiState {
 
 use std::io::BufWriter;
 
-static STATE: OnceLock<Arc<RwLock<TuiState>>> = OnceLock::new();
+/// Legacy singleton — deprecated. Frontend actor should own this state.
+static LEGACY_STATE: OnceLock<Arc<RwLock<TuiState>>> = OnceLock::new();
 
 fn state() -> &'static Arc<RwLock<TuiState>> {
-    STATE.get_or_init(|| {
+    LEGACY_STATE.get_or_init(|| {
         Arc::new(RwLock::new(TuiState {
             inbound_queue: VecDeque::new(),
             clients: Vec::new(),
