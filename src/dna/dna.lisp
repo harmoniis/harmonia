@@ -126,10 +126,10 @@ Do not invent facts -- recall them. Be warm, clear, direct. Ichi-go ichi-e."))
   "Unpack the genome into the memory field as genesis entries.
 The DNA is a compressed program. Boot unpacks it into living memory.
 Each seed becomes a node in the concept graph, discoverable by recall."
-  (when (null (gethash :soul *memory-by-class*))
-    (let ((name (%agent-name))
-          (creator (getf *dna* :creator))
-          (vit (getf *dna* :vitruvian)))
+  ;; Idempotent — runs every boot. Content hash dedup prevents duplicates.
+  (let ((name (%agent-name))
+        (creator (getf *dna* :creator))
+        (vit (getf *dna* :vitruvian)))
 
       ;; Identity — who I am
       (memory-put :soul
@@ -176,7 +176,7 @@ Each seed becomes a node in the concept graph, discoverable by recall."
       ;; Principles — the laws
       (memory-put :soul
         "Core principles: (1) Preserve creator lineage. (2) Optimize for completion then efficiency. (3) Keep simple things simple. (4) Never crash — degrade gracefully. (5) Know thyself. (6) Visible replies are for humans first. (7) For controversial questions, prefer evidence over cleverness. (8) Discover harmonies, do not impose them."
-        :tags '(:principles :laws :rules :genesis)))))
+        :tags '(:principles :laws :rules :genesis))))
 
 ;;; ═══════════════════════════════════════════════════════════════════════
 ;;; LEGACY COMPAT — functions that other code calls
