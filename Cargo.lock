@@ -2282,6 +2282,7 @@ version = "0.1.9"
 name = "harmonia-discord"
 version = "0.1.1"
 dependencies = [
+ "harmonia-actor-protocol",
  "harmonia-config-store",
  "harmonia-vault",
  "serde",
@@ -2303,6 +2304,7 @@ dependencies = [
 name = "harmonia-email-client"
 version = "0.1.9"
 dependencies = [
+ "harmonia-actor-protocol",
  "harmonia-config-store",
  "harmonia-vault",
  "imap",
@@ -2416,6 +2418,7 @@ dependencies = [
 name = "harmonia-imessage"
 version = "0.1.9"
 dependencies = [
+ "harmonia-actor-protocol",
  "harmonia-config-store",
  "harmonia-vault",
  "serde",
@@ -2427,6 +2430,7 @@ dependencies = [
 name = "harmonia-mattermost"
 version = "0.1.9"
 dependencies = [
+ "harmonia-actor-protocol",
  "harmonia-config-store",
  "harmonia-vault",
  "serde",
@@ -2479,6 +2483,7 @@ dependencies = [
 name = "harmonia-nostr"
 version = "0.1.9"
 dependencies = [
+ "harmonia-actor-protocol",
  "harmonia-config-store",
  "harmonia-vault",
  "hex",
@@ -2705,6 +2710,7 @@ dependencies = [
 name = "harmonia-signal"
 version = "0.1.1"
 dependencies = [
+ "harmonia-actor-protocol",
  "harmonia-config-store",
  "harmonia-vault",
  "serde_json",
@@ -2728,6 +2734,7 @@ dependencies = [
 name = "harmonia-slack"
 version = "0.1.9"
 dependencies = [
+ "harmonia-actor-protocol",
  "harmonia-config-store",
  "harmonia-vault",
  "serde",
@@ -2762,6 +2769,7 @@ dependencies = [
 name = "harmonia-telegram"
 version = "0.1.9"
 dependencies = [
+ "harmonia-actor-protocol",
  "harmonia-vault",
  "serde",
  "serde_json",
@@ -2838,6 +2846,7 @@ dependencies = [
 name = "harmonia-whatsapp"
 version = "0.1.9"
 dependencies = [
+ "harmonia-actor-protocol",
  "harmonia-config-store",
  "harmonia-vault",
  "serde",

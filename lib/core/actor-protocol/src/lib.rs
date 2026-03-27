@@ -464,6 +464,43 @@ pub fn sexp_escape(input: &str) -> String {
     input.replace('\\', "\\\\").replace('"', "\\\"")
 }
 
+/// Extract a quoted string value from a sexp after the given key.
+/// Handles escaped quotes (\") and backslashes (\\) correctly.
+pub fn extract_sexp_string(sexp: &str, key: &str) -> Option<String> {
+    let idx = sexp.find(key)?;
+    let after = &sexp[idx + key.len()..];
+    let after = after.trim_start();
+    if !after.starts_with('"') {
+        // Unquoted value: take until whitespace or closing paren
+        let val: String = after.chars().take_while(|c| !c.is_whitespace() && *c != ')').collect();
+        return if val.is_empty() { None } else { Some(val) };
+    }
+    let inner = &after[1..];
+    let bytes = inner.as_bytes();
+    let mut result = String::new();
+    let mut i = 0;
+    while i < bytes.len() {
+        if bytes[i] == b'"' {
+            return Some(result);
+        }
+        if bytes[i] == b'\\' && i + 1 < bytes.len() {
+            match bytes[i + 1] {
+                b'"' => result.push('"'),
+                b'\\' => result.push('\\'),
+                b'n' => result.push('\n'),
+                b'r' => result.push('\r'),
+                b't' => result.push('\t'),
+                other => { result.push('\\'); result.push(other as char); }
+            }
+            i += 2;
+        } else {
+            result.push(bytes[i] as char);
+            i += 1;
+        }
+    }
+    None // Unclosed quote
+}
+
 // ─── Tests ──────────────────────────────────────────────────────────────
 
 #[cfg(test)]

@@ -37,19 +37,7 @@ fn now_unix_secs() -> u64 {
 }
 
 fn sexp_value(config: &str, key: &str) -> Option<String> {
-    let idx = config.find(key)?;
-    let rest = &config[idx + key.len()..];
-    let rest = rest.trim_start();
-    if rest.starts_with('"') {
-        let inner = &rest[1..];
-        let end = inner.find('"')?;
-        Some(inner[..end].to_string())
-    } else {
-        let end = rest
-            .find(|c: char| c.is_whitespace() || c == ')')
-            .unwrap_or(rest.len());
-        Some(rest[..end].to_string())
-    }
+    harmonia_actor_protocol::extract_sexp_string(config, key)
 }
 
 fn read_vault_secret(symbols: &[&str]) -> Result<Option<String>, String> {

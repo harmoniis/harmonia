@@ -34,20 +34,8 @@ fn now_ms() -> u64 {
         .unwrap_or(0)
 }
 
-/// Extract a value for a key from a simple s-expression config string.
-/// E.g. from `(:server-url "http://localhost:1234" :password "secret")`
-/// extract_sexp_value(config, ":server-url") -> Some("http://localhost:1234")
 fn extract_sexp_value(config: &str, key: &str) -> Option<String> {
-    let idx = config.find(key)?;
-    let after_key = &config[idx + key.len()..];
-    // skip whitespace, find opening quote
-    let after_key = after_key.trim_start();
-    if !after_key.starts_with('"') {
-        return None;
-    }
-    let after_quote = &after_key[1..];
-    let end = after_quote.find('"')?;
-    Some(after_quote[..end].to_string())
+    harmonia_actor_protocol::extract_sexp_string(config, key)
 }
 
 fn read_vault_secret(symbols: &[&str]) -> Result<Option<String>, String> {

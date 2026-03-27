@@ -46,11 +46,7 @@ struct DiscordMessage {
 }
 
 fn extract_sexp_string(sexp: &str, key: &str) -> Option<String> {
-    let pattern = format!("({key} \"");
-    let start = sexp.find(&pattern)? + pattern.len();
-    let rest = &sexp[start..];
-    let end = rest.find('"')?;
-    Some(rest[..end].to_string())
+    harmonia_actor_protocol::extract_sexp_string(sexp, key)
 }
 
 fn extract_sexp_string_list(sexp: &str, key: &str) -> Option<Vec<String>> {

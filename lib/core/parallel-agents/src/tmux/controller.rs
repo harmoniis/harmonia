@@ -71,7 +71,7 @@ pub(crate) fn spawn(
         let effective_prompt = if let Some(ref pf) = prompt_file {
             // Use a sentinel that launch_command_noninteractive will receive;
             // we'll substitute $(cat ...) in the shell command below.
-            format!("$(cat {})", pf)
+            format!("\"$(cat '{}')\"", pf)
         } else {
             initial_prompt.to_string()
         };
@@ -156,7 +156,9 @@ pub(crate) fn spawn(
 /// and running detection.
 #[allow(dead_code)]
 pub(crate) fn poll(id: u64) -> Result<CliState, String> {
-    let (sess, cli_type) = {
+    const MAX_AGENT_LIFETIME_SECS: u64 = 3600; // 1 hour hard limit
+
+    let (sess, cli_type, created_at) = {
         let st = state()
             .read()
             .map_err(|_| "parallel state lock poisoned".to_string())?;
@@ -164,8 +166,14 @@ pub(crate) fn poll(id: u64) -> Result<CliState, String> {
             .tmux_agents
             .get(&id)
             .ok_or_else(|| format!("tmux agent {id} not found"))?;
-        (agent.session_name.clone(), agent.cli_type.clone())
+        (agent.session_name.clone(), agent.cli_type.clone(), agent.created_at)
     };
+
+    // Check absolute lifetime before doing anything else
+    if now_unix().saturating_sub(created_at) > MAX_AGENT_LIFETIME_SECS {
+        let _ = kill(id);
+        return Ok(CliState::Terminated);
+    }
 
     // Check if session still exists
     if !session::session_exists(&sess) {

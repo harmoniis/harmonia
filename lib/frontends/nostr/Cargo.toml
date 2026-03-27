@@ -13,6 +13,7 @@ categories = ["network-programming"]
 [lib]
 
 [dependencies]
+harmonia-actor-protocol = { version = "0.1.9", path = "../../core/actor-protocol" }
 harmonia-config-store = { version = "0.1.9", path = "../../core/config-store" }
 harmonia-vault = { version = "0.1.9", path = "../../core/vault" }
 serde = { version = "1", features = ["derive"] }

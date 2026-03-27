@@ -56,27 +56,11 @@ struct MmPost {
 }
 
 fn extract_sexp_string(sexp: &str, key: &str) -> Option<String> {
-    let pattern = format!("({key} \"");
-    let start = sexp.find(&pattern)? + pattern.len();
-    let rest = &sexp[start..];
-    let end = rest.find('"')?;
-    Some(rest[..end].to_string())
+    harmonia_actor_protocol::extract_sexp_string(sexp, key)
 }
 
 fn sexp_value(config: &str, key: &str) -> Option<String> {
-    let idx = config.find(key)?;
-    let rest = &config[idx + key.len()..];
-    let rest = rest.trim_start();
-    if rest.starts_with('"') {
-        let inner = &rest[1..];
-        let end = inner.find('"')?;
-        Some(inner[..end].to_string())
-    } else {
-        let end = rest
-            .find(|c: char| c.is_whitespace() || c == ')')
-            .unwrap_or(rest.len());
-        Some(rest[..end].to_string())
-    }
+    harmonia_actor_protocol::extract_sexp_string(config, key)
 }
 
 fn extract_sexp_string_list(sexp: &str, key: &str) -> Option<Vec<String>> {
