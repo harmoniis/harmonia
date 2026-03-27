@@ -413,9 +413,20 @@ Low score → cheapest/fastest. High score → premium. No if/else."
          (effective-rounds (max 1 (min max-rounds (1+ (floor (* score 4))))))
          (model (%repl-select-model score))
          (bootstrap (dna-system-prompt :mode :orchestrate :simple (< score 0.5)))
-         ;; Parallel context.
+         ;; Parallel context + soul baseline.
          (context (%parallel-gather-context user-text))
-         (recall (getf context :recall))
+         (raw-recall (getf context :recall))
+         ;; If recall is empty or too short, include soul entries as baseline.
+         ;; Identity should always be available regardless of query.
+         (recall (if (or (null raw-recall) (< (length raw-recall) 20))
+                     (ignore-errors
+                       (let ((souls (memory-recent :limit 3 :class :soul)))
+                         (with-output-to-string (out)
+                           (dolist (e souls)
+                             (let ((text (%entry-text e)))
+                               (write-string (subseq text 0 (min 200 (length text))) out)
+                               (terpri out))))))
+                     raw-recall))
          (basin (getf context :basin))
          (current-prompt
            (format nil "~A~:[~;~%~%CONTEXT:~%~A~]~:[~;~%BASIN: ~A~]~%~%USER: ~A"

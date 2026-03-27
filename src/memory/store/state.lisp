@@ -185,7 +185,7 @@
 (defun %memory-substring-layered-recall (query &key (limit 10) (dive nil))
   "Substring-based recall (original algorithm). Fallback when field engine unavailable."
   (let* ((needle (string-downcase (if query query "")))
-         (candidate-classes (if dive '(:skill :daily) '(:skill)))
+         (candidate-classes (if dive '(:soul :skill :daily) '(:soul :skill)))
          (all '()))
     (dolist (class candidate-classes)
       (dolist (id (gethash class *memory-by-class*))
@@ -209,7 +209,7 @@ Falls back to substring recall on any error — the field is an enhancement, not
   (handler-case
       (let* ((field-result (funcall 'memory-field-recall query :limit (* limit 3)))
              (activations (and (listp field-result) (getf field-result :activations)))
-             (candidate-classes (if dive '(:skill :daily) '(:skill)))
+             (candidate-classes (if dive '(:soul :skill :daily) '(:soul :skill)))
              (all '()))
         (if (null activations)
             (%memory-substring-layered-recall query :limit limit :dive dive)
