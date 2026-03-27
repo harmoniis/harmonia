@@ -131,13 +131,12 @@
     (%index-entry-concepts id class depth content :tags tags)
     (when (eq class :skill)
       (%upsert-concept-edge "skill" "memory" :skill-memory))
-    ;; Persist to Chronicle (non-blocking, fire-and-forget).
-    (ignore-errors (%persist-entry-to-chronicle id now content tags source-ids))
+    ;; Persist to Chronicle.
+    (handler-case (%persist-entry-to-chronicle id now content tags source-ids)
+      (error (e) (%log :warn "memory" "Persist failed for ~A: ~A" id e)))
     id))
 
-(defun memory-seed-soul-from-dna ()
-  (when (null (gethash :soul *memory-by-class*))
-    (memory-put :soul (dna-soul-sexp) :depth 0 :tags (list :dna :immutable :soul))))
+;; memory-seed-soul-from-dna is defined in dna.lisp — the DNA is the source of seeds.
 
 (defun memory-recent (&key (limit 5) class (max-depth nil))
   (let ((values '()))
@@ -408,9 +407,8 @@ fall back to returning soul/genesis entries — identity is always available."
     (nreverse result)))
 
 (defun %persist-entry-to-chronicle (id ts content tags source-ids)
-  "Persist a memory entry to Chronicle. Dedup via content hash.
-Non-blocking — errors are silently ignored."
-  (when (fboundp 'ipc-call)
+  "Persist a memory entry to Chronicle. Dedup via content hash."
+  (when (and (fboundp 'ipc-call) (fboundp 'ipc-available-p) (funcall 'ipc-available-p))
     (let* ((content-str (if (stringp content) content (princ-to-string content)))
            (tags-str (format nil "~{~A~^ ~}" (or tags '())))
            (source-str (format nil "~{~A~^ ~}" (or source-ids '()))))
