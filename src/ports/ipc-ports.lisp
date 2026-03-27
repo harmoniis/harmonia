@@ -22,23 +22,21 @@
 ;;; ─── Vault ──────────────────────────────────────────────────────────
 
 (defun ipc-vault-init ()
-  (ipc-call "(:component \"vault\" :op \"init\")"))
+  (ipc-call (build-ipc-sexp :component "vault" :op "init")))
 
 (defun ipc-vault-set-secret (symbol value)
   (let ((reply (ipc-call
-                (format nil "(:component \"vault\" :op \"set-secret\" :symbol \"~A\" :value \"~A\")"
-                        (sexp-escape-lisp symbol) (sexp-escape-lisp value)))))
+                (build-ipc-sexp :component "vault" :op "set-secret" :symbol symbol :value value))))
     (if (ipc-reply-ok-p reply) t
         (error "Vault set failed: ~A" reply))))
 
 (defun ipc-vault-has-secret-p (symbol)
   (let ((reply (ipc-call
-                (format nil "(:component \"vault\" :op \"has-secret\" :symbol \"~A\")"
-                        (sexp-escape-lisp symbol)))))
+                (build-ipc-sexp :component "vault" :op "has-secret" :symbol symbol))))
     (and reply (search ":result t" reply) t)))
 
 (defun ipc-vault-list-symbols ()
-  (let ((reply (ipc-call "(:component \"vault\" :op \"list-symbols\")")))
+  (let ((reply (ipc-call (build-ipc-sexp :component "vault" :op "list-symbols"))))
     (if (and reply (ipc-reply-ok-p reply))
         (ipc-extract-string-list reply ":symbols")
         '())))
@@ -46,114 +44,105 @@
 ;;; ─── Config Store ───────────────────────────────────────────────────
 
 (defun ipc-config-init ()
-  (ipc-call "(:component \"config\" :op \"init\")"))
+  (ipc-call (build-ipc-sexp :component "config" :op "init")))
 
 (defun ipc-config-get (component scope key)
   (let ((reply (ipc-call
-                (format nil "(:component \"config\" :op \"get\" :component \"~A\" :scope \"~A\" :key \"~A\")"
-                        (sexp-escape-lisp component) (sexp-escape-lisp scope) (sexp-escape-lisp key)))))
+                (build-ipc-sexp :component "config" :op "get" :component component :scope scope :key key))))
     (ipc-extract-value reply)))
 
 (defun ipc-config-get-or (component scope key default)
   (let ((reply (ipc-call
-                (format nil "(:component \"config\" :op \"get-or\" :component \"~A\" :scope \"~A\" :key \"~A\" :default \"~A\")"
-                        (sexp-escape-lisp component) (sexp-escape-lisp scope)
-                        (sexp-escape-lisp key) (sexp-escape-lisp default)))))
+                (build-ipc-sexp :component "config" :op "get-or" :component component :scope scope :key key :default default))))
     (or (ipc-extract-value reply) default)))
 
 (defun ipc-config-set (component scope key value)
   (ipc-call
-   (format nil "(:component \"config\" :op \"set\" :component \"~A\" :scope \"~A\" :key \"~A\" :value \"~A\")"
-           (sexp-escape-lisp component) (sexp-escape-lisp scope)
-           (sexp-escape-lisp key) (sexp-escape-lisp value))))
+   (build-ipc-sexp :component "config" :op "set" :component component :scope scope :key key :value value)))
 
 ;;; ─── Chronicle ──────────────────────────────────────────────────────
 
 (defun ipc-chronicle-init ()
-  (ipc-call "(:component \"chronicle\" :op \"init\")"))
+  (ipc-call (build-ipc-sexp :component "chronicle" :op "init")))
 
 (defun ipc-chronicle-query (sql)
   (let ((reply (ipc-call
-                (format nil "(:component \"chronicle\" :op \"query\" :sql \"~A\")"
-                        (sexp-escape-lisp sql)))))
+                (build-ipc-sexp :component "chronicle" :op "query" :sql sql))))
     (ipc-extract-value reply)))
 
 (defun ipc-chronicle-harmony-summary ()
   (ipc-extract-value
-   (ipc-call "(:component \"chronicle\" :op \"harmony-summary\")")))
+   (ipc-call (build-ipc-sexp :component "chronicle" :op "harmony-summary"))))
 
 (defun ipc-chronicle-dashboard ()
   (ipc-extract-value
-   (ipc-call "(:component \"chronicle\" :op \"dashboard\")")))
+   (ipc-call (build-ipc-sexp :component "chronicle" :op "dashboard"))))
 
 (defun ipc-chronicle-gc ()
-  (ipc-call "(:component \"chronicle\" :op \"gc\")"))
+  (ipc-call (build-ipc-sexp :component "chronicle" :op "gc")))
 
 (defun ipc-chronicle-gc-status ()
   (ipc-extract-value
-   (ipc-call "(:component \"chronicle\" :op \"gc-status\")")))
+   (ipc-call (build-ipc-sexp :component "chronicle" :op "gc-status"))))
 
 (defun ipc-chronicle-cost-report ()
   (ipc-extract-value
-   (ipc-call "(:component \"chronicle\" :op \"cost-report\")")))
+   (ipc-call (build-ipc-sexp :component "chronicle" :op "cost-report"))))
 
 (defun ipc-chronicle-delegation-report ()
   (ipc-extract-value
-   (ipc-call "(:component \"chronicle\" :op \"delegation-report\")")))
+   (ipc-call (build-ipc-sexp :component "chronicle" :op "delegation-report"))))
 
 (defun ipc-chronicle-full-digest ()
   (ipc-extract-value
-   (ipc-call "(:component \"chronicle\" :op \"full-digest\")")))
+   (ipc-call (build-ipc-sexp :component "chronicle" :op "full-digest"))))
 
 ;;; ─── Gateway ────────────────────────────────────────────────────────
 
 (defun ipc-gateway-poll ()
-  (ipc-call "(:component \"gateway\" :op \"poll\")"))
+  (ipc-call (build-ipc-sexp :component "gateway" :op "poll")))
 
 (defun ipc-gateway-send (frontend channel payload)
   (ipc-call
-   (format nil "(:component \"gateway\" :op \"send\" :frontend \"~A\" :channel \"~A\" :payload \"~A\")"
-           (sexp-escape-lisp frontend) (sexp-escape-lisp channel) (sexp-escape-lisp payload))))
+   (build-ipc-sexp :component "gateway" :op "send" :frontend frontend :channel channel :payload payload)))
 
 ;;; ─── Signalograd ────────────────────────────────────────────────────
 
 (defun ipc-signalograd-init ()
-  (ipc-call "(:component \"signalograd\" :op \"init\")"))
+  (ipc-call (build-ipc-sexp :component "signalograd" :op "init")))
 
 (defun ipc-signalograd-observe (observation-sexp)
   (ipc-call
-   (format nil "(:component \"signalograd\" :op \"observe\" :observation \"~A\")"
-           (sexp-escape-lisp observation-sexp))))
+   (build-ipc-sexp :component "signalograd" :op "observe" :observation observation-sexp)))
 
 (defun ipc-signalograd-status ()
   (ipc-extract-value
-   (ipc-call "(:component \"signalograd\" :op \"status\")")))
+   (ipc-call (build-ipc-sexp :component "signalograd" :op "status"))))
 
 (defun ipc-signalograd-snapshot ()
   (ipc-extract-value
-   (ipc-call "(:component \"signalograd\" :op \"snapshot\")")))
+   (ipc-call (build-ipc-sexp :component "signalograd" :op "snapshot"))))
 
 (defun ipc-signalograd-feedback (feedback-sexp)
   (ipc-call
-   (format nil "(:component \"signalograd\" :op \"feedback\" :feedback \"~A\")"
-           (sexp-escape-lisp feedback-sexp))))
+   (build-ipc-sexp :component "signalograd" :op "feedback" :feedback feedback-sexp)))
 
 (defun ipc-signalograd-reset ()
-  (ipc-call "(:component \"signalograd\" :op \"reset\")"))
+  (ipc-call (build-ipc-sexp :component "signalograd" :op "reset")))
 
 ;;; ─── Tailnet ────────────────────────────────────────────────────────
 
 (defun ipc-tailnet-start ()
-  (ipc-call "(:component \"tailnet\" :op \"start\")"))
+  (ipc-call (build-ipc-sexp :component "tailnet" :op "start")))
 
 (defun ipc-tailnet-poll ()
-  (ipc-call "(:component \"tailnet\" :op \"poll\")"))
+  (ipc-call (build-ipc-sexp :component "tailnet" :op "poll")))
 
 (defun ipc-tailnet-discover ()
-  (ipc-call "(:component \"tailnet\" :op \"discover\")"))
+  (ipc-call (build-ipc-sexp :component "tailnet" :op "discover")))
 
 (defun ipc-tailnet-stop ()
-  (ipc-call "(:component \"tailnet\" :op \"stop\")"))
+  (ipc-call (build-ipc-sexp :component "tailnet" :op "stop")))
 
 ;;; ─── Actor Protocol (via IPC) ───────────────────────────────────────
 
@@ -201,6 +190,33 @@ when values contain newlines or binary data."
                ((char= c #\Tab)     (write-string "\\t" out))
                ((< code 32)         (format out "\\x~2,'0X" code)) ; control chars
                (t                   (write-char c out))))))
+
+(defun build-ipc-sexp (&rest pairs)
+  "Build a properly-escaped sexp string from keyword-value pairs.
+Example: (build-ipc-sexp :component \"vault\" :op \"set-secret\" :symbol sym :value val)
+Strings are automatically escaped via sexp-escape-lisp and quoted.
+Numbers, nil, t, and keywords are printed as-is (unquoted)."
+  (with-output-to-string (out)
+    (write-char #\( out)
+    (loop for (key val . rest) on pairs by #'cddr
+          for first = t then nil
+          do (progn
+               (unless first (write-char #\Space out))
+               ;; Write keyword
+               (format out "~(~S~)" key)  ; lowercase keyword
+               (write-char #\Space out)
+               ;; Write value: strings get escaped+quoted, everything else as-is
+               (cond
+                 ((stringp val)
+                  (write-char #\" out)
+                  (write-string (sexp-escape-lisp val) out)
+                  (write-char #\" out))
+                 ((null val)    (write-string "nil" out))
+                 ((eq val t)    (write-string "t" out))
+                 ((keywordp val) (format out "~(~S~)" val))
+                 ((numberp val) (format out "~A" val))
+                 (t             (format out "~A" val)))))
+    (write-char #\) out)))
 
 (defun ipc-extract-value (reply)
   "Extract the :result value from an IPC reply like (:ok :result \"...\")."

@@ -15,6 +15,32 @@ use harmonia_observability::{ObsMsg, Traceable};
 
 use crate::actors::MatrixMsg;
 
+/// Convert a string to CString for FFI, returning error sexp on null bytes.
+fn to_cstring(s: &str) -> Result<CString, String> {
+    CString::new(s).map_err(|_| format!("(:error \"string contains null byte\")"))
+}
+
+/// RAII guard for strings allocated by C FFI. Automatically freed on drop.
+struct FfiString(*mut c_char);
+impl FfiString {
+    fn as_str(&self) -> &str {
+        if self.0.is_null() {
+            return "";
+        }
+        unsafe { CStr::from_ptr(self.0) }.to_str().unwrap_or("")
+    }
+}
+impl Drop for FfiString {
+    fn drop(&mut self) {
+        if !self.0.is_null() {
+            // Each component has its own free function, but the pattern is always CString::from_raw
+            unsafe {
+                drop(CString::from_raw(self.0));
+            }
+        }
+    }
+}
+
 /// Route matrix commands through the HarmonicMatrixActor for serialized access.
 /// Observability traces matrix operations via the obs actor (no statics, no mutex).
 pub async fn dispatch_matrix_via_actor(
@@ -176,8 +202,14 @@ fn dispatch_provider_router(sexp: &str) -> String {
         Some("complete") => {
             let prompt = extract_string(sexp, ":prompt").unwrap_or_default();
             let model = extract_string(sexp, ":model").unwrap_or_default();
-            let prompt_c = CString::new(prompt.as_str()).unwrap_or_default();
-            let model_c = CString::new(model.as_str()).unwrap_or_default();
+            let prompt_c = match to_cstring(prompt.as_str()) {
+                Ok(c) => c,
+                Err(e) => return e,
+            };
+            let model_c = match to_cstring(model.as_str()) {
+                Ok(c) => c,
+                Err(e) => return e,
+            };
             let model_ptr = if model.is_empty() {
                 std::ptr::null()
             } else {
@@ -195,19 +227,27 @@ fn dispatch_provider_router(sexp: &str) -> String {
                 prompt_c.as_ptr(),
                 model_ptr,
             );
-            let result = ptr_to_string_safe(result_ptr);
+            let ffi_result = FfiString(result_ptr);
+            let result = ffi_result.as_str().to_string();
             format!("(:ok :result \"{}\")", esc(&result))
         }
         Some("complete-for-task") => {
             let prompt = extract_string(sexp, ":prompt").unwrap_or_default();
             let task = extract_string(sexp, ":task").unwrap_or_default();
-            let prompt_c = CString::new(prompt.as_str()).unwrap_or_default();
-            let task_c = CString::new(task.as_str()).unwrap_or_default();
+            let prompt_c = match to_cstring(prompt.as_str()) {
+                Ok(c) => c,
+                Err(e) => return e,
+            };
+            let task_c = match to_cstring(task.as_str()) {
+                Ok(c) => c,
+                Err(e) => return e,
+            };
             let result_ptr = harmonia_provider_router::harmonia_provider_router_complete_for_task(
                 prompt_c.as_ptr(),
                 task_c.as_ptr(),
             );
-            let result = ptr_to_string_safe(result_ptr);
+            let ffi_result = FfiString(result_ptr);
+            let result = ffi_result.as_str().to_string();
             format!("(:ok :result \"{}\")", esc(&result))
         }
         Some("healthcheck") => {
@@ -215,29 +255,39 @@ fn dispatch_provider_router(sexp: &str) -> String {
             format!("(:ok :healthy {})", if rc == 1 { "t" } else { "nil" })
         }
         Some("list-models") => {
-            let ptr = harmonia_provider_router::harmonia_provider_router_list_models();
-            let result = ptr_to_string_safe(ptr);
+            let ffi_result =
+                FfiString(harmonia_provider_router::harmonia_provider_router_list_models());
+            let result = ffi_result.as_str().to_string();
             format!("(:ok :result \"{}\")", esc(&result))
         }
         Some("select-model") => {
             let task = extract_string(sexp, ":task").unwrap_or_default();
-            let task_c = CString::new(task.as_str()).unwrap_or_default();
-            let ptr =
-                harmonia_provider_router::harmonia_provider_router_select_model(task_c.as_ptr());
-            let result = ptr_to_string_safe(ptr);
+            let task_c = match to_cstring(task.as_str()) {
+                Ok(c) => c,
+                Err(e) => return e,
+            };
+            let ffi_result = FfiString(
+                harmonia_provider_router::harmonia_provider_router_select_model(task_c.as_ptr()),
+            );
+            let result = ffi_result.as_str().to_string();
             format!("(:ok :result \"{}\")", esc(&result))
         }
         Some("list-backends") => {
-            let ptr = harmonia_provider_router::harmonia_provider_router_list_backends();
-            let result = ptr_to_string_safe(ptr);
+            let ffi_result =
+                FfiString(harmonia_provider_router::harmonia_provider_router_list_backends());
+            let result = ffi_result.as_str().to_string();
             format!("(:ok :result \"{}\")", esc(&result))
         }
         Some("backend-status") => {
             let name = extract_string(sexp, ":name").unwrap_or_default();
-            let name_c = CString::new(name.as_str()).unwrap_or_default();
-            let ptr =
-                harmonia_provider_router::harmonia_provider_router_backend_status(name_c.as_ptr());
-            let result = ptr_to_string_safe(ptr);
+            let name_c = match to_cstring(name.as_str()) {
+                Ok(c) => c,
+                Err(e) => return e,
+            };
+            let ffi_result = FfiString(
+                harmonia_provider_router::harmonia_provider_router_backend_status(name_c.as_ptr()),
+            );
+            let result = ffi_result.as_str().to_string();
             format!("(:ok :result \"{}\")", esc(&result))
         }
         _ => format!(
@@ -320,17 +370,6 @@ fn dispatch_parallel(sexp: &str) -> String {
             op.unwrap_or_default()
         ),
     }
-}
-
-fn ptr_to_string_safe(ptr: *mut c_char) -> String {
-    if ptr.is_null() {
-        return String::new();
-    }
-    let s = unsafe { CStr::from_ptr(ptr) }
-        .to_string_lossy()
-        .into_owned();
-    harmonia_provider_router::harmonia_provider_router_free_string(ptr);
-    s
 }
 
 // ── Vault ────────────────────────────────────────────────────────────
@@ -891,7 +930,10 @@ fn dispatch_signalograd(sexp: &str) -> String {
         }
         Some("observe") => {
             let observation = extract_string(sexp, ":observation").unwrap_or_default();
-            let c = CString::new(observation).unwrap_or_default();
+            let c = match to_cstring(&observation) {
+                Ok(c) => c,
+                Err(e) => return e,
+            };
             let rc = harmonia_signalograd::harmonia_signalograd_observe(c.as_ptr());
             if rc == 0 {
                 "(:ok)".to_string()
@@ -900,20 +942,21 @@ fn dispatch_signalograd(sexp: &str) -> String {
             }
         }
         Some("status") => {
-            let ptr = harmonia_signalograd::harmonia_signalograd_status();
-            let result = ptr_to_string(ptr);
-            harmonia_signalograd::harmonia_signalograd_free_string(ptr);
+            let ffi_result = FfiString(harmonia_signalograd::harmonia_signalograd_status());
+            let result = ffi_result.as_str().to_string();
             format!("(:ok :result \"{}\")", esc(&result))
         }
         Some("snapshot") => {
-            let ptr = harmonia_signalograd::harmonia_signalograd_snapshot();
-            let result = ptr_to_string(ptr);
-            harmonia_signalograd::harmonia_signalograd_free_string(ptr);
+            let ffi_result = FfiString(harmonia_signalograd::harmonia_signalograd_snapshot());
+            let result = ffi_result.as_str().to_string();
             format!("(:ok :result \"{}\")", esc(&result))
         }
         Some("feedback") => {
             let feedback = extract_string(sexp, ":feedback").unwrap_or_default();
-            let c = CString::new(feedback).unwrap_or_default();
+            let c = match to_cstring(&feedback) {
+                Ok(c) => c,
+                Err(e) => return e,
+            };
             let rc = harmonia_signalograd::harmonia_signalograd_feedback(c.as_ptr());
             if rc == 0 {
                 "(:ok)".to_string()
@@ -931,7 +974,10 @@ fn dispatch_signalograd(sexp: &str) -> String {
         }
         Some("checkpoint") => {
             let path = extract_string(sexp, ":path").unwrap_or_default();
-            let c = CString::new(path).unwrap_or_default();
+            let c = match to_cstring(&path) {
+                Ok(c) => c,
+                Err(e) => return e,
+            };
             let rc = harmonia_signalograd::harmonia_signalograd_checkpoint(c.as_ptr());
             if rc == 0 {
                 "(:ok)".to_string()
@@ -944,7 +990,10 @@ fn dispatch_signalograd(sexp: &str) -> String {
         }
         Some("restore") => {
             let path = extract_string(sexp, ":path").unwrap_or_default();
-            let c = CString::new(path).unwrap_or_default();
+            let c = match to_cstring(&path) {
+                Ok(c) => c,
+                Err(e) => return e,
+            };
             let rc = harmonia_signalograd::harmonia_signalograd_restore(c.as_ptr());
             if rc == 0 {
                 "(:ok)".to_string()
@@ -960,10 +1009,8 @@ fn dispatch_signalograd(sexp: &str) -> String {
 }
 
 fn signalograd_last_error() -> String {
-    let ptr = harmonia_signalograd::harmonia_signalograd_last_error();
-    let s = ptr_to_string(ptr);
-    harmonia_signalograd::harmonia_signalograd_free_string(ptr);
-    s
+    let ffi_result = FfiString(harmonia_signalograd::harmonia_signalograd_last_error());
+    ffi_result.as_str().to_string()
 }
 
 // ── Tailnet ──────────────────────────────────────────────────────────
@@ -1383,15 +1430,6 @@ fn tokenize_plist(s: &str) -> Vec<String> {
 
 fn esc(s: &str) -> String {
     harmonia_actor_protocol::sexp_escape(s)
-}
-
-fn ptr_to_string(ptr: *mut c_char) -> String {
-    if ptr.is_null() {
-        return String::new();
-    }
-    unsafe { CStr::from_ptr(ptr) }
-        .to_string_lossy()
-        .into_owned()
 }
 
 fn extract_keyword(sexp: &str, key: &str) -> Option<String> {
