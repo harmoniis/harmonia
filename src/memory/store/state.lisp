@@ -26,7 +26,13 @@
 (defparameter *memory-stopwords*
   '("a" "an" "the" "and" "or" "if" "then" "else" "for" "of" "to" "in" "on" "at"
     "with" "from" "is" "are" "was" "were" "be" "been" "it" "this" "that" "as" "by"
-    "about" "can" "could" "should" "would" "do" "does" "did" "you" "your" "my"))
+    "about" "can" "could" "should" "would" "do" "does" "did" "you" "your" "my"
+    "who" "what" "how" "when" "where" "why" "which" "whom" "whose"
+    "tell" "explain" "describe" "show" "give" "let" "know" "think"
+    "me" "his" "her" "its" "our" "their" "them" "they" "she" "he" "we"
+    "not" "but" "have" "has" "had" "will" "shall" "may" "might"
+    "just" "very" "also" "some" "any" "all" "each" "every" "more" "most"
+    "here" "there" "now" "then" "got" "get" "got" "like" "one" "two"))
 (defparameter *noise-score-threshold* 0.02)
 (defparameter *memory-last-journal-day* 0)
 
@@ -327,8 +333,11 @@ Falls back to substring recall on any error — the field is an enhancement, not
         "")))
 
 (defun memory-semantic-recall-block (query &key (limit 5) (max-chars 1500))
-  "Call memory-layered-recall and format as MEMORY_RECALL: block."
-  (let* ((results (memory-layered-recall query :limit limit))
+  "Recall from memory field. If query produces no concepts after stopwords,
+fall back to returning soul/genesis entries — identity is always available."
+  (let* ((results (or (memory-layered-recall query :limit limit)
+                      ;; Fallback: if query is all stopwords, return soul entries.
+                      (memory-recent :limit limit :class :soul)))
          (out (make-string-output-stream))
          (total 0))
     (when results
