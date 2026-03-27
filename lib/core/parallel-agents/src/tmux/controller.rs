@@ -156,9 +156,11 @@ pub(crate) fn spawn(
 /// and running detection.
 #[allow(dead_code)]
 pub(crate) fn poll(id: u64) -> Result<CliState, String> {
-    const MAX_AGENT_LIFETIME_SECS: u64 = 3600; // 1 hour hard limit
+    // No max lifetime — agents can run for days on long tasks.
+    // Stall detection (no output for N ticks) is the only kill trigger.
+    // Tmux sessions persist across runtime restarts and can be resumed.
 
-    let (sess, cli_type, created_at) = {
+    let (sess, cli_type) = {
         let st = state()
             .read()
             .map_err(|_| "parallel state lock poisoned".to_string())?;
@@ -166,14 +168,8 @@ pub(crate) fn poll(id: u64) -> Result<CliState, String> {
             .tmux_agents
             .get(&id)
             .ok_or_else(|| format!("tmux agent {id} not found"))?;
-        (agent.session_name.clone(), agent.cli_type.clone(), agent.created_at)
+        (agent.session_name.clone(), agent.cli_type.clone())
     };
-
-    // Check absolute lifetime before doing anything else
-    if now_unix().saturating_sub(created_at) > MAX_AGENT_LIFETIME_SECS {
-        let _ = kill(id);
-        return Ok(CliState::Terminated);
-    }
 
     // Check if session still exists
     if !session::session_exists(&sess) {
