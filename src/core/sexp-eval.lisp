@@ -368,21 +368,13 @@ The REPL has full Lisp power; Rust is the boundary."
 ;;; ═══════════════════════════════════════════════════════════════════════
 
 (defun %repl-select-model (score)
-  "Select model by continuous complexity score 0.0-1.0.
-Low score → cheapest/fastest. High score → premium. No if/else."
-  (let* ((models (or (ignore-errors
-                       (when (fboundp '%seed-models)
-                         (funcall '%seed-models)))
-                     '()))
-         (orchestrator (or (ignore-errors
-                             (when (fboundp 'model-policy-orchestrator-model)
-                               (funcall 'model-policy-orchestrator-model)))
-                           "auto"))
-         ;; Score 0.0-0.5 → orchestrator (cheap). 0.5-1.0 → from seeds (premium).
-         (idx (min (floor (* score (length models))) (1- (max 1 (length models))))))
-    (if (< score 0.5)
-        orchestrator
-        (or (nth idx models) orchestrator))))
+  "Select model by complexity score. Uses auto selection (provider-router
+performance-ranked pool). Score is passed but model selection is generic —
+the provider-router picks the best performing model for the tier."
+  (declare (ignore score))
+  ;; Let the provider-router's performance-ranked pool decide.
+  ;; Empty string = auto-select from pool (cheapest that works).
+  "")
 
 ;;; ═══════════════════════════════════════════════════════════════════════
 ;;; THE HARMONIC REPL — the orchestration core
@@ -420,19 +412,20 @@ Low score → cheapest/fastest. High score → premium. No if/else."
          ;; Identity should always be available regardless of query.
          (recall (if (or (null raw-recall) (< (length raw-recall) 20))
                      (ignore-errors
-                       (let ((souls (memory-recent :limit 3 :class :soul)))
+                       (let ((all-entries (memory-recent :limit 5)))
                          (with-output-to-string (out)
-                           (dolist (e souls)
+                           (dolist (e all-entries)
                              (let ((text (%entry-text e)))
-                               (write-string (subseq text 0 (min 200 (length text))) out)
-                               (terpri out))))))
+                               (when (and (stringp text) (> (length text) 10))
+                                 (write-string (subseq text 0 (min 200 (length text))) out)
+                                 (terpri out)))))))
                      raw-recall))
-         (basin (getf context :basin))
+         ;; No basin telemetry in prompt — only recalled memories as natural text.
+         ;; Basin is for the field's internal state, not for the LLM.
          (current-prompt
-           (format nil "~A~:[~;~%~%CONTEXT:~%~A~]~:[~;~%BASIN: ~A~]~%~%USER: ~A"
+           (format nil "~A~:[~;~%~%CONTEXT:~%~A~]~%~%USER: ~A"
                    bootstrap
                    (and recall (> (length recall) 0)) recall
-                   (and basin (> (length basin) 0)) basin
                    user-text))
          (round 0)
          (last-eval-result nil))

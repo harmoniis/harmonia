@@ -110,29 +110,27 @@
      :test #'string=)))
 
 (defun memory-put (class content &key (depth 0) (tags '()) (source-ids '()))
-  (when (and (fboundp '%trace-level-p) (%trace-level-p :verbose))
-    (ignore-errors
-      (trace-event "memory-write" :tool
-                   :metadata (list :class class :depth depth))))
+  "Store a memory entry. CLASS is kept for backward compat (ID generation)
+but is also added as a tag. The field uses tags, not class, for topology."
   (incf *memory-seq*)
   (let* ((now (get-universal-time))
          (id (format nil "~A-~A-~A" class now *memory-seq*))
+         ;; Class becomes a tag — no separate classification system.
+         (all-tags (adjoin class (or tags '()) :test #'eq))
          (entry (make-memory-entry :id id
                                    :time now
                                    :class class
                                    :depth depth
                                    :content content
-                                   :tags tags
+                                   :tags all-tags
                                    :source-ids source-ids
                                    :access-count 0
                                    :last-access nil)))
     (setf (gethash id *memory-store*) entry)
     (%push-class-id class id)
-    (%index-entry-concepts id class depth content :tags tags)
-    (when (eq class :skill)
-      (%upsert-concept-edge "skill" "memory" :skill-memory))
+    (%index-entry-concepts id class depth content :tags all-tags)
     ;; Persist to Chronicle.
-    (handler-case (%persist-entry-to-chronicle id now content tags source-ids)
+    (handler-case (%persist-entry-to-chronicle id now content all-tags source-ids)
       (error (e) (%log :warn "memory" "Persist failed for ~A: ~A" id e)))
     id))
 
