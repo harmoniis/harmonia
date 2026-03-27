@@ -18,7 +18,7 @@ pub fn parse_feedback(raw: &str) -> Result<Feedback, String> {
     parse_feedback_sexp(&sexp)
 }
 
-pub fn parse_observation_sexp(sexp: &Sexp) -> Result<Observation, String> {
+pub(crate) fn parse_observation_sexp(sexp: &Sexp) -> Result<Observation, String> {
     let items = plist_view(sexp)?;
     Ok(Observation {
         cycle: plist_i64(items, "cycle").unwrap_or(0),
@@ -65,7 +65,7 @@ pub fn parse_observation_sexp(sexp: &Sexp) -> Result<Observation, String> {
     })
 }
 
-pub fn parse_feedback_sexp(sexp: &Sexp) -> Result<Feedback, String> {
+pub(crate) fn parse_feedback_sexp(sexp: &Sexp) -> Result<Feedback, String> {
     let items = plist_view(sexp)?;
     Ok(Feedback {
         cycle: plist_i64(items, "cycle").unwrap_or(0),
@@ -80,7 +80,7 @@ pub fn parse_feedback_sexp(sexp: &Sexp) -> Result<Feedback, String> {
     })
 }
 
-pub fn parse_projection_sexp(sexp: &Sexp) -> Result<Projection, String> {
+pub(crate) fn parse_projection_sexp(sexp: &Sexp) -> Result<Projection, String> {
     let items = plist_view(sexp)?;
     let harmony = plist_list(items, "harmony").unwrap_or(&[]);
     let routing = plist_list(items, "routing").unwrap_or(&[]);
