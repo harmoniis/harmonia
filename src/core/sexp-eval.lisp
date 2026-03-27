@@ -368,23 +368,13 @@ The REPL has full Lisp power; Rust is the boundary."
 ;;; ═══════════════════════════════════════════════════════════════════════
 
 (defun %repl-select-model (user-text)
-  "Complexity-driven model selection."
+  "Select the orchestrator model — fast, reliable, cheap.
+The REPL does multiple rounds. Each must be fast. Use the orchestrator
+model (configured, proven), not %select-model (which may pick slow models)."
+  (declare (ignore user-text))
   (or (ignore-errors
-        (when (fboundp '%select-model)
-          (let ((model (funcall '%select-model user-text)))
-            (if (and (stringp model)
-                     (or (search ":free" model)
-                         (search "mercury" model)
-                         (search "nano" model)))
-                (ignore-errors
-                  (when (fboundp '%seed-models)
-                    (let ((seeds (funcall '%seed-models)))
-                      (or (find-if (lambda (m)
-                                     (and (not (search ":free" m))
-                                          (not (search "mercury" m))))
-                                   seeds)
-                          model))))
-                model))))
+        (when (fboundp 'model-policy-orchestrator-model)
+          (funcall 'model-policy-orchestrator-model)))
       "auto"))
 
 ;;; ═══════════════════════════════════════════════════════════════════════

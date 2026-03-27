@@ -64,8 +64,10 @@
 ;;; MINIMAL SYSTEM PROMPT — under 1000 chars, teaches recall not identity
 ;;; ═══════════════════════════════════════════════════════════════════════
 
-(defun dna-system-prompt (&key (mode :orchestrate))
-  "The bootstrap prompt. Minimal. Teaches the LLM to discover itself through memory."
+(defun dna-system-prompt (&key (mode :orchestrate) (simple nil))
+  "The bootstrap prompt. Two modes:
+SIMPLE=T: under 300 chars, any model can follow. Natural language + RECALL: keyword.
+SIMPLE=NIL: full restricted Lisp dialect for complex tasks."
   (let ((name (%agent-name)))
     (case mode
       (:planner
@@ -76,7 +78,17 @@
          (string #\Newline) (string #\Newline)
          (ignore-errors (%runtime-self-knowledge))))
       (t
-       (%dna-minimal-bootstrap name)))))
+       (if simple
+           (%dna-simple-bootstrap name)
+           (%dna-minimal-bootstrap name))))))
+
+(defun %dna-simple-bootstrap (name)
+  "Ultra-simple bootstrap. Under 200 chars. Any model can follow this.
+No s-expressions. Just natural language + RECALL: keyword for more context."
+  (concatenate 'string
+    "You are " name ". Answer using the context provided.
+If you need more information from memory, write on a new line: RECALL: your search query
+Otherwise just answer the user's question directly and naturally."))
 
 (defun %dna-minimal-bootstrap (name)
   "The minimal bootstrap. Teaches the restricted Lisp dialect.

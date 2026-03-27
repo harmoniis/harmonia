@@ -15,6 +15,15 @@ const COMPONENT: &str = "openrouter-backend";
 /// Prices are OpenRouter passthrough prices (may include markup).
 pub static OFFERINGS: &[ModelOffering] = &[
     ModelOffering {
+        id: "google/gemini-2.5-flash-lite-preview-06-2025",
+        tier: "lite",
+        usd_in_1k: 0.0,
+        usd_out_1k: 0.0,
+        quality: 5,
+        speed: 9,
+        tags: &["fast", "memory-ops", "casual", "structured-output"],
+    },
+    ModelOffering {
         id: "google/gemini-3.1-flash-lite-preview",
         tier: "micro",
         usd_in_1k: 0.00025,
@@ -154,12 +163,20 @@ fn api_key() -> Result<String, String> {
         .ok_or_else(|| "openrouter key missing in vault".to_string())
 }
 
-fn request_payload(prompt: &str, model: &str) -> serde_json::Value {
+fn request_payload(prompt: &str, model: &str, temperature: Option<f64>, max_tokens: Option<u32>) -> serde_json::Value {
     let caps = model_capabilities(model);
     let mut payload = json!({
         "model": model,
         "messages": [{"role": "user", "content": prompt}],
     });
+    // Temperature control — lower for factual recall, higher for creative reasoning.
+    if let Some(temp) = temperature {
+        payload["temperature"] = json!(temp);
+    }
+    // Token budget — keep cheap models short and focused.
+    if let Some(tokens) = max_tokens {
+        payload["max_tokens"] = json!(tokens);
+    }
     if let Some(ref r) = caps.reasoning {
         if r.enabled {
             payload["reasoning"] = json!({
@@ -176,9 +193,28 @@ fn request_payload(prompt: &str, model: &str) -> serde_json::Value {
     payload
 }
 
-fn request_openrouter(prompt: &str, model: &str, key: &str) -> Result<String, String> {
-    let timeout = get_timeout(COMPONENT, "HARMONIA_OPENROUTER", 10, 45);
-    let payload = request_payload(prompt, model);
+/// Per-tier timeout in seconds. Cheap models get short timeouts.
+/// If they can't answer in 15s, escalate to the next tier.
+fn tier_timeout(model: &str) -> (u64, u64) {
+    // (connect_timeout, max_time)
+    if model.contains(":free") || model.contains("mercury") || model.contains("nano") || model.contains("micro") {
+        (5, 15)   // cheap/free: 15s max
+    } else if model.contains("lite") || model.contains("flash") || model.contains("mini") {
+        (5, 20)   // lite/flash: 20s max
+    } else if model.contains("frontier") || model.contains("opus") || model.contains("thinking") {
+        (10, 60)  // frontier: 60s max
+    } else {
+        (10, 30)  // pro/default: 30s max
+    }
+}
+
+fn request_openrouter(prompt: &str, model: &str, key: &str, temperature: Option<f64>, max_tokens: Option<u32>) -> Result<String, String> {
+    let (connect_timeout, max_time) = tier_timeout(model);
+    let timeout = harmonia_provider_protocol::TimeoutConfig {
+        connect_timeout_secs: connect_timeout,
+        max_time_secs: max_time,
+    };
+    let payload = request_payload(prompt, model, temperature, max_tokens);
     let headers = vec![
         format!("Authorization: Bearer {key}"),
         "HTTP-Referer: https://harmoniis.local".to_string(),
@@ -215,7 +251,7 @@ pub fn complete(prompt: &str, model: &str) -> Result<String, String> {
         model.to_string()
     };
     let start = std::time::Instant::now();
-    match request_openrouter(prompt, &selected, &key) {
+    match request_openrouter(prompt, &selected, &key, None, None) {
         Ok(text) => {
             log_model_performance(
                 OFFERINGS,
@@ -236,7 +272,7 @@ pub fn complete(prompt: &str, model: &str) -> Result<String, String> {
             );
             for fb in pool_fallbacks(OFFERINGS, &selected) {
                 let fb_start = std::time::Instant::now();
-                match request_openrouter(prompt, &fb, &key) {
+                match request_openrouter(prompt, &fb, &key, None, None) {
                     Ok(text) => {
                         log_model_performance(
                             OFFERINGS,
@@ -268,7 +304,7 @@ pub fn complete_for_task(prompt: &str, task_hint: &str) -> Result<String, String
     let key = api_key()?;
     let selected = select_from_pool(OFFERINGS, task_hint);
     let start = std::time::Instant::now();
-    match request_openrouter(prompt, &selected, &key) {
+    match request_openrouter(prompt, &selected, &key, None, None) {
         Ok(text) => {
             log_model_performance(
                 OFFERINGS,
@@ -289,7 +325,7 @@ pub fn complete_for_task(prompt: &str, task_hint: &str) -> Result<String, String
             );
             for fb in pool_fallbacks(OFFERINGS, &selected) {
                 let fb_start = std::time::Instant::now();
-                match request_openrouter(prompt, &fb, &key) {
+                match request_openrouter(prompt, &fb, &key, None, None) {
                     Ok(text) => {
                         log_model_performance(
                             OFFERINGS,
