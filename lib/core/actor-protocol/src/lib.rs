@@ -501,6 +501,75 @@ pub fn extract_sexp_string(sexp: &str, key: &str) -> Option<String> {
     None // Unclosed quote
 }
 
+/// Extract a u64 value after the given key.
+pub fn extract_sexp_u64(sexp: &str, key: &str) -> Option<u64> {
+    let idx = sexp.find(key)?;
+    let after = &sexp[idx + key.len()..];
+    let after = after.trim_start();
+    let num_str: String = after.chars().take_while(|c| c.is_ascii_digit()).collect();
+    if num_str.is_empty() { None } else { num_str.parse().ok() }
+}
+
+/// Extract a u64 with default value.
+pub fn extract_sexp_u64_or(sexp: &str, key: &str, default: u64) -> u64 {
+    extract_sexp_u64(sexp, key).unwrap_or(default)
+}
+
+/// Extract a f64 value after the given key.
+pub fn extract_sexp_f64(sexp: &str, key: &str) -> Option<f64> {
+    let idx = sexp.find(key)?;
+    let after = &sexp[idx + key.len()..];
+    let after = after.trim_start();
+    let num_str: String = after
+        .chars()
+        .take_while(|c| c.is_ascii_digit() || *c == '.' || *c == '-')
+        .collect();
+    if num_str.is_empty() { None } else { num_str.parse().ok() }
+}
+
+/// Extract a list of quoted strings from sexp like (:key ("a" "b" "c")).
+pub fn extract_sexp_string_list(sexp: &str, key: &str) -> Vec<String> {
+    let mut items = Vec::new();
+    let Some(pos) = sexp.find(key) else { return items };
+    let rest = &sexp[pos + key.len()..];
+    let Some(open) = rest.find('(') else { return items };
+    let inner = &rest[open + 1..];
+    let Some(close) = inner.find(')') else { return items };
+    let content = &inner[..close];
+    let mut in_quote = false;
+    let mut current = String::new();
+    let mut escaped = false;
+    for ch in content.chars() {
+        if escaped {
+            current.push(ch);
+            escaped = false;
+        } else if ch == '\\' && in_quote {
+            escaped = true;
+        } else if ch == '"' && !in_quote {
+            in_quote = true;
+            current.clear();
+        } else if ch == '"' && in_quote {
+            in_quote = false;
+            if !current.is_empty() {
+                items.push(current.clone());
+            }
+        } else if in_quote {
+            current.push(ch);
+        }
+    }
+    items
+}
+
+/// Extract boolean: t → true, nil → false.
+pub fn extract_sexp_bool(sexp: &str, key: &str) -> Option<bool> {
+    let val = extract_sexp_string(sexp, key)?;
+    match val.as_str() {
+        "t" => Some(true),
+        "nil" => Some(false),
+        _ => None,
+    }
+}
+
 // ─── Tests ──────────────────────────────────────────────────────────────
 
 #[cfg(test)]

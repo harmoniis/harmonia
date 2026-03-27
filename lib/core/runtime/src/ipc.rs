@@ -163,7 +163,7 @@ async fn dispatch_sexp(
         let reply = ractor::call_t!(supervisor, RuntimeMsg::DrainSbcl, 10000);
         Some(reply.unwrap_or_else(|_| "()".to_string()))
     } else if trimmed.starts_with("(:register") {
-        let kind_str = extract_string_value(trimmed, ":kind");
+        let kind_str = harmonia_actor_protocol::extract_sexp_string(trimmed, ":kind");
         let kind = kind_str
             .as_deref()
             .and_then(|s| ActorKind::from_str(s).ok())
@@ -174,7 +174,7 @@ async fn dispatch_sexp(
             Err(_) => Some("(:error \"registration failed\")".to_string()),
         }
     } else if trimmed.starts_with("(:deregister") {
-        let id = extract_u64_value(trimmed, ":id").unwrap_or(0);
+        let id = harmonia_actor_protocol::extract_sexp_u64(trimmed, ":id").unwrap_or(0);
         let reply = ractor::call_t!(supervisor, RuntimeMsg::Deregister, 5000, id);
         match reply {
             Ok(true) => Some("(:ok)".to_string()),
@@ -182,14 +182,14 @@ async fn dispatch_sexp(
             Err(_) => Some("(:error \"deregister failed\")".to_string()),
         }
     } else if trimmed.starts_with("(:heartbeat") {
-        let id = extract_u64_value(trimmed, ":id").unwrap_or(0);
-        let bytes_delta = extract_u64_value(trimmed, ":bytes-delta").unwrap_or(0);
+        let id = harmonia_actor_protocol::extract_sexp_u64(trimmed, ":id").unwrap_or(0);
+        let bytes_delta = harmonia_actor_protocol::extract_sexp_u64(trimmed, ":bytes-delta").unwrap_or(0);
         let _ = supervisor.cast(RuntimeMsg::Heartbeat { id, bytes_delta });
         None
     } else if trimmed.starts_with("(:post") {
-        let source = extract_u64_value(trimmed, ":source").unwrap_or(0);
-        let target = extract_u64_value(trimmed, ":target").unwrap_or(0);
-        let payload_sexp = extract_string_value(trimmed, ":payload").unwrap_or_default();
+        let source = harmonia_actor_protocol::extract_sexp_u64(trimmed, ":source").unwrap_or(0);
+        let target = harmonia_actor_protocol::extract_sexp_u64(trimmed, ":target").unwrap_or(0);
+        let payload_sexp = harmonia_actor_protocol::extract_sexp_string(trimmed, ":payload").unwrap_or_default();
         let _ = supervisor.cast(RuntimeMsg::Post {
             source,
             target,
@@ -197,18 +197,18 @@ async fn dispatch_sexp(
         });
         None
     } else if trimmed.starts_with("(:state") {
-        let id = extract_u64_value(trimmed, ":id").unwrap_or(0);
+        let id = harmonia_actor_protocol::extract_sexp_u64(trimmed, ":id").unwrap_or(0);
         let reply = ractor::call_t!(supervisor, RuntimeMsg::GetState, 5000, id);
         Some(reply.unwrap_or_else(|_| "(:error \"state query failed\")".to_string()))
     } else if trimmed.starts_with("(:list") {
         let reply = ractor::call_t!(supervisor, RuntimeMsg::ListAll, 5000);
         Some(reply.unwrap_or_else(|_| "()".to_string()))
     } else if trimmed.starts_with("(:component") {
-        let component = extract_string_value(trimmed, ":component").unwrap_or_default();
+        let component = harmonia_actor_protocol::extract_sexp_string(trimmed, ":component").unwrap_or_default();
 
         // Fast path: observability trace ops are fire-and-forget.
         if component == "observability" {
-            let op = extract_string_value(trimmed, ":op").unwrap_or_default();
+            let op = harmonia_actor_protocol::extract_sexp_string(trimmed, ":op").unwrap_or_default();
             if matches!(op.as_str(), "trace-start" | "trace-end" | "trace-event") {
                 crate::dispatch::dispatch_obs_trace(&op, trimmed);
                 return None;
@@ -241,14 +241,14 @@ async fn dispatch_sexp(
             )
         }
     } else if trimmed.starts_with("(:modules") {
-        let op = extract_string_value(trimmed, ":op").unwrap_or_default();
+        let op = harmonia_actor_protocol::extract_sexp_string(trimmed, ":op").unwrap_or_default();
         match op.as_str() {
             "list" => {
                 let reply = ractor::call_t!(supervisor, RuntimeMsg::ListModules, 5000);
                 Some(reply.unwrap_or_else(|_| "(:error \"list modules timeout\")".to_string()))
             }
             "load" => {
-                let name = extract_string_value(trimmed, ":name").unwrap_or_default();
+                let name = harmonia_actor_protocol::extract_sexp_string(trimmed, ":name").unwrap_or_default();
                 if name.is_empty() {
                     Some("(:error \"missing :name\")".to_string())
                 } else {
@@ -257,7 +257,7 @@ async fn dispatch_sexp(
                 }
             }
             "unload" => {
-                let name = extract_string_value(trimmed, ":name").unwrap_or_default();
+                let name = harmonia_actor_protocol::extract_sexp_string(trimmed, ":name").unwrap_or_default();
                 if name.is_empty() {
                     Some("(:error \"missing :name\")".to_string())
                 } else {
@@ -270,7 +270,7 @@ async fn dispatch_sexp(
                 }
             }
             "reload" => {
-                let name = extract_string_value(trimmed, ":name").unwrap_or_default();
+                let name = harmonia_actor_protocol::extract_sexp_string(trimmed, ":name").unwrap_or_default();
                 if name.is_empty() {
                     Some("(:error \"missing :name\")".to_string())
                 } else {
@@ -297,56 +297,6 @@ async fn dispatch_sexp(
             harmonia_actor_protocol::sexp_escape(trimmed)
         ))
     }
-}
-
-// ── Minimal sexp value extractors ────────────────────────────────────
-
-/// Maximum string value length to prevent DoS with huge payloads.
-const MAX_STRING_VALUE_LEN: usize = 1024 * 1024; // 1 MB
-
-fn extract_string_value(sexp: &str, key: &str) -> Option<String> {
-    let idx = sexp.find(key)?;
-    let after = &sexp[idx + key.len()..];
-    let after = after.trim_start();
-    if after.starts_with('"') {
-        let inner = &after[1..];
-        let bytes = inner.as_bytes();
-        if bytes.len() > MAX_STRING_VALUE_LEN {
-            return None;
-        }
-        let mut end = 0;
-        while end < bytes.len() {
-            if bytes[end] == b'"' {
-                return Some(inner[..end].replace("\\\"", "\"").replace("\\\\", "\\"));
-            }
-            if bytes[end] == b'\\' {
-                end += 1;
-                if end >= bytes.len() {
-                    return None;
-                }
-            }
-            end += 1;
-        }
-        None
-    } else {
-        let val: String = after
-            .chars()
-            .take_while(|c| !c.is_whitespace() && *c != ')')
-            .collect();
-        if val.is_empty() {
-            None
-        } else {
-            Some(val)
-        }
-    }
-}
-
-fn extract_u64_value(sexp: &str, key: &str) -> Option<u64> {
-    let idx = sexp.find(key)?;
-    let after = &sexp[idx + key.len()..];
-    let after = after.trim_start();
-    let num_str: String = after.chars().take_while(|c| c.is_ascii_digit()).collect();
-    num_str.parse().ok()
 }
 
 #[cfg(test)]
@@ -384,15 +334,15 @@ mod tests {
     fn extract_sexp_values() {
         let sexp = r#"(:component "vault" :op "set-secret" :symbol "api-key" :value "sk-123")"#;
         assert_eq!(
-            extract_string_value(sexp, ":component"),
+            harmonia_actor_protocol::extract_sexp_string(sexp, ":component"),
             Some("vault".to_string())
         );
         assert_eq!(
-            extract_string_value(sexp, ":op"),
+            harmonia_actor_protocol::extract_sexp_string(sexp, ":op"),
             Some("set-secret".to_string())
         );
         assert_eq!(
-            extract_string_value(sexp, ":value"),
+            harmonia_actor_protocol::extract_sexp_string(sexp, ":value"),
             Some("sk-123".to_string())
         );
     }
