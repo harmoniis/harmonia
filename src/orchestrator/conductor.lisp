@@ -966,60 +966,11 @@ CONTEXT END")))
                   (or caps "claude-code, codex, openrouter, vault, memory, browser, search, baseband, tailnet"))))))
 
 (defun %orchestrator-answer-directly (prompt)
-  "ONE generic path. Encoder score tunes everything continuously.
-No if/else, no hardcoded keywords, no separate paths."
-  (trace-event "memory-recall" :tool :metadata (list :source "direct-answer"))
-  (or (when (fboundp '%orchestrate-repl)
-        (ignore-errors (funcall '%orchestrate-repl prompt)))
-      ;; REPL unavailable → raw fallback
-      (let* ((user-text (if (harmonia-signal-p prompt)
-                            (harmonia-signal-payload prompt)
-                            (if (stringp prompt) prompt (princ-to-string prompt))))
-             (model (or (ignore-errors (model-policy-orchestrator-model)) "auto"))
-             (bootstrap (ignore-errors (dna-system-prompt :mode :orchestrate :simple t))))
-        (backend-complete
-         (concatenate 'string (or bootstrap "") (string #\Newline) user-text)
-         model))))
-
-(defun %orchestrator-simple-call (prompt user-text)
-  "One LLM call: simple bootstrap + parallel-recalled context + question.
-Uses the cheapest fastest model. No REPL, no s-expressions. RECALL: keyword
-for one follow-up round if the model needs more context."
-  (let* ((context (when (fboundp '%parallel-gather-context)
-                    (ignore-errors (funcall '%parallel-gather-context user-text))))
-         (recall (or (and context (getf context :recall)) ""))
-         (model (or (ignore-errors (model-policy-orchestrator-model))
-                    "auto"))
-         (bootstrap (ignore-errors (dna-system-prompt :mode :orchestrate :simple t)))
-         (direct-prompt
-           (concatenate 'string
-             (or bootstrap "")
-             (when (and recall (> (length recall) 0))
-               (concatenate 'string
-                 (string #\Newline) (string #\Newline)
-                 "CONTEXT:" (string #\Newline) recall))
-             (string #\Newline) (string #\Newline)
-             "USER: " user-text)))
-    (%log :info "orchestrator" "Simple call: model=~A len=~D user=[~A]"
-          model (length direct-prompt) (%clip-prompt user-text 60))
-    (%route-or-error "orchestrator" "provider-router")
-    (let ((response (backend-complete direct-prompt model)))
-      ;; If response contains RECALL: keyword, do ONE follow-up round.
-      (if (and response (search "RECALL:" response))
-          (let* ((recall-query (subseq response (+ (search "RECALL:" response) 7)))
-                 (recall-query (string-trim '(#\Space #\Newline) recall-query))
-                 (more-context (ignore-errors
-                                 (memory-semantic-recall-block recall-query :limit 3 :max-chars 800)))
-                 (followup (concatenate 'string
-                             (or bootstrap "")
-                             (string #\Newline) (string #\Newline)
-                             "CONTEXT:" (string #\Newline) (or more-context "")
-                             (string #\Newline) (string #\Newline)
-                             "USER: " user-text)))
-            (%log :info "orchestrator" "RECALL follow-up: query=[~A]"
-                  (%clip-prompt recall-query 40))
-            (backend-complete followup model))
-          response))))
+  "The ONE generic path. Calls harmonic-eval (the unified eval loop).
+No branching, no cases, no keyword checks. Score tunes everything."
+  (trace-event "memory-recall" :tool :metadata (list :source "harmonic-eval"))
+  (when (fboundp '%orchestrate-repl)
+    (funcall '%orchestrate-repl prompt)))
 
 (defun %orchestrator-simple-answer (prompt user-text)
   "One LLM call: bootstrap + parallel-recalled memory + question. Fast, cheap, sufficient."
