@@ -49,6 +49,7 @@ pub(crate) fn spectral_decompose(
 
         let mut eigenvalue = 0.0;
         let mut tmp = vec![0.0; n];
+        let mut lv = vec![0.0; n]; // Reused across iterations (was per-iteration alloc)
 
         for _iter in 0..max_iter {
             // w = (σI - L) · v
@@ -72,7 +73,6 @@ pub(crate) fn spectral_decompose(
             }
 
             // Rayleigh quotient: eigenvalue of L = σ - (σ eigenvalue of (σI-L))
-            let mut lv = vec![0.0; n];
             regularized_laplacian_mul(graph, &tmp, &mut lv, 0.0);
             eigenvalue = dot(&tmp, &lv);
 
@@ -82,7 +82,8 @@ pub(crate) fn spectral_decompose(
                 let diff = lv[i] - eigenvalue * tmp[i];
                 residual += diff * diff;
             }
-            v = tmp.clone();
+            // Swap instead of clone — zero allocation
+            std::mem::swap(&mut v, &mut tmp);
 
             if residual.sqrt() < tol {
                 break;

@@ -340,15 +340,26 @@ fn extract_basin_from_sexp(sexp: &str) -> Option<String> {
 
 pub struct ObservabilityActor;
 
+/// Maximum dotted_order entries before TTL eviction sweep.
+const MAX_DOTTED_ORDERS: usize = 8192;
+/// Maximum rejected trace IDs tracked (ring buffer, not clear-all).
+const MAX_REJECTED_TRACES: usize = 2048;
+/// TTL for dotted_order entries (5 minutes in seconds).
+const DOTTED_ORDER_TTL_SECS: u64 = 300;
+
 pub struct ObsActorState {
     pub sender: Option<SyncSender<TraceMessage>>,
     pub config: ObservabilityConfig,
-    /// Parent→child dotted_order correlation.
-    dotted_orders: HashMap<String, DottedOrderEntry>,
+    /// Parent→child dotted_order correlation with timestamps for TTL eviction.
+    dotted_orders: HashMap<String, (DottedOrderEntry, u64)>,
     /// Active sampled-in trace_ids (root spans).
     active_traces: HashSet<String>,
-    /// Rejected (sampled-out) trace_ids — bounded to 1024.
+    /// Rejected (sampled-out) trace_ids — ring buffer eviction (no clear-all).
     rejected_traces: HashSet<String>,
+    /// FIFO order for rejected_traces eviction.
+    rejected_order: std::collections::VecDeque<String>,
+    /// Counter for periodic TTL sweeps (every 256 span starts).
+    span_counter: u64,
 }
 
 impl ObsActorState {
@@ -372,22 +383,34 @@ impl ObsActorState {
         let is_root = parent_run_id.is_none() && trace_id.is_none();
 
         if is_root {
-            // Sampling decision at root span
+            // Deterministic hash-based sampling: consistent per trace, no timing bias.
             if self.config.sample_rate < 1.0 {
-                let nanos = SystemTime::now()
-                    .duration_since(UNIX_EPOCH)
-                    .map(|d| d.as_nanos() as u64)
-                    .unwrap_or(0);
-                let roll: f64 = (nanos % 10000) as f64 / 10000.0;
+                let hash = crate::ipc::fnv1a_64(run_id.as_bytes());
+                let roll: f64 = (hash % 10000) as f64 / 10000.0;
                 if roll >= self.config.sample_rate {
-                    if self.rejected_traces.len() >= 1024 {
-                        self.rejected_traces.clear();
+                    // Ring buffer eviction: remove oldest before inserting new.
+                    if self.rejected_traces.len() >= MAX_REJECTED_TRACES {
+                        if let Some(oldest) = self.rejected_order.pop_front() {
+                            self.rejected_traces.remove(&oldest);
+                        }
                     }
-                    self.rejected_traces.insert(run_id);
+                    self.rejected_traces.insert(run_id.clone());
+                    self.rejected_order.push_back(run_id);
                     return;
                 }
             }
             self.active_traces.insert(run_id.clone());
+
+            // Periodic TTL sweep of dotted_orders (every 256 root spans)
+            self.span_counter += 1;
+            if self.span_counter % 256 == 0 {
+                let now = SystemTime::now()
+                    .duration_since(UNIX_EPOCH)
+                    .map(|d| d.as_secs())
+                    .unwrap_or(0);
+                self.dotted_orders
+                    .retain(|_, (_, ts)| now.saturating_sub(*ts) < DOTTED_ORDER_TTL_SECS);
+            }
         } else {
             // Child span: check if parent trace was sampled out
             if let Some(ref tid) = trace_id {
@@ -405,7 +428,7 @@ impl ObsActorState {
         let actual_trace_id = trace_id.unwrap_or_else(|| run_id.clone());
 
         let dotted_order = if let Some(ref parent_rid) = parent_run_id {
-            if let Some(parent_entry) = self.dotted_orders.get(parent_rid) {
+            if let Some((parent_entry, _)) = self.dotted_orders.get(parent_rid) {
                 dotted_order_child(&parent_entry.dotted_order, &run_id)
             } else {
                 dotted_order_for(&run_id)
@@ -414,12 +437,19 @@ impl ObsActorState {
             dotted_order_for(&run_id)
         };
 
+        let now_secs = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map(|d| d.as_secs())
+            .unwrap_or(0);
         self.dotted_orders.insert(
             run_id.clone(),
-            DottedOrderEntry {
-                dotted_order: dotted_order.clone(),
-                trace_id: actual_trace_id.clone(),
-            },
+            (
+                DottedOrderEntry {
+                    dotted_order: dotted_order.clone(),
+                    trace_id: actual_trace_id.clone(),
+                },
+                now_secs,
+            ),
         );
 
         let _ = sender.try_send(TraceMessage::StartRun(TraceSpan {
@@ -492,7 +522,7 @@ impl ObsActorState {
         }
 
         let (actual_trace_id, actual_dotted_order) = if let Some(ref pid) = parent_run_id {
-            if let Some(entry) = self.dotted_orders.get(pid) {
+            if let Some((entry, _)) = self.dotted_orders.get(pid) {
                 (
                     Some(entry.trace_id.clone()),
                     Some(entry.dotted_order.clone()),
@@ -538,9 +568,11 @@ impl Actor for ObservabilityActor {
         Ok(ObsActorState {
             sender,
             config,
-            dotted_orders: HashMap::new(),
-            active_traces: HashSet::new(),
-            rejected_traces: HashSet::new(),
+            dotted_orders: HashMap::with_capacity(256),
+            active_traces: HashSet::with_capacity(64),
+            rejected_traces: HashSet::with_capacity(256),
+            rejected_order: std::collections::VecDeque::with_capacity(256),
+            span_counter: 0,
         })
     }
 
