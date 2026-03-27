@@ -184,13 +184,23 @@
 ;;; ─── Helpers ────────────────────────────────────────────────────────
 
 (defun sexp-escape-lisp (s)
-  "Escape backslash and double-quote for embedding in sexp strings."
+  "Escape a string for safe embedding in sexp double-quoted values.
+Escapes: backslash, double-quote, newline, carriage-return, tab, and
+all control characters (codes 0-31). This prevents frame corruption
+when values contain newlines or binary data."
+  (unless (stringp s)
+    (return-from sexp-escape-lisp ""))
   (with-output-to-string (out)
-    (loop for c across (or s "")
-          do (case c
-               (#\\ (write-string "\\\\" out))
-               (#\" (write-string "\\\"" out))
-               (t   (write-char c out))))))
+    (loop for c across s
+          for code = (char-code c)
+          do (cond
+               ((char= c #\\)       (write-string "\\\\" out))
+               ((char= c #\")       (write-string "\\\"" out))
+               ((char= c #\Newline) (write-string "\\n" out))
+               ((char= c #\Return)  (write-string "\\r" out))
+               ((char= c #\Tab)     (write-string "\\t" out))
+               ((< code 32)         (format out "\\x~2,'0X" code)) ; control chars
+               (t                   (write-char c out))))))
 
 (defun ipc-extract-value (reply)
   "Extract the :result value from an IPC reply like (:ok :result \"...\")."

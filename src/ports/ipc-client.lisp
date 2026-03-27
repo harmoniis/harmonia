@@ -222,15 +222,27 @@ Returns reply string or nil. Retries once on failure. Thread-safe."
       (error () nil))))
 
 (defun ipc-reply-ok-p (reply)
-  "Check if reply starts with (:ok ...)."
+  "Check if reply starts with (:ok followed by space, paren, or end.
+Rejects false matches like (:ok-evil or (:okay."
   (and reply (stringp reply)
        (>= (length reply) 4)
-       (string= (subseq reply 0 4) "(:ok")))
+       (string= (subseq reply 0 4) "(:ok")
+       (or (= (length reply) 4)
+           (let ((next (char reply 4)))
+             (or (char= next #\Space) (char= next #\))
+                 (char= next #\Newline) (char= next #\Tab))))))
 
 (defun ipc-reply-error-p (reply)
-  "Check if reply contains :error."
+  "Check if reply contains :error as a keyword (not inside a value string)."
   (and reply (stringp reply)
-       (search ":error" reply)))
+       (let ((pos (search ":error" reply)))
+         (and pos
+              ;; Ensure :error is followed by space, quote, or paren (not :error-code)
+              (let ((after (+ pos 6)))
+                (or (>= after (length reply))
+                    (let ((next (char reply after)))
+                      (or (char= next #\Space) (char= next #\")
+                          (char= next #\) )))))))))
 
 (defun ipc-extract-value (reply)
   "Extract the :result value from an IPC reply string."

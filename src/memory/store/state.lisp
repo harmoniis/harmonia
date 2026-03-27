@@ -23,6 +23,16 @@
 (defparameter *memory-compressed-source-ids* (make-hash-table :test 'equal))
 (defparameter *memory-concept-nodes* (make-hash-table :test 'equal)) ;; concept -> plist
 (defparameter *memory-concept-edges* (make-hash-table :test 'equal)) ;; key -> plist
+
+;;; ─── Thread safety ──────────────────────────────────────────────────
+;;; All mutations to memory state go through this mutex.
+;;; Hash-table operations in SBCL are NOT atomic — concurrent mutations
+;;; can corrupt the table and lose entries silently.
+(defvar *memory-lock* (sb-thread:make-mutex :name "memory-store"))
+
+(defmacro with-memory-lock (() &body body)
+  "Execute BODY with the memory store mutex held."
+  `(sb-thread:with-mutex (*memory-lock*) ,@body))
 (defparameter *memory-stopwords*
   '("a" "an" "the" "and" "or" "if" "then" "else" "for" "of" "to" "in" "on" "at"
     "with" "from" "is" "are" "was" "were" "be" "been" "it" "this" "that" "as" "by"
@@ -111,25 +121,28 @@
 
 (defun memory-put (class content &key (depth 0) (tags '()) (source-ids '()))
   "Store a memory entry. CLASS is kept for backward compat (ID generation)
-but is also added as a tag. The field uses tags, not class, for topology."
-  (incf *memory-seq*)
-  (let* ((now (get-universal-time))
-         (id (format nil "~A-~A-~A" class now *memory-seq*))
-         ;; Class becomes a tag — no separate classification system.
-         (all-tags (adjoin class (or tags '()) :test #'eq))
-         (entry (make-memory-entry :id id
-                                   :time now
-                                   :class class
-                                   :depth depth
-                                   :content content
-                                   :tags all-tags
-                                   :source-ids source-ids
-                                   :access-count 0
-                                   :last-access nil)))
-    (setf (gethash id *memory-store*) entry)
-    (%push-class-id class id)
-    (%index-entry-concepts id class depth content :tags all-tags)
-    ;; Persist to Chronicle.
+but is also added as a tag. The field uses tags, not class, for topology.
+Thread-safe: RAM mutations under lock, Chronicle persist outside lock."
+  (let (id now all-tags)
+    ;; Lock scope: RAM mutations only. No IPC under lock.
+    (with-memory-lock ()
+      (incf *memory-seq*)
+      (setf now (get-universal-time))
+      (setf id (format nil "~A-~A-~A" class now *memory-seq*))
+      (setf all-tags (adjoin class (or tags '()) :test #'eq))
+      (let ((entry (make-memory-entry :id id
+                                       :time now
+                                       :class class
+                                       :depth depth
+                                       :content content
+                                       :tags all-tags
+                                       :source-ids source-ids
+                                       :access-count 0
+                                       :last-access nil)))
+        (setf (gethash id *memory-store*) entry)
+        (%push-class-id class id)
+        (%index-entry-concepts id class depth content :tags all-tags)))
+    ;; Persist to Chronicle OUTSIDE the lock — IPC can take 90s, must not block other memory ops.
     (handler-case (%persist-entry-to-chronicle id now content all-tags source-ids)
       (error (e) (%log :warn "memory" "Persist failed for ~A: ~A" id e)))
     id))
@@ -174,21 +187,25 @@ but is also added as a tag. The field uses tags, not class, for topology."
 
 (defun memory-recall (query &key (limit 10))
   "ONE recall function. Field first, recent entries as fallback. No class filter.
-The field topology decides relevance. If field unavailable, return recent entries."
+The field topology decides relevance. If field unavailable, return recent entries.
+Thread-safe: field IPC outside lock, hash-table reads/writes under lock."
   (or (handler-case
           (when (and (fboundp 'memory-field-port-ready-p)
                      (funcall 'memory-field-port-ready-p))
+            ;; Field IPC call OUTSIDE lock — can take up to 90s.
             (let* ((field-result (funcall 'memory-field-recall query :limit (* limit 3)))
                    (activations (and (listp field-result) (getf field-result :activations)))
                    (all '()))
-              (dolist (act activations)
-                (when (listp act)
-                  (dolist (entry-id (getf act :entries))
-                    (when (stringp entry-id)
-                      (let ((entry (gethash entry-id *memory-store*)))
-                        (when entry
-                          (incf (memory-entry-access-count entry))
-                          (push (cons (or (getf act :score) 0.0) entry) all)))))))
+              ;; Hash-table reads/writes UNDER lock.
+              (with-memory-lock ()
+                (dolist (act activations)
+                  (when (listp act)
+                    (dolist (entry-id (getf act :entries))
+                      (when (stringp entry-id)
+                        (let ((entry (gethash entry-id *memory-store*)))
+                          (when entry
+                            (incf (memory-entry-access-count entry))
+                            (push (cons (or (getf act :score) 0.0) entry) all))))))))
               (when all
                 (mapcar #'cdr
                   (subseq (sort (remove-duplicates all
@@ -197,7 +214,8 @@ The field topology decides relevance. If field unavailable, return recent entrie
                                 #'> :key #'car)
                           0 (min limit (length all)))))))
         (error () nil))
-      ;; Fallback: most recent entries (no search, just recency).
+      ;; Fallback: soul entries first (identity always available), then any recent.
+      (memory-recent :limit limit :class :soul)
       (memory-recent :limit limit)))
 
 ;; Legacy compat — old callers use memory-layered-recall
@@ -355,15 +373,18 @@ fall back to returning soul/genesis entries — identity is always available."
                       :tags (list :journal :daily-summary :temporal)))))))
 
 (defun memory-reset ()
-  (setf *memory-store* (make-hash-table :test 'equal))
-  (setf *memory-by-class* (make-hash-table :test 'eq))
-  (setf *memory-seq* 0)
-  (setf *memory-last-active-at* (get-universal-time))
-  (setf *memory-last-compression-at* 0)
-  (setf *memory-last-journal-day* 0)
-  (setf *memory-compressed-source-ids* (make-hash-table :test 'equal))
-  (setf *memory-concept-nodes* (make-hash-table :test 'equal))
-  (setf *memory-concept-edges* (make-hash-table :test 'equal))
+  "Wipe all in-memory state and re-seed from DNA. Thread-safe."
+  (with-memory-lock ()
+    (setf *memory-store* (make-hash-table :test 'equal))
+    (setf *memory-by-class* (make-hash-table :test 'eq))
+    (setf *memory-seq* 0)
+    (setf *memory-last-active-at* (get-universal-time))
+    (setf *memory-last-compression-at* 0)
+    (setf *memory-last-journal-day* 0)
+    (setf *memory-compressed-source-ids* (make-hash-table :test 'equal))
+    (setf *memory-concept-nodes* (make-hash-table :test 'equal))
+    (setf *memory-concept-edges* (make-hash-table :test 'equal)))
+  ;; Re-seed outside lock (calls memory-put which takes its own lock).
   (memory-seed-soul-from-dna)
   t)
 

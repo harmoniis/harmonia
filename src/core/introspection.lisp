@@ -139,23 +139,26 @@
 (defparameter *error-ring* (make-array 64 :initial-element nil)
   "Circular buffer of recent errors for self-diagnosis.")
 (defparameter *error-ring-index* 0)
+(defvar *error-ring-lock* (sb-thread:make-mutex :name "error-ring"))
 
 (defun %push-error-ring (error-record)
-  "Push an error into the ring buffer."
-  (setf (aref *error-ring* (mod *error-ring-index* (length *error-ring*)))
-        error-record)
-  (incf *error-ring-index*))
+  "Push an error into the ring buffer. Thread-safe."
+  (sb-thread:with-mutex (*error-ring-lock*)
+    (setf (aref *error-ring* (mod *error-ring-index* (length *error-ring*)))
+          error-record)
+    (incf *error-ring-index*)))
 
 (defun introspect-recent-errors (&optional (limit 10))
-  "Return the N most recent errors."
-  (let ((results '())
-        (ring-len (length *error-ring*))
-        (count (min limit (min *error-ring-index* (length *error-ring*)))))
-    (dotimes (i count)
-      (let* ((idx (mod (- *error-ring-index* 1 i) ring-len))
-             (entry (aref *error-ring* idx)))
-        (when entry (push entry results))))
-    (nreverse results)))
+  "Return the N most recent errors. Thread-safe."
+  (sb-thread:with-mutex (*error-ring-lock*)
+    (let ((results '())
+          (ring-len (length *error-ring*))
+          (count (min limit (min *error-ring-index* (length *error-ring*)))))
+      (dotimes (i count)
+        (let* ((idx (mod (- *error-ring-index* 1 i) ring-len))
+               (entry (aref *error-ring* idx)))
+          (when entry (push entry results))))
+      (nreverse results))))
 
 ;;; ─── Self-compilation ──────────────────────────────────────────────────
 
