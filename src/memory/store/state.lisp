@@ -176,43 +176,37 @@
     daily-id))
 
 (defun memory-layered-recall (query &key (limit 10) (dive nil))
-  "Recall memories. Uses field activation when available, falls back to substring."
-  (if (and (fboundp 'memory-field-port-ready-p)
-           (funcall 'memory-field-port-ready-p))
-      (%memory-field-layered-recall query :limit limit :dive dive)
-      (%memory-substring-layered-recall query :limit limit :dive dive)))
+  "Recall from the field. No class filtering — the field topology IS the classification.
+DIVE parameter kept for API compat but ignored — all entries participate equally."
+  (declare (ignore dive))
+  (or (when (and (fboundp 'memory-field-port-ready-p)
+                 (funcall 'memory-field-port-ready-p))
+        (%memory-field-recall-all query :limit limit))
+      (%memory-substring-recall-all query :limit limit)))
 
-(defun %memory-substring-layered-recall (query &key (limit 10) (dive nil))
-  "Substring-based recall (original algorithm). Fallback when field engine unavailable."
+(defun %memory-substring-recall-all (query &key (limit 10))
+  "Substring recall across ALL entries. No class filter — the field decides relevance."
   (let* ((needle (string-downcase (if query query "")))
-         (candidate-classes (if dive '(:soul :skill :daily) '(:soul :skill)))
          (all '()))
-    (dolist (class candidate-classes)
-      (dolist (id (gethash class *memory-by-class*))
-        (let ((entry (gethash id *memory-store*)))
-          (when (and entry
-                     (or (not (eq class :daily)) dive)
-                     (search needle (%entry-text entry) :test #'char-equal))
-            (incf (memory-entry-access-count entry))
-            (setf (memory-entry-last-access entry) (get-universal-time))
-            (push entry all)))))
-    (subseq (sort all #'>
-                  :key (lambda (entry)
-                         (+ (* 10 (memory-entry-depth entry))
-                            (memory-entry-access-count entry))))
-            0
-            (min limit (length all)))))
+    (maphash (lambda (_ entry)
+               (declare (ignore _))
+               (when (and entry
+                          (or (= (length needle) 0)
+                              (search needle (%entry-text entry) :test #'char-equal)))
+                 (push entry all)))
+             *memory-store*)
+    (subseq (sort all #'> :key #'memory-entry-access-count)
+            0 (min limit (length all)))))
 
-(defun %memory-field-layered-recall (query &key (limit 10) (dive nil))
-  "Field-based recall. Returns memory entries sorted by field activation score.
-Falls back to substring recall on any error — the field is an enhancement, not a gate."
+(defun %memory-field-recall-all (query &key (limit 10))
+  "Field recall. No class filter. All entries participate equally.
+The field topology decides relevance, not labels."
   (handler-case
       (let* ((field-result (funcall 'memory-field-recall query :limit (* limit 3)))
              (activations (and (listp field-result) (getf field-result :activations)))
-             (candidate-classes (if dive '(:soul :skill :daily) '(:soul :skill)))
              (all '()))
         (if (null activations)
-            (%memory-substring-layered-recall query :limit limit :dive dive)
+            (%memory-substring-recall-all query :limit limit)
             (progn
               (dolist (act activations)
                 (when (listp act)
@@ -221,14 +215,12 @@ Falls back to substring recall on any error — the field is an enhancement, not
                     (dolist (entry-id entries)
                       (when (stringp entry-id)
                         (let ((entry (gethash entry-id *memory-store*)))
-                          (when (and entry
-                                     (member (memory-entry-class entry) candidate-classes)
-                                     (or (not (eq (memory-entry-class entry) :daily)) dive))
+                          (when entry
                             (incf (memory-entry-access-count entry))
                             (setf (memory-entry-last-access entry) (get-universal-time))
                             (push (cons score entry) all))))))))
               (if (null all)
-                  (%memory-substring-layered-recall query :limit limit :dive dive)
+                  (%memory-substring-recall-all query :limit limit)
                   (let ((unique (remove-duplicates all
                                   :key (lambda (pair) (memory-entry-id (cdr pair)))
                                   :test #'string=)))
@@ -237,8 +229,7 @@ Falls back to substring recall on any error — the field is an enhancement, not
                                     0
                                     (min limit (length unique)))))))))
     (error ()
-      ;; Any error in field recall → graceful fallback to substring.
-      (%memory-substring-layered-recall query :limit limit :dive dive))))
+      (%memory-substring-recall-all query :limit limit))))
 
 (defun %current-day-number (&optional ut)
   (floor (or ut (get-universal-time)) 86400))
