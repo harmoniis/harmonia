@@ -972,28 +972,7 @@ No branching, no cases, no keyword checks. Score tunes everything."
   (when (fboundp '%orchestrate-repl)
     (funcall '%orchestrate-repl prompt)))
 
-(defun %orchestrator-simple-answer (prompt user-text)
-  "One LLM call: bootstrap + parallel-recalled memory + question. Fast, cheap, sufficient."
-  (let* (;; Parallel gather context (memory + basin simultaneously).
-         (context (when (fboundp '%parallel-gather-context)
-                    (ignore-errors (funcall '%parallel-gather-context user-text))))
-         (recall (or (and context (getf context :recall)) ""))
-         (basin (or (and context (getf context :basin)) ""))
-         ;; Select model (cheap for simple).
-         (model (or (ignore-errors (%select-model user-text))
-                    (model-policy-orchestrator-model)))
-         ;; Build lean prompt.
-         (bootstrap (ignore-errors (dna-system-prompt :mode :orchestrate)))
-         (direct-prompt
-           (format nil "~A~:[~;~%~%RECALLED_MEMORIES:~%~A~]~:[~;~%BASIN: ~A~]~%~%~A"
-                   (or bootstrap "")
-                   (> (length recall) 0) recall
-                   (> (length basin) 0) basin
-                   user-text)))
-    (%log :info "orchestrator" "Simple answer: model=~A len=~D user=[~A]"
-          model (length direct-prompt) (%clip-prompt user-text 60))
-    (%route-or-error "orchestrator" "provider-router")
-    (backend-complete direct-prompt model)))
+;; Dead code removed — ONE path through %orchestrate-repl.
 
 (defun %task-needs-delegation-p (prompt)
   "Determine if a task genuinely needs subagent delegation.

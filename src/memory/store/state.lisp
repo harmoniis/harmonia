@@ -172,61 +172,38 @@ but is also added as a tag. The field uses tags, not class, for topology."
     (%upsert-concept-edge (string-downcase tool) "memory" :tool-memory)
     daily-id))
 
-(defun memory-layered-recall (query &key (limit 10) (dive nil))
-  "Recall from the field. No class filtering — the field topology IS the classification.
-DIVE parameter kept for API compat but ignored — all entries participate equally."
-  (declare (ignore dive))
-  (or (when (and (fboundp 'memory-field-port-ready-p)
-                 (funcall 'memory-field-port-ready-p))
-        (%memory-field-recall-all query :limit limit))
-      (%memory-substring-recall-all query :limit limit)))
-
-(defun %memory-substring-recall-all (query &key (limit 10))
-  "Substring recall across ALL entries. No class filter — the field decides relevance."
-  (let* ((needle (string-downcase (if query query "")))
-         (all '()))
-    (maphash (lambda (_ entry)
-               (declare (ignore _))
-               (when (and entry
-                          (or (= (length needle) 0)
-                              (search needle (%entry-text entry) :test #'char-equal)))
-                 (push entry all)))
-             *memory-store*)
-    (subseq (sort all #'> :key #'memory-entry-access-count)
-            0 (min limit (length all)))))
-
-(defun %memory-field-recall-all (query &key (limit 10))
-  "Field recall. No class filter. All entries participate equally.
-The field topology decides relevance, not labels."
-  (handler-case
-      (let* ((field-result (funcall 'memory-field-recall query :limit (* limit 3)))
-             (activations (and (listp field-result) (getf field-result :activations)))
-             (all '()))
-        (if (null activations)
-            (%memory-substring-recall-all query :limit limit)
-            (progn
+(defun memory-recall (query &key (limit 10))
+  "ONE recall function. Field first, recent entries as fallback. No class filter.
+The field topology decides relevance. If field unavailable, return recent entries."
+  (or (handler-case
+          (when (and (fboundp 'memory-field-port-ready-p)
+                     (funcall 'memory-field-port-ready-p))
+            (let* ((field-result (funcall 'memory-field-recall query :limit (* limit 3)))
+                   (activations (and (listp field-result) (getf field-result :activations)))
+                   (all '()))
               (dolist (act activations)
                 (when (listp act)
-                  (let ((entries (getf act :entries))
-                        (score (or (getf act :score) 0.0)))
-                    (dolist (entry-id entries)
-                      (when (stringp entry-id)
-                        (let ((entry (gethash entry-id *memory-store*)))
-                          (when entry
-                            (incf (memory-entry-access-count entry))
-                            (setf (memory-entry-last-access entry) (get-universal-time))
-                            (push (cons score entry) all))))))))
-              (if (null all)
-                  (%memory-substring-recall-all query :limit limit)
-                  (let ((unique (remove-duplicates all
-                                  :key (lambda (pair) (memory-entry-id (cdr pair)))
-                                  :test #'string=)))
-                    (mapcar #'cdr
-                            (subseq (sort unique #'> :key #'car)
-                                    0
-                                    (min limit (length unique)))))))))
-    (error ()
-      (%memory-substring-recall-all query :limit limit))))
+                  (dolist (entry-id (getf act :entries))
+                    (when (stringp entry-id)
+                      (let ((entry (gethash entry-id *memory-store*)))
+                        (when entry
+                          (incf (memory-entry-access-count entry))
+                          (push (cons (or (getf act :score) 0.0) entry) all)))))))
+              (when all
+                (mapcar #'cdr
+                  (subseq (sort (remove-duplicates all
+                                  :key (lambda (p) (memory-entry-id (cdr p)))
+                                  :test #'string=)
+                                #'> :key #'car)
+                          0 (min limit (length all)))))))
+        (error () nil))
+      ;; Fallback: most recent entries (no search, just recency).
+      (memory-recent :limit limit)))
+
+;; Legacy compat — old callers use memory-layered-recall
+(defun memory-layered-recall (query &key (limit 10) (dive nil))
+  (declare (ignore dive))
+  (memory-recall query :limit limit))
 
 (defun %current-day-number (&optional ut)
   (floor (or ut (get-universal-time)) 86400))

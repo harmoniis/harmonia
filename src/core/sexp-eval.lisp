@@ -367,76 +367,46 @@ The REPL has full Lisp power; Rust is the boundary."
 ;;; MODEL SELECTION
 ;;; ═══════════════════════════════════════════════════════════════════════
 
-(defun %repl-select-model (score)
-  "Select model by complexity score. Uses auto selection (provider-router
-performance-ranked pool). Score is passed but model selection is generic —
-the provider-router picks the best performing model for the tier."
-  (declare (ignore score))
-  ;; Let the provider-router's performance-ranked pool decide.
-  ;; Empty string = auto-select from pool (cheapest that works).
-  "")
+;; Model selection removed — provider-router auto-selects by performance.
 
 ;;; ═══════════════════════════════════════════════════════════════════════
 ;;; THE HARMONIC REPL — the orchestration core
 ;;; ═══════════════════════════════════════════════════════════════════════
 
 (defun %orchestrate-repl (prompt &key (max-rounds *repl-max-rounds*))
-  "ONE generic path. Encoder score tunes everything continuously:
-  score 0.0→1.0 maps to: model (cheap→premium), rounds (1→5), bootstrap (simple→full).
-  No if/else, no cases, no hardcoded keywords. Score is the only input."
+  "ONE path. Recall context from memory. Send to LLM. Eval response.
+No score branching, no model selection, no bootstrap modes. ONE path."
   (let* ((user-text (if (harmonia-signal-p prompt)
                         (harmonia-signal-payload prompt)
                         (if (stringp prompt) prompt (princ-to-string prompt))))
-         ;; Complexity score: the ONLY decision variable.
-         (score (or (ignore-errors
-                      (when (fboundp 'ipc-call)
-                        (let* ((escaped (sexp-escape-lisp
-                                          (subseq user-text 0 (min 200 (length user-text)))))
-                               (reply (funcall 'ipc-call
-                                        (format nil "(:component \"router\" :op \"complexity\" :prompt \"~A\")" escaped))))
-                          (when reply
-                            (let ((pos (search ":score" reply)))
-                              (when pos
-                                (let ((*read-eval* nil))
-                                  (ignore-errors
-                                    (read-from-string reply :start (+ pos 7))))))))))
-                    0.3)) ;; default: medium-low
-         ;; Score tunes everything. No branching.
-         (effective-rounds (max 1 (min max-rounds (1+ (floor (* score 4))))))
-         (model (%repl-select-model score))
-         (bootstrap (dna-system-prompt :mode :orchestrate :simple (< score 0.5)))
-         ;; Parallel context + soul baseline.
-         (context (%parallel-gather-context user-text))
-         (raw-recall (getf context :recall))
-         ;; If recall is empty or too short, include soul entries as baseline.
-         ;; Identity should always be available regardless of query.
-         (recall (if (or (null raw-recall) (< (length raw-recall) 20))
-                     (ignore-errors
-                       (let ((all-entries (memory-recent :limit 5)))
+         ;; ONE bootstrap, always the same.
+         (bootstrap (dna-system-prompt))
+         ;; Recall from memory field (ONE recall function).
+         (recalled (ignore-errors
+                     (let ((entries (memory-recall user-text :limit 5)))
+                       (when entries
                          (with-output-to-string (out)
-                           (dolist (e all-entries)
+                           (dolist (e entries)
                              (let ((text (%entry-text e)))
                                (when (and (stringp text) (> (length text) 10))
                                  (write-string (subseq text 0 (min 200 (length text))) out)
-                                 (terpri out)))))))
-                     raw-recall))
-         ;; No basin telemetry in prompt — only recalled memories as natural text.
-         ;; Basin is for the field's internal state, not for the LLM.
+                                 (terpri out)))))))))
+         ;; ONE prompt format: bootstrap + context + question.
          (current-prompt
            (format nil "~A~:[~;~%~%CONTEXT:~%~A~]~%~%USER: ~A"
                    bootstrap
-                   (and recall (> (length recall) 0)) recall
+                   (and recalled (> (length recalled) 0)) recalled
                    user-text))
          (round 0)
          (last-eval-result nil))
 
-    (%log :info "sexp-eval" "REPL: score=~,2F rounds=~D model=~A len=~D user=[~A]"
-          score effective-rounds model (length current-prompt)
+    (%log :info "sexp-eval" "REPL: len=~D user=[~A]"
+          (length current-prompt)
           (subseq user-text 0 (min 60 (length user-text))))
 
     ;; The (respond ...) primitive throws 'repl-respond to exit the loop.
     (catch 'repl-respond
-      (loop while (< round effective-rounds) do
+      (loop while (< round max-rounds) do
         (incf round)
         (let ((round-prompt
                 (if (= round 1)
@@ -445,7 +415,7 @@ the provider-router picks the best performing model for the tier."
                             bootstrap (or last-eval-result "") user-text))))
 
           (let ((llm-output
-                  (handler-case (backend-complete round-prompt (or model "auto"))
+                  (handler-case (backend-complete round-prompt "")
                     (error (c)
                       (%log :warn "sexp-eval" "REPL ~D error: ~A" round c)
                       nil))))
@@ -491,5 +461,5 @@ the provider-router picks the best performing model for the tier."
                      bootstrap
                      (subseq last-eval-result 0 (min 1200 (length last-eval-result)))
                      user-text)
-             (or model "auto"))
+             "")
           (error () nil))))))

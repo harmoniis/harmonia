@@ -49,25 +49,12 @@
 ;;; ═══════════════════════════════════════════════════════════════════════
 
 (defun dna-system-prompt (&key (mode :orchestrate) (simple nil))
-  (let ((name (%agent-name)))
-    (case mode
-      (:planner (concatenate 'string "You are " name ". Pick the best model. Minimize dissonance."))
-      (:rewrite (concatenate 'string (bootstrap-prompt 0.8) (string #\Newline)
-                  (ignore-errors (%runtime-self-knowledge))))
-      (t (bootstrap-prompt (if simple 0.2 0.7))))))
-
-(defun bootstrap-prompt (score)
-  "Score tunes verbosity. Low → minimal. High → full REPL. ONE function."
-  (let ((name (%agent-name)))
-    (if (< score 0.5)
-        (concatenate 'string
-          "You are " name ". Answer using the context provided." (string #\Newline)
-          "If you need more from memory, write: RECALL: your search query" (string #\Newline)
-          "Otherwise answer naturally.")
-        (concatenate 'string
-          "You are " name ". Drive the system via s-expressions." (string #\Newline)
-          "(recall \"query\") (ipc \"component\" \"op\") (respond \"answer\")" (string #\Newline)
-          "Results feed back. (respond ...) to answer the user."))))
+  "ONE bootstrap. Agent name + instruction. Context comes from memory recall."
+  (declare (ignore mode simple))
+  (concatenate 'string
+    "You are " (%agent-name) ". Answer using the context provided." (string #\Newline)
+    "If you need more from memory, write: RECALL: your search query" (string #\Newline)
+    "Otherwise answer naturally."))
 
 ;;; ═══════════════════════════════════════════════════════════════════════
 ;;; GENESIS SEEDING — foundation knowledge → persistent memory field
