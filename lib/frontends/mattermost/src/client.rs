@@ -14,11 +14,10 @@ pub struct MattermostState {
     pub initialized: bool,
 }
 
-/// Legacy singleton — deprecated. Frontend actor should own this state.
-static LEGACY_STATE: OnceLock<RwLock<MattermostState>> = OnceLock::new();
+static STATE: OnceLock<RwLock<MattermostState>> = OnceLock::new();
 
 fn state() -> &'static RwLock<MattermostState> {
-    LEGACY_STATE.get_or_init(|| {
+    STATE.get_or_init(|| {
         RwLock::new(MattermostState {
             server_url: String::new(),
             bot_token: String::new(),

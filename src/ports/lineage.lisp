@@ -6,8 +6,7 @@
 (in-package :harmonia)
 
 (defun init-lineage-port ()
-  "No-op: lineage (git-ops) will be initialized when IPC component is wired."
-  (%log :info "lineage" "Lineage port initialized (IPC stub — not yet wired)")
+  "Stub: lineage (git-ops) IPC component not yet wired."
   t)
 
 (defun git-ops-last-error ()

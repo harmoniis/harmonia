@@ -221,9 +221,6 @@
 (defun %cli-model-p (model)
   (%starts-with-p (or model "") "cli:"))
 
-(defun %cli-model-id (model)
-  (if (%cli-model-p model) (subseq model 4) model))
-
 (defun %token-estimate (text)
   (max 1 (round (/ (float (length (or text ""))) 4.0))))
 
@@ -932,39 +929,6 @@ CONTEXT END")))
          (search "capabilities" p) (search "tools" p)
          (search "access" p)))))
 
-(defun %orchestrator-system-context ()
-  "Build concise system context for the orchestrator to answer internal questions.
-   Cheap — reads only from in-memory state, no LLM calls."
-  (let ((actors (ignore-errors (actor-list)))
-        (swarm-status (ignore-errors (tmux-swarm-poll)))
-        (model (ignore-errors (model-policy-get)))
-        (cli-prefs (or (getf *model-evolution-policy* :cli-preference) '("claude-code" "codex")))
-        (seed-models (or (getf *model-evolution-policy* :seed-models) '()))
-        (orch-model (model-policy-orchestrator-model))
-        (provider (%active-provider-id)))
-    (format nil "~%SYSTEM_CONTEXT:~%~
-- orchestrator-model: ~A (provider: ~A)~%~
-- available CLIs: ~{~A~^, ~}~%~
-- seed models: ~{~A~^, ~}~%~
-- context-summarizer: ~A~%~
-- active actors: ~A~%~
-- swarm tmux status: ~A~%~
-- phoenix daemon: ~A~%~
-- signalograd projection: ~A~%~
-- capabilities: ~A~%"
-            orch-model provider
-            cli-prefs
-            seed-models
-            (model-policy-context-summarizer-model)
-            (or actors "(none)")
-            (or swarm-status "(none)")
-            (or (ignore-errors (%phoenix-health)) "(unreachable)")
-            (or (ignore-errors (signalograd-current-projection *runtime*)) "(not loaded)")
-            (let ((caps (load-prompt :evolution :system-capabilities)))
-              (if (listp caps)
-                  (format nil "~{~A~^, ~}" caps)
-                  (or caps "claude-code, codex, openrouter, vault, memory, browser, search, baseband, tailnet"))))))
-
 (defun %orchestrator-answer-directly (prompt)
   "The ONE generic path. Calls harmonic-eval (the unified eval loop).
 No branching, no cases, no keyword checks. Score tunes everything."
@@ -990,19 +954,6 @@ No branching, no cases, no keyword checks. Score tunes everything."
      (search "pull request" p) (search "debug" p)
      (search "compile" p) (search "test " p)
      (search "document" p) (search "generate" p))))
-
-(defun %swarm-subagent-system-context (prompt chain)
-  "Build system context to inject when delegating to a subagent.
-   Header and capabilities loaded from config/swarm.sexp :prompts."
-  (let* ((header (%swarm-prompt-template :subagent-system-context-header
-                   "[HARMONIA SWARM CONTEXT] You are a subagent spawned by the Harmonia orchestrator."))
-         (caps (%swarm-prompt-template :system-capabilities nil))
-         (cap-lines (if (listp caps)
-                        (format nil "~{- ~A~%~}" caps)
-                        "- claude-code, codex, openrouter, vault, memory, browser, search, git-ops, whisper, elevenlabs, baseband, tailnet")))
-    (format nil "~A~%Available system capabilities:~%~A~
-Delegation chain: ~{~A~^, ~}~%~%TASK: ~A"
-            header cap-lines chain prompt)))
 
 (defun %orchestrate-inner (prompt signal)
   "Core orchestration logic shared by signal and prompt paths.

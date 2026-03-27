@@ -21,11 +21,10 @@ pub struct WhatsAppState {
     pub initialized: bool,
 }
 
-/// Legacy singleton — deprecated. Frontend actor should own this state.
-static LEGACY_STATE: OnceLock<RwLock<WhatsAppState>> = OnceLock::new();
+static STATE: OnceLock<RwLock<WhatsAppState>> = OnceLock::new();
 
 fn state() -> &'static RwLock<WhatsAppState> {
-    LEGACY_STATE.get_or_init(|| {
+    STATE.get_or_init(|| {
         RwLock::new(WhatsAppState {
             api_url: String::new(),
             api_key: String::new(),

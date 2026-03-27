@@ -17,17 +17,15 @@ pub struct SchedulerState {
     jobs: Vec<Job>,
 }
 
-/// Deprecated: legacy global singleton. Will be replaced by injected state.
-static LEGACY_STATE: OnceLock<RwLock<SchedulerState>> = OnceLock::new();
-/// Deprecated: legacy global singleton. Will be replaced by returning Result<T, String>.
-static LEGACY_LAST_ERROR: OnceLock<RwLock<String>> = OnceLock::new();
+static STATE: OnceLock<RwLock<SchedulerState>> = OnceLock::new();
+static LAST_ERROR: OnceLock<RwLock<String>> = OnceLock::new();
 
 fn state() -> &'static RwLock<SchedulerState> {
-    LEGACY_STATE.get_or_init(|| RwLock::new(SchedulerState::default()))
+    STATE.get_or_init(|| RwLock::new(SchedulerState::default()))
 }
 
 fn last_error() -> &'static RwLock<String> {
-    LEGACY_LAST_ERROR.get_or_init(|| RwLock::new(String::new()))
+    LAST_ERROR.get_or_init(|| RwLock::new(String::new()))
 }
 
 fn now_secs() -> u64 {

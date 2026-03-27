@@ -9,9 +9,7 @@
   "admin-intent: not yet wired as IPC component")
 
 (defun init-admin-intent-port ()
-  "No-op: admin-intent will be initialized when IPC component is wired."
-  (%log :info "admin-intent" "Admin intent port initialized (IPC stub — not yet wired)")
-  (runtime-log *runtime* :admin-intent-init (list :status :ipc-stub))
+  "Stub: admin-intent IPC component not yet wired."
   t)
 
 (defun admin-intent-verify-with-vault (action params sig-hex &optional (pubkey-symbol "admin-ed25519-pubkey"))

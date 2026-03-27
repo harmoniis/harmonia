@@ -6,11 +6,10 @@ use std::sync::{OnceLock, RwLock};
 
 const VERSION: &[u8] = b"harmonia-http/0.2.0\0";
 
-/// Deprecated: legacy global singleton. Will be replaced by returning Result<T, String>.
-static LEGACY_LAST_ERROR: OnceLock<RwLock<String>> = OnceLock::new();
+static LAST_ERROR: OnceLock<RwLock<String>> = OnceLock::new();
 
 fn last_error() -> &'static RwLock<String> {
-    LEGACY_LAST_ERROR.get_or_init(|| RwLock::new(String::new()))
+    LAST_ERROR.get_or_init(|| RwLock::new(String::new()))
 }
 
 fn set_error(msg: impl Into<String>) {

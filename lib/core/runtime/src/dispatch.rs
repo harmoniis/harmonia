@@ -182,14 +182,14 @@ pub fn dispatch(component: &str, sexp: &str) -> String {
         "config" => dispatch_config(sexp),
         "chronicle" => dispatch_chronicle(sexp),
         "gateway" => dispatch_gateway(sexp),
-        "signalograd" => dispatch_signalograd(sexp),
+        "signalograd" => "(:error \"signalograd dispatch requires actor-owned state\")".into(),
         "tailnet" => dispatch_tailnet(sexp),
         "harmonic-matrix" => dispatch_matrix(sexp),
         "observability" => dispatch_observability(sexp),
         "provider-router" => dispatch_provider_router(sexp),
         "parallel" => dispatch_parallel(sexp),
         "router" => "(:ok :result \"router dispatch via actor\")".to_string(),
-        "memory-field" => dispatch_memory_field(sexp),
+        "memory-field" => "(:error \"memory-field dispatch requires actor-owned state\")".into(),
         _ => format!("(:error \"unknown component: {}\")", component),
     }
 }
@@ -915,90 +915,92 @@ fn send_to_frontend(frontend: &str, channel: &str, payload: &str) -> Result<(), 
     }
 }
 
-// ── Signalograd ──────────────────────────────────────────────────────
+// ── Signalograd (typed API — no FFI) ─────────────────────────────────
 
-fn dispatch_signalograd(sexp: &str) -> String {
+pub(crate) fn dispatch_signalograd(
+    sexp: &str,
+    state: &mut harmonia_signalograd::KernelState,
+) -> String {
+    use harmonia_signalograd::{
+        apply_feedback, parse_feedback, parse_observation, restore_state_from_path, save_state,
+        simple_hash, snapshot_sexp, state_to_sexp, status_sexp, step_kernel, write_state_to_path,
+        KernelState,
+    };
+    use std::path::PathBuf;
+
     let op = extract_keyword(sexp, ":op");
     match op.as_deref() {
         Some("init") => {
-            let rc = harmonia_signalograd::harmonia_signalograd_init();
-            if rc == 0 {
-                "(:ok)".to_string()
-            } else {
-                "(:error \"signalograd init failed\")".to_string()
-            }
+            // Init is a no-op: the actor already owns a KernelState.
+            "(:ok)".to_string()
         }
         Some("observe") => {
-            let observation = extract_string(sexp, ":observation").unwrap_or_default();
-            let c = match to_cstring(&observation) {
-                Ok(c) => c,
-                Err(e) => return e,
+            let raw = extract_string(sexp, ":observation").unwrap_or_default();
+            let observation = match parse_observation(&raw) {
+                Ok(o) => o,
+                Err(e) => return format!("(:error \"observe parse: {e}\")"),
             };
-            let rc = harmonia_signalograd::harmonia_signalograd_observe(c.as_ptr());
-            if rc == 0 {
-                "(:ok)".to_string()
-            } else {
-                format!("(:error \"observe failed: {}\")", signalograd_last_error())
+            let _projection = step_kernel(state, &observation);
+            state.checkpoint_digest = simple_hash(&state_to_sexp(state));
+            if let Err(e) = save_state(state) {
+                return format!("(:error \"observe save: {e}\")");
             }
+            "(:ok)".to_string()
         }
         Some("status") => {
-            let ffi_result = FfiString(harmonia_signalograd::harmonia_signalograd_status());
-            let result = ffi_result.as_str().to_string();
+            let result = status_sexp(state);
             format!("(:ok :result \"{}\")", esc(&result))
         }
         Some("snapshot") => {
-            let ffi_result = FfiString(harmonia_signalograd::harmonia_signalograd_snapshot());
-            let result = ffi_result.as_str().to_string();
+            let result = snapshot_sexp(state);
             format!("(:ok :result \"{}\")", esc(&result))
         }
         Some("feedback") => {
-            let feedback = extract_string(sexp, ":feedback").unwrap_or_default();
-            let c = match to_cstring(&feedback) {
-                Ok(c) => c,
-                Err(e) => return e,
+            let raw = extract_string(sexp, ":feedback").unwrap_or_default();
+            let feedback = match parse_feedback(&raw) {
+                Ok(f) => f,
+                Err(e) => return format!("(:error \"feedback parse: {e}\")"),
             };
-            let rc = harmonia_signalograd::harmonia_signalograd_feedback(c.as_ptr());
-            if rc == 0 {
-                "(:ok)".to_string()
-            } else {
-                format!("(:error \"feedback failed: {}\")", signalograd_last_error())
+            apply_feedback(state, &feedback);
+            state.checkpoint_digest = simple_hash(&state_to_sexp(state));
+            if let Err(e) = save_state(state) {
+                return format!("(:error \"feedback save: {e}\")");
             }
+            "(:ok)".to_string()
         }
         Some("reset") => {
-            let rc = harmonia_signalograd::harmonia_signalograd_reset();
-            if rc == 0 {
-                "(:ok)".to_string()
-            } else {
-                "(:error \"reset failed\")".to_string()
+            *state = KernelState::new();
+            state.checkpoint_digest = simple_hash(&state_to_sexp(state));
+            if let Err(e) = save_state(state) {
+                return format!("(:error \"reset save: {e}\")");
             }
+            "(:ok)".to_string()
         }
         Some("checkpoint") => {
-            let path = extract_string(sexp, ":path").unwrap_or_default();
-            let c = match to_cstring(&path) {
-                Ok(c) => c,
-                Err(e) => return e,
-            };
-            let rc = harmonia_signalograd::harmonia_signalograd_checkpoint(c.as_ptr());
-            if rc == 0 {
-                "(:ok)".to_string()
-            } else {
-                format!(
-                    "(:error \"checkpoint failed: {}\")",
-                    signalograd_last_error()
-                )
+            let path_str = extract_string(sexp, ":path").unwrap_or_default();
+            let target = PathBuf::from(path_str.trim());
+            if let Err(e) = write_state_to_path(state, &target) {
+                return format!("(:error \"checkpoint failed: {e}\")");
             }
+            state.checkpoint_digest = simple_hash(&state_to_sexp(state));
+            if let Err(e) = save_state(state) {
+                return format!("(:error \"checkpoint save: {e}\")");
+            }
+            "(:ok)".to_string()
         }
         Some("restore") => {
-            let path = extract_string(sexp, ":path").unwrap_or_default();
-            let c = match to_cstring(&path) {
-                Ok(c) => c,
-                Err(e) => return e,
-            };
-            let rc = harmonia_signalograd::harmonia_signalograd_restore(c.as_ptr());
-            if rc == 0 {
-                "(:ok)".to_string()
-            } else {
-                format!("(:error \"restore failed: {}\")", signalograd_last_error())
+            let path_str = extract_string(sexp, ":path").unwrap_or_default();
+            let target = PathBuf::from(path_str.trim());
+            match restore_state_from_path(&target) {
+                Ok(restored) => {
+                    *state = restored;
+                    state.checkpoint_digest = simple_hash(&state_to_sexp(state));
+                    if let Err(e) = save_state(state) {
+                        return format!("(:error \"restore save: {e}\")");
+                    }
+                    "(:ok)".to_string()
+                }
+                Err(e) => format!("(:error \"restore failed: {e}\")"),
             }
         }
         _ => format!(
@@ -1006,11 +1008,6 @@ fn dispatch_signalograd(sexp: &str) -> String {
             op.unwrap_or_default()
         ),
     }
-}
-
-fn signalograd_last_error() -> String {
-    let ffi_result = FfiString(harmonia_signalograd::harmonia_signalograd_last_error());
-    ffi_result.as_str().to_string()
 }
 
 // ── Tailnet ──────────────────────────────────────────────────────────
@@ -1507,24 +1504,22 @@ pub fn extract_vault_symbol(sexp: &str) -> String {
     extract_string(sexp, ":symbol").unwrap_or_default()
 }
 
-// ── Memory Field ────────────────────────────────────────────────────
+// ── Memory Field (typed API — no globals) ────────────────────────────
 
-fn dispatch_memory_field(sexp: &str) -> String {
+pub(crate) fn dispatch_memory_field(
+    sexp: &str,
+    field: &mut harmonia_memory_field::FieldState,
+) -> String {
     let op = extract_keyword(sexp, ":op");
     match op.as_deref() {
         Some("init") => {
-            let rc = harmonia_memory_field::init();
-            if rc == 0 {
-                "(:ok)".to_string()
-            } else {
-                "(:error \"memory-field init failed\")".to_string()
-            }
+            // Init is a no-op: the actor already owns a FieldState.
+            "(:ok)".to_string()
         }
         Some("load-graph") => {
-            // Parse nodes and edges from sexp.
             let nodes = parse_memory_field_nodes(sexp);
             let edges = parse_memory_field_edges(sexp);
-            match harmonia_memory_field::load_graph(nodes, edges) {
+            match harmonia_memory_field::load_graph(field, nodes, edges) {
                 Ok(result) => result,
                 Err(e) => format!("(:error \"load-graph: {e}\")"),
             }
@@ -1534,7 +1529,7 @@ fn dispatch_memory_field(sexp: &str) -> String {
             let access = parse_memory_field_access_counts(sexp);
             let limit = extract_u64(sexp, ":limit") as usize;
             let limit = if limit == 0 { 10 } else { limit };
-            match harmonia_memory_field::field_recall(concepts, access, limit) {
+            match harmonia_memory_field::field_recall(field, concepts, access, limit) {
                 Ok(result) => result,
                 Err(e) => format!("(:error \"field-recall: {e}\")"),
             }
@@ -1542,20 +1537,20 @@ fn dispatch_memory_field(sexp: &str) -> String {
         Some("step-attractors") => {
             let signal = parse_f64(sexp, ":signal");
             let noise = parse_f64(sexp, ":noise");
-            match harmonia_memory_field::step_attractors(signal, noise) {
+            match harmonia_memory_field::step_attractors(field, signal, noise) {
                 Ok(result) => result,
                 Err(e) => format!("(:error \"step-attractors: {e}\")"),
             }
         }
-        Some("basin-status") => match harmonia_memory_field::basin_status() {
+        Some("basin-status") => match harmonia_memory_field::basin_status(field) {
             Ok(result) => result,
             Err(e) => format!("(:error \"basin-status: {e}\")"),
         },
-        Some("eigenmode-status") => match harmonia_memory_field::eigenmode_status() {
+        Some("eigenmode-status") => match harmonia_memory_field::eigenmode_status(field) {
             Ok(result) => result,
             Err(e) => format!("(:error \"eigenmode-status: {e}\")"),
         },
-        Some("status") => match harmonia_memory_field::status() {
+        Some("status") => match harmonia_memory_field::status(field) {
             Ok(result) => result,
             Err(e) => format!("(:error \"status: {e}\")"),
         },
@@ -1565,7 +1560,7 @@ fn dispatch_memory_field(sexp: &str) -> String {
             let dwell = extract_u64(sexp, ":dwell-ticks");
             let threshold = parse_f64(sexp, ":threshold");
             let threshold = if threshold < 0.01 { 0.35 } else { threshold };
-            match harmonia_memory_field::restore_basin(&basin, energy, dwell, threshold) {
+            match harmonia_memory_field::restore_basin(field, &basin, energy, dwell, threshold) {
                 Ok(result) => result,
                 Err(e) => format!("(:error \"restore-basin: {e}\")"),
             }
@@ -1582,7 +1577,7 @@ fn dispatch_memory_field(sexp: &str) -> String {
                 Err(e) => format!("(:error \"last-field-basin: {e}\")"),
             }
         }
-        Some("reset") => match harmonia_memory_field::reset() {
+        Some("reset") => match harmonia_memory_field::reset(field) {
             Ok(result) => result,
             Err(e) => format!("(:error \"reset: {e}\")"),
         },

@@ -159,8 +159,7 @@ impl Actor for TailnetActor {
 
 // ── SignalogradActor ─────────────────────────────────────────────────
 //
-// Signalograd exposes C-style functions (from legacy FFI) that now
-// compile as regular Rust pub fn. We wrap them with safe helpers.
+// Actor owns KernelState directly. All dispatch goes through typed API.
 
 pub struct SignalogradActor;
 
@@ -168,6 +167,7 @@ pub struct SignalogradState {
     bridge: ActorRef<BridgeMsg>,
     #[allow(dead_code)]
     obs: Option<ActorRef<ObsMsg>>,
+    kernel: harmonia_signalograd::KernelState,
 }
 
 impl Actor for SignalogradActor {
@@ -180,9 +180,11 @@ impl Actor for SignalogradActor {
         _myself: ActorRef<Self::Msg>,
         (bridge, obs): Self::Arguments,
     ) -> Result<Self::State, ActorProcessingErr> {
-        harmonia_signalograd::harmonia_signalograd_init();
+        // Load persisted state or start fresh.
+        let kernel = harmonia_signalograd::checkpoint::load_state()
+            .unwrap_or_else(|_| harmonia_signalograd::KernelState::new());
         eprintln!("[INFO] [runtime] SignalogradActor started");
-        Ok(SignalogradState { bridge, obs })
+        Ok(SignalogradState { bridge, obs, kernel })
     }
 
     async fn handle(
@@ -193,32 +195,28 @@ impl Actor for SignalogradActor {
     ) -> Result<(), ActorProcessingErr> {
         match message {
             ComponentMsg::Tick => {
-                let status_ptr = harmonia_signalograd::harmonia_signalograd_status();
-                if !status_ptr.is_null() {
-                    let status = unsafe { std::ffi::CStr::from_ptr(status_ptr) }.to_string_lossy();
-                    if !status.is_empty() && status != "()" {
-                        let msg = HarmoniaMessage {
-                            id: 0,
-                            source: 0,
-                            target: 0,
-                            kind: ActorKind::Signalograd,
-                            timestamp: now_unix(),
-                            payload: MessagePayload::StateChanged {
-                                to: status.into_owned(),
-                            },
-                        };
-                        let _ = state.bridge.cast(BridgeMsg::Enqueue { msg });
-                    }
-                    harmonia_signalograd::harmonia_signalograd_free_string(status_ptr);
+                let status = harmonia_signalograd::status_sexp(&state.kernel);
+                if !status.is_empty() && status != "()" {
+                    let msg = HarmoniaMessage {
+                        id: 0,
+                        source: 0,
+                        target: 0,
+                        kind: ActorKind::Signalograd,
+                        timestamp: now_unix(),
+                        payload: MessagePayload::StateChanged { to: status },
+                    };
+                    let _ = state.bridge.cast(BridgeMsg::Enqueue { msg });
                 }
             }
             ComponentMsg::Dispatch(sexp, reply) => {
-                let result = crate::dispatch::dispatch("signalograd", &sexp);
+                let result =
+                    crate::dispatch::dispatch_signalograd(&sexp, &mut state.kernel);
                 let _ = reply.send(result);
             }
             ComponentMsg::Signal { payload_sexp } => {
-                let c_str = std::ffi::CString::new(payload_sexp).unwrap_or_default();
-                harmonia_signalograd::harmonia_signalograd_observe(c_str.as_ptr());
+                if let Ok(obs) = harmonia_signalograd::parse_observation(&payload_sexp) {
+                    let _ = harmonia_signalograd::step_kernel(&mut state.kernel, &obs);
+                }
             }
             ComponentMsg::Shutdown => {
                 eprintln!("[INFO] [runtime] SignalogradActor shutting down");
@@ -236,6 +234,7 @@ pub struct MemoryFieldState {
     bridge: ActorRef<BridgeMsg>,
     #[allow(dead_code)]
     obs: Option<ActorRef<ObsMsg>>,
+    field: harmonia_memory_field::FieldState,
     last_basin: String,
 }
 
@@ -249,11 +248,12 @@ impl Actor for MemoryFieldActor {
         _myself: ActorRef<Self::Msg>,
         (bridge, obs): Self::Arguments,
     ) -> Result<Self::State, ActorProcessingErr> {
-        harmonia_memory_field::init();
+        let field = harmonia_memory_field::FieldState::new();
         eprintln!("[INFO] [runtime] MemoryFieldActor started");
         Ok(MemoryFieldState {
             bridge,
             obs,
+            field,
             last_basin: "thomas-0".into(),
         })
     }
@@ -268,7 +268,7 @@ impl Actor for MemoryFieldActor {
             ComponentMsg::Tick => {
                 // Attractors are stepped by harmonic machine via IPC (:attractor-sync phase).
                 // Tick monitors basin transitions and emits StateChanged through bridge.
-                if let Ok(status_sexp) = harmonia_memory_field::basin_status() {
+                if let Ok(status_sexp) = harmonia_memory_field::basin_status(&state.field) {
                     if let Some(basin) = extract_basin_from_sexp(&status_sexp) {
                         if basin != state.last_basin {
                             // Basin switched — emit StateChanged to bridge for Lisp consumption.
@@ -303,7 +303,8 @@ impl Actor for MemoryFieldActor {
                 }
             }
             ComponentMsg::Dispatch(sexp, reply) => {
-                let result = crate::dispatch::dispatch("memory-field", &sexp);
+                let result =
+                    crate::dispatch::dispatch_memory_field(&sexp, &mut state.field);
                 let _ = reply.send(result);
             }
             ComponentMsg::Signal { .. } => {

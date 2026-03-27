@@ -265,13 +265,3 @@ Rejects false matches like (:ok-evil or (:okay."
   "Clear cached IPC name, path, and token. Call after runtime restart."
   (setf *ipc-name* nil
         *ipc-token* nil))
-
-;;; ─── Legacy compat ────────────────────────────────────────────────────
-
-(defun %ipc-ensure-connection ()
-  "Legacy compat. Returns a fresh connection."
-  (%ipc-connect))
-
-(defun %ipc-disconnect ()
-  "Legacy compat. No-op — connections are not pooled."
-  nil)

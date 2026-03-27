@@ -13,11 +13,10 @@ pub struct ImessageState {
     pub initialized: bool,
 }
 
-/// Legacy singleton — deprecated. Frontend actor should own this state.
-static LEGACY_STATE: OnceLock<RwLock<ImessageState>> = OnceLock::new();
+static STATE: OnceLock<RwLock<ImessageState>> = OnceLock::new();
 
 fn state() -> &'static RwLock<ImessageState> {
-    LEGACY_STATE.get_or_init(|| {
+    STATE.get_or_init(|| {
         RwLock::new(ImessageState {
             server_url: String::new(),
             password: String::new(),

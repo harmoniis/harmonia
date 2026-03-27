@@ -12,8 +12,7 @@ struct MeshState {
     hostname_prefix: String,
 }
 
-/// Deprecated: legacy global singleton. Will be replaced by injected state.
-static LEGACY_MESH: OnceLock<RwLock<MeshState>> = OnceLock::new();
+static MESH: OnceLock<RwLock<MeshState>> = OnceLock::new();
 
 fn default_state() -> MeshState {
     let port: u16 = harmonia_config_store::get_own_or("tailnet-core", "port", "7483")
@@ -64,7 +63,7 @@ fn default_state() -> MeshState {
 }
 
 fn mesh() -> &'static RwLock<MeshState> {
-    LEGACY_MESH.get_or_init(|| RwLock::new(default_state()))
+    MESH.get_or_init(|| RwLock::new(default_state()))
 }
 
 fn now_ms() -> u64 {

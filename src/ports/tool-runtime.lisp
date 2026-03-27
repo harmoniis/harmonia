@@ -9,8 +9,7 @@
 (defparameter *tool-libs* (make-hash-table :test 'equal))
 
 (defun init-tool-runtime-port ()
-  "No-op: search tools will be initialized when IPC components are wired."
-  (%log :info "tool-runtime" "Tool runtime port initialized (IPC stub — not yet wired)")
+  "Stub: search tool IPC components not yet wired."
   t)
 
 (defun tool-runtime-list ()

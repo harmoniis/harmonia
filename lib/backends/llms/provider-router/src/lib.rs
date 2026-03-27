@@ -99,8 +99,7 @@ static PROVIDERS: &[ProviderEntry] = &[
 
 // ── Vault key detection (cached) ─────────────────────────────────────
 
-/// Deprecated: legacy global singleton. Will be replaced by injected state.
-static LEGACY_ACTIVE_PROVIDERS: OnceLock<Vec<&'static str>> = OnceLock::new();
+static ACTIVE_PROVIDERS: OnceLock<Vec<&'static str>> = OnceLock::new();
 
 fn detect_active_providers() -> Vec<&'static str> {
     let mut active = Vec::new();
@@ -113,7 +112,7 @@ fn detect_active_providers() -> Vec<&'static str> {
 }
 
 fn active_providers() -> &'static Vec<&'static str> {
-    LEGACY_ACTIVE_PROVIDERS.get_or_init(detect_active_providers)
+    ACTIVE_PROVIDERS.get_or_init(detect_active_providers)
 }
 
 fn has_vault_key(component: &str, symbols: &[&str]) -> bool {

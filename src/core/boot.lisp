@@ -178,10 +178,6 @@
       (unless (string= (or (%boot-env "HARMONIA_ALLOW_PROD_GENESIS") "") "1")
         (error "Production genesis is blocked. Set HARMONIA_ALLOW_PROD_GENESIS=1 explicitly to override.")))))
 
-(defun %ensure-ffi-deps ()
-  "No-op: CFFI is no longer needed. All Rust calls go through IPC."
-  (%log :debug "boot" "IPC transport active — CFFI no longer required."))
-
 ;;; ─── Module loading (style-warnings suppressed) ───────────────────────
 
 (defun %load-module (path &optional label)
@@ -209,7 +205,6 @@
 (%load-module (%core-path "model-policy.lisp"))
 (%load-module (%core-path "harmonic-machine.lisp"))
 (%load-module (%core-path "evolution-versioning.lisp"))
-(%ensure-ffi-deps)
 (%load-module (%core-path "../ports/ipc-client.lisp") "port/ipc-client")
 (%load-module (%core-path "../ports/ipc-ports.lisp") "port/ipc-ports")
 (%load-module (%core-path "../ports/observability.lisp") "port/observability")

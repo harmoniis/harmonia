@@ -6,8 +6,7 @@
 (in-package :harmonia)
 
 (defun init-voice-runtime-port ()
-  "No-op: voice-router will be initialized when IPC component is wired."
-  (%log :info "voice-runtime" "Voice runtime port initialized (IPC stub — not yet wired)")
+  "Stub: voice-router IPC component not yet wired."
   t)
 
 (defun whisper-transcribe (audio-path &optional (model ""))

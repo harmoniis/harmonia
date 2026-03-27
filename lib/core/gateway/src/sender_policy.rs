@@ -36,8 +36,7 @@ struct SenderPolicyCache {
     last_loaded_ms: u64,
 }
 
-/// Deprecated: legacy global singleton. Will be replaced by injected state.
-static LEGACY_CACHE: Mutex<Option<SenderPolicyCache>> = Mutex::new(None);
+static CACHE: Mutex<Option<SenderPolicyCache>> = Mutex::new(None);
 
 fn now_ms() -> u64 {
     SystemTime::now()
@@ -98,7 +97,7 @@ fn with_cache<F, R>(f: F) -> R
 where
     F: FnOnce(&SenderPolicyCache) -> R,
 {
-    let mut guard = LEGACY_CACHE.lock().unwrap_or_else(|e| e.into_inner());
+    let mut guard = CACHE.lock().unwrap_or_else(|e| e.into_inner());
     let now = now_ms();
     let needs_refresh = match guard.as_ref() {
         Some(cache) => now.saturating_sub(cache.last_loaded_ms) > POLICY_REFRESH_MS,
@@ -157,6 +156,6 @@ pub fn is_signal_allowed(envelope: &ChannelEnvelope) -> bool {
 /// Force-reload policies from config-store (called after TUI updates policies).
 #[allow(dead_code)]
 pub fn reload_policies() {
-    let mut guard = LEGACY_CACHE.lock().unwrap_or_else(|e| e.into_inner());
+    let mut guard = CACHE.lock().unwrap_or_else(|e| e.into_inner());
     *guard = Some(load_policies());
 }

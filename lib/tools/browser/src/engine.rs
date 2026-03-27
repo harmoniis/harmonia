@@ -31,11 +31,10 @@ impl Default for BrowserState {
     }
 }
 
-/// Deprecated: legacy global singleton. Will be replaced by injected state.
-static LEGACY_STATE: OnceLock<RwLock<BrowserState>> = OnceLock::new();
+static STATE: OnceLock<RwLock<BrowserState>> = OnceLock::new();
 
 fn state() -> &'static RwLock<BrowserState> {
-    LEGACY_STATE.get_or_init(|| RwLock::new(BrowserState::default()))
+    STATE.get_or_init(|| RwLock::new(BrowserState::default()))
 }
 
 /// Initialize the browser engine from an s-expression config string.

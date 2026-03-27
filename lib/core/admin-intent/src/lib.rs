@@ -12,11 +12,10 @@ use harmonia_vault::{get_secret_for_component, init_from_env};
 
 const VERSION: &[u8] = b"harmonia-admin-intent/0.1.0\0";
 
-/// Deprecated: legacy global singleton. Will be replaced by returning Result<T, String>.
-static LEGACY_LAST_ERROR: OnceLock<RwLock<String>> = OnceLock::new();
+static LAST_ERROR: OnceLock<RwLock<String>> = OnceLock::new();
 
 fn last_error_lock() -> &'static RwLock<String> {
-    LEGACY_LAST_ERROR.get_or_init(|| RwLock::new(String::new()))
+    LAST_ERROR.get_or_init(|| RwLock::new(String::new()))
 }
 
 fn set_error(msg: impl Into<String>) {

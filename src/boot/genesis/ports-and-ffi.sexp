@@ -34,8 +34,7 @@
  :shared-infrastructure
   (:defined-in "src/ports/vault.lisp"
    :utilities
-    ("ensure-cffi: one-time CFFI bootstrap."
-     "%release-lib-path: resolve release dylib paths."
+    ("%release-lib-path: resolve release dylib paths."
      "%release-lib-roots: resolve candidate library roots via fallback chain."
      "%split-lines: decode newline-returned ffi outputs."))
 

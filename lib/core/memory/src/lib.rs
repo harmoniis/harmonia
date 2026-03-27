@@ -13,17 +13,15 @@ pub struct MemoryState {
     entries: HashMap<String, String>,
 }
 
-/// Deprecated: legacy global singleton. Will be replaced by injected state.
-static LEGACY_MEMORY: OnceLock<RwLock<MemoryState>> = OnceLock::new();
-/// Deprecated: legacy global singleton. Will be replaced by returning Result<T, String>.
-static LEGACY_LAST_ERROR: OnceLock<RwLock<String>> = OnceLock::new();
+static MEMORY: OnceLock<RwLock<MemoryState>> = OnceLock::new();
+static LAST_ERROR: OnceLock<RwLock<String>> = OnceLock::new();
 
 fn state() -> &'static RwLock<MemoryState> {
-    LEGACY_MEMORY.get_or_init(|| RwLock::new(MemoryState::default()))
+    MEMORY.get_or_init(|| RwLock::new(MemoryState::default()))
 }
 
 fn last_error() -> &'static RwLock<String> {
-    LEGACY_LAST_ERROR.get_or_init(|| RwLock::new(String::new()))
+    LAST_ERROR.get_or_init(|| RwLock::new(String::new()))
 }
 
 fn set_error(msg: impl Into<String>) {

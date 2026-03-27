@@ -32,11 +32,10 @@ pub struct EmailState {
     pub initialized: bool,
 }
 
-/// Legacy singleton — deprecated. Frontend actor should own this state.
-static LEGACY_STATE: OnceLock<RwLock<EmailState>> = OnceLock::new();
+static STATE: OnceLock<RwLock<EmailState>> = OnceLock::new();
 
 fn state() -> &'static RwLock<EmailState> {
-    LEGACY_STATE.get_or_init(|| {
+    STATE.get_or_init(|| {
         RwLock::new(EmailState {
             imap_host: String::new(),
             imap_port: 993,

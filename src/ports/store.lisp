@@ -2,12 +2,6 @@
 
 (in-package :harmonia)
 
-;;; --- Shared no-op for CFFI compatibility ---
-
-(defun ensure-cffi ()
-  "No-op. CFFI has been replaced by IPC transport."
-  nil)
-
 ;;; --- Init ────────────────────────────────────────────────────────────
 
 (defun init-store-port ()

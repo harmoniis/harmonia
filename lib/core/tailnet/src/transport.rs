@@ -142,12 +142,11 @@ struct TransportState {
     listener_running: bool,
 }
 
-/// Deprecated: legacy global singleton. Will be replaced by injected state.
-static LEGACY_TRANSPORT: OnceLock<RwLock<TransportState>> = OnceLock::new();
+static TRANSPORT: OnceLock<RwLock<TransportState>> = OnceLock::new();
 static STOP_FLAG: AtomicBool = AtomicBool::new(false);
 
 fn transport() -> &'static RwLock<TransportState> {
-    LEGACY_TRANSPORT.get_or_init(|| {
+    TRANSPORT.get_or_init(|| {
         RwLock::new(TransportState {
             inbound_queue: VecDeque::new(),
             listener_running: false,

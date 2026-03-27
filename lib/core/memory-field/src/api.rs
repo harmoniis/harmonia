@@ -1,15 +1,16 @@
 /// Public API surface for the memory field engine.
 ///
-/// Mirrors the signalograd API pattern: static OnceLock<Mutex<FieldState>>,
-/// C-style functions for IPC dispatch, sexp string I/O.
+/// All functions take &mut FieldState — the actor owns the state.
+/// No globals, no singletons, no C FFI.
 
 use crate::attractor::{update_aizawa, update_halvorsen, update_thomas};
 use crate::basin::{assign_node_basins, classify_primary_basin, update_hysteresis};
-use crate::error::{clear_error, clamp, last_error_message, state};
+use crate::error::clamp;
 use crate::field::{build_source_vector, solve_field};
 use crate::graph::{build_graph, Domain};
 use crate::scoring::compute_activation;
 use crate::spectral::{eigenmode_activate, eigenmode_project, spectral_decompose};
+use crate::FieldState;
 
 // ─── Config-driven parameters ───────────────────────────────────────
 // All magic numbers flow from config-store with sensible defaults.
@@ -31,23 +32,14 @@ fn cfg_i64(key: &str, default: i64) -> i64 {
         .unwrap_or(default)
 }
 
-/// Initialize the field state. Returns 0 on success.
-pub fn init() -> i32 {
-    clear_error();
-    // Touch the state to ensure lazy initialization.
-    let _guard = state().lock();
-    0
-}
-
 /// Load a concept graph from parsed node and edge lists.
 ///
 /// Rebuilds the sparse graph and triggers spectral recomputation.
 pub fn load_graph(
+    s: &mut FieldState,
     nodes: Vec<(String, String, i32, Vec<String>)>,
     edges: Vec<(String, String, f64, bool)>,
 ) -> Result<String, String> {
-    let mut s = state().lock().map_err(|e| format!("lock: {e}"))?;
-
     s.graph = build_graph(&nodes, &edges);
     s.graph_version += 1;
 
@@ -80,11 +72,11 @@ pub fn load_graph(
 ///
 /// Returns scored concept activations as sexp.
 pub fn field_recall(
+    s: &mut FieldState,
     query_concepts: Vec<String>,
     access_counts: Vec<(String, f64)>,
     limit: usize,
 ) -> Result<String, String> {
-    let mut s = state().lock().map_err(|e| format!("lock: {e}"))?;
     let n = s.graph.n;
     if n == 0 {
         return Ok("(:ok :activations ())".into());
@@ -134,12 +126,9 @@ pub fn field_recall(
         let node = &s.graph.nodes[act.node_index];
         let entries_sexp: Vec<String> = node.entry_ids.iter().map(|e| format!("\"{e}\"")).collect();
         items.push(format!(
-            "(:concept \"{}\" :score {:.3} :field-potential {:.3} :eigenmode {:.3} :basin {} :entries ({}))",
+            "(:concept \"{}\" :score {:.3} :entries ({}))",
             node.concept,
             act.score,
-            act.field_potential,
-            act.eigenmode_value,
-            act.basin.to_sexp(),
             entries_sexp.join(" "),
         ));
     }
@@ -148,23 +137,13 @@ pub fn field_recall(
     s.cycle += 1;
 
     Ok(format!(
-        "(:ok :activations ({}) :basin (:current {} :dwell-ticks {} :coercive-energy {:.3} :threshold {:.3}) :thomas (:x {:.3} :y {:.3} :z {:.3} :b {:.3}))",
+        "(:ok :activations ({}))",
         items.join(" "),
-        s.hysteresis.current_basin.to_sexp(),
-        s.hysteresis.dwell_ticks,
-        s.hysteresis.coercive_energy,
-        s.hysteresis.threshold,
-        s.thomas.x,
-        s.thomas.y,
-        s.thomas.z,
-        s.thomas_b,
     ))
 }
 
 /// Step all three attractors by one timestep and update hysteresis.
-pub fn step_attractors(signal: f64, noise: f64) -> Result<String, String> {
-    let mut s = state().lock().map_err(|e| format!("lock: {e}"))?;
-
+pub fn step_attractors(s: &mut FieldState, signal: f64, noise: f64) -> Result<String, String> {
     // Thomas b parameter modulated by signal quality (all from config).
     let b_base = cfg_f64("thomas-b-base", 0.208);
     let b_scale = cfg_f64("thomas-b-modulation-scale", 0.02);
@@ -201,8 +180,7 @@ pub fn step_attractors(signal: f64, noise: f64) -> Result<String, String> {
 }
 
 /// Return current basin status as sexp.
-pub fn basin_status() -> Result<String, String> {
-    let s = state().lock().map_err(|e| format!("lock: {e}"))?;
+pub fn basin_status(s: &FieldState) -> Result<String, String> {
     Ok(format!(
         "(:ok :current {} :dwell-ticks {} :coercive-energy {:.3} :threshold {:.3})",
         s.hysteresis.current_basin.to_sexp(),
@@ -213,8 +191,7 @@ pub fn basin_status() -> Result<String, String> {
 }
 
 /// Return eigenmode status as sexp.
-pub fn eigenmode_status() -> Result<String, String> {
-    let s = state().lock().map_err(|e| format!("lock: {e}"))?;
+pub fn eigenmode_status(s: &FieldState) -> Result<String, String> {
     let eigenvalues_sexp: Vec<String> = s.eigenvalues.iter().map(|v| format!("{v:.4}")).collect();
     Ok(format!(
         "(:ok :eigenvalues ({}) :spectral-version {} :graph-version {})",
@@ -225,8 +202,7 @@ pub fn eigenmode_status() -> Result<String, String> {
 }
 
 /// Return summary status as sexp.
-pub fn status() -> Result<String, String> {
-    let s = state().lock().map_err(|e| format!("lock: {e}"))?;
+pub fn status(s: &FieldState) -> Result<String, String> {
     Ok(format!(
         "(:ok :cycle {} :graph-n {} :graph-version {} :spectral-k {} :basin {} :thomas-b {:.3})",
         s.cycle,
@@ -240,12 +216,12 @@ pub fn status() -> Result<String, String> {
 
 /// Restore basin state from Chronicle for warm-start.
 pub fn restore_basin(
+    s: &mut FieldState,
     basin_str: &str,
     coercive_energy: f64,
     dwell_ticks: u64,
     threshold: f64,
 ) -> Result<String, String> {
-    let mut s = state().lock().map_err(|e| format!("lock: {e}"))?;
     let basin = crate::basin::Basin::from_sexp(basin_str);
     s.hysteresis = crate::basin::HysteresisTracker::restored(
         basin,
@@ -263,13 +239,7 @@ pub fn restore_basin(
 }
 
 /// Reset field state to initial values.
-pub fn reset() -> Result<String, String> {
-    let mut s = state().lock().map_err(|e| format!("lock: {e}"))?;
-    *s = crate::FieldState::new();
+pub fn reset(s: &mut FieldState) -> Result<String, String> {
+    *s = FieldState::new();
     Ok("(:ok)".into())
-}
-
-/// Return last error message.
-pub fn last_error() -> String {
-    last_error_message()
 }

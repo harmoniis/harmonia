@@ -107,16 +107,13 @@ pub(crate) struct VaultSignResult {
 
 pub(crate) type InboundMessage = (String, String, Option<String>);
 
-/// Legacy singleton — deprecated. Frontend actor should own this state.
-pub(crate) static LEGACY_LAST_ERROR: OnceLock<RwLock<String>> = OnceLock::new();
+pub(crate) static LAST_ERROR: OnceLock<RwLock<String>> = OnceLock::new();
 pub(crate) static FRONTEND_VERSION: &[u8] = b"harmonia-mqtt-frontend/0.3.0\0";
-/// Legacy singleton — deprecated. Frontend actor should own this state.
-pub(crate) static LEGACY_SUBSCRIBED_TOPICS: OnceLock<RwLock<Vec<String>>> = OnceLock::new();
-/// Legacy singleton — deprecated. Frontend actor should own this state.
-pub(crate) static LEGACY_INBOUND_QUEUE: OnceLock<RwLock<VecDeque<InboundMessage>>> = OnceLock::new();
+pub(crate) static SUBSCRIBED_TOPICS: OnceLock<RwLock<Vec<String>>> = OnceLock::new();
+pub(crate) static INBOUND_QUEUE: OnceLock<RwLock<VecDeque<InboundMessage>>> = OnceLock::new();
 
 pub(crate) fn last_error() -> &'static RwLock<String> {
-    LEGACY_LAST_ERROR.get_or_init(|| RwLock::new(String::new()))
+    LAST_ERROR.get_or_init(|| RwLock::new(String::new()))
 }
 
 pub(crate) fn set_error(msg: impl Into<String>) {
@@ -132,9 +129,9 @@ pub(crate) fn clear_error() {
 }
 
 pub(crate) fn subscribed_topics() -> &'static RwLock<Vec<String>> {
-    LEGACY_SUBSCRIBED_TOPICS.get_or_init(|| RwLock::new(Vec::new()))
+    SUBSCRIBED_TOPICS.get_or_init(|| RwLock::new(Vec::new()))
 }
 
 pub(crate) fn inbound_queue() -> &'static RwLock<VecDeque<InboundMessage>> {
-    LEGACY_INBOUND_QUEUE.get_or_init(|| RwLock::new(VecDeque::new()))
+    INBOUND_QUEUE.get_or_init(|| RwLock::new(VecDeque::new()))
 }

@@ -58,17 +58,15 @@ pub(crate) struct VerifiedPeer {
     pub(crate) cert_fingerprint: String,
 }
 
-/// Deprecated: legacy global singleton. Will be replaced by returning Result<T, String>.
-static LEGACY_LAST_ERROR: OnceLock<RwLock<String>> = OnceLock::new();
-/// Deprecated: legacy global singleton. Will be replaced by injected state.
-static LEGACY_STATE: OnceLock<Mutex<Option<FrontendState>>> = OnceLock::new();
+static LAST_ERROR: OnceLock<RwLock<String>> = OnceLock::new();
+static STATE: OnceLock<Mutex<Option<FrontendState>>> = OnceLock::new();
 
 pub(crate) fn last_error() -> &'static RwLock<String> {
-    LEGACY_LAST_ERROR.get_or_init(|| RwLock::new(String::new()))
+    LAST_ERROR.get_or_init(|| RwLock::new(String::new()))
 }
 
 pub(crate) fn state_slot() -> &'static Mutex<Option<FrontendState>> {
-    LEGACY_STATE.get_or_init(|| Mutex::new(None))
+    STATE.get_or_init(|| Mutex::new(None))
 }
 
 pub(crate) fn set_error(message: impl Into<String>) {

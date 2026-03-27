@@ -3,7 +3,6 @@
 /// Memory is a field, not a database. Recall is relaxation into attractors,
 /// not search through records. Relevance is resonance, not matching.
 
-// Legacy FFI API — kept for backward compat, will be removed.
 mod api;
 mod attractor;
 pub mod basin;
@@ -18,8 +17,11 @@ use attractor::{AizawaState, HalvorsenState, ThomasState};
 use basin::{Basin, HysteresisTracker};
 use graph::SparseGraph;
 
-// Legacy C FFI wrappers (deprecated — use typed API via actor-owned state)
-pub use api::*;
+// ── Typed API: actor-owned state, no singletons ──────────────────────
+pub use api::{
+    basin_status, eigenmode_status, field_recall, load_graph, reset, restore_basin, status,
+    step_attractors,
+};
 
 /// Complete field state — all field computation lives here.
 /// Reconstructed from concept graph on each boot (stateless persistence).
@@ -39,7 +41,7 @@ pub struct FieldState {
 }
 
 impl FieldState {
-    pub(crate) fn new() -> Self {
+    pub fn new() -> Self {
         Self {
             graph: SparseGraph::empty(),
             thomas: ThomasState::default(),

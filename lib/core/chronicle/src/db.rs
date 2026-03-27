@@ -4,8 +4,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::{Mutex, OnceLock};
 
-/// Deprecated: legacy global singleton. Will be replaced by injected state.
-static LEGACY_DB_CONN: OnceLock<Mutex<Connection>> = OnceLock::new();
+static DB_CONN: OnceLock<Mutex<Connection>> = OnceLock::new();
 
 // ─── Schema version for migrations ────────────────────────────────────
 const SCHEMA_VERSION: i32 = 5;
@@ -392,11 +391,11 @@ fn migrate_v5(conn: &Connection) -> Result<(), String> {
 }
 
 pub(crate) fn conn() -> Result<&'static Mutex<Connection>, String> {
-    if let Some(c) = LEGACY_DB_CONN.get() {
+    if let Some(c) = DB_CONN.get() {
         return Ok(c);
     }
     let connection = open_connection()?;
-    Ok(LEGACY_DB_CONN.get_or_init(|| Mutex::new(connection)))
+    Ok(DB_CONN.get_or_init(|| Mutex::new(connection)))
 }
 
 pub fn init() -> Result<(), String> {

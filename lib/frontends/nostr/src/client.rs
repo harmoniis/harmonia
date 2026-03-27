@@ -14,11 +14,10 @@ pub struct NostrState {
     pub initialized: bool,
 }
 
-/// Legacy singleton — deprecated. Frontend actor should own this state.
-static LEGACY_STATE: OnceLock<RwLock<NostrState>> = OnceLock::new();
+static STATE: OnceLock<RwLock<NostrState>> = OnceLock::new();
 
 fn state() -> &'static RwLock<NostrState> {
-    LEGACY_STATE.get_or_init(|| {
+    STATE.get_or_init(|| {
         RwLock::new(NostrState {
             secret_key: None,
             public_key_hex: String::new(),

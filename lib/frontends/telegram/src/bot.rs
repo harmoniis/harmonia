@@ -48,11 +48,10 @@ pub struct TelegramState {
     pub initialized: bool,
 }
 
-/// Legacy singleton — deprecated. Frontend actor should own this state.
-static LEGACY_STATE: OnceLock<RwLock<TelegramState>> = OnceLock::new();
+static STATE: OnceLock<RwLock<TelegramState>> = OnceLock::new();
 
 fn state() -> &'static RwLock<TelegramState> {
-    LEGACY_STATE.get_or_init(|| {
+    STATE.get_or_init(|| {
         RwLock::new(TelegramState {
             bot_token: String::new(),
             last_update_id: 0,

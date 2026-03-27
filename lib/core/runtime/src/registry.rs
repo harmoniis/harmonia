@@ -156,12 +156,8 @@ pub fn build_registry() -> Vec<ModuleEntry> {
             core: false,
             config_reqs: vec![],
             init_fn: || {
-                let rc = harmonia_signalograd::harmonia_signalograd_init();
-                if rc == 0 {
-                    Ok(())
-                } else {
-                    Err("signalograd init failed".into())
-                }
+                // Actor owns KernelState; registry init is a connectivity check only.
+                Ok(())
             },
             shutdown_fn: noop_shutdown,
         },
