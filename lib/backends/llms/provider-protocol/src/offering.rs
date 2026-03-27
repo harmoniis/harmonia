@@ -48,8 +48,49 @@ pub fn select_from_pool(pool: &[ModelOffering], task_hint: &str) -> String {
     if eligible.is_empty() {
         return pool[0].id.to_string();
     }
-    let idx = POOL_INDEX.fetch_add(1, Ordering::Relaxed) % eligible.len();
-    eligible[idx].id.to_string()
+    // Performance-aware selection: rank by success_rate / avg_latency.
+    // Models that fail or are slow get ranked lower automatically.
+    select_best_by_performance(&eligible)
+}
+
+/// Rank eligible models by historical performance. Best success rate with
+/// lowest latency wins. Falls back to round-robin if no perf data.
+fn select_best_by_performance(eligible: &[&ModelOffering]) -> String {
+    let mut scored: Vec<(&ModelOffering, f64)> = eligible
+        .iter()
+        .map(|m| {
+            let stats = crate::metrics::query_model_stats(m.id);
+            // Parse success-rate and avg-latency from sexp
+            let sr = extract_f64_from_sexp(&stats, "success-rate").unwrap_or(0.5);
+            let lat = extract_f64_from_sexp(&stats, "avg-latency-ms").unwrap_or(5000.0);
+            let count = extract_f64_from_sexp(&stats, "count").unwrap_or(0.0);
+            // Score: success_rate * speed_factor * (1 + log(count+1))
+            // More data = more confidence. Faster = better. Higher success = better.
+            let speed_factor = 10000.0 / (lat + 1000.0); // 1.0 at 10s, 5.0 at 1s
+            let confidence = (1.0 + (count + 1.0).ln()).min(3.0);
+            let score = sr * speed_factor * confidence;
+            (*m, score)
+        })
+        .collect();
+
+    scored.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
+
+    if let Some((best, _)) = scored.first() {
+        best.id.to_string()
+    } else {
+        // Fallback: round-robin
+        let idx = POOL_INDEX.fetch_add(1, Ordering::Relaxed) % eligible.len();
+        eligible[idx].id.to_string()
+    }
+}
+
+fn extract_f64_from_sexp(sexp: &str, key: &str) -> Option<f64> {
+    let search = format!(":{} ", key);
+    let pos = sexp.find(&search)?;
+    let start = pos + search.len();
+    let rest = &sexp[start..];
+    let end = rest.find(|c: char| c.is_whitespace() || c == ')').unwrap_or(rest.len());
+    rest[..end].parse::<f64>().ok()
 }
 
 /// Return pool models as fallback candidates (cheapest first, excluding `primary`).

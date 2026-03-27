@@ -122,7 +122,7 @@
                                    :last-access nil)))
     (setf (gethash id *memory-store*) entry)
     (%push-class-id class id)
-    (%index-entry-concepts id class depth content)
+    (%index-entry-concepts id class depth content :tags tags)
     (when (eq class :skill)
       (%upsert-concept-edge "skill" "memory" :skill-memory))
     ;; Persist to Chronicle (non-blocking, fire-and-forget).

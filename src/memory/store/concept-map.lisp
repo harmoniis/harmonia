@@ -46,9 +46,23 @@
                   :reasons (adjoin reason reasons :test #'eq)
                   :interdisciplinary (not (eq da db)))))))
 
-(defun %index-entry-concepts (entry-id class depth content &key (reason :cooccur))
+(defun %index-entry-concepts (entry-id class depth content &key (reason :cooccur) (tags nil))
+  "Extract concepts from content and index into the concept graph.
+Tags are also indexed as concepts — this creates semantic bridges.
+E.g. tag :identity connects to content words, so 'who are you' finds identity entries."
   (let* ((text (if (stringp content) content (prin1-to-string content)))
-         (concepts (%split-words text)))
+         (content-concepts (%split-words text))
+         ;; Tags become concepts too — semantic bridge between questions and answers.
+         (tag-concepts (when tags
+                         (remove-duplicates
+                          (remove-if (lambda (w) (< (length w) 3))
+                                     (mapcar (lambda (tag)
+                                               (string-downcase
+                                                (if (keywordp tag) (symbol-name tag)
+                                                    (princ-to-string tag))))
+                                             tags))
+                          :test #'string=)))
+         (concepts (remove-duplicates (append content-concepts tag-concepts) :test #'string=)))
     (dolist (c concepts)
       (%upsert-concept-node c class depth entry-id))
     (loop for left in concepts do
