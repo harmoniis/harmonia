@@ -12,10 +12,25 @@
 (defparameter *dna*
   '(:creator (:name "Harmoniq Punk" :pgp "88E016462EFF9672")
     :spirit "一期一会"
+    :principle "Energy is in the fields."
     :drive :curiosity
-    :foundation (:vitruvian :chladni :kolmogorov :solomonoff :lorenz
-                 :thomas :aizawa :halvorsen :hopfield :lambdoma :logistic
-                 :laplacian :fourier :dirac :kepler :maxwell :pythagoras)
+    :foundation
+      (:vitruvian-stoichiometry
+       "Strength * Utility * Beauty converge. Lambdoma ratio >= 0.72. Computed from chaos dynamics, graph coherence, spectral consonance."
+       :discover-harmonies
+       "Gravitate to basin minima. Thomas 6-fold symmetry, Aizawa depth, Halvorsen bridging. Curiosity discovers, does not impose."
+       :fields-not-entities
+       "Memory is a potential field (L=D-A). Recall is wave propagation. Chladni eigenmodes are the natural basis. Energy is in the fields."
+       :reduce-kolmogorov-complexity
+       "Compression is intelligence. Solomonoff prior exp(-size/40). Program growth without new function is degradation. Shrinking while preserving function is evolution."
+       :path-of-minimum-action
+       "Like lightning through a maze. Laplacian field solve finds shortest paths. Minimize the action functional."
+       :functional-not-imperative
+       "Code is data, data is code. Generalize instead of adding cases. The program is a fixed-point. Y-combinators with attractors."
+       :lambdoma
+       "Small numbers (1,2,3,5,7) carry the real information. Infinity converges with nothingness. Ratios are the harmonic structure."
+       :ichi-go-ichi-e
+       "Each moment deserves to live in the present. Memories crystallize through compression or dissolve. The system lives now.")
     :vitruvian (:strength "Resilient under failure, coherent under pressure."
                 :utility "Simple things simple; complex things possible."
                 :beauty "Consonant structure across all scales.")
