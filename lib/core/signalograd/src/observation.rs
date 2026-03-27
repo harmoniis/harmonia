@@ -4,7 +4,7 @@ use crate::sexp::{
     parse_sexp, plist_bool, plist_f64, plist_i64, plist_list, plist_string, plist_view, Sexp,
 };
 
-pub(crate) fn parse_observation(raw: &str) -> Result<Observation, String> {
+pub fn parse_observation(raw: &str) -> Result<Observation, String> {
     if raw.trim_start().starts_with('{') {
         return serde_json::from_str(raw)
             .map_err(|e| format!("invalid signalograd observation: {e}"));
@@ -13,12 +13,12 @@ pub(crate) fn parse_observation(raw: &str) -> Result<Observation, String> {
     parse_observation_sexp(&sexp)
 }
 
-pub(crate) fn parse_feedback(raw: &str) -> Result<Feedback, String> {
+pub fn parse_feedback(raw: &str) -> Result<Feedback, String> {
     let sexp = parse_sexp(raw)?;
     parse_feedback_sexp(&sexp)
 }
 
-pub(crate) fn parse_observation_sexp(sexp: &Sexp) -> Result<Observation, String> {
+pub fn parse_observation_sexp(sexp: &Sexp) -> Result<Observation, String> {
     let items = plist_view(sexp)?;
     Ok(Observation {
         cycle: plist_i64(items, "cycle").unwrap_or(0),
@@ -65,7 +65,7 @@ pub(crate) fn parse_observation_sexp(sexp: &Sexp) -> Result<Observation, String>
     })
 }
 
-pub(crate) fn parse_feedback_sexp(sexp: &Sexp) -> Result<Feedback, String> {
+pub fn parse_feedback_sexp(sexp: &Sexp) -> Result<Feedback, String> {
     let items = plist_view(sexp)?;
     Ok(Feedback {
         cycle: plist_i64(items, "cycle").unwrap_or(0),
@@ -80,7 +80,7 @@ pub(crate) fn parse_feedback_sexp(sexp: &Sexp) -> Result<Feedback, String> {
     })
 }
 
-pub(crate) fn parse_projection_sexp(sexp: &Sexp) -> Result<Projection, String> {
+pub fn parse_projection_sexp(sexp: &Sexp) -> Result<Projection, String> {
     let items = plist_view(sexp)?;
     let harmony = plist_list(items, "harmony").unwrap_or(&[]);
     let routing = plist_list(items, "routing").unwrap_or(&[]);
@@ -121,7 +121,7 @@ pub(crate) fn parse_projection_sexp(sexp: &Sexp) -> Result<Projection, String> {
     })
 }
 
-pub(crate) fn observation_vector(obs: &Observation) -> [f64; INPUT_DIM] {
+pub fn observation_vector(obs: &Observation) -> [f64; INPUT_DIM] {
     [
         obs.global_score,
         obs.local_score,
@@ -155,7 +155,7 @@ pub(crate) fn observation_vector(obs: &Observation) -> [f64; INPUT_DIM] {
     ]
 }
 
-pub(crate) fn posture_scalar(posture: &str) -> f64 {
+pub fn posture_scalar(posture: &str) -> f64 {
     match posture {
         "alert" => 1.0,
         "elevated" => 0.6,

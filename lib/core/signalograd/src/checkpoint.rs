@@ -16,7 +16,7 @@ use crate::sexp::{
     plist_value, plist_view,
 };
 
-pub(crate) fn default_state_root() -> String {
+pub fn default_state_root() -> String {
     let default = std::env::temp_dir()
         .join("harmonia")
         .to_string_lossy()
@@ -25,22 +25,22 @@ pub(crate) fn default_state_root() -> String {
         .unwrap_or(default)
 }
 
-pub(crate) fn default_state_path() -> String {
+pub fn default_state_path() -> String {
     format!("{}/signalograd.sexp", default_state_root())
 }
 
-pub(crate) fn signalograd_state_path() -> PathBuf {
+pub fn signalograd_state_path() -> PathBuf {
     let default = default_state_path();
     let path =
         harmonia_config_store::get_own_or(COMPONENT, "state-path", &default).unwrap_or(default);
     PathBuf::from(path)
 }
 
-pub(crate) fn legacy_state_path() -> PathBuf {
+pub fn legacy_state_path() -> PathBuf {
     PathBuf::from(default_state_root()).join("signalograd.json")
 }
 
-pub(crate) fn load_state() -> Result<KernelState, String> {
+pub fn load_state() -> Result<KernelState, String> {
     let path = signalograd_state_path();
     match fs::read_to_string(&path) {
         Ok(text) => parse_state_sexp(&text),
@@ -55,11 +55,11 @@ pub(crate) fn load_state() -> Result<KernelState, String> {
     }
 }
 
-pub(crate) fn save_state(state: &KernelState) -> Result<(), String> {
+pub fn save_state(state: &KernelState) -> Result<(), String> {
     write_state_to_path(state, &signalograd_state_path())
 }
 
-pub(crate) fn write_state_to_path(state: &KernelState, path: &Path) -> Result<(), String> {
+pub fn write_state_to_path(state: &KernelState, path: &Path) -> Result<(), String> {
     if let Some(parent) = path.parent() {
         fs::create_dir_all(parent).map_err(|e| e.to_string())?;
     }
@@ -68,12 +68,12 @@ pub(crate) fn write_state_to_path(state: &KernelState, path: &Path) -> Result<()
     Ok(())
 }
 
-pub(crate) fn restore_state_from_path(path: &Path) -> Result<KernelState, String> {
+pub fn restore_state_from_path(path: &Path) -> Result<KernelState, String> {
     let text = fs::read_to_string(path).map_err(|e| e.to_string())?;
     parse_state_sexp(&text)
 }
 
-pub(crate) fn import_legacy_state(text: &str) -> Result<KernelState, String> {
+pub fn import_legacy_state(text: &str) -> Result<KernelState, String> {
     let legacy: LegacyKernelState =
         serde_json::from_str(text).map_err(|e| format!("legacy signalograd import failed: {e}"))?;
     let mut state = KernelState::new();
@@ -115,7 +115,7 @@ pub(crate) fn import_legacy_state(text: &str) -> Result<KernelState, String> {
     Ok(state)
 }
 
-pub(crate) fn state_to_sexp(state: &KernelState) -> String {
+pub fn state_to_sexp(state: &KernelState) -> String {
     let flat_readout = state
         .readout_weights
         .iter()
@@ -151,7 +151,7 @@ pub(crate) fn state_to_sexp(state: &KernelState) -> String {
     )
 }
 
-pub(crate) fn parse_state_sexp(raw: &str) -> Result<KernelState, String> {
+pub fn parse_state_sexp(raw: &str) -> Result<KernelState, String> {
     let sexp = parse_sexp(raw)?;
     let items = plist_view(&sexp)?;
     let mut state = KernelState::new();

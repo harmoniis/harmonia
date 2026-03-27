@@ -1,9 +1,7 @@
-use std::sync::atomic::Ordering;
-
 use crate::error::digest_hex;
-use crate::model::{Feedback, KernelState, Observation, Projection, ACTOR_ID};
+use crate::model::{Feedback, KernelState, Observation, Projection};
 
-pub(crate) fn escape_string(input: &str) -> String {
+pub fn escape_string(input: &str) -> String {
     input
         .replace('\\', "\\\\")
         .replace('"', "\\\"")
@@ -11,11 +9,11 @@ pub(crate) fn escape_string(input: &str) -> String {
         .replace('\t', "\\t")
 }
 
-pub(crate) fn format_f64(value: f64) -> String {
+pub fn format_f64(value: f64) -> String {
     format!("{value:.9}")
 }
 
-pub(crate) fn vector_to_sexp(values: &[f64]) -> String {
+pub fn vector_to_sexp(values: &[f64]) -> String {
     let body = values
         .iter()
         .map(|value| format_f64(*value))
@@ -24,7 +22,7 @@ pub(crate) fn vector_to_sexp(values: &[f64]) -> String {
     format!("({body})")
 }
 
-pub(crate) fn bool_atom(value: bool) -> &'static str {
+pub fn bool_atom(value: bool) -> &'static str {
     if value {
         "t"
     } else {
@@ -32,7 +30,7 @@ pub(crate) fn bool_atom(value: bool) -> &'static str {
     }
 }
 
-pub(crate) fn observation_to_sexp(obs: &Observation) -> String {
+pub fn observation_to_sexp(obs: &Observation) -> String {
     format!(
         "(:observation :cycle {} :global-score {} :local-score {} :signal {} :noise {} :chaos-risk {} \
          :rewrite-aggression {} :lorenz-bounded {} :lambdoma-ratio {} :rewrite-ready {} \
@@ -79,7 +77,7 @@ pub(crate) fn observation_to_sexp(obs: &Observation) -> String {
     )
 }
 
-pub(crate) fn feedback_to_sexp(feedback: &Feedback) -> String {
+pub fn feedback_to_sexp(feedback: &Feedback) -> String {
     format!(
         "(:feedback :cycle {} :reward {} :stability {} :novelty {} :accepted {} :recall-hits {} \
          :user-affinity {} :cleanliness {} :applied-confidence {})",
@@ -95,7 +93,7 @@ pub(crate) fn feedback_to_sexp(feedback: &Feedback) -> String {
     )
 }
 
-pub(crate) fn projection_body_sexp(proj: &Projection) -> String {
+pub fn projection_body_sexp(proj: &Projection) -> String {
     format!(
         ":cycle {} :confidence {} :stability {} :novelty {} :latent-energy {} :recall-strength {} \
          :harmony (:signal-bias {} :noise-bias {} :rewrite-signal-delta {} :rewrite-chaos-delta {} :aggression-bias {}) \
@@ -133,15 +131,15 @@ pub(crate) fn projection_body_sexp(proj: &Projection) -> String {
 }
 
 #[allow(dead_code)]
-pub(crate) fn projection_to_sexp(proj: &Projection) -> String {
+pub fn projection_to_sexp(proj: &Projection) -> String {
     format!("(:signalograd-proposal {})", projection_body_sexp(proj))
 }
 
-pub(crate) fn status_sexp(state: &KernelState) -> String {
+pub fn status_sexp(state: &KernelState) -> String {
     format!(
         "(:cycle {} :actor-id {} :confidence {} :stability {} :novelty {} :latent-energy {} :recall-strength {} :memory-slots-used {} :checkpoint-digest \"{}\")",
         state.cycle,
-        ACTOR_ID.load(Ordering::SeqCst),
+        0, // actor-id now provided by runtime, not a global
         format_f64(state.last_projection.confidence),
         format_f64(state.last_projection.stability),
         format_f64(state.last_projection.novelty),
@@ -152,7 +150,7 @@ pub(crate) fn status_sexp(state: &KernelState) -> String {
     )
 }
 
-pub(crate) fn snapshot_sexp(state: &KernelState) -> String {
+pub fn snapshot_sexp(state: &KernelState) -> String {
     format!(
         "(:signalograd-snapshot :cycle {} :lorenz (:x {} :y {} :z {}) :memory-slots-used {} \
          :recall-strength {} :last-feedback {} :last-projection ({}) :checkpoint-digest \"{}\")",

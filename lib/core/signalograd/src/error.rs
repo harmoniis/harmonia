@@ -1,9 +1,14 @@
 use std::ffi::{CStr, CString};
 use std::os::raw::c_char;
-use std::sync::Mutex;
+use std::sync::{Mutex, OnceLock};
 
 use crate::checkpoint::load_state;
-use crate::model::{KernelState, FEIGENBAUM_ALPHA, FEIGENBAUM_DELTA, LAST_ERROR, PHI, STATE};
+use crate::model::{KernelState, FEIGENBAUM_ALPHA, FEIGENBAUM_DELTA, PHI};
+
+// Legacy globals — used only by api.rs C FFI wrappers (deprecated).
+// The runtime actor owns KernelState directly; these exist only for backward compat.
+static LAST_ERROR: OnceLock<Mutex<String>> = OnceLock::new();
+static LEGACY_STATE: OnceLock<Mutex<KernelState>> = OnceLock::new();
 
 pub(crate) fn last_error() -> &'static Mutex<String> {
     LAST_ERROR.get_or_init(|| Mutex::new(String::new()))
@@ -28,21 +33,22 @@ pub(crate) fn last_error_message() -> String {
         .unwrap_or_else(|_| "signalograd error lock poisoned".to_string())
 }
 
+/// Legacy: returns the global singleton state. Deprecated — use actor-owned state.
 pub(crate) fn state() -> &'static Mutex<KernelState> {
-    STATE.get_or_init(|| Mutex::new(load_state().unwrap_or_else(|_| KernelState::new())))
+    LEGACY_STATE.get_or_init(|| Mutex::new(load_state().unwrap_or_else(|_| KernelState::new())))
 }
 
-pub(crate) fn seeded_weight(a: usize, b: usize, scale: f64) -> f64 {
+pub fn seeded_weight(a: usize, b: usize, scale: f64) -> f64 {
     let x = ((a + 1) as f64 * PHI + (b + 1) as f64 / FEIGENBAUM_DELTA).sin()
         + ((a + 1) as f64 / FEIGENBAUM_ALPHA + (b + 1) as f64 * 0.5).cos();
     clamp(x * 0.5 * scale, -scale, scale)
 }
 
-pub(crate) fn clamp(x: f64, lo: f64, hi: f64) -> f64 {
+pub fn clamp(x: f64, lo: f64, hi: f64) -> f64 {
     x.max(lo).min(hi)
 }
 
-pub(crate) fn simple_hash(input: &str) -> u64 {
+pub fn simple_hash(input: &str) -> u64 {
     let mut hash: u64 = 0xcbf29ce484222325;
     for byte in input.bytes() {
         hash ^= byte as u64;

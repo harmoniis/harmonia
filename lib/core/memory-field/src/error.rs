@@ -2,7 +2,7 @@ use std::ffi::{CStr, CString};
 use std::os::raw::c_char;
 use std::sync::Mutex;
 
-use crate::model::{LAST_ERROR, STATE};
+use crate::model::{LAST_ERROR, LEGACY_STATE};
 use crate::FieldState;
 
 pub(crate) fn last_error() -> &'static Mutex<String> {
@@ -29,8 +29,9 @@ pub(crate) fn last_error_message() -> String {
         .unwrap_or_else(|_| "memory-field error lock poisoned".to_string())
 }
 
+/// Legacy: returns the global singleton state. Deprecated — use actor-owned FieldState.
 pub(crate) fn state() -> &'static Mutex<FieldState> {
-    STATE.get_or_init(|| Mutex::new(FieldState::new()))
+    LEGACY_STATE.get_or_init(|| Mutex::new(FieldState::new()))
 }
 
 pub(crate) fn clamp(x: f64, lo: f64, hi: f64) -> f64 {

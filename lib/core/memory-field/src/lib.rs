@@ -3,25 +3,27 @@
 /// Memory is a field, not a database. Recall is relaxation into attractors,
 /// not search through records. Relevance is resonance, not matching.
 
+// Legacy FFI API — kept for backward compat, will be removed.
 mod api;
 mod attractor;
-mod basin;
+pub mod basin;
 mod error;
-mod field;
-mod graph;
+pub mod field;
+pub mod graph;
 mod model;
-mod scoring;
-mod spectral;
+pub mod scoring;
+pub mod spectral;
 
 use attractor::{AizawaState, HalvorsenState, ThomasState};
 use basin::{Basin, HysteresisTracker};
 use graph::SparseGraph;
 
+// Legacy C FFI wrappers (deprecated — use typed API via actor-owned state)
 pub use api::*;
 
 /// Complete field state — all field computation lives here.
 /// Reconstructed from concept graph on each boot (stateless persistence).
-pub(crate) struct FieldState {
+pub struct FieldState {
     pub(crate) graph: SparseGraph,
     pub(crate) thomas: ThomasState,
     pub(crate) aizawa: AizawaState,

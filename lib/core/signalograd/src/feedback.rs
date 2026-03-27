@@ -2,7 +2,7 @@ use crate::error::clamp;
 use crate::kernel::{cosine_similarity, update_local_weights};
 use crate::model::{Feedback, KernelState, Observation, HEAD_COUNT, MEMORY_SLOTS};
 
-pub(crate) fn feedback_targets(
+pub fn feedback_targets(
     obs: &Observation,
     feedback: &Feedback,
     recall_strength: f64,
@@ -58,7 +58,7 @@ pub(crate) fn feedback_targets(
     ]
 }
 
-pub(crate) fn remember_state(state: &mut KernelState, feedback: &Feedback) {
+pub fn remember_state(state: &mut KernelState, feedback: &Feedback) {
     let latent = state.latent.iter().copied().collect::<Vec<_>>();
     let mut best_index = None;
     let mut best_similarity = 0.0;
@@ -106,7 +106,7 @@ pub(crate) fn remember_state(state: &mut KernelState, feedback: &Feedback) {
     state.memory_usage[slot_index] = clamp(state.memory_usage[slot_index] + 1.0, 0.0, 1000.0);
 }
 
-pub(crate) fn apply_feedback(state: &mut KernelState, feedback: &Feedback) {
+pub fn apply_feedback(state: &mut KernelState, feedback: &Feedback) {
     let targets = feedback_targets(
         &state.last_observation,
         feedback,

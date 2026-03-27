@@ -1,15 +1,25 @@
+// Legacy FFI API — kept for backward compat, will be removed.
+// The runtime actor owns KernelState directly; prefer the typed API below.
 mod api;
-mod checkpoint;
+pub mod checkpoint;
 mod error;
-mod feedback;
-mod format;
-mod kernel;
-mod model;
-mod observation;
+pub mod feedback;
+pub mod format;
+pub mod kernel;
+pub mod model;
+pub mod observation;
 mod sexp;
 
-// Public API
+// Legacy C FFI wrappers (deprecated — use typed API via actor-owned state)
 pub use api::*;
+
+// ── Typed API: actor-owned state, no singletons ──────────────────────
+// The runtime's SignalogradActor owns KernelState and calls these directly.
+pub use feedback::apply_feedback;
+pub use format::{snapshot_sexp, status_sexp};
+pub use kernel::step_kernel;
+pub use model::{Feedback, KernelState, Observation, Projection};
+pub use observation::{parse_feedback, parse_observation};
 
 #[cfg(test)]
 mod tests {

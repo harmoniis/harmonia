@@ -5,7 +5,7 @@ use crate::model::{
 };
 use crate::observation::{observation_vector, posture_scalar};
 
-pub(crate) fn dot(weights: &[f64], latent: &[f64; LATENT_DIM]) -> f64 {
+pub fn dot(weights: &[f64], latent: &[f64; LATENT_DIM]) -> f64 {
     weights
         .iter()
         .zip(latent.iter())
@@ -14,7 +14,7 @@ pub(crate) fn dot(weights: &[f64], latent: &[f64; LATENT_DIM]) -> f64 {
         / LATENT_DIM as f64
 }
 
-pub(crate) fn normalize_latent(latent: &mut [f64; LATENT_DIM]) {
+pub fn normalize_latent(latent: &mut [f64; LATENT_DIM]) {
     let mean = latent.iter().sum::<f64>() / LATENT_DIM as f64;
     let energy = latent.iter().map(|value| value * value).sum::<f64>().sqrt();
     let scale = if energy > 1.0 { 1.0 / energy } else { 1.0 };
@@ -23,7 +23,7 @@ pub(crate) fn normalize_latent(latent: &mut [f64; LATENT_DIM]) {
     }
 }
 
-pub(crate) fn update_lorenz(lorenz: &mut LorenzState, obs: &Observation) {
+pub fn update_lorenz(lorenz: &mut LorenzState, obs: &Observation) {
     let sigma = 10.0 + 2.0 * obs.signal - obs.noise;
     let rho = 28.0 + 5.0 * (obs.global_score - obs.chaos_risk) + 2.0 * obs.route_success;
     let beta = 8.0 / 3.0 + 0.08 * obs.memory_pressure;
@@ -43,7 +43,7 @@ pub(crate) fn update_lorenz(lorenz: &mut LorenzState, obs: &Observation) {
     lorenz.z = clamp(lorenz.z + dt * dz, 0.0, 60.0);
 }
 
-pub(crate) fn lorenz_energy(lorenz: &LorenzState) -> f64 {
+pub fn lorenz_energy(lorenz: &LorenzState) -> f64 {
     clamp(
         (lorenz.x * lorenz.x + lorenz.y * lorenz.y + lorenz.z * lorenz.z).sqrt() / 40.0,
         0.0,
@@ -51,7 +51,7 @@ pub(crate) fn lorenz_energy(lorenz: &LorenzState) -> f64 {
     )
 }
 
-pub(crate) fn lorenz_basis(lorenz: &LorenzState, row: usize) -> f64 {
+pub fn lorenz_basis(lorenz: &LorenzState, row: usize) -> f64 {
     let phase = ((row + 1) as f64 * PHI).sin();
     let x = lorenz.x * phase;
     let y = lorenz.y * (phase * 0.7).cos();
@@ -59,7 +59,7 @@ pub(crate) fn lorenz_basis(lorenz: &LorenzState, row: usize) -> f64 {
     0.018 * (x + y + z)
 }
 
-pub(crate) fn cosine_similarity(a: &[f64], b: &[f64]) -> f64 {
+pub fn cosine_similarity(a: &[f64], b: &[f64]) -> f64 {
     let mut dot = 0.0;
     let mut norm_a = 0.0;
     let mut norm_b = 0.0;
@@ -75,7 +75,7 @@ pub(crate) fn cosine_similarity(a: &[f64], b: &[f64]) -> f64 {
     }
 }
 
-pub(crate) fn hopfield_recall(state: &KernelState) -> ([f64; LATENT_DIM], f64, i64) {
+pub fn hopfield_recall(state: &KernelState) -> ([f64; LATENT_DIM], f64, i64) {
     let latent = state.latent.iter().copied().collect::<Vec<_>>();
     let mut best_index = None;
     let mut best_score = 0.0;
@@ -105,7 +105,7 @@ pub(crate) fn hopfield_recall(state: &KernelState) -> ([f64; LATENT_DIM], f64, i
     }
 }
 
-pub(crate) fn update_local_weights(
+pub fn update_local_weights(
     weights: &mut [f64],
     latent: &[f64; LATENT_DIM],
     target: f64,
@@ -121,7 +121,7 @@ pub(crate) fn update_local_weights(
     prediction
 }
 
-pub(crate) fn head_targets(
+pub fn head_targets(
     obs: &Observation,
     recall_strength: f64,
     lorenz_energy: f64,
@@ -174,7 +174,7 @@ pub(crate) fn head_targets(
     [harmony, routing, memory, evolution, security]
 }
 
-pub(crate) fn build_projection(
+pub fn build_projection(
     state: &KernelState,
     obs: &Observation,
     predictions: [f64; HEAD_COUNT],
@@ -321,7 +321,7 @@ pub(crate) fn build_projection(
     }
 }
 
-pub(crate) fn step_kernel(state: &mut KernelState, obs: &Observation) -> Projection {
+pub fn step_kernel(state: &mut KernelState, obs: &Observation) -> Projection {
     update_lorenz(&mut state.lorenz, obs);
     let input = observation_vector(obs);
     let (recalled, recall_strength, _) = hopfield_recall(state);
