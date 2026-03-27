@@ -1,8 +1,12 @@
-//! Unified actor protocol types for the Harmonia agent.
+//! Unified actor protocol types and sexp toolkit for the Harmonia agent.
 //!
-//! This crate provides **types only** — no global state, no statics, no FFI.
-//! The actor registry now lives in `harmonia-runtime` as a ractor actor.
-//! SBCL communicates via IPC (Unix domain socket) instead of dlsym.
+//! Two modules:
+//! - **Types**: ActorId, ActorKind, ActorState, HarmoniaMessage, MessagePayload
+//! - **Sexp**: escape, extract_string, extract_u64, extract_f64, extract_bool, extract_string_list
+//!
+//! No global state, no statics, no FFI.
+
+pub mod sexp;
 
 use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -457,118 +461,16 @@ pub fn now_unix() -> u64 {
         .unwrap_or(0)
 }
 
-pub fn sexp_escape(input: &str) -> String {
-    // CL's reader handles literal newlines inside strings natively.
-    // Only backslash and double-quote need escaping — \n in a CL string
-    // literal means literal 'n', NOT a newline, so we must NOT escape them.
-    input.replace('\\', "\\\\").replace('"', "\\\"")
-}
-
-/// Extract a quoted string value from a sexp after the given key.
-/// Handles escaped quotes (\") and backslashes (\\) correctly.
-pub fn extract_sexp_string(sexp: &str, key: &str) -> Option<String> {
-    let idx = sexp.find(key)?;
-    let after = &sexp[idx + key.len()..];
-    let after = after.trim_start();
-    if !after.starts_with('"') {
-        // Unquoted value: take until whitespace or closing paren
-        let val: String = after.chars().take_while(|c| !c.is_whitespace() && *c != ')').collect();
-        return if val.is_empty() { None } else { Some(val) };
-    }
-    let inner = &after[1..];
-    let bytes = inner.as_bytes();
-    let mut result = String::new();
-    let mut i = 0;
-    while i < bytes.len() {
-        if bytes[i] == b'"' {
-            return Some(result);
-        }
-        if bytes[i] == b'\\' && i + 1 < bytes.len() {
-            match bytes[i + 1] {
-                b'"' => result.push('"'),
-                b'\\' => result.push('\\'),
-                b'n' => result.push('\n'),
-                b'r' => result.push('\r'),
-                b't' => result.push('\t'),
-                other => { result.push('\\'); result.push(other as char); }
-            }
-            i += 2;
-        } else {
-            result.push(bytes[i] as char);
-            i += 1;
-        }
-    }
-    None // Unclosed quote
-}
-
-/// Extract a u64 value after the given key.
-pub fn extract_sexp_u64(sexp: &str, key: &str) -> Option<u64> {
-    let idx = sexp.find(key)?;
-    let after = &sexp[idx + key.len()..];
-    let after = after.trim_start();
-    let num_str: String = after.chars().take_while(|c| c.is_ascii_digit()).collect();
-    if num_str.is_empty() { None } else { num_str.parse().ok() }
-}
-
-/// Extract a u64 with default value.
-pub fn extract_sexp_u64_or(sexp: &str, key: &str, default: u64) -> u64 {
-    extract_sexp_u64(sexp, key).unwrap_or(default)
-}
-
-/// Extract a f64 value after the given key.
-pub fn extract_sexp_f64(sexp: &str, key: &str) -> Option<f64> {
-    let idx = sexp.find(key)?;
-    let after = &sexp[idx + key.len()..];
-    let after = after.trim_start();
-    let num_str: String = after
-        .chars()
-        .take_while(|c| c.is_ascii_digit() || *c == '.' || *c == '-')
-        .collect();
-    if num_str.is_empty() { None } else { num_str.parse().ok() }
-}
-
-/// Extract a list of quoted strings from sexp like (:key ("a" "b" "c")).
-pub fn extract_sexp_string_list(sexp: &str, key: &str) -> Vec<String> {
-    let mut items = Vec::new();
-    let Some(pos) = sexp.find(key) else { return items };
-    let rest = &sexp[pos + key.len()..];
-    let Some(open) = rest.find('(') else { return items };
-    let inner = &rest[open + 1..];
-    let Some(close) = inner.find(')') else { return items };
-    let content = &inner[..close];
-    let mut in_quote = false;
-    let mut current = String::new();
-    let mut escaped = false;
-    for ch in content.chars() {
-        if escaped {
-            current.push(ch);
-            escaped = false;
-        } else if ch == '\\' && in_quote {
-            escaped = true;
-        } else if ch == '"' && !in_quote {
-            in_quote = true;
-            current.clear();
-        } else if ch == '"' && in_quote {
-            in_quote = false;
-            if !current.is_empty() {
-                items.push(current.clone());
-            }
-        } else if in_quote {
-            current.push(ch);
-        }
-    }
-    items
-}
-
-/// Extract boolean: t → true, nil → false.
-pub fn extract_sexp_bool(sexp: &str, key: &str) -> Option<bool> {
-    let val = extract_sexp_string(sexp, key)?;
-    match val.as_str() {
-        "t" => Some(true),
-        "nil" => Some(false),
-        _ => None,
-    }
-}
+// Re-export sexp toolkit at crate root for backward compat.
+// Canonical path: harmonia_actor_protocol::sexp::extract_string
+// Short path: harmonia_actor_protocol::extract_sexp_string
+pub use sexp::escape as sexp_escape;
+pub use sexp::extract_string as extract_sexp_string;
+pub use sexp::extract_u64 as extract_sexp_u64;
+pub use sexp::extract_u64_or as extract_sexp_u64_or;
+pub use sexp::extract_f64 as extract_sexp_f64;
+pub use sexp::extract_string_list as extract_sexp_string_list;
+pub use sexp::extract_bool as extract_sexp_bool;
 
 // ─── Tests ──────────────────────────────────────────────────────────────
 
