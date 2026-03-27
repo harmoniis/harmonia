@@ -617,7 +617,10 @@ impl Actor for ObservabilityActor {
             ObsMsg::Shutdown => {
                 if let Some(ref sender) = state.sender {
                     let _ = sender.try_send(TraceMessage::Flush);
-                    std::thread::sleep(std::time::Duration::from_millis(50));
+                    // Yield to tokio instead of blocking the runtime thread.
+                    // The flush message is already queued; the sender thread
+                    // will process it before the shutdown message.
+                    tokio::task::yield_now().await;
                     let _ = sender.try_send(TraceMessage::Shutdown);
                 }
                 eprintln!("[INFO] [runtime] ObservabilityActor shutting down");

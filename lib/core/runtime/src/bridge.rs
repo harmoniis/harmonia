@@ -71,7 +71,8 @@ impl Actor for SbclBridgeActor {
     }
 }
 
-/// Drain all queued messages into a sexp string, reusing the buffer.
+/// Drain all queued messages into a sexp string.
+/// Uses the reusable buffer for formatting, then takes ownership of the result.
 fn drain_to_sexp(queue: &mut VecDeque<HarmoniaMessage>, buf: &mut String) -> String {
     buf.clear();
     if queue.is_empty() {
@@ -85,5 +86,7 @@ fn drain_to_sexp(queue: &mut VecDeque<HarmoniaMessage>, buf: &mut String) -> Str
         msg.write_sexp(buf);
     }
     buf.push(')');
-    buf.clone()
+    // Take ownership: swap with empty string to avoid clone.
+    // The buffer will be re-allocated on next drain (amortized).
+    std::mem::take(buf)
 }
