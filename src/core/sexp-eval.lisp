@@ -299,30 +299,7 @@ The REPL has full Lisp power; Rust is the boundary."
 ;;; PARALLEL CONTEXT GATHERING
 ;;; ═══════════════════════════════════════════════════════════════════════
 
-(defun %parallel-gather-context (query)
-  "Gather memory recall + basin status in parallel via threads."
-  (let* ((recall-result nil)
-         (basin-result nil)
-         (recall-thread
-           (sb-thread:make-thread
-            (lambda ()
-              (setf recall-result
-                    (ignore-errors
-                      (memory-semantic-recall-block query :limit 5 :max-chars 1000))))
-            :name "parallel-recall"))
-         (basin-thread
-           (sb-thread:make-thread
-            (lambda ()
-              (setf basin-result
-                    (ignore-errors
-                      (when (and (fboundp 'memory-field-port-ready-p)
-                                 (funcall 'memory-field-port-ready-p))
-                        (ipc-call "(:component \"memory-field\" :op \"basin-status\")")))))
-            :name "parallel-basin")))
-    (ignore-errors (sb-thread:join-thread recall-thread))
-    (ignore-errors (sb-thread:join-thread basin-thread))
-    (list :recall (or recall-result "")
-          :basin (or basin-result ""))))
+;; Parallel gather removed — memory-recall is the ONE recall path.
 
 ;;; ═══════════════════════════════════════════════════════════════════════
 ;;; PARSE & DETECT
@@ -415,7 +392,8 @@ No score branching, no model selection, no bootstrap modes. ONE path."
                             bootstrap (or last-eval-result "") user-text))))
 
           (let ((llm-output
-                  (handler-case (backend-complete round-prompt "")
+                  (handler-case (backend-complete round-prompt
+                                  (or (ignore-errors (%select-model user-text)) ""))
                     (error (c)
                       (%log :warn "sexp-eval" "REPL ~D error: ~A" round c)
                       nil))))
@@ -461,5 +439,5 @@ No score branching, no model selection, no bootstrap modes. ONE path."
                      bootstrap
                      (subseq last-eval-result 0 (min 1200 (length last-eval-result)))
                      user-text)
-             "")
+             (or (ignore-errors (%select-model user-text)) ""))
           (error () nil))))))
