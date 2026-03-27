@@ -10,3 +10,8 @@
 
 (defparameter *max-consecutive-errors-before-cooldown* 10
   "After this many consecutive error ticks, enter cooldown (longer sleep).")
+
+(defvar *supervision-lock* (sb-thread:make-mutex :name "supervision-counters"))
+
+(defmacro with-supervision-lock (() &body body)
+  `(sb-thread:with-mutex (*supervision-lock*) ,@body))

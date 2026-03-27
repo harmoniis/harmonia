@@ -155,16 +155,18 @@
 
 (defun start-timer (actor tag interval-seconds &optional payload)
   "Start a timer that periodically sends a message to an actor.
-   Returns a timer-stop function: call it to cancel the timer."
-  (let ((running t))
+   Returns a timer-stop function: call it to cancel the timer.
+   Thread-safe: the running flag is protected by a mutex."
+  (let ((running t)
+        (lock (sb-thread:make-mutex :name (format nil "timer:~A/~A" (actor-name actor) tag))))
     (sb-thread:make-thread
      (lambda ()
-       (loop while running
+       (loop while (sb-thread:with-mutex (lock) running)
              do (sleep interval-seconds)
-                (when running
+                (when (sb-thread:with-mutex (lock) running)
                   (tell actor tag payload))))
      :name (format nil "timer:~A/~A" (actor-name actor) tag))
-    (lambda () (setf running nil))))
+    (lambda () (sb-thread:with-mutex (lock) (setf running nil)))))
 
 ;;; ─── Actor system: manages a set of named actors ───────────────────────
 

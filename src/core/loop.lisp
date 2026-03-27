@@ -151,7 +151,8 @@
                  :error (or msg "unknown")
                  :cycle (and *runtime* (runtime-state-cycle *runtime*)))))
         (ignore-errors (record-runtime-error c))
-        (incf *tick-error-count*)
+        (sb-thread:with-mutex (*supervision-lock*)
+          (incf *tick-error-count*))
         nil))))
 
 ;;; ─── Prompt processing with restarts ───────────────────────────────────
@@ -521,12 +522,11 @@
                       (push (cons aid rec) failed))
                      (otherwise
                       (setf all-terminal nil))))))
-             (let* ((ticks-since-first
+             (let* ((seconds-since-first
                       (if first-completion-at
-                          (- (runtime-state-cycle runtime)
-                             (or first-completion-at (runtime-state-cycle runtime)))
+                          (- (get-universal-time) first-completion-at)
                           0))
-                    (timed-out (>= ticks-since-first *swarm-group-timeout-ticks*))
+                    (timed-out (>= seconds-since-first (* *swarm-group-timeout-ticks* 1)))
                     (should-deliver (or all-terminal (and any-completed timed-out))))
                (if should-deliver
                    ;; Score all completed, deliver ONLY the best
@@ -847,9 +847,10 @@
         (ok4b (%tick-chronicle-flush runtime))
         (ok5 (%tick-gateway-flush))
         (ok5b (%tick-tailnet-flush runtime)))
-    (if (and ok0 ok1 ok1a ok1b ok1c ok1d ok2 ok2b ok3 ok4 ok4b ok5 ok5b)
-        (setf *consecutive-tick-errors* 0)
-        (incf *consecutive-tick-errors*)))
+    (sb-thread:with-mutex (*supervision-lock*)
+      (if (and ok0 ok1 ok1a ok1b ok1c ok1d ok2 ok2b ok3 ok4 ok4b ok5 ok5b)
+          (setf *consecutive-tick-errors* 0)
+          (incf *consecutive-tick-errors*))))
 
   (runtime-log runtime :tick (list :cycle (runtime-state-cycle runtime)
                                    :tools (hash-table-count (runtime-state-tools runtime))
@@ -990,8 +991,16 @@
 ;;; ─── Lifecycle ─────────────────────────────────────────────────────────
 
 (defun stop (&optional (runtime *runtime*))
-  "Request shutdown. Stops actor system if running, falls back to loop flag."
+  "Request shutdown. Kills tmux agents, flushes chronicle, stops actor system."
   (when runtime
+    ;; Kill all running tmux actors before shutdown
+    (ignore-errors
+      (maphash (lambda (id record)
+                 (declare (ignore record))
+                 (ignore-errors (tmux-kill id)))
+               (runtime-state-actor-registry runtime)))
+    ;; Flush pending chronicle records
+    (ignore-errors (%tick-chronicle-flush runtime))
     (setf (runtime-state-running runtime) nil)
     (runtime-log runtime :stop (list :cycle (runtime-state-cycle runtime))))
   (when *actor-system*
@@ -1018,7 +1027,8 @@
                    (serious-condition (c)
                      (%log :error "supervisor" "Tick crash: ~A"
                            (ignore-errors (princ-to-string c)))
-                     (incf *tick-error-count*)))
+                     (sb-thread:with-mutex (*supervision-lock*)
+                       (incf *tick-error-count*))))
                  (sleep 0.05))
         (%log :info "loop" "Sequential loop exited after ~D cycles."
               (runtime-state-cycle runtime)))

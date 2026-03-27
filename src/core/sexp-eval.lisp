@@ -209,7 +209,13 @@ The REPL has full Lisp power; Rust is the boundary."
   (or (ignore-errors
         (when (and (fboundp 'memory-field-port-ready-p)
                    (funcall 'memory-field-port-ready-p))
-          (ipc-call "(:component \"memory-field\" :op \"basin-status\")")))
+          (let* ((reply (ipc-call "(:component \"memory-field\" :op \"basin-status\")")))
+            (if (and reply (stringp reply))
+                (let* ((*read-eval* nil)
+                       (parsed (ignore-errors (read-from-string reply)))
+                       (basin (when (listp parsed) (getf (cdr parsed) :current))))
+                  (format nil "Basin: ~A" (or basin "unknown")))
+                "(basin unavailable)"))))
       "(basin unavailable)"))
 
 (defun %prim-models ()
@@ -316,8 +322,18 @@ The REPL has full Lisp power; Rust is the boundary."
                      (alpha-char-p (char trimmed 1))
                      (not (position #\Space (subseq trimmed 1 (min 15 (length trimmed)))))))))))
 
+(defun %reject-reader-macros (text)
+  "Signal error if TEXT contains reader macro dispatch sequences.
+Only #\\ (character literal) is benign; all others are rejected."
+  (loop for i from 0 below (1- (length text))
+        when (char= (char text i) #\#)
+        do (let ((next (char text (1+ i))))
+             (unless (char= next #\\)  ; #\ is safe (character literal)
+               (error "Rejected reader macro #~C at position ~D" next i)))))
+
 (defun %eval-all-forms (text)
   "Parse text as restricted Lisp forms and evaluate each. Return combined results."
+  (%reject-reader-macros text)  ;; Block reader macros before any read
   (let ((*read-eval* nil)
         (results '())
         (env '()))  ;; empty lexical environment
