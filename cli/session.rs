@@ -68,7 +68,15 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
             wait_for_socket(
                 &socket_path,
                 "Waiting for daemon...",
-                "daemon started but socket not ready — check harmonia.log",
+                &format!(
+                    "daemon started but socket not ready — check logs\n\
+                     \x20 expected socket: {}\n\
+                     \x20 tail -f {}/harmonia.log to view logs\n\
+                     \x20 node-service: {}/harmonia-node-service.log",
+                    socket_path.display(),
+                    crate::paths::log_dir().unwrap_or_default().display(),
+                    crate::paths::log_dir().unwrap_or_default().display(),
+                ),
             )?;
         }
     }
@@ -236,7 +244,7 @@ fn wait_for_socket(
 ) -> Result<(), Box<dyn std::error::Error>> {
     let spinner_chars = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
     let mut i = 0;
-    for _ in 0..30 {
+    for _ in 0..60 {
         if socket_path.exists() {
             eprint!("\r                                     \r");
             return Ok(());
