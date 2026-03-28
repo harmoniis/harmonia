@@ -48,7 +48,8 @@ fn to_c_string(value: String) -> *mut c_char {
     }
 }
 
-fn run_git(repo: &str, args: &[&str]) -> Result<String, String> {
+/// Run a git command in the given repo. Public API for dispatch.
+pub fn run_git(repo: &str, args: &[&str]) -> Result<String, String> {
     let output = Command::new("git")
         .arg("-C")
         .arg(repo)
@@ -61,6 +62,70 @@ fn run_git(repo: &str, args: &[&str]) -> Result<String, String> {
         Err(String::from_utf8_lossy(&output.stderr).to_string())
     }
 }
+
+// ── Clean Rust API (for dispatch, no FFI noise) ──────────────────────
+
+pub fn status(repo: &str) -> Result<String, String> {
+    run_git(repo, &["status", "--porcelain"])
+}
+
+pub fn log_oneline(repo: &str, n: usize) -> Result<String, String> {
+    run_git(repo, &["log", &format!("-{n}"), "--oneline"])
+}
+
+pub fn diff_summary(repo: &str) -> Result<String, String> {
+    run_git(repo, &["diff", "--stat"])
+}
+
+pub fn diff_full(repo: &str) -> Result<String, String> {
+    run_git(repo, &["diff"])
+}
+
+pub fn branch_list(repo: &str) -> Result<String, String> {
+    run_git(repo, &["branch", "-a"])
+}
+
+pub fn current_branch(repo: &str) -> Result<String, String> {
+    run_git(repo, &["rev-parse", "--abbrev-ref", "HEAD"])
+        .map(|s| s.trim().to_string())
+}
+
+pub fn commit(
+    repo: &str,
+    message: &str,
+    author_name: &str,
+    author_email: &str,
+) -> Result<String, String> {
+    run_git(repo, &["add", "-A"])?;
+    let output = Command::new("git")
+        .arg("-C")
+        .arg(repo)
+        .arg("-c")
+        .arg(format!("user.name={author_name}"))
+        .arg("-c")
+        .arg(format!("user.email={author_email}"))
+        .arg("commit")
+        .arg("-m")
+        .arg(message)
+        .output()
+        .map_err(|e| format!("git commit failed: {e}"))?;
+    if output.status.success() {
+        Ok(String::from_utf8_lossy(&output.stdout).to_string())
+    } else {
+        let stderr = String::from_utf8_lossy(&output.stderr).to_string();
+        if stderr.contains("nothing to commit") {
+            Ok("nothing to commit".to_string())
+        } else {
+            Err(stderr)
+        }
+    }
+}
+
+pub fn push(repo: &str, remote: &str, branch: &str) -> Result<String, String> {
+    run_git(repo, &["push", remote, &format!("HEAD:{branch}")])
+}
+
+// ── FFI wrappers (legacy, for direct C/Lisp FFI) ────────────────────
 
 pub fn harmonia_git_ops_version() -> *const c_char {
     VERSION.as_ptr().cast()

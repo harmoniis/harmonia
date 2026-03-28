@@ -84,8 +84,7 @@
            :harmonic-matrix-route-timeseries
            :harmonic-matrix-time-report
            :harmonic-matrix-report
-           :whisper-transcribe
-           :elevenlabs-tts-to-file
+           :git-status :git-log :git-diff :git-branch :git-commit :git-push
            :chronicle-query
            :chronicle-harmony-summary
            :chronicle-delegation-report
@@ -211,7 +210,7 @@
 (%load-module (%core-path "../ports/vault.lisp") "port/vault")
 (%load-module (%core-path "../ports/store.lisp") "port/store")
 (%load-module (%core-path "../ports/router.lisp") "port/router")
-(%load-module (%core-path "../ports/lineage.lisp") "port/lineage")
+(%load-module (%core-path "../ports/gitop.lisp") "port/gitop")
 (%load-module (%core-path "../ports/matrix.lisp") "port/matrix")
 (%load-module (%core-path "../ports/admin-intent.lisp") "port/admin-intent")
 (%load-module (%core-path "../ports/tool-runtime.lisp") "port/tool-runtime")
@@ -319,7 +318,7 @@
   (%seed-rust-config)
   (init-router-port)
   (%log :info "router" "Initialized.")
-  (init-lineage-port)
+  (init-gitop-port)
   (bootstrap-harmonic-matrix)
   (%log :info "matrix" "Initialized.")
   (init-tool-runtime-port)

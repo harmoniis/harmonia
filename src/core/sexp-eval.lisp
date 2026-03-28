@@ -125,6 +125,13 @@ ENV is an alist of (symbol . value) bindings. No global mutation."
      (second          (second (first args)))
      (third           (third (first args)))
      (princ-to-string (princ-to-string (first args)))
+     ;; ── Git operations ────────────────────────────────────────
+     (git-status      (%prim-git-status))
+     (git-log         (%prim-git-log (or (first args) 10)))
+     (git-diff        (%prim-git-diff))
+     (git-branch      (%prim-git-branch))
+     (git-commit      (apply #'%prim-git-commit args))
+     (git-push        (%prim-git-push))
      ;; ── Act on the system ────────────────────────────────────
      (store           (apply #'%prim-store args))
      (spawn           (apply #'%prim-spawn args))
@@ -217,6 +224,29 @@ The REPL has full Lisp power; Rust is the boundary."
                   (format nil "Basin: ~A" (or basin "unknown")))
                 "(basin unavailable)"))))
       "(basin unavailable)"))
+
+;; ── Git operation primitives ──────────────────────────────────────
+
+(defun %prim-git-status ()
+  (or (ignore-errors (git-status)) "(git-status unavailable)"))
+
+(defun %prim-git-log (n)
+  (or (ignore-errors (git-log (or n 10))) "(git-log unavailable)"))
+
+(defun %prim-git-diff ()
+  (or (ignore-errors (git-diff)) "(git-diff unavailable)"))
+
+(defun %prim-git-branch ()
+  (or (ignore-errors (git-branch)) "(git-branch unavailable)"))
+
+(defun %prim-git-commit (&rest args)
+  (let ((message (first args)))
+    (if (and message (stringp message) (> (length message) 0))
+        (or (ignore-errors (git-commit message)) "(git-commit failed)")
+        "(git-commit: message required)")))
+
+(defun %prim-git-push ()
+  (or (ignore-errors (git-push)) "(git-push failed)"))
 
 (defun %prim-models ()
   (or (ignore-errors (ipc-call "(:component \"provider-router\" :op \"list-backends\")"))

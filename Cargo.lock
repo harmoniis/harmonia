@@ -2641,6 +2641,7 @@ dependencies = [
  "harmonia-discord",
  "harmonia-email-client",
  "harmonia-gateway",
+ "harmonia-git-ops",
  "harmonia-harmonic-matrix",
  "harmonia-hfetch",
  "harmonia-http",

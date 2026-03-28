@@ -202,6 +202,16 @@ async fn main() {
     .expect("failed to spawn ConfigActor")
     .0;
 
+    let git_ops_ref = Actor::spawn_linked(
+        Some("git-ops".to_string()),
+        actors::GitOpsActor,
+        (),
+        supervisor_ref.get_cell(),
+    )
+    .await
+    .expect("failed to spawn GitOpsActor")
+    .0;
+
     let provider_router_ref = Actor::spawn_linked(
         Some("provider-router".to_string()),
         actors::ProviderRouterActor,
@@ -289,6 +299,7 @@ async fn main() {
     component_registry::register(&registry, "provider-router", provider_router_ref.clone());
     component_registry::register(&registry, "parallel", parallel_ref.clone());
     component_registry::register(&registry, "router", router_ref.clone());
+    component_registry::register(&registry, "git-ops", git_ops_ref.clone());
 
     // 8. Readiness gate — IPC server waits until all actors are registered
     let ready = Arc::new(Notify::new());

@@ -8,6 +8,7 @@
 mod chronicle;
 mod config;
 mod gateway;
+mod git_ops;
 mod matrix;
 mod memory_field;
 mod observability;
@@ -84,6 +85,7 @@ pub fn dispatch(component: &str, sexp: &str) -> String {
         "harmonic-matrix" | "matrix" => matrix::dispatch(sexp),
         "provider-router" => provider_router::dispatch(sexp),
         "parallel" => parallel::dispatch(sexp),
+        "git-ops" => git_ops::dispatch(sexp),
         "observability" => observability::dispatch(sexp),
         "signalograd" | "memory-field" => {
             format!(
