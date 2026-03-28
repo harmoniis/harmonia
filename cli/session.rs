@@ -244,7 +244,7 @@ fn wait_for_socket(
 ) -> Result<(), Box<dyn std::error::Error>> {
     let spinner_chars = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
     let mut i = 0;
-    for _ in 0..60 {
+    for _ in 0..30 {
         if socket_path.exists() {
             eprint!("\r                                     \r");
             return Ok(());
@@ -252,7 +252,7 @@ fn wait_for_socket(
         eprint!("\r  {} {}", spinner_chars[i % 10], status_text);
         let _ = std::io::stderr().flush();
         i += 1;
-        std::thread::sleep(std::time::Duration::from_millis(500));
+        std::thread::sleep(std::time::Duration::from_millis(100));
     }
     eprint!("\r                                     \r");
     Err(timeout_error.into())
