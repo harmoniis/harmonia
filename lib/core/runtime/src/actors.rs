@@ -25,14 +25,8 @@ use crate::msg::BridgeMsg;
 use ractor::RpcReplyPort;
 
 pub enum ComponentMsg {
-    /// Periodic tick — poll, flush, or heartbeat.
     Tick,
-    /// Process an inbound signal.
-    Signal { payload_sexp: String },
-    /// Dispatch a component command (sexp in, sexp out).
-    /// Runs in the component actor's mailbox — never blocks the supervisor.
     Dispatch(String, RpcReplyPort<String>),
-    /// Graceful shutdown.
     Shutdown,
 }
 
@@ -84,7 +78,6 @@ impl Actor for ChronicleActor {
             ComponentMsg::Shutdown => {
                 eprintln!("[INFO] [runtime] ChronicleActor shutting down");
             }
-            ComponentMsg::Signal { .. } => { /* chronicle does not handle signals */ }
         }
         Ok(())
     }
@@ -143,10 +136,6 @@ impl Actor for TailnetActor {
             ComponentMsg::Dispatch(sexp, reply) => {
                 let result = crate::dispatch::dispatch("tailnet", &sexp);
                 let _ = reply.send(result);
-            }
-            ComponentMsg::Signal { payload_sexp } => {
-                // Parse and send mesh message (best-effort)
-                let _ = payload_sexp; // TODO: parse destination and message from sexp
             }
             ComponentMsg::Shutdown => {
                 harmonia_tailnet::transport::stop_listener();
@@ -212,11 +201,6 @@ impl Actor for SignalogradActor {
                 let result =
                     crate::dispatch::dispatch_signalograd(&sexp, &mut state.kernel);
                 let _ = reply.send(result);
-            }
-            ComponentMsg::Signal { payload_sexp } => {
-                if let Ok(obs) = harmonia_signalograd::parse_observation(&payload_sexp) {
-                    let _ = harmonia_signalograd::step_kernel(&mut state.kernel, &obs);
-                }
             }
             ComponentMsg::Shutdown => {
                 eprintln!("[INFO] [runtime] SignalogradActor shutting down");
@@ -307,10 +291,6 @@ impl Actor for MemoryFieldActor {
                     crate::dispatch::dispatch_memory_field(&sexp, &mut state.field);
                 let _ = reply.send(result);
             }
-            ComponentMsg::Signal { .. } => {
-                // Async field recall trigger from gateway (fire-and-forget).
-                // Future: extract concept signature, run field recall, post to bridge.
-            }
             ComponentMsg::Shutdown => {
                 eprintln!("[INFO] [runtime] MemoryFieldActor shutting down");
             }
@@ -341,9 +321,6 @@ fn extract_basin_from_sexp(sexp: &str) -> Option<String> {
 
 pub struct ObservabilityActor;
 
-/// Maximum dotted_order entries before TTL eviction sweep.
-const MAX_DOTTED_ORDERS: usize = 8192;
-/// Maximum rejected trace IDs tracked (ring buffer, not clear-all).
 const MAX_REJECTED_TRACES: usize = 2048;
 /// TTL for dotted_order entries (5 minutes in seconds).
 const DOTTED_ORDER_TTL_SECS: u64 = 300;
@@ -866,9 +843,6 @@ impl Actor for GatewayActor {
                 let result = crate::dispatch::dispatch("gateway", &sexp);
                 let _ = reply.send(result);
             }
-            ComponentMsg::Signal { .. } => {
-                // Outbound signals handled via direct gateway API from SBCL
-            }
             ComponentMsg::Shutdown => {
                 eprintln!("[INFO] [runtime] GatewayActor shutting down");
             }
@@ -917,7 +891,6 @@ impl Actor for VaultActor {
                 eprintln!("[INFO] [runtime] VaultActor shutting down");
             }
             ComponentMsg::Tick => { /* vault does not tick */ }
-            ComponentMsg::Signal { .. } => { /* vault does not handle signals */ }
         }
         Ok(())
     }
@@ -956,7 +929,44 @@ impl Actor for ConfigActor {
                 eprintln!("[INFO] [runtime] ConfigActor shutting down");
             }
             ComponentMsg::Tick => { /* config does not tick */ }
-            ComponentMsg::Signal { .. } => { /* config does not handle signals */ }
+        }
+        Ok(())
+    }
+}
+
+// ── GitOpsActor ─────────────────────────────────────────────────────
+
+pub struct GitOpsActor;
+
+impl Actor for GitOpsActor {
+    type Msg = ComponentMsg;
+    type State = ();
+    type Arguments = ();
+
+    async fn pre_start(
+        &self,
+        _myself: ActorRef<Self::Msg>,
+        _args: (),
+    ) -> Result<Self::State, ActorProcessingErr> {
+        eprintln!("[INFO] [runtime] GitOpsActor started");
+        Ok(())
+    }
+
+    async fn handle(
+        &self,
+        _myself: ActorRef<Self::Msg>,
+        message: Self::Msg,
+        _state: &mut Self::State,
+    ) -> Result<(), ActorProcessingErr> {
+        match message {
+            ComponentMsg::Dispatch(sexp, reply) => {
+                let result = crate::dispatch::dispatch("git-ops", &sexp);
+                let _ = reply.send(result);
+            }
+            ComponentMsg::Shutdown => {
+                eprintln!("[INFO] [runtime] GitOpsActor shutting down");
+            }
+            ComponentMsg::Tick => {}
         }
         Ok(())
     }
@@ -995,7 +1005,6 @@ impl Actor for ProviderRouterActor {
                 eprintln!("[INFO] [runtime] ProviderRouterActor shutting down");
             }
             ComponentMsg::Tick => { /* provider-router does not tick */ }
-            ComponentMsg::Signal { .. } => { /* provider-router does not handle signals */ }
         }
         Ok(())
     }
@@ -1034,7 +1043,6 @@ impl Actor for ParallelActor {
                 eprintln!("[INFO] [runtime] ParallelActor shutting down");
             }
             ComponentMsg::Tick => { /* parallel does not tick */ }
-            ComponentMsg::Signal { .. } => { /* parallel does not handle signals */ }
         }
         Ok(())
     }
@@ -1315,9 +1323,10 @@ impl Actor for RouterActor {
                     }
                 }
             }
-            ComponentMsg::Signal { payload_sexp } => {
-                if payload_sexp.contains("tier-changed") {
-                    if let Some(tier) = extract_sexp_value(&payload_sexp, "tier") {
+            ComponentMsg::Dispatch(sexp, reply) => {
+                // Route feedback and tier changes arrive as dispatch commands.
+                if sexp.contains("tier-changed") {
+                    if let Some(tier) = extract_sexp_value(&sexp, "tier") {
                         let old_tier = state.active_tier_name().to_string();
                         state.active_tier_idx = tier_index(&tier) as u8;
                         state.obs.trace_event(
@@ -1326,22 +1335,23 @@ impl Actor for RouterActor {
                             json!({"old": old_tier, "new": tier}),
                         );
                     }
-                } else if payload_sexp.contains("route-feedback") {
-                    let model = extract_sexp_value(&payload_sexp, "model").unwrap_or_default();
-                    let task = extract_sexp_value(&payload_sexp, "task").unwrap_or_default();
-                    let tier = extract_sexp_value(&payload_sexp, "tier").unwrap_or_default();
-                    let success = payload_sexp.contains(":success t");
-                    let latency = extract_sexp_u64(&payload_sexp, "latency-ms").unwrap_or(0);
-                    let cost = extract_sexp_f64(&payload_sexp, "cost-usd").unwrap_or(0.0);
+                    let _ = reply.send("(:ok)".to_string());
+                } else if sexp.contains("route-feedback") {
+                    let model = extract_sexp_value(&sexp, "model").unwrap_or_default();
+                    let task = extract_sexp_value(&sexp, "task").unwrap_or_default();
+                    let tier = extract_sexp_value(&sexp, "tier").unwrap_or_default();
+                    let success = sexp.contains(":success t");
+                    let latency = extract_sexp_u64(&sexp, "latency-ms").unwrap_or(0);
+                    let cost = extract_sexp_f64(&sexp, "cost-usd").unwrap_or(0.0);
                     state.record_feedback(&model, &task, &tier, success, latency, cost);
                     if !success && harmonia_observability::harmonia_observability_is_standard() {
                         state.obs.trace_event("router-cascade-escalate", "tool", json!({"model": model, "reason": "route-feedback-failure", "tier": tier}));
                     }
+                    let _ = reply.send("(:ok)".to_string());
+                } else {
+                    let result = state.status_sexp();
+                    let _ = reply.send(result);
                 }
-            }
-            ComponentMsg::Dispatch(_sexp, reply) => {
-                let result = state.status_sexp();
-                let _ = reply.send(result);
             }
             ComponentMsg::Shutdown => {
                 eprintln!("[INFO] [runtime] RouterActor shutting down");

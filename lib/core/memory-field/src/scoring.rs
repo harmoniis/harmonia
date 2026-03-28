@@ -27,9 +27,6 @@ fn cfg_i64(key: &str, default: i64) -> i64 {
 pub(crate) struct Activation {
     pub(crate) node_index: usize,
     pub(crate) score: f64,
-    pub(crate) field_potential: f64,
-    pub(crate) eigenmode_value: f64,
-    pub(crate) basin: Basin,
 }
 
 /// Compute final activation scores for all nodes.
@@ -101,13 +98,6 @@ pub(crate) fn compute_activation(
             activations.push(Activation {
                 node_index: i,
                 score,
-                field_potential: phi_norm[i],
-                eigenmode_value: eigen_norm[i],
-                basin: if i < node_basins.len() {
-                    node_basins[i]
-                } else {
-                    Basin::ThomasLobe(5)
-                },
             });
         }
     }
