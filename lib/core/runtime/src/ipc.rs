@@ -53,6 +53,15 @@ pub async fn serve(
     ready: Arc<Notify>,
 ) {
     let printable_name = name.to_string();
+
+    // On macOS/FreeBSD, GenericNamespaced creates a filesystem socket at /tmp/{name}.
+    // Remove stale socket from previous run (Linux abstract namespace has no file).
+    #[cfg(not(target_os = "linux"))]
+    {
+        let stale_path = format!("/tmp/{name}");
+        let _ = std::fs::remove_file(&stale_path);
+    }
+
     let listener = match ListenerOptions::new()
         .name(name.to_ns_name::<GenericNamespaced>().expect("invalid IPC name"))
         .create_tokio()
