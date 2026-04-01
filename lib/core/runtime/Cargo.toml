@@ -28,6 +28,7 @@ harmonia-observability = { version = "0.1.9", path = "../observability" }
 harmonia-memory = { version = "0.1.9", path = "../memory" }
 harmonia-memory-field = { version = "0.1.9", path = "../memory-field" }
 harmonia-git-ops = { version = "0.1.9", path = "../git-ops" }
+harmonia-ouroboros = { version = "0.1.9", path = "../ouroboros" }
 harmonia-parallel-agents = { version = "0.1.9", path = "../parallel-agents" }
 
 # Frontends

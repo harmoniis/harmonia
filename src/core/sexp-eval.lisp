@@ -22,8 +22,11 @@
 ;;; CONSTANTS
 ;;; ═══════════════════════════════════════════════════════════════════════
 
-(defparameter *repl-max-result-chars* 1500)
-(defparameter *repl-max-rounds* 5)
+;; Read from DNA constraints — DNA defines the hard limits.
+(defparameter *repl-max-result-chars*
+  (or (ignore-errors (dna-constraint :repl-max-result-chars)) 1500))
+(defparameter *repl-max-rounds*
+  (or (ignore-errors (dna-constraint :repl-max-rounds)) 5))
 
 ;;; ═══════════════════════════════════════════════════════════════════════
 ;;; RESTRICTED EVALUATOR — sandboxed Lisp interpreter
@@ -125,6 +128,12 @@ ENV is an alist of (symbol . value) bindings. No global mutation."
      (second          (second (first args)))
      (third           (third (first args)))
      (princ-to-string (princ-to-string (first args)))
+     ;; ── Workspace tools (Rust actors — the agent's hands) ─────
+     (read-file       (apply #'%prim-read-file args))
+     (grep            (apply #'%prim-grep args))
+     (list-files      (apply #'%prim-list-files args))
+     (file-exists     (%prim-file-exists (first args)))
+     (file-info       (%prim-file-info (first args)))
      ;; ── Git operations ────────────────────────────────────────
      (git-status      (%prim-git-status))
      (git-log         (%prim-git-log (or (first args) 10)))
@@ -137,6 +146,11 @@ ENV is an alist of (symbol . value) bindings. No global mutation."
      (spawn           (apply #'%prim-spawn args))
      (tool            (apply #'%prim-tool args))
      (observe-route   (apply #'%prim-observe-route args))
+     ;; ── Ouroboros (self-healing + evolution) ─────────────────
+     (ouroboros-history (%prim-ouroboros-history))
+     (ouroboros-crash   (apply #'%prim-ouroboros-crash args))
+     (ouroboros-patch   (apply #'%prim-ouroboros-patch args))
+     (dream            (%prim-dream))
      ;; ── Evolution (vitruvian-gated) ──────────────────────────
      (evolve          (apply #'%prim-evolve args))
      (rewrite-plan    (%prim-rewrite-plan))
@@ -225,6 +239,41 @@ The REPL has full Lisp power; Rust is the boundary."
                 "(basin unavailable)"))))
       "(basin unavailable)"))
 
+;; ── Workspace primitives (Rust actors — the agent's hands) ──────
+
+(defun %prim-read-file (&rest args)
+  (let ((path (first args))
+        (offset (or (second args) 0))
+        (limit (or (third args) 200)))
+    (if (and path (stringp path))
+        (or (ignore-errors (workspace-read-file path :offset offset :limit limit))
+            "(read-file: not found)")
+        "(read-file: path required)")))
+
+(defun %prim-grep (&rest args)
+  (let ((pattern (first args))
+        (path (or (second args) ".")))
+    (if (and pattern (stringp pattern))
+        (or (ignore-errors (workspace-grep pattern path))
+            "(grep: no results)")
+        "(grep: pattern required)")))
+
+(defun %prim-list-files (&rest args)
+  (let ((path (or (first args) ".")))
+    (or (ignore-errors (workspace-list-files path))
+        "(list-files: error)")))
+
+(defun %prim-file-exists (path)
+  (if (and path (stringp path))
+      (if (ignore-errors (workspace-file-exists-p path)) "exists" "not found")
+      "(file-exists: path required)"))
+
+(defun %prim-file-info (path)
+  (if (and path (stringp path))
+      (or (ignore-errors (workspace-file-info path))
+          "(file-info: error)")
+      "(file-info: path required)"))
+
 ;; ── Git operation primitives ──────────────────────────────────────
 
 (defun %prim-git-status ()
@@ -247,6 +296,38 @@ The REPL has full Lisp power; Rust is the boundary."
 
 (defun %prim-git-push ()
   (or (ignore-errors (git-push)) "(git-push failed)"))
+
+;; ── Ouroboros + Dreaming primitives ───────────────────────────────
+
+(defun %prim-ouroboros-history ()
+  (or (ignore-errors (ouroboros-history)) "(ouroboros unavailable)"))
+
+(defun %prim-ouroboros-crash (&rest args)
+  (let ((comp (or (first args) "unknown"))
+        (detail (or (second args) "manual crash record")))
+    (if (ignore-errors (ouroboros-record-crash comp detail))
+        (format nil "Crash recorded: ~A" comp)
+        "(ouroboros-crash failed)")))
+
+(defun %prim-ouroboros-patch (&rest args)
+  (let ((comp (or (first args) "unknown"))
+        (body (or (second args) "")))
+    (if (and (stringp body) (> (length body) 0))
+        (if (ignore-errors (ouroboros-write-patch comp body))
+            (format nil "Patch written for ~A" comp)
+            "(ouroboros-patch failed)")
+        "(ouroboros-patch: body required)")))
+
+(defun %prim-dream ()
+  (or (ignore-errors
+        (when (and (fboundp 'memory-field-port-ready-p)
+                   (funcall 'memory-field-port-ready-p))
+          (let* ((report (memory-field-dream))
+                 (results (when report (%apply-dream-results report))))
+            (format nil "Dream: pruned=~D crystallized=~D"
+                    (or (getf results :pruned) 0)
+                    (or (getf results :crystallized) 0)))))
+      "(dream unavailable)"))
 
 (defun %prim-models ()
   (or (ignore-errors (ipc-call "(:component \"provider-router\" :op \"list-backends\")"))
@@ -387,10 +468,71 @@ Only #\\ (character literal) is benign; all others are rejected."
     (format nil "~{~A~%~}" (nreverse results))))
 
 ;;; ═══════════════════════════════════════════════════════════════════════
-;;; MODEL SELECTION
+;;; MODEL PERFORMANCE TRACKING — the REPL rates models by how they use it
 ;;; ═══════════════════════════════════════════════════════════════════════
 
-;; Model selection removed — provider-router auto-selects by performance.
+;; Per-model REPL performance: fluency (valid code), speed, intelligence.
+;; Models that speak s-expressions correctly score higher.
+;; No hardcoded model preferences — measured performance decides.
+
+(defparameter *repl-model-perf* (make-hash-table :test 'equal)
+  "model-id → (:code-ok N :code-error N :natural N :recall N :error N
+               :unavailable N :total-ms N :calls N)")
+
+(defun %record-repl-perf (model outcome &key (latency-ms 0))
+  "Record one REPL interaction outcome for a model."
+  (when (and model (stringp model) (> (length model) 0))
+    (let ((perf (or (gethash model *repl-model-perf*) '())))
+      (setf (getf perf outcome) (1+ (or (getf perf outcome) 0)))
+      (when (> latency-ms 0)
+        (setf (getf perf :total-ms) (+ (or (getf perf :total-ms) 0) latency-ms))
+        (setf (getf perf :calls) (1+ (or (getf perf :calls) 0))))
+      (setf (gethash model *repl-model-perf*) perf))))
+
+(defun %repl-fluency (model)
+  "REPL fluency score [0.0-1.0]. How well does the model speak s-expressions?
+   fluency = (code-ok + recall) / (code-ok + code-error + recall + error + unavailable)
+   Models that never tried code get 0.5 (unknown)."
+  (let* ((perf (gethash model *repl-model-perf*))
+         (ok (or (getf perf :code-ok) 0))
+         (err (or (getf perf :code-error) 0))
+         (recall (or (getf perf :recall) 0))
+         (fail (+ (or (getf perf :error) 0) (or (getf perf :unavailable) 0)))
+         (total (+ ok err recall fail)))
+    (if (< total 3) 0.5  ;; Not enough data — neutral.
+        (/ (float (+ ok recall)) (float total)))))
+
+(defun %repl-speed (model)
+  "Average latency score [0.0-1.0]. 1.0 = instant, 0.0 = very slow."
+  (let* ((perf (gethash model *repl-model-perf*))
+         (total-ms (or (getf perf :total-ms) 0))
+         (calls (max 1 (or (getf perf :calls) 1)))
+         (avg-ms (/ total-ms calls)))
+    ;; Sigmoid: 1000ms → 0.73, 3000ms → 0.5, 10000ms → 0.17
+    (/ 1.0 (+ 1.0 (exp (/ (- avg-ms 3000.0) 2000.0))))))
+
+(defun %repl-model-score (model)
+  "Combined REPL score: 0.5×fluency + 0.3×speed + 0.2×(1-cost).
+   Higher = better. Models with no data get 0.5 (try them)."
+  (let* ((fluency (%repl-fluency model))
+         (speed (%repl-speed model))
+         (profile (ignore-errors (%profile-by-id model)))
+         (cost (if profile (or (getf profile :cost) 5) 5))
+         (cost-factor (/ 1.0 (+ 1.0 (float cost)))))
+    (+ (* 0.5 fluency) (* 0.3 speed) (* 0.2 cost-factor))))
+
+(defun %select-model-by-repl-perf (prompt)
+  "Select the best model by measured REPL performance. Start from free, escalate.
+   No hardcoded model names — purely data-driven."
+  (let* ((tier-pool (ignore-errors (%tier-model-pool *routing-tier*)))
+         (all-pool (or tier-pool
+                       (ignore-errors (%tier-model-pool :auto))
+                       '()))
+         ;; Score each model by REPL performance.
+         (scored (mapcar (lambda (m) (cons m (%repl-model-score m))) all-pool))
+         ;; Sort: highest score first.
+         (ranked (sort scored #'> :key #'cdr)))
+    (or (car (first ranked)) "")))
 
 ;;; ═══════════════════════════════════════════════════════════════════════
 ;;; THE HARMONIC REPL — the orchestration core
@@ -435,18 +577,22 @@ No score branching, no model selection, no bootstrap modes. ONE path."
                 (if (= round 1)
                     current-prompt
                     (format nil "~A~%~%EVAL_RESULT:~%~A~%~%USER asked: ~A~%Respond naturally via (respond \"...\") or execute more code."
-                            bootstrap (or last-eval-result "") user-text))))
+                            bootstrap (or last-eval-result "") user-text)))
+              (used-model (or (ignore-errors (%select-model user-text)) ""))
+              (call-start (get-internal-real-time)))
 
           (let ((llm-output
-                  (handler-case (backend-complete round-prompt
-                                  (or (ignore-errors (%select-model user-text)) ""))
+                  (handler-case (backend-complete round-prompt used-model)
                     (error (c)
                       (%log :warn "sexp-eval" "REPL ~D error: ~A" round c)
-                      nil))))
+                      (%record-repl-perf used-model :error)
+                      nil)))
+                (latency-ms (truncate (* 1000 (/ (- (get-internal-real-time) call-start)
+                                                  (float internal-time-units-per-second))))))
             (cond
               ((null llm-output)
                (%log :info "sexp-eval" "REPL ~D: LLM unavailable" round)
-               ;; If we have eval results from previous rounds, summarize them.
+               (%record-repl-perf used-model :unavailable :latency-ms latency-ms)
                (when last-eval-result
                  (%log :info "sexp-eval" "REPL: using eval data from previous rounds")
                  (return-from %orchestrate-repl
@@ -458,10 +604,25 @@ No score branching, no model selection, no bootstrap modes. ONE path."
               ;; Output starts with ( → it's code. Evaluate via restricted interpreter.
               ((%is-sexp-output-p llm-output)
                (%log :info "sexp-eval" "REPL ~D: evaluating code" round)
-               (setf last-eval-result (%eval-all-forms llm-output)))
+               (let ((eval-result (handler-case (%eval-all-forms llm-output)
+                                    (error (e)
+                                      (%log :warn "sexp-eval" "REPL ~D: eval failed: ~A" round e)
+                                      nil))))
+                 (if (and eval-result (> (length eval-result) 0)
+                          (not (search "parse-error" eval-result)))
+                     (progn
+                       (setf last-eval-result eval-result)
+                       (%record-repl-perf used-model :code-ok :latency-ms latency-ms))
+                     ;; Eval failed — strip code markers and return as natural language.
+                     (progn
+                       (%record-repl-perf used-model :code-error :latency-ms latency-ms)
+                       (let ((cleaned (string-trim '(#\( #\) #\Space #\Newline) llm-output)))
+                         (when (> (length cleaned) 10)
+                           (return-from %orchestrate-repl cleaned)))))))
 
               ;; RECALL: keyword → the simple model wants more context.
               ((search "RECALL:" llm-output)
+               (%record-repl-perf used-model :recall :latency-ms latency-ms)
                (let* ((pos (search "RECALL:" llm-output))
                       (query (string-trim '(#\Space #\Newline #\Return)
                                           (subseq llm-output (+ pos 7))))
@@ -473,6 +634,7 @@ No score branching, no model selection, no bootstrap modes. ONE path."
 
               ;; Natural language → return to user.
               (t
+               (%record-repl-perf used-model :natural :latency-ms latency-ms)
                (%log :info "sexp-eval" "REPL ~D: response (~D chars)" round (length llm-output))
                (return-from %orchestrate-repl llm-output))))))
 

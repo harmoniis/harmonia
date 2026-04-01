@@ -10,6 +10,8 @@ mod config;
 mod gateway;
 mod git_ops;
 mod matrix;
+mod ouroboros;
+mod workspace;
 mod memory_field;
 mod observability;
 mod parallel;
@@ -86,6 +88,8 @@ pub fn dispatch(component: &str, sexp: &str) -> String {
         "provider-router" => provider_router::dispatch(sexp),
         "parallel" => parallel::dispatch(sexp),
         "git-ops" => git_ops::dispatch(sexp),
+        "ouroboros" => ouroboros::dispatch(sexp),
+        "workspace" => workspace::dispatch(sexp),
         "observability" => observability::dispatch(sexp),
         "signalograd" | "memory-field" => {
             format!(

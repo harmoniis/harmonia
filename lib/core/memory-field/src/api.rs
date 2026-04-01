@@ -7,7 +7,7 @@ use crate::attractor::{update_aizawa, update_halvorsen, update_thomas};
 use crate::basin::{assign_node_basins, classify_primary_basin, update_hysteresis};
 use crate::error::clamp;
 use crate::field::{build_source_vector, solve_field};
-use crate::graph::{build_graph, Domain};
+use crate::graph::{betweenness_centrality, build_graph, Domain};
 use crate::scoring::compute_activation;
 use crate::spectral::{eigenmode_activate, eigenmode_project, spectral_decompose};
 use crate::FieldState;
@@ -74,7 +74,7 @@ pub fn load_graph(
 pub fn field_recall(
     s: &mut FieldState,
     query_concepts: Vec<String>,
-    access_counts: Vec<(String, f64)>,
+    access_counts: Vec<(String, f64, f64)>,
     limit: usize,
 ) -> Result<String, String> {
     let n = s.graph.n;
@@ -99,11 +99,32 @@ pub fn field_recall(
         vec![0.0; n]
     };
 
-    // Build per-node access count vector.
+    // Build per-node access count vector with depth-aware temporal decay.
+    //
+    // Philosophy: you don't forget that Kipling's "If" shaped your character.
+    // You forget verbatim words but remember meaning. Important memories (high
+    // depth, high centrality) resist decay. Noise (depth-0, low centrality) fades.
+    //
+    // access_decayed = count × exp(-λ × age_hours / protection)
+    // protection = 1 + node.count/10 (more connections → more structural → slower decay)
+    let decay_lambda = cfg_f64("decay-lambda", 0.01);
+    let now_unix = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs_f64())
+        .unwrap_or(0.0);
     let mut access_vec = vec![0.0; n];
-    for (concept, count) in &access_counts {
+    for (concept, count, last_access) in &access_counts {
         if let Some(idx) = crate::graph::concept_index(&s.graph, concept) {
-            access_vec[idx] = (*count as f64).min(1.0);
+            let age_hours = if *last_access > 0.0 {
+                ((now_unix - last_access) / 3600.0).max(0.0)
+            } else {
+                0.0 // No last-access info → no decay (treat as fresh)
+            };
+            // Protection factor: structural nodes decay slower.
+            let node_count = s.graph.nodes[idx].count as f64;
+            let protection = 1.0 + node_count / 10.0;
+            let decayed = (*count as f64).min(1.0) * (-decay_lambda * age_hours / protection).exp();
+            access_vec[idx] = decayed;
         }
     }
 
@@ -242,4 +263,149 @@ pub fn restore_basin(
 pub fn reset(s: &mut FieldState) -> Result<String, String> {
     *s = FieldState::new();
     Ok("(:ok)".into())
+}
+
+/// Dreaming — field self-maintenance during idle.
+///
+/// Landauer's principle: erasing information has entropy cost k_B T ln(2) per bit.
+/// Deletion is NOT free. The dreaming algorithm therefore:
+///   1. PREFERS merging (compress) over pruning (delete)
+///   2. Only prunes when K(mᵢ | graph \ mᵢ) ≈ 0 (betweenness ≈ 0, fully redundant)
+///   3. Crystallizes structural nodes (promote depth, resist future decay)
+///   4. Tracks entropy delta: ΔS = landauer_cost(pruned) - compression_gain(merged)
+///
+/// Returns DreamReport as sexp:
+///   (:ok :pruned (...) :merged (...) :crystallized (...) :stats (:nodes N :entropy-delta F ...))
+pub fn field_dream(s: &mut FieldState) -> Result<String, String> {
+    let n = s.graph.n;
+    if n == 0 {
+        return Ok("(:ok :pruned () :merged () :crystallized () :stats (:nodes 0 :pruned 0 :merged 0 :crystallized 0 :entropy-delta 0.0))".into());
+    }
+
+    let prune_threshold = cfg_f64("dream-prune-threshold", 0.02);      // Very low — only truly redundant
+    let merge_threshold = cfg_f64("dream-merge-threshold", 0.15);       // Below this: merge, not delete
+    let crystallize_threshold = cfg_f64("dream-crystallize-threshold", 0.80);
+
+    // 1. Betweenness centrality — structural importance (Kolmogorov proxy).
+    let bc = betweenness_centrality(&s.graph);
+
+    // 2. Quiescent eigenmode projection — find the field's natural skeleton.
+    let eigen_structural: Vec<f64> = if !s.eigenvectors.is_empty() {
+        let uniform: Vec<f64> = vec![1.0 / n as f64; n];
+        let projections = eigenmode_project(&uniform, &s.eigenvectors);
+        eigenmode_activate(&projections, &s.eigenvectors, n)
+            .into_iter()
+            .map(|v| v.abs())
+            .collect()
+    } else {
+        vec![0.5; n]
+    };
+
+    // Normalize eigen_structural to [0, 1].
+    let es_max = eigen_structural.iter().cloned().fold(0.0_f64, f64::max);
+    let es_min = eigen_structural.iter().cloned().fold(f64::INFINITY, f64::min);
+    let es_range = es_max - es_min;
+
+    // 3. Classify each node by dream_score.
+    //    dream_score = 0.5 × centrality + 0.5 × eigenmode_structural
+    //
+    //    score < prune_threshold  → K(m|graph) ≈ 0, safe to delete (Landauer cost minimal)
+    //    score < merge_threshold  → compress, don't delete (Landauer cost > 0)
+    //    score > crystallize_threshold → structural skeleton, promote depth
+    let mut pruned_entries: Vec<String> = Vec::new();
+    let mut merge_groups: Vec<Vec<String>> = Vec::new();
+    let mut crystallized_entries: Vec<String> = Vec::new();
+    let mut entropy_delta: f64 = 0.0;
+
+    // Collect merge candidates by basin (same basin = semantically related).
+    let mut basin_merge_candidates: std::collections::HashMap<String, Vec<(usize, f64)>> =
+        std::collections::HashMap::new();
+
+    for i in 0..n {
+        let centrality = bc[i];
+        let eigen_norm = if es_range > 1e-30 {
+            (eigen_structural[i] - es_min) / es_range
+        } else {
+            0.5
+        };
+        let dream_score = 0.5 * centrality + 0.5 * eigen_norm;
+        let node = &s.graph.nodes[i];
+
+        if dream_score < prune_threshold && centrality < 1e-10 && node.entry_ids.len() >= 2 {
+            // K(m|graph) ≈ 0: node is on no shortest paths. Deletion cost is minimal.
+            // Keep one entry (the last), prune the rest.
+            let prune_count = node.entry_ids.len() - 1;
+            for eid in node.entry_ids.iter().take(prune_count) {
+                pruned_entries.push(eid.clone());
+                // Landauer cost: log2(entry_count) bits per pruned entry (approximate).
+                entropy_delta += (node.entry_ids.len() as f64).log2().max(1.0);
+            }
+        } else if dream_score < merge_threshold && node.entry_ids.len() >= 2 {
+            // Node has some structural value but multiple entries.
+            // Compress: merge entries into one (Lisp side creates combined entry).
+            // Landauer says: merging preserves information, so entropy cost ≈ 0.
+            let basin_key = if i < s.node_basins.len() {
+                s.node_basins[i].to_sexp()
+            } else {
+                "unknown".to_string()
+            };
+            basin_merge_candidates
+                .entry(basin_key)
+                .or_default()
+                .push((i, dream_score));
+        } else if dream_score > crystallize_threshold && !node.entry_ids.is_empty() {
+            // Structural skeleton — crystallize (promote depth).
+            // This REDUCES future entropy by protecting against decay.
+            for eid in &node.entry_ids {
+                crystallized_entries.push(eid.clone());
+            }
+            entropy_delta -= 1.0; // Crystallization reduces field entropy.
+        }
+    }
+
+    // Build merge groups: nodes in same basin with low scores merge their entries.
+    for (_basin, candidates) in &basin_merge_candidates {
+        let mut group_entries: Vec<String> = Vec::new();
+        for &(node_idx, _score) in candidates {
+            let node = &s.graph.nodes[node_idx];
+            for eid in &node.entry_ids {
+                group_entries.push(eid.clone());
+            }
+        }
+        if group_entries.len() >= 2 {
+            merge_groups.push(group_entries);
+        }
+    }
+
+    // Format as sexp.
+    let pruned_sexp: Vec<String> = pruned_entries
+        .iter()
+        .map(|e| format!("\"{}\"", crate::graph_sexp_escape(e)))
+        .collect();
+    let cryst_sexp: Vec<String> = crystallized_entries
+        .iter()
+        .map(|e| format!("\"{}\"", crate::graph_sexp_escape(e)))
+        .collect();
+    let merged_sexp: Vec<String> = merge_groups
+        .iter()
+        .map(|group| {
+            let ids: Vec<String> = group
+                .iter()
+                .map(|e| format!("\"{}\"", crate::graph_sexp_escape(e)))
+                .collect();
+            format!("({})", ids.join(" "))
+        })
+        .collect();
+
+    Ok(format!(
+        "(:ok :pruned ({}) :merged ({}) :crystallized ({}) :stats (:nodes {} :pruned {} :merged {} :crystallized {} :entropy-delta {:.3}))",
+        pruned_sexp.join(" "),
+        merged_sexp.join(" "),
+        cryst_sexp.join(" "),
+        n,
+        pruned_entries.len(),
+        merge_groups.len(),
+        crystallized_entries.len(),
+        entropy_delta,
+    ))
 }

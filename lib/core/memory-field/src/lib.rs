@@ -19,9 +19,14 @@ use graph::SparseGraph;
 
 // ── Typed API: actor-owned state, no singletons ──────────────────────
 pub use api::{
-    basin_status, eigenmode_status, field_recall, load_graph, reset, restore_basin, status,
-    step_attractors,
+    basin_status, eigenmode_status, field_dream, field_recall, load_graph, reset, restore_basin,
+    status, step_attractors,
 };
+
+/// Escape double quotes and backslashes for sexp string embedding.
+pub(crate) fn graph_sexp_escape(s: &str) -> String {
+    s.replace('\\', "\\\\").replace('"', "\\\"")
+}
 
 /// Complete field state — all field computation lives here.
 /// Reconstructed from concept graph on each boot (stateless persistence).

@@ -2,7 +2,7 @@
 
  :sections
   ((:name "Runtime Topology"
-    :content "Harmonia runtime is Lisp-first orchestration with Rust execution ports. Lisp coordinates prompts, memory, model selection, routing, and loop control. Rust crates provide external capabilities through C-ABI and CFFI.")
+    :content "Harmonia runtime is Lisp-first orchestration with Rust execution ports. Lisp coordinates prompts, memory, model selection, routing, and loop control. Rust actors provide capabilities via IPC (Unix domain socket, sexp protocol). 12 component actors registered in SharedRegistry for O(1) dispatch.")
 
    (:name "Boot Flow"
     :entry-point "src/core/boot.lisp"
@@ -12,7 +12,7 @@
       "Validate DNA (dna-valid-p)."
       "Register tools from config/tools.sexp."
       "Seed soul memory from DNA."
-      "Initialize ports in strict order: vault, store, harmony-policy, model-policy, router, lineage, matrix, tool-runtime, baseband frontends, swarm, evolution, chronicle, signalograd, memory-field."
+      "Initialize ports in strict order: vault, store, harmony-policy, model-policy, router, gitop, ouroboros, matrix, tool-runtime, baseband frontends, swarm, evolution, chronicle, signalograd, memory-field."
       "Restore the evolution-matched signalograd checkpoint if present."
       "Warm-start memory-field basin from last Chronicle harmonic snapshot (session continuity)."))
 

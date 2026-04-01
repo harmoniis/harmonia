@@ -14,7 +14,9 @@
 | `src/core/harmony-policy.lisp` | mutable harmonic policy load/get/set/save |
 | `src/core/harmonic-machine.lisp` | multi-phase harmonic planner, rewrite readiness, `:security-audit` phase |
 | `src/core/signalograd.lisp` | telemetry-first reflection layer, proposal clamps, checkpoint/restore orchestration, chronicle audit bridge |
-| `src/core/rewrite.lisp` | rewrite trigger bookkeeping hooks |
+| `src/core/rewrite.lisp` | vitruvian-gated rewrite hooks; thresholds from DNA constraints; logs to Ouroboros |
+| `src/core/recovery-cascade.lisp` | health tracking, heartbeat (every 10 cycles), dreaming (every 30 cycles), evolutionary circuit breakers |
+| `src/core/sexp-eval.lisp` | restricted Lisp evaluator, REPL loop, 20+ primitives (recall, git-*, ouroboros-*, dream, evolve) |
 | `src/core/evolution-versioning.lisp` | evolution snapshot version state and snapshot mechanics |
 | `src/core/system-commands.lisp` | Lisp-side command handlers for gateway-delegated /commands, %gateway-dispatch-command callback entry point |
 | `src/core/conditions.lisp` | condition/error taxonomy helpers |
@@ -34,7 +36,7 @@
 |---|---|
 | `src/memory/store.lisp` | memory API surface and store integration |
 | `src/harmony/scorer.lisp` | harmonic score function |
-| `src/dna/dna.lisp` | constitutional identity prompt and invariants |
+| `src/dna/dna.lisp` | genome: genes (function refs), constraints (hard limits), bounds (epigenetic ranges), foundation (concept names). DNA is code, not text. |
 
 ## Ports (`src/ports`)
 
@@ -43,8 +45,9 @@
 | `src/ports/vault.lisp` | secret symbol store and lookup | `lib/core/vault` |
 | `src/ports/store.lisp` | runtime non-secret KV config | `lib/core/config-store` |
 | `src/ports/router.lisp` | LLM completion router (OpenRouter + native provider adapters) | `lib/backends/llms/openrouter` |
-| `src/ports/lineage.lisp` | commit/push lineage ops | `lib/core/git-ops` |
+| `src/ports/gitop.lisp` | git operations via IPC actor | `lib/core/git-ops` |
 | `src/ports/matrix.lisp` | route constraints + telemetry | `lib/core/harmonic-matrix` |
+| `src/ports/ouroboros.lisp` | self-healing crash ledger and patch writing via IPC actor | `lib/core/ouroboros` |
 | `src/ports/tool-runtime.lisp` | search/voice tool dispatch | `lib/tools/*` |
 | `src/ports/baseband.lisp` | unified command dispatch callback, frontend registration, signal polling/sending | `lib/core/gateway` |
 | `src/ports/swarm.lisp` | parallel agents + tmux swarm control | `lib/core/parallel-agents` |
@@ -58,10 +61,10 @@
 | File | Role |
 |---|---|
 | `supervisor.rs` | RuntimeSupervisor actor — registry, IPC component dispatch, child actor lifecycle |
-| `dispatch.rs` | IPC message dispatch — routes to vault, config, chronicle, gateway, signalograd, tailnet, harmonic-matrix, observability, provider-router, parallel |
+| `dispatch.rs` | IPC message dispatch — routes to vault, config, chronicle, gateway, signalograd, tailnet, harmonic-matrix, observability, provider-router, parallel, git-ops, ouroboros |
 | `bridge.rs` | SbclBridgeActor — Unix socket connection handler, drain queue for SBCL |
 | `ipc.rs` | IPC listener — Unix socket accept loop, length-prefixed sexp framing |
-| `actors.rs` | Actor definitions — GatewayActor, ChronicleActor, TailnetActor, SignalogradActor, ObservabilityActor (ObsMsg, sampling, correlation), HarmonicMatrixActor, VaultActor, ConfigActor, ProviderRouterActor, ParallelActor, RouterActor |
+| `actors.rs` | Actor definitions — GatewayActor, ChronicleActor, TailnetActor, SignalogradActor, ObservabilityActor (ObsMsg, sampling, correlation), HarmonicMatrixActor, VaultActor, ConfigActor, ProviderRouterActor, ParallelActor, RouterActor, OuroborosActor, GitOpsActor |
 | `msg.rs` | Actor message types and routing enums |
 
 All crates are compiled as rlib and linked into the single `harmonia-runtime` binary. No cdylib shared libraries.
@@ -81,7 +84,7 @@ Based on `src/core/boot.lisp`:
 
 1. Load state/tools/DNA/memory/harmony modules.
 2. Load `supervision-state.lisp`, `signalograd.lisp`, and `evolution-versioning.lisp`.
-3. Load ports in order: vault -> store -> router -> lineage -> matrix -> admin-intent -> tool-runtime -> baseband -> swarm -> evolution -> chronicle -> signalograd -> observability.
+3. Load ports in order: vault -> store -> harmony-policy -> model-policy -> router -> gitop -> ouroboros -> matrix -> tool-runtime -> baseband -> swarm -> evolution -> chronicle -> signalograd -> memory-field.
 4. Initialize runtime and DNA guard.
 5. Load evolution version state (`init-evolution-versioning`).
 6. Initialize ports, bootstrap matrix, and register configured frontends from `config/baseband.sexp`.

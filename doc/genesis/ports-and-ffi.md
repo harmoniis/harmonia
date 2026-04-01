@@ -12,12 +12,11 @@ Each port encapsulates one capability contract and communicates with Rust via IP
 | Vault | `src/ports/vault.lisp` | `lib/core/vault` | Secret storage and lookup |
 | Store | `src/ports/store.lisp` | `lib/core/config-store` | Mutable non-secret runtime config |
 | Router | `src/ports/router.lisp` | `lib/backends/llms/provider-router` | Generic LLM provider router over provider adapters |
-| Lineage | `src/ports/lineage.lisp` | `lib/core/git-ops` | Commit/push operations |
+| GitOps | `src/ports/gitop.lisp` | `lib/core/git-ops` | Git operations via IPC actor |
 | Matrix | `src/ports/matrix.lisp` | `lib/core/harmonic-matrix` | Route constraints + telemetry |
-| Tool Channel | `src/ports/tool-channel.lisp` | `lib/core/gateway` (ToolRegistry) + `lib/core/tool-channel-protocol` + tool crates | Protocolised tool invocation via ToolVtable contract |
-| Voice Runtime | `src/ports/voice-runtime.lisp` | `lib/backends/voice/voice-router` | Speech-to-text and text-to-speech via voice backend routing |
 | Baseband | `src/ports/baseband.lisp` | `lib/core/gateway` + `lib/core/baseband-channel-protocol` + frontend crates | Unified command dispatch, typed Baseband Channel Protocol envelopes, channel send/status, gateway admin lifecycle |
 | Swarm | `src/ports/swarm.lisp` | `lib/core/parallel-agents` | Parallel and tmux subagents |
+| Ouroboros | `src/ports/ouroboros.lisp` | `lib/core/ouroboros` | Self-healing crash ledger and patch writing via IPC actor |
 | Evolution | `src/ports/evolution.lisp` | `lib/core/ouroboros` (+ phoenix process) | Rewrite prep/execute/rollback |
 | Chronicle | `src/ports/chronicle.lisp` | `lib/core/chronicle` | Graph-native knowledge base, time-series observability, concept graph SQL traversal |
 | Signalograd | `src/ports/signalograd.lisp` | `lib/core/signalograd` | chaos-computing advisory kernel: observe, feedback, checkpoint, restore, status |
@@ -32,7 +31,7 @@ SBCL communicates with `harmonia-runtime` via a Unix domain socket at `$STATE_RO
 - Messages are length-prefixed s-expressions.
 - Socket permissions are restricted to owner-only (0600).
 - The `SbclBridgeActor` inside `harmonia-runtime` handles the Rust side of the socket, with drain-queue semantics.
-- `dispatch.rs` routes IPC messages to component domains: **vault**, **config**, **chronicle**, **gateway**, **signalograd**, **tailnet**, **harmonic-matrix**, **observability**, **provider-router**, **parallel**.
+- `dispatch.rs` routes IPC messages to component domains: **vault**, **config**, **chronicle**, **gateway**, **signalograd**, **tailnet**, **harmonic-matrix**, **observability**, **provider-router**, **parallel**, **git-ops**, **ouroboros**. 12 component actors registered in SharedRegistry for O(1) direct dispatch (120s timeout); supervisor fallback for unregistered components (10s timeout).
 - Observability trace ops (`trace-start`, `trace-end`, `trace-event`) are short-circuited in `ipc.rs` directly to the ObservabilityActor via `ipc-cast` (fire-and-forget), bypassing the supervisor for zero-overhead trace submission.
 - SBCL side: `ipc-client.lisp` (socket transport, auto-reconnect), `ipc-ports.lisp` (typed port accessors for `ipc-vault-*`, `ipc-config-*`, etc.), and all 14 port files use IPC exclusively.
 

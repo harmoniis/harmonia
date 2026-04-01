@@ -1,16 +1,56 @@
 # Current State
 
-Snapshot date: 2026-03-19
+Snapshot date: 2026-04-01
+
+## DNA Architecture
+
+DNA (`src/dna/dna.lisp`) is constraints as code, not a system prompt:
+
+- **Genes**: function references (encode→memory-recall, eval→%orchestrate-repl, dream→memory-field-dream, evolve→evolution-execute, crash→ouroboros-record-crash, commit→git-commit)
+- **Constraints**: hard limits the REPL reads at runtime (repl-max-rounds=5, chaos-risk-max=0.55, rewrite-signal-min=0.62, max-graph-nodes=256)
+- **Bounds**: ranges epigenetics can tune within (decay-lambda 0.001..0.1, thomas-b 0.18..0.24)
+- **Foundation**: concept names only (:vitruvian :chladni :kolmogorov :solomonoff :lorenz :thomas :aizawa :halvorsen :hopfield :lambdoma :logistic :ouroboros :phoenix)
+
+Descriptions live in memory field seeds (genesis entries at depth 1-2). DNA does not describe — it constrains.
 
 ## Active Evolution Mode
 
-Current configured mode is `:artifact-rollout` by default, with source rewrite disabled unless explicitly re-enabled by policy/config.
+Current configured mode is `:source-rewrite` by default. Ouroboros is fully wired as IPC component (ComponentSlot 11).
 
-From `src/ports/evolution.lisp`:
+From `src/ports/evolution.lisp` and `src/ports/ouroboros.lisp`:
 
-- `evolution-prepare` inspects health and crash state.
-- `evolution-execute` signals artifact rollout under Phoenix or writes patch artifacts only when source rewrite is enabled.
-- `evolution-rollback` records rollback as crash telemetry.
+- `ouroboros-record-crash` records failures to the crash ledger via IPC actor.
+- `ouroboros-write-patch` writes source patches to disk via IPC actor.
+- `ouroboros-history` retrieves crash history for pattern analysis.
+- `evolution-execute` writes patch artifacts via Ouroboros IPC when vitruvian gate opens.
+- `evolution-rollback` records rollback event to Ouroboros crash ledger.
+
+## Dreaming (Field Self-Maintenance)
+
+Implemented in `lib/core/memory-field/src/api.rs` (`field_dream`). Respects Landauer's principle — information erasure has entropy cost, so compression is preferred over deletion:
+
+- **Merge** (primary): entries in same basin compressed into one at depth+1. Information preserved.
+- **Prune** (rare): only when betweenness centrality ≈ 0 (K(m|graph) ≈ 0).
+- **Crystallize**: structural skeleton entries promoted in depth, resisting future decay.
+- **Entropy delta tracked**: ΔS = landauer_cost(pruned) - compression_gain(merged+crystallized).
+
+Triggered by heartbeat every 30 ticks (DNA constraint `dream-cycle-interval`).
+
+## Temporal Decay
+
+Scoring formula: `activation = 0.40×field + 0.30×eigenmode + 0.20×basin + 0.10×access_decayed`
+
+Where: `access_decayed = access_count × exp(-λ × age_hours / protection)` and `protection = 1 + node.count/10`.
+
+Structurally important nodes (high centrality, many connections) decay slower. Identity entries (depth 2) are near-permanent. Raw daily noise (depth 0, low connections) fades naturally. Config: `decay-lambda` default 0.01/hour.
+
+## Write Filter
+
+`memory-put` rejects entries that add no information:
+- Entries < 20 chars (too short for semantics)
+- Entries with > 80% word overlap with existing entries (dedup)
+- Depth > 0 always stored (crystallized/compressed knowledge persists)
+- No class-based filtering — field topology decides everything
 
 ## Runtime Readiness Signals
 
@@ -94,6 +134,34 @@ Persistence is two-tier:
 
 On boot, runtime restores the evolution-matched checkpoint first when present, then continues continual local learning into the working-state file.
 
+## DNA Redesign
+
+DNA is now constraints as code, not text descriptions. The constitution defines:
+
+- **genes**: executable constraint functions
+- **constraints**: named bounds and invariants
+- **bounds**: numeric limits enforced at runtime
+- **foundation concept names**: mathematical/philosophical anchors referenced by gene constraints
+
+This replaces the prior free-text `:foundational-constraints` format with machine-evaluable constraint definitions.
+
+## Dreaming Implementation
+
+The `field_dream` function performs offline concept graph maintenance:
+
+- Computes betweenness centrality for all concept nodes.
+- Prunes nodes below `dream-prune-threshold` (topologically redundant).
+- Crystallizes nodes above `dream-crystallize-threshold` (topologically irreducible).
+- Triggered by the memory heartbeat every 30 ticks.
+
+## Temporal Decay In Scoring
+
+Access scores now decay exponentially: `access × exp(-lambda × age_hours / protection)`. Configurable via `decay-lambda` (default 0.01/hour). Depth determines protection level: depth 0 decays fastest, depth 1 resists decay, depth 2+ is near-permanent.
+
+## Write Filter At Memory-Put
+
+A write filter at the `memory-put` boundary validates entries before they enter the store, enforcing structural and policy constraints at ingestion time rather than at recall.
+
 ## Gateway Signal Protocol State
 
 Gateway signals now carry two enrichment layers:
@@ -114,9 +182,9 @@ Push notifications: `lib/frontends/push` is a utility library consumed by mqtt-c
 All CFFI/cdylib/dlopen code has been fully removed. Every component communicates via IPC through ractor actors in `harmonia-runtime`.
 
 - **Transport**: Unix domain socket (`$STATE_ROOT/runtime.sock`), length-prefixed s-expressions, 0600 permissions.
-- **Actors (8)**: RuntimeSupervisor, SbclBridgeActor, GatewayActor, ChronicleActor, TailnetActor, SignalogradActor, ObservabilityActor, HarmonicMatrixActor.
+- **Actors (12)**: RuntimeSupervisor, SbclBridgeActor, GatewayActor, ChronicleActor, TailnetActor, SignalogradActor, ObservabilityActor, HarmonicMatrixActor, MemoryFieldActor, GitOpsActor, OuroborosActor, ProviderRouterActor.
 - **Supervisor restart**: All component actors are supervisor-managed. On crash, the RuntimeSupervisor automatically respawns the failed actor.
-- **IPC dispatch** (`dispatch.rs`, 689 lines): routes 50+ operations across 7 component domains — vault, config, chronicle, gateway, signalograd, tailnet, harmonic-matrix.
+- **IPC dispatch** (`dispatch.rs`): routes 50+ operations across component domains — vault, config, chronicle, gateway, signalograd, tailnet, harmonic-matrix, observability, provider-router, parallel, memory-field, git-ops, ouroboros.
 - **Gateway cleanliness**: Zero FFI remnants — no `extern "C"`, no `libloading`, no `frontend_ffi.rs`/`tool_ffi.rs`. All crates are pure rlib linked into the single binary.
 - **SBCL side**: `ipc-client.lisp` (socket transport, auto-reconnect), `ipc-ports.lisp` (typed port accessors), 14 port files all converted to IPC.
 - **Data flow**: SBCL → ipc-call → Unix socket → dispatch.rs → crate API → reply → SBCL.
@@ -236,7 +304,7 @@ All `read-from-string` calls on external data replaced with:
 - Vault writes are key-strict and encrypted at rest with AES-256-GCM.
 - Vault encryption root is derived from Harmoniis wallet slot family `vault` (legacy-compatible with `harmonia-vault`) first; explicit `HARMONIA_VAULT_MASTER_KEY` is fallback-only.
 - Secret reads are component-scoped via `get_secret_for_component(component, symbol)` with default-deny behavior for unknown components.
-- MQTT TLS lineage stores a deterministic `mqtt_tls_master_seed` derived from vault root material, and can persist client cert/key PEM in vault.
+- MQTT TLS gitop stores a deterministic `mqtt_tls_master_seed` derived from vault root material, and can persist client cert/key PEM in vault.
 
 ### Invariant Guards
 

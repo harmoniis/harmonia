@@ -23,3 +23,4 @@ harmonia-google-vertex = { version = "0.1.9", path = "../google-vertex" }
 harmonia-amazon-bedrock = { version = "0.1.9", path = "../amazon-bedrock" }
 harmonia-groq = { version = "0.1.9", path = "../groq" }
 harmonia-alibaba = { version = "0.1.9", path = "../alibaba" }
+harmonia-harmoniis = { version = "0.1.9", path = "../harmoniis" }

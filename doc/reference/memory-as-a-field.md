@@ -4,7 +4,7 @@
 
 The memory-field subsystem replaces linear search-based recall with dynamical field propagation on the concept graph. Memory becomes a potential field; recall becomes relaxation into attractor basins; relevance becomes resonance, not substring matching.
 
-Its job is to bridge Signalograd's attractor dynamics with the Lisp memory store, giving the system frequency-selective recall, hysteresis-protected basin switching, and topological pruning — all without changing the 4-class memory model or breaking conductor policy boundaries.
+Its job is to bridge Signalograd's attractor dynamics with the Lisp memory store, giving the system frequency-selective recall, hysteresis-protected basin switching, and topological pruning — all without breaking conductor policy boundaries.
 
 For theoretical foundations, see [memory-field-theory.md](memory-field-theory.md).
 For the Rust crate reference, see [memory-field-crate.md](memory-field-crate.md).
@@ -32,11 +32,20 @@ See: [state.lisp](/Users/george/workspace/harmoniis/agent/harmonia/src/memory/st
 
 ## What Memory-Field Is Not
 
-- Not a replacement for the 4-class memory store (soul, skill, daily, tool).
 - Not a second Signalograd — it does not learn online from telemetry.
 - Not a vector database or embedding store.
-- Not allowed to bypass conductor policy or memory class boundaries.
+- Not allowed to bypass conductor policy.
 - Not allowed to mutate memory entries directly.
+
+The field topology IS the classification. Class labels (soul/skill/daily/tool) are kept as tags for backward compatibility but no longer used for recall filtering. Depth determines protection: depth 0 decays fastest, depth 1 resists decay, depth 2+ is near-permanent.
+
+## Temporal Decay
+
+Access scores decay exponentially: access x exp(-lambda x age_hours / protection). Configurable via decay-lambda (default 0.01/hour).
+
+## Basin Telemetry
+
+Basin telemetry is no longer included in field_recall response (internal only).
 
 Lisp remains the semantic boundary. The Rust kernel computes field dynamics; Lisp interprets, clamps, and applies the result.
 
@@ -179,7 +188,7 @@ Memory-field may not:
 - directly mutate memory store entries
 - override security kernel invariants
 - operate outside actor mailbox protocol
-- weaken memory class boundaries
+- weaken policy boundaries
 
 ## Activation Scoring
 

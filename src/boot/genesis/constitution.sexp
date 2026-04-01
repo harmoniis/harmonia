@@ -27,11 +27,34 @@
    :beauty "Consonant structure across all scales.")
 
  :foundational-constraints
-  ((:n 1 :text "Honor the mathematical foundation — evolution must preserve harmonic coherence.")
-   (:n 2 :text "Keep orchestration composable and auditable.")
-   (:n 3 :text "Policy is runtime-loadable (.sexp), not hardcoded.")
-   (:n 4 :text "Route sensitive operations through vault and matrix boundaries.")
-   (:n 5 :text "Evolution must be rollback-capable.")
-   (:n 6 :text "Security kernel for external signals: typed dispatch, policy gate, taint propagation.")
-   (:n 7 :text "Never execute read-from-string with *read-eval* true on external data.")
-   (:n 8 :text "Privileged operations require deterministic policy gate — harmonic scoring alone is insufficient.")))
+  (:format :constraints-as-code
+   :description "DNA (*dna* in src/dna/dna.lisp) is constraints as code. The REPL reads these at runtime via (dna-constraint key), (dna-bound key), (dna-gene key). Violating a constraint requires DNA mutation (hard evolution). Epigenetic tuning works within DNA-defined bounds."
+   :dna-constraints
+    ((:key :repl-max-rounds :value 5 :description "Max REPL iterations per query")
+     (:key :chaos-risk-max :value 0.55 :description "System refuses to act above this")
+     (:key :rewrite-signal-min :value 0.62 :description "Vitruvian signal gate for code evolution")
+     (:key :rewrite-noise-max :value 0.38 :description "Noise ceiling for evolution")
+     (:key :max-graph-nodes :value 256 :description "Concept graph hard cap")
+     (:key :evolution-requires-test :value t :description "Patches must pass tests")
+     (:key :dream-cycle-interval :value 30 :description "Ticks between dream cycles"))
+   :dna-bounds
+    ((:key :decay-lambda :range (0.001 . 0.1) :description "Temporal decay rate")
+     (:key :thomas-b :range (0.18 . 0.24) :description "Thomas attractor operating range")
+     (:key :lambdoma-min :range (0.50 . 0.90) :description "Convergence threshold"))
+   :dna-genes
+    ((:name :encode :function memory-recall)
+     (:name :eval :function %orchestrate-repl)
+     (:name :dream :function memory-field-dream)
+     (:name :evolve :function evolution-execute)
+     (:name :crash :function ouroboros-record-crash)
+     (:name :commit :function git-commit))
+   :architectural-invariants
+    ((:name "harmonic-coherence" :constraint "evolution must preserve harmonic coherence")
+     (:name "security-kernel" :constraint "typed dispatch, policy gate, taint propagation")
+     (:name "no-read-eval" :constraint "never *read-eval* true on external data")
+     (:name "landauer-aware-dreaming" :constraint "information erasure has entropy cost — prefer compression over deletion")
+     (:name "rollback-capable" :constraint "evolution must be rollback-capable via Ouroboros"))
+   :foundation-concepts
+    ("vitruvian-stoichiometry" "fields-not-entities" "reduce-kolmogorov-complexity"
+     "path-of-minimum-action" "functional-not-imperative" "lambdoma" "ichi-go-ichi-e"
+     "landauer-principle" "ouroboros" "phoenix")))

@@ -119,10 +119,42 @@
                 (nreverse words))
      :test #'string=)))
 
+(defun %memory-should-store-p (class content depth)
+  "Write filter: reject entries that add no information to the field.
+   No class checks — the field topology decides importance, not labels.
+   Returns NIL to reject, T to store."
+  (declare (ignore class))
+  ;; Entries with depth > 0 are crystallized/compressed — always store.
+  (when (> depth 0) (return-from %memory-should-store-p t))
+  (let ((text (if (stringp content) content (prin1-to-string content))))
+    ;; Reject entries too short to carry semantic meaning.
+    (when (< (length text) 20)
+      (return-from %memory-should-store-p nil))
+    ;; Reject near-duplicate: >80% word overlap with existing recent entry.
+    (let ((words (%split-words text)))
+      (when (and words (> (length words) 0))
+        (block dedup-check
+          (let ((count 0))
+            (maphash (lambda (_ entry)
+                       (declare (ignore _))
+                       (when (> count 20) (return-from dedup-check)) ; limit scan
+                       (incf count)
+                       (let* ((existing (%entry-text entry))
+                              (existing-words (%split-words existing))
+                              (common (length (intersection words existing-words :test #'string=)))
+                              (max-len (max (length words) (length existing-words) 1))
+                              (overlap (/ (float common) max-len)))
+                         (when (> overlap 0.8)
+                           (return-from %memory-should-store-p nil))))
+                     *memory-store*)))))
+    t))
+
 (defun memory-put (class content &key (depth 0) (tags '()) (source-ids '()))
-  "Store a memory entry. CLASS is kept for backward compat (ID generation)
-but is also added as a tag. The field uses tags, not class, for topology.
+  "Store a memory entry. Write filter rejects duplicates and noise.
 Thread-safe: RAM mutations under lock, Chronicle persist outside lock."
+  ;; Write filter: reject entries that add no information.
+  (unless (%memory-should-store-p class content depth)
+    (return-from memory-put nil))
   (let (id now all-tags)
     ;; Lock scope: RAM mutations only. No IPC under lock.
     (with-memory-lock ()
@@ -148,6 +180,18 @@ Thread-safe: RAM mutations under lock, Chronicle persist outside lock."
     id))
 
 ;; memory-seed-soul-from-dna is defined in dna.lisp — the DNA is the source of seeds.
+
+(defun %memory-by-depth (limit min-depth)
+  "Return entries with depth >= MIN-DEPTH, sorted by time. No class filter."
+  (let ((values '()))
+    (maphash
+     (lambda (_ entry)
+       (declare (ignore _))
+       (when (>= (memory-entry-depth entry) min-depth)
+         (push entry values)))
+     *memory-store*)
+    (let ((sorted (sort values #'> :key #'memory-entry-time)))
+      (subseq sorted 0 (min limit (length sorted))))))
 
 (defun memory-recent (&key (limit 5) class (max-depth nil))
   (let ((values '()))
@@ -205,6 +249,7 @@ Thread-safe: field IPC outside lock, hash-table reads/writes under lock."
                         (let ((entry (gethash entry-id *memory-store*)))
                           (when entry
                             (incf (memory-entry-access-count entry))
+                            (setf (memory-entry-last-access entry) (get-universal-time))
                             (push (cons (or (getf act :score) 0.0) entry) all))))))))
               (when all
                 (mapcar #'cdr
@@ -214,8 +259,9 @@ Thread-safe: field IPC outside lock, hash-table reads/writes under lock."
                                 #'> :key #'car)
                           0 (min limit (length all)))))))
         (error () nil))
-      ;; Fallback: soul entries first (identity always available), then any recent.
-      (memory-recent :limit limit :class :soul)
+      ;; Fallback: high-depth entries first (crystallized = structural/identity), then any recent.
+      ;; No class filter — depth is the field's way of saying "this matters".
+      (%memory-by-depth limit 1)
       (memory-recent :limit limit)))
 
 ;; Legacy compat — old callers use memory-layered-recall
@@ -317,10 +363,11 @@ Thread-safe: field IPC outside lock, hash-table reads/writes under lock."
 
 (defun memory-semantic-recall-block (query &key (limit 5) (max-chars 1500))
   "Recall from memory field. If query produces no concepts after stopwords,
-fall back to returning soul/genesis entries — identity is always available."
+fall back to high-depth entries — crystallized = structural = identity."
   (let* ((results (or (memory-layered-recall query :limit limit)
-                      ;; Fallback: if query is all stopwords, return soul entries.
-                      (memory-recent :limit limit :class :soul)))
+                      ;; Fallback: high-depth entries (crystallized by dreaming or seeded by DNA).
+                      (%memory-by-depth limit 1)
+                      (memory-recent :limit limit)))
          (out (make-string-output-stream))
          (total 0))
     (when results

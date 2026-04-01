@@ -59,6 +59,16 @@ All config keys are resolved through config-store with the fallback chain: cache
 | `HARMONIA_LOG_LEVEL` | `global / log-level` | log verbosity (debug/info/warn/error) |
 | `HARMONIA_CHRONICLE_DB` | `chronicle / db` | override chronicle database path |
 
+## Memory-Field Config Keys
+
+| Scope | Key | Purpose |
+|---|---|---|
+| `memory-field` | `decay-lambda` | Exponential temporal decay rate for access scores (default 0.01/hour) |
+| `memory-field` | `dream-prune-threshold` | Betweenness centrality below which concept nodes are pruned during field_dream |
+| `memory-field` | `dream-crystallize-threshold` | Betweenness centrality above which concept nodes are crystallized during field_dream |
+
+Note: Class-based filtering (soul/skill/daily/tool) is no longer used for recall. Class labels are kept as backward-compatible tags. The field topology determines classification; depth determines protection level.
+
 ## Signalograd Config Keys
 
 | Scope | Key | Purpose |

@@ -6,7 +6,7 @@ Harmonia runtime is Lisp-first orchestration with Rust execution ports.
 
 - Lisp coordinates prompts, memory, model selection, routing, and loop control.
 - Rust crates provide external capabilities via `harmonia-runtime`, a single Rust binary containing all ractor actors.
-- SBCL communicates with `harmonia-runtime` over IPC (Unix domain socket at `$STATE_ROOT/runtime.sock`, length-prefixed s-expressions).
+- SBCL communicates with `harmonia-runtime` over IPC (Unix domain socket, sexp protocol). 12 component actors in SharedRegistry.
 
 ### Process Topology
 
@@ -29,7 +29,7 @@ Phoenix (harmonia-phoenix, ractor supervisor, health at 127.0.0.1:9100)
   ├─ sbcl-agent (SBCL/Common Lisp orchestrator)
   │     ├─ ipc-client.lisp        (socket transport, auto-reconnect)
   │     ├─ ipc-ports.lisp         (ipc-vault-*, ipc-config-*, etc.)
-  │     └─ 14 port files (all CFFI removed, all use IPC)
+  │     └─ 13 port files (all IPC, 12 component actors in SharedRegistry)
   │
   └─ provision-server
 ```
@@ -62,9 +62,9 @@ Boot sequence:
 5. Seed soul memory from DNA.
 6. Initialize ports in strict order:
    - vault, store, harmony-policy, model-policy,
-   - router, lineage, matrix,
+   - router, gitop, ouroboros, matrix,
    - tool-runtime, baseband frontends,
-   - swarm, evolution, chronicle, signalograd, observability.
+   - swarm, evolution, chronicle, signalograd, memory-field.
 7. Restore the evolution-matched `signalograd` checkpoint if present, otherwise continue from live working state.
 
 ## Deterministic Tick Model

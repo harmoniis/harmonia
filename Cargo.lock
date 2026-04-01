@@ -2379,6 +2379,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "harmonia-harmoniis"
+version = "0.1.9"
+dependencies = [
+ "harmonia-config-store",
+ "harmonia-provider-protocol",
+ "serde_json",
+]
+
+[[package]]
 name = "harmonia-hfetch"
 version = "0.1.9"
 dependencies = [
@@ -2598,6 +2607,7 @@ dependencies = [
  "harmonia-google-ai-studio",
  "harmonia-google-vertex",
  "harmonia-groq",
+ "harmonia-harmoniis",
  "harmonia-openai",
  "harmonia-openrouter",
  "harmonia-provider-protocol",
@@ -2653,6 +2663,7 @@ dependencies = [
  "harmonia-mqtt-client",
  "harmonia-nostr",
  "harmonia-observability",
+ "harmonia-ouroboros",
  "harmonia-parallel-agents",
  "harmonia-provider-router",
  "harmonia-push",

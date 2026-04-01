@@ -77,6 +77,10 @@ pub(crate) fn dispatch(
                 Err(e) => format!("(:error \"last-field-basin: {e}\")"),
             }
         }
+        "dream" => match harmonia_memory_field::field_dream(field) {
+            Ok(result) => result,
+            Err(e) => format!("(:error \"dream: {e}\")"),
+        },
         "reset" => match harmonia_memory_field::reset(field) {
             Ok(result) => result,
             Err(e) => format!("(:error \"reset: {e}\")"),
@@ -137,7 +141,8 @@ fn parse_memory_field_edges(sexp: &str) -> Vec<(String, String, f64, bool)> {
 }
 
 /// Parse access counts from memory-field field-recall sexp.
-fn parse_memory_field_access_counts(sexp: &str) -> Vec<(String, f64)> {
+/// Returns (concept, count, last_access_unix_time).
+fn parse_memory_field_access_counts(sexp: &str) -> Vec<(String, f64, f64)> {
     let mut counts = Vec::new();
     if let Some(start) = sexp.find(":access-counts") {
         let rest = &sexp[start + 14..];
@@ -146,8 +151,11 @@ fn parse_memory_field_access_counts(sexp: &str) -> Vec<(String, f64)> {
             let count = extract_after_keyword(chunk, ":count")
                 .and_then(|s| s.parse::<f64>().ok())
                 .unwrap_or(0.0);
+            let last_access = extract_after_keyword(chunk, ":last-access")
+                .and_then(|s| s.parse::<f64>().ok())
+                .unwrap_or(0.0);
             if !concept.is_empty() {
-                counts.push((concept, count));
+                counts.push((concept, count, last_access));
             }
         }
     }

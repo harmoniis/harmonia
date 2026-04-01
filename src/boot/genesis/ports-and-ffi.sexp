@@ -8,14 +8,12 @@
     :responsibility "Mutable non-secret runtime config")
    (:port "Router" :lisp "src/ports/router.lisp" :rust "lib/backends/llms/provider-router"
     :responsibility "Generic LLM provider router over provider adapters")
-   (:port "Lineage" :lisp "src/ports/lineage.lisp" :rust "lib/core/git-ops"
-    :responsibility "Commit/push operations")
+   (:port "GitOps" :lisp "src/ports/gitop.lisp" :rust "lib/core/git-ops"
+    :responsibility "Git operations (status, log, diff, commit, push) via IPC actor")
    (:port "Matrix" :lisp "src/ports/matrix.lisp" :rust "lib/core/harmonic-matrix"
     :responsibility "Route constraints + telemetry")
-   (:port "Tool Channel" :lisp "src/ports/tool-channel.lisp" :rust "lib/core/gateway (ToolRegistry) + lib/core/tool-channel-protocol + tool modules in harmonia-runtime"
-    :responsibility "Protocolised tool invocation via ToolVtable contract")
-   (:port "Voice Runtime" :lisp "src/ports/voice-runtime.lisp" :rust "lib/backends/voice/voice-router"
-    :responsibility "Speech-to-text and text-to-speech via voice backend routing")
+   (:port "Ouroboros" :lisp "src/ports/ouroboros.lisp" :rust "lib/core/ouroboros"
+    :responsibility "Self-healing crash ledger, patch writing, evolution lifecycle via IPC actor")
    (:port "Baseband" :lisp "src/ports/baseband.lisp" :rust "lib/core/gateway + lib/core/baseband-channel-protocol + frontend modules in harmonia-runtime"
     :responsibility "Unified command dispatch, typed Baseband Channel Protocol envelopes, channel send/status, gateway admin lifecycle")
    (:port "Swarm" :lisp "src/ports/swarm.lisp" :rust "lib/core/parallel-agents"

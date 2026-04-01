@@ -17,13 +17,16 @@
 - `Unified Command Dispatch`: gateway-level interception of ALL /commands from ALL frontends. Native Rust handlers for wallet/identity/help; Lisp callback delegation for runtime-state commands.
 - `Router`: LLM completion boundary used by orchestration.
 - `Swarm`: parallel subagent system (API tier + tmux CLI tier).
-- `Lineage`: VCS commit/push boundary for evolution provenance.
+- `GitOps`: Git operations (status, log, diff, commit, push) via IPC actor. Replaces the former `Lineage` stub.
 - `Matrix`: route-constraint and telemetry graph for allowed operations.
 
 ## Memory And Scoring
 
-- `Memory Classes`: soul, skill, daily, tool (see memory schema docs).
-- `Crystallization`: preserving high-signal memory before compression.
+- `Memory Depth`: entries at depth 0 are raw interactions (fade fastest), depth 1 are compressed/structural (resist decay), depth 2+ are identity/crystallized (near-permanent). Depth replaces the former class-based filtering (soul/skill/daily/tool labels are kept as tags but no longer used for recall filtering — field topology decides relevance).
+- `Temporal Decay`: access scores decay exponentially by recency: `access × exp(-λ × age_hours / protection)`. Structurally important nodes (high centrality, many connections) decay slower — like how you forget a phone number but remember that a poem shaped your character.
+- `Dreaming`: field self-maintenance during idle. The field propagates without a query to find its natural skeleton. Betweenness centrality identifies structural vs noise nodes. Nodes below threshold → prune. Nodes above → crystallize (promote depth). Triggered every 30 ticks by heartbeat.
+- `Write Filter`: memory-put rejects entries <20 chars or >80% word overlap with existing entries. Prevents noise from entering the field. Depth>0 always stored.
+- `Crystallization`: promoting entry depth when dreaming identifies structural importance. Preserves high-signal memory through field topology, not temporal recency.
 - `Token Harmony`: efficiency-aware extensions to harmonic scoring.
 - `Attractor`: stable dynamics target for runtime evolution.
 - `Lambdoma`: harmonic relation matrix used in theory/scoring framing.
@@ -43,10 +46,15 @@
 
 ## Recovery And Evolution
 
-- `Ouroboros`: crash/patch self-repair subsystem.
+- `Ouroboros`: self-healing crash ledger and patch writing subsystem. Fully wired as IPC actor (ComponentSlot 11). Records failures, writes patches, maintains crash history. The REPL can call `(ouroboros-history)`, `(ouroboros-crash comp detail)`, `(ouroboros-patch comp body)`.
 - `Phoenix`: supervisor lifecycle and restart/rollout guard.
+- `DNA Constraints`: hard limits defined in `*dna*` that the REPL reads at runtime. Include max-rounds, chaos-risk ceiling, vitruvian gate thresholds, graph caps. Violating a constraint requires DNA mutation (hard evolution). Epigenetic tuning (config-store, signalograd) works within DNA-defined bounds.
+- `DNA Bounds`: ranges within which epigenetic parameters can be tuned (e.g., decay-lambda 0.001..0.1, thomas-b 0.18..0.24). Going outside bounds requires DNA mutation.
+- `DNA Genes`: function references in the genome (encode, decode, eval, dream, evolve, crash, commit). Changing a gene changes the agent's behavior.
+- `Evolutionary Circuit Breaker`: component failures stored as memory entries in the field. Failure patterns accumulate in attractor basins. Dreaming can detect recurring patterns. The vitruvian gate controls when code evolution is allowed.
+- `Betweenness Centrality`: Brandes' algorithm on the concept graph — measures how many shortest paths pass through a node. High centrality = structural bridge = keep. Low centrality = redundant = prune candidate.
 - `Artifact Rollout`: evolution mode where binary rollout is signaled.
-- `Source Rewrite`: evolution mode where patch artifacts are generated/applied.
+- `Source Rewrite`: evolution mode where patch artifacts are generated/applied via Ouroboros.
 - `Rollback`: explicit recovery path after failed or harmful mutation.
 - `Snapshot Versioning`: immutable `versions/vN` plus mutable `latest` model.
 

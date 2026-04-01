@@ -53,7 +53,20 @@
    :tags (:frontier :reasoning :writing :codemode :software-dev))
   (:id "openai/gpt-5" :tier :pro :cost 9 :latency 6 :quality 10 :completion 10
    :usd-in-1k 0.005 :usd-out-1k 0.015
-   :tags (:frontier :reasoning :codemode :software-dev)))
+   :tags (:frontier :reasoning :codemode :software-dev))
+  (:id "ber1-ai/qwen3.5-27b" :tier :free :cost 0 :latency 4 :quality 7 :completion 7
+   :usd-in-1k 0.0 :usd-out-1k 0.0
+   :features (:reasoning t)
+   :native-tools (:reasoning (:enabled t :effort "high" :exclude t))
+   :tags (:free :reasoning :orchestration :software-dev :coding :planning :structured-output))
+  (:id "ber1-ai/magistral-24b" :tier :free :cost 0 :latency 5 :quality 6 :completion 6
+   :usd-in-1k 0.0 :usd-out-1k 0.0
+   :features (:reasoning t)
+   :native-tools (:reasoning (:enabled t :effort "high" :exclude t))
+   :tags (:free :reasoning :orchestration :planning :software-dev))
+  (:id "ber1-ai/nanbeige-3b" :tier :free :cost 0 :latency 1 :quality 4 :completion 4
+   :usd-in-1k 0.0 :usd-out-1k 0.0
+   :tags (:free :fast :execution :memory-ops :casual :structured-output)))
  :task-routing
  (:software-dev (:models ("anthropic/claude-opus-4.6" "anthropic/claude-sonnet-4.6"
                            "openai/gpt-5" "moonshotai/kimi-k2.5" "google/gemini-2.5-pro")
@@ -61,7 +74,7 @@
                   :openrouter-fallback t)
   :memory-ops (:models ("qwen/qwen3.5-flash-02-23" "inception/mercury-2"
                          "minimax/minimax-m2.5" "google/gemini-3.1-flash-lite-preview"
-                         "amazon/nova-micro-v1"))
+                         "amazon/nova-micro-v1" "ber1-ai/nanbeige-3b"))
   :truth-seeking (:models ("x-ai/grok-4.1-fast"
                            "google/gemini-2.5-pro"
                            "anthropic/claude-sonnet-4.6"
@@ -69,9 +82,10 @@
                   :openrouter-fallback t)
   :casual (:models ("inception/mercury-2" "qwen/qwen3.5-flash-02-23"
                      "google/gemini-3.1-flash-lite-preview" "amazon/nova-lite-v1"
-                     "qwen/qwen3-coder"))
+                     "qwen/qwen3-coder" "ber1-ai/nanbeige-3b"))
   :general (:models ("inception/mercury-2" "minimax/minimax-m2.5"
-                      "qwen/qwen3.5-flash-02-23")))
+                      "qwen/qwen3.5-flash-02-23"
+                      "ber1-ai/qwen3.5-27b" "ber1-ai/nanbeige-3b")))
  :evolution
  (:seed-models ()
   :active-provider "openrouter"
@@ -88,7 +102,8 @@
    :google-vertex ("google/gemini-3.1-flash-lite-preview" "google/gemini-2.5-pro")
    :bedrock ("amazon/nova-micro-v1" "amazon/nova-lite-v1" "amazon/nova-pro-v1")
    :groq ("qwen/qwen3-coder")
-   :alibaba ("qwen/qwen3-coder"))
+   :alibaba ("qwen/qwen3-coder")
+   :harmoniis ("ber1-ai/qwen3.5-27b" "ber1-ai/magistral-24b" "ber1-ai/nanbeige-3b"))
   :seed-weights (:price 0.35 :speed 0.20 :success 0.20 :reasoning 0.15 :vitruvian 0.10)
   :seed-min-samples 3
   :last-resort-models ("google/gemini-2.5-pro"

@@ -29,7 +29,7 @@ Harmonia is layered as a constrained orchestration system:
   - HarmonicMatrixActor — matrix topology, route constraints, telemetry
   - MemoryFieldActor — field propagation, basin monitoring, StateChanged events on basin transitions
   - VaultActor, ConfigActor, ProviderRouterActor, ParallelActor, RouterActor
-  - IPC dispatch routes to: vault, config, chronicle, gateway, signalograd, tailnet, harmonic-matrix, observability, provider-router, parallel, memory-field
+  - IPC dispatch routes to: vault, config, chronicle, gateway, signalograd, tailnet, harmonic-matrix, observability, provider-router, parallel, memory-field, git-ops, ouroboros
 - `core/phoenix`: ractor-based process supervisor, health endpoint (`127.0.0.1:9100`), pidfile management
 - `core/`: vault, gateway, matrix, recovery, forge, etc.
 - `signalograd`: tiny chaotic advisory kernel with local online learning and evolution checkpoints.

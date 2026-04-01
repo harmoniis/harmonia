@@ -49,6 +49,7 @@ fn default_component_patterns(component: &str) -> &'static [&'static str] {
         ],
         "groq-backend" => &["groq", "groq-api-key"],
         "alibaba-backend" => &["alibaba", "alibaba-api-key", "dashscope-api-key"],
+        "harmoniis-backend" => &["harmoniis", "harmoniis-api-key", "harmoniis-router-api-key"],
         "search-exa-tool" => &["exa-api-key"],
         "search-brave-tool" => &["brave-api-key"],
         "whisper-backend" => &["groq-api-key", "groq", "openai-api-key", "openai"],

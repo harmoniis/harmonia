@@ -31,9 +31,11 @@ pub enum ComponentSlot {
     Parallel = 8,
     Router = 9,
     GitOps = 10,
+    Ouroboros = 11,
+    Workspace = 12,
 }
 
-pub const NUM_SLOTS: usize = 11;
+pub const NUM_SLOTS: usize = 13;
 
 impl ComponentSlot {
     /// Map a component name to its slot. Returns None for unknown names.
@@ -50,6 +52,8 @@ impl ComponentSlot {
             "parallel" => Some(Self::Parallel),
             "router" => Some(Self::Router),
             "git-ops" => Some(Self::GitOps),
+            "ouroboros" => Some(Self::Ouroboros),
+            "workspace" => Some(Self::Workspace),
             _ => None,
         }
     }

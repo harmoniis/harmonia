@@ -15,10 +15,10 @@ This inventory follows the current Cargo workspace members in `../../Cargo.toml`
 |---|---|
 | `lib/core/runtime` | single Rust binary with all ractor actors, IPC via Unix domain socket (`$STATE_ROOT/runtime.sock`) |
 | `lib/core/phoenix` | ractor-based multi-subsystem process supervisor with health HTTP endpoint at `127.0.0.1:9100`, pidfile management |
-| `lib/core/ouroboros` | crash history + patch artifact subsystem |
+| `lib/core/ouroboros` | Self-healing crash ledger and patch writing — fully wired as IPC component (ComponentSlot 11) |
 | `lib/core/vault` | zero-knowledge secret store with encryption at rest and audit logging |
 | `lib/core/memory` | memory storage primitives |
-| `lib/core/git-ops` | commit/push lineage operations |
+| `lib/core/git-ops` | Git operations (status, log, diff, commit, push) — fully wired as IPC component (ComponentSlot 10) |
 | `lib/core/rust-forge` | runtime build/forge support |
 | `lib/core/cron-scheduler` | scheduling primitives |
 | `lib/core/recovery` | recovery ledger/event utilities |
@@ -33,7 +33,7 @@ This inventory follows the current Cargo workspace members in `../../Cargo.toml`
 | `lib/core/signal-integrity` | shared injection detection, dissonance scoring, and boundary wrapping for external data |
 | `lib/core/admin-intent` | Ed25519 signature verification for privileged admin mutations |
 | `lib/core/chronicle` | Graph-native knowledge base with time-series observability, concept graph SQL traversal, and pressure-aware GC |
-| `lib/core/tool-channel-protocol` | standardised request/result types for tool channel communication |
+| `lib/core/tool-channel-protocol` | **Deprecated.** Standardised request/result types for tool channel communication (no longer actively used) |
 | `lib/core/signalograd` | tiny chaos-computing advisory kernel with Lorenz-style reservoir dynamics, Hopfield-like attractor memory, local online learning, and evolution checkpoint persistence |
 | `lib/core/observability` | Provider-agnostic distributed tracing. ObservabilityActor is the single trace sink (fire-and-forget cast). Pluggable providers: `providers/langsmith.rs` (LangSmith REST API), `providers/otlp.rs` (OpenObserve, Jaeger, Tempo via OTLP/HTTP). Config-driven: set `backend=otlp` + `api-url` to switch. Root-span sampling (default 10%), parent-child correlation via dotted_order |
 | `lib/core/qr-terminal` | QR code terminal rendering utility for device linking |

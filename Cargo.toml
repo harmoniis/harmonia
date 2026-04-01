@@ -43,6 +43,7 @@ members = [
     "lib/backends/llms/amazon-bedrock",
     "lib/backends/llms/groq",
     "lib/backends/llms/alibaba",
+    "lib/backends/llms/harmoniis",
     "lib/backends/storage/s3",
     "lib/backends/http",
 

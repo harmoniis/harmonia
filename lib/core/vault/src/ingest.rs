@@ -41,6 +41,24 @@ pub fn ingest_env(secrets: &mut HashMap<String, String>) {
         }
     }
 
+    // Well-known provider env vars → vault symbols.
+    // These follow the standard `PROVIDER_API_KEY` naming convention.
+    let well_known = [
+        ("OPENROUTER_API_KEY", "openrouter-api-key"),
+        ("HARMONIIS_ROUTER_API_KEY", "harmoniis-api-key"),
+        ("GROQ_API_KEY", "groq-api-key"),
+        ("ANTHROPIC_API_KEY", "anthropic-api-key"),
+        ("OPENAI_API_KEY", "openai-api-key"),
+        ("XAI_API_KEY", "xai-api-key"),
+    ];
+    for (env_name, symbol) in &well_known {
+        if let Ok(value) = env::var(env_name) {
+            if !value.is_empty() && !secrets.contains_key(*symbol) {
+                secrets.insert(symbol.to_string(), value);
+            }
+        }
+    }
+
     // Generic ingest path 2: operator-provided import map, no key names hardcoded in code.
     // Format: ENV_NAME=symbol_one|symbol_two,OTHER_ENV=other_symbol
     if let Ok(spec) = env::var("HARMONIA_VAULT_IMPORT") {

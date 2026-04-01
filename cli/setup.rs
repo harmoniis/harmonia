@@ -180,6 +180,18 @@ fn llm_provider_defs() -> Vec<LlmProviderDef> {
                 default: None,
             }],
         },
+        LlmProviderDef {
+            id: "harmoniis",
+            display: "Harmoniis BER1 (self-hosted L4 GPU — free)",
+            required_command: None,
+            secrets: vec![LlmSecretDef {
+                symbol: "harmoniis-api-key",
+                prompt: "Harmoniis Router API key (HARMONIIS_ROUTER_API_KEY)",
+                is_password: true,
+                required: true,
+                default: None,
+            }],
+        },
     ]
 }
 
@@ -207,6 +219,11 @@ fn default_seed_models_for_provider(provider_id: &str) -> Vec<&'static str> {
         ],
         "groq" => vec!["qwen/qwen3-coder:free"],
         "alibaba" => vec!["qwen/qwen3-coder:free"],
+        "harmoniis" => vec![
+            "ber1-ai/qwen3.5-27b",
+            "ber1-ai/magistral-24b",
+            "ber1-ai/nanbeige-3b",
+        ],
         _ => vec![],
     }
 }
@@ -228,6 +245,7 @@ fn all_provider_seed_defaults() -> Vec<(&'static str, Vec<&'static str>)> {
         ("bedrock", default_seed_models_for_provider("bedrock")),
         ("groq", default_seed_models_for_provider("groq")),
         ("alibaba", default_seed_models_for_provider("alibaba")),
+        ("harmoniis", default_seed_models_for_provider("harmoniis")),
     ]
 }
 

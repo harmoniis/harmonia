@@ -218,6 +218,16 @@ fn hardcoded_fallback(model: &str) -> ModelCapabilities {
             }),
             ..ModelCapabilities::default()
         }
+    } else if lower.contains("ber1-ai/qwen3.5-27b") || lower.contains("ber1-ai/magistral") {
+        // BER1 reasoning models — Qwen3.5-27B and Magistral use ChatML <think> blocks
+        ModelCapabilities {
+            reasoning: Some(ReasoningConfig {
+                enabled: true,
+                effort: "high".to_string(),
+                exclude: true,
+            }),
+            ..ModelCapabilities::default()
+        }
     } else {
         ModelCapabilities::default()
     }

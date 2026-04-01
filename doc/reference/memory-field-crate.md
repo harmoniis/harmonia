@@ -17,7 +17,7 @@ It is a pure computation kernel — stateless between restarts, reconstructed fr
 ## What Memory-Field Is Not
 
 - Not a vector database or embedding store.
-- Not a replacement for the 4-class Lisp memory store.
+- Not a standalone classification system — class labels are kept as backward-compatible tags; field topology IS the classification.
 - Not a standalone attractor simulator — Lorenz remains in Signalograd.
 - Not allowed to mutate memory entries directly.
 - Not a learning system — it computes field dynamics, it does not learn from feedback.
@@ -26,12 +26,12 @@ It is a pure computation kernel — stateless between restarts, reconstructed fr
 
 | Module | Purpose |
 |--------|---------|
-| `graph.rs` | SparseGraph (CSR), build_graph, concept_index, laplacian_mul |
+| `graph.rs` | SparseGraph (CSR), build_graph, concept_index, laplacian_mul, betweenness_centrality (Brandes O(VE)) |
 | `field.rs` | Conjugate gradient solver, build_source_vector, edge_currents |
 | `spectral.rs` | Eigenmode decomposition (inverse iteration + deflation), spectral cache |
 | `attractor.rs` | Thomas, Aizawa, Halvorsen state structs and update functions |
 | `basin.rs` | Basin enum, HysteresisTracker, domain-to-basin mapping, classify functions |
-| `scoring.rs` | Activation scoring: 0.40×field + 0.30×eigenmode + 0.20×basin + 0.10×access |
+| `scoring.rs` | Activation scoring: 0.40×field + 0.30×eigenmode + 0.20×basin + 0.10×access, with temporal decay: access × exp(-lambda × age_hours / protection) |
 | `api.rs` | Public API surface (init, load_graph, recall, step, status, checkpoint) |
 | `sexp.rs` | S-expression parsing (same pattern as signalograd) |
 | `format.rs` | S-expression output formatting for field state |
@@ -170,7 +170,8 @@ Component name: `"memory-field"`
 |----|-------|--------|
 | `init` | none | `(:ok)` |
 | `load-graph` | `:nodes (...)  :edges (...)` | `(:ok :n N :edges E :spectral-recomputed BOOL)` |
-| `field-recall` | `:query-concepts (...) :access-counts (...) :limit N` | `(:ok :activations (...) :basin (...) :thomas (...))` |
+| `field-recall` | `:query-concepts (...) :access-counts (...) :limit N` | `(:ok :activations (...))` |
+| `field-dream` | none | `(:ok :pruned (...) :merged (...) :crystallized (...) :stats (:entropy-delta F ...))` |
 | `step-attractors` | none | `(:ok :thomas (...) :aizawa (...) :halvorsen (...))` |
 | `basin-status` | none | `(:ok :current BASIN :dwell N :coercive-energy F :threshold F)` |
 | `eigenmode-status` | none | `(:ok :eigenvalues (...) :spectral-version N)` |
@@ -179,6 +180,21 @@ Component name: `"memory-field"`
 | `checkpoint` | `:path "..."` | `(:ok :digest N)` |
 | `restore` | `:path "..."` | `(:ok :digest N)` |
 | `reset` | none | `(:ok)` |
+
+### field_dream
+
+The `field-dream` operation performs offline field self-maintenance guided by Landauer's principle: information erasure has entropy cost, so compression (merging) is preferred over deletion (pruning).
+
+**Algorithm**: Brandes' betweenness centrality + quiescent eigenmode projection score each node. Three outcomes:
+- **Merge** (primary, score < 0.15): entries in the same basin are compressed into one at depth+1. Information preserved, Landauer cost ≈ 0.
+- **Prune** (rare, score < 0.02 AND centrality ≈ 0): node is on no shortest paths → K(m|graph) ≈ 0 → safe to delete.
+- **Crystallize** (score > 0.80): structural skeleton entries promoted in depth, resisting future decay.
+
+Entropy delta tracked: `ΔS = Σ(pruned) landauer_cost - Σ(crystallized) compression_gain`. Healthy dreaming has ΔS ≤ 0 (net compression). Triggered by heartbeat every 30 ticks (DNA constraint: `dream-cycle-interval`).
+
+### field_recall Response
+
+The `field-recall` response now contains only `(:ok :activations (...))`. Basin and Thomas telemetry have been removed from the response (internal only).
 
 ## Persistence
 

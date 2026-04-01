@@ -82,7 +82,8 @@
             (quality (getf p :quality 1))
             (ptier (getf p :tier)))
         (when (case tier
-                (:free nil)  ;; free = CLI only, no LLM profiles
+                (:free (or (member ptier '(:micro :lite :free))
+                           (<= cost 1)))  ;; free = cheapest models + self-hosted
                 (:eco (or (member ptier '(:micro :lite))
                           (<= cost 2)))
                 (:premium (or (member ptier '(:pro :frontier :fast-smart :thinking))
@@ -100,15 +101,19 @@
 
 (defun %auto-tier-pool-from-routing-context (routing-ctx)
   "Map encoder complexity tier to model sub-pool for auto mode.
+   Always starts from free models, escalates based on complexity.
    ROUTING-CTX is the :routing plist from the signal envelope."
-  (let ((ctier (and routing-ctx (getf routing-ctx :tier))))
+  (let ((ctier (and routing-ctx (getf routing-ctx :tier)))
+        (free (%tier-model-pool :free)))
+    ;; Free models always in the pool — they're the starting point.
     (cond
-      ((and ctier (string= ctier "simple"))    (%tier-model-pool :eco))
-      ((and ctier (string= ctier "medium"))    (append (%tier-model-pool :eco)
-                                                       (%tier-model-pool :auto)))
-      ((and ctier (string= ctier "complex"))   (%tier-model-pool :premium))
-      ((and ctier (string= ctier "reasoning")) (%tier-model-pool :premium))
-      (t (%tier-model-pool :auto)))))
+      ((and ctier (string= ctier "simple"))    (append free (%tier-model-pool :eco)))
+      ((and ctier (string= ctier "medium"))    (append free (%tier-model-pool :eco)
+                                                            (%tier-model-pool :auto)))
+      ((and ctier (string= ctier "complex"))   (append free (%tier-model-pool :auto)
+                                                            (%tier-model-pool :premium)))
+      ((and ctier (string= ctier "reasoning")) (append free (%tier-model-pool :premium)))
+      (t (append free (%tier-model-pool :auto))))))
 
 (defun %seed-score-with-bias (profile bias)
   "Score like %seed-score but apply tier bias to weights first."
@@ -156,9 +161,13 @@
   (%load-routing-tier)
   (case *routing-tier*
     (:free
-     ;; Free: CLI-only chain
-     (or (%cli-chain-for-task (%task-kind prompt))
-         (list "cli:claude-code")))
+     ;; Free: cheapest models pool + CLI fallback.
+     ;; Self-hosted models (harmoniis provider) are always free.
+     (let* ((pool (%tier-model-pool :free))
+            (task (%task-kind prompt))
+            (scored (when pool (%score-and-rank-within-tier pool task)))
+            (cli (%cli-chain-for-task task)))
+       (or scored cli (list (or (first pool) "cli:claude-code")))))
     (t
      (let* ((base (%selection-chain prompt))
             (pool (if (and (eq *routing-tier* :auto) routing-ctx)
@@ -687,7 +696,12 @@
                  t)))
 
 (defun model-policy-orchestrator-model ()
-  (or (getf *model-evolution-policy* :orchestrator-model) "inception/mercury-2"))
+  "Select orchestrator model. No hardcoded model — tier pool decides.
+   Prefers free models, escalates based on available pool."
+  (or (getf *model-evolution-policy* :orchestrator-model)
+      (first (%tier-model-pool *routing-tier*))
+      (first (%tier-model-pool :auto))
+      ""))
 
 (defun model-policy-orchestrator-enabled-p ()
   (%truthy-p (getf *model-evolution-policy* :orchestrator-enabled)))

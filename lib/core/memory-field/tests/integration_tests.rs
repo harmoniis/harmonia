@@ -118,7 +118,7 @@ fn setup() -> FieldState {
 
 fn recall(s: &mut FieldState, concepts: &[&str], limit: usize) -> Vec<(String, f64)> {
     let query: Vec<String> = concepts.iter().map(|c| c.to_string()).collect();
-    let access: Vec<(String, f64)> = Vec::new();
+    let access: Vec<(String, f64, f64)> = Vec::new();
     match field_recall(s, query, access, limit) {
         Ok(result) => parse_activations(&result),
         Err(_) => Vec::new(),
@@ -437,8 +437,12 @@ fn test_26_fiedler_value_positive() {
 fn test_27_access_count_boosts_score() {
     let mut s = setup();
     let query = vec!["rust".to_string(), "code".to_string()];
-    let access_high = vec![("rust".to_string(), 0.9)];
-    let access_low = vec![("rust".to_string(), 0.1)];
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs_f64())
+        .unwrap_or(0.0);
+    let access_high = vec![("rust".to_string(), 0.9, now)];
+    let access_low = vec![("rust".to_string(), 0.1, now)];
 
     let result_high = field_recall(&mut s, query.clone(), access_high, 5).unwrap();
     let result_low = field_recall(&mut s, query, access_low, 5).unwrap();

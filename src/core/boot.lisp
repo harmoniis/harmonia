@@ -85,6 +85,9 @@
            :harmonic-matrix-time-report
            :harmonic-matrix-report
            :git-status :git-log :git-diff :git-branch :git-commit :git-push
+           :workspace-read-file :workspace-grep :workspace-list-files :workspace-file-exists-p :workspace-file-info
+           :ouroboros-record-crash :ouroboros-last-crash :ouroboros-history :ouroboros-write-patch
+           :memory-field-dream
            :chronicle-query
            :chronicle-harmony-summary
            :chronicle-delegation-report
@@ -216,6 +219,8 @@
 (%load-module (%core-path "../ports/tool-runtime.lisp") "port/tool-runtime")
 (%load-module (%core-path "../ports/baseband.lisp") "port/baseband")
 (%load-module (%core-path "../ports/swarm.lisp") "port/swarm")
+(%load-module (%core-path "../ports/workspace.lisp") "port/workspace")
+(%load-module (%core-path "../ports/ouroboros.lisp") "port/ouroboros")
 (%load-module (%core-path "../ports/evolution.lisp") "port/evolution")
 (%load-module (%core-path "../ports/chronicle.lisp") "port/chronicle")
 (%load-module (%core-path "../ports/signalograd.lisp") "port/signalograd")
@@ -319,6 +324,8 @@
   (init-router-port)
   (%log :info "router" "Initialized.")
   (init-gitop-port)
+  (init-workspace-port)
+  (init-ouroboros-port)
   (bootstrap-harmonic-matrix)
   (%log :info "matrix" "Initialized.")
   (init-tool-runtime-port)

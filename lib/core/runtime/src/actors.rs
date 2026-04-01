@@ -934,6 +934,87 @@ impl Actor for ConfigActor {
     }
 }
 
+// ── OuroborosActor ──────────────────────────────────────────────────
+
+pub struct OuroborosActor;
+
+impl Actor for OuroborosActor {
+    type Msg = ComponentMsg;
+    type State = ();
+    type Arguments = ();
+
+    async fn pre_start(
+        &self,
+        _myself: ActorRef<Self::Msg>,
+        _args: (),
+    ) -> Result<Self::State, ActorProcessingErr> {
+        eprintln!("[INFO] [runtime] OuroborosActor started");
+        Ok(())
+    }
+
+    async fn handle(
+        &self,
+        _myself: ActorRef<Self::Msg>,
+        message: Self::Msg,
+        _state: &mut Self::State,
+    ) -> Result<(), ActorProcessingErr> {
+        match message {
+            ComponentMsg::Dispatch(sexp, reply) => {
+                let result = crate::dispatch::dispatch("ouroboros", &sexp);
+                let _ = reply.send(result);
+            }
+            ComponentMsg::Shutdown => {
+                eprintln!("[INFO] [runtime] OuroborosActor shutting down");
+            }
+            ComponentMsg::Tick => {}
+        }
+        Ok(())
+    }
+}
+
+// ── WorkspaceActor ──────────────────────────────────────────────────
+
+pub struct WorkspaceActor;
+
+impl Actor for WorkspaceActor {
+    type Msg = ComponentMsg;
+    type State = ();
+    type Arguments = ();
+
+    async fn pre_start(
+        &self,
+        _myself: ActorRef<Self::Msg>,
+        _args: (),
+    ) -> Result<Self::State, ActorProcessingErr> {
+        eprintln!("[INFO] [runtime] WorkspaceActor started");
+        Ok(())
+    }
+
+    async fn handle(
+        &self,
+        _myself: ActorRef<Self::Msg>,
+        message: Self::Msg,
+        _state: &mut Self::State,
+    ) -> Result<(), ActorProcessingErr> {
+        match message {
+            ComponentMsg::Dispatch(sexp, reply) => {
+                // Spawn blocking to avoid holding the actor mailbox during file I/O.
+                let result = tokio::task::spawn_blocking(move || {
+                    crate::dispatch::dispatch("workspace", &sexp)
+                })
+                .await
+                .unwrap_or_else(|e| format!("(:error \"workspace join: {}\")", e));
+                let _ = reply.send(result);
+            }
+            ComponentMsg::Shutdown => {
+                eprintln!("[INFO] [runtime] WorkspaceActor shutting down");
+            }
+            ComponentMsg::Tick => {}
+        }
+        Ok(())
+    }
+}
+
 // ── GitOpsActor ─────────────────────────────────────────────────────
 
 pub struct GitOpsActor;
@@ -973,6 +1054,12 @@ impl Actor for GitOpsActor {
 }
 
 // ── ProviderRouterActor ─────────────────────────────────────────────
+//
+// LLM provider calls involve blocking HTTP I/O (curl → API → response).
+// We offload dispatch to tokio's blocking thread pool via spawn_blocking
+// so the actor's async worker thread stays free for concurrent messages.
+// This allows the agent to invoke multiple models in parallel (e.g.
+// reasoning + subagent) without stalling the actor mailbox.
 
 pub struct ProviderRouterActor;
 
@@ -998,7 +1085,16 @@ impl Actor for ProviderRouterActor {
     ) -> Result<(), ActorProcessingErr> {
         match message {
             ComponentMsg::Dispatch(sexp, reply) => {
-                let result = crate::dispatch::dispatch("provider-router", &sexp);
+                // Offload blocking HTTP/FFI to the blocking thread pool.
+                // The actor thread returns immediately and can process
+                // the next message while this call is in flight.
+                let result = tokio::task::spawn_blocking(move || {
+                    crate::dispatch::dispatch("provider-router", &sexp)
+                })
+                .await
+                .unwrap_or_else(|e| {
+                    format!("(:error \"provider-router dispatch panicked: {}\")", e)
+                });
                 let _ = reply.send(result);
             }
             ComponentMsg::Shutdown => {
@@ -1011,6 +1107,10 @@ impl Actor for ProviderRouterActor {
 }
 
 // ── ParallelActor ───────────────────────────────────────────────────
+//
+// Parallel agent execution dispatches multiple LLM calls concurrently
+// via fire-and-forget thread workers. The dispatch itself may block
+// briefly on state coordination, so we offload to the blocking pool.
 
 pub struct ParallelActor;
 
@@ -1036,7 +1136,13 @@ impl Actor for ParallelActor {
     ) -> Result<(), ActorProcessingErr> {
         match message {
             ComponentMsg::Dispatch(sexp, reply) => {
-                let result = crate::dispatch::dispatch("parallel", &sexp);
+                let result = tokio::task::spawn_blocking(move || {
+                    crate::dispatch::dispatch("parallel", &sexp)
+                })
+                .await
+                .unwrap_or_else(|e| {
+                    format!("(:error \"parallel dispatch panicked: {}\")", e)
+                });
                 let _ = reply.send(result);
             }
             ComponentMsg::Shutdown => {

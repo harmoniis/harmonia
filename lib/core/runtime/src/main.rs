@@ -212,6 +212,26 @@ async fn main() {
     .expect("failed to spawn GitOpsActor")
     .0;
 
+    let workspace_ref = Actor::spawn_linked(
+        Some("workspace".to_string()),
+        actors::WorkspaceActor,
+        (),
+        supervisor_ref.get_cell(),
+    )
+    .await
+    .expect("failed to spawn WorkspaceActor")
+    .0;
+
+    let ouroboros_ref = Actor::spawn_linked(
+        Some("ouroboros".to_string()),
+        actors::OuroborosActor,
+        (),
+        supervisor_ref.get_cell(),
+    )
+    .await
+    .expect("failed to spawn OuroborosActor")
+    .0;
+
     let provider_router_ref = Actor::spawn_linked(
         Some("provider-router".to_string()),
         actors::ProviderRouterActor,
@@ -300,6 +320,8 @@ async fn main() {
     component_registry::register(&registry, "parallel", parallel_ref.clone());
     component_registry::register(&registry, "router", router_ref.clone());
     component_registry::register(&registry, "git-ops", git_ops_ref.clone());
+    component_registry::register(&registry, "ouroboros", ouroboros_ref.clone());
+    component_registry::register(&registry, "workspace", workspace_ref.clone());
 
     // 8. Readiness gate — IPC server waits until all actors are registered
     let ready = Arc::new(Notify::new());

@@ -4,7 +4,7 @@
 
 Harmonia evolution is the combination of:
 
-1. `Genomic constraints` (identity, constitution, non-negotiable rules).
+1. `Genomic constraints` (identity, constitution, non-negotiable rules). DNA is now constraints as code: genes, constraints, bounds, and foundation concept names — machine-evaluable, not text descriptions.
 2. `Epigenetic mutation` (runtime policies, routes, swarm behavior, rewrite outputs).
 3. `Versioned memory` (snapshots and changelog/score trajectories).
 
@@ -26,7 +26,7 @@ Primary conceptual source: `../genesis/concepts.md`.
 | `src/core/evolution-versioning.lisp` | snapshot version management |
 | `src/core/signalograd.lisp` | adaptive checkpoint/restore orchestration tied to accepted evolution versions |
 | `src/ports/evolution.lisp` | mode dispatch + rollback hooks |
-| `lib/core/ouroboros` | crash history and patch artifact APIs |
+| `lib/core/ouroboros` | Self-healing crash ledger and patch writing — fully wired as IPC component (ComponentSlot 11) |
 | `lib/core/phoenix` | supervisor-level restart/rollout control |
 | `lib/core/recovery` | canonical crash/restart ledger substrate |
 | `lib/core/signalograd` | compact adaptive model whose checkpoint artifact travels with accepted evolution |

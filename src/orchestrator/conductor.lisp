@@ -779,7 +779,12 @@ CONTEXT END")))
   prompt)
 
 (defun %select-model (prompt)
-  (choose-model prompt))
+  "Select model by REPL performance first, fall back to choose-model.
+   No hardcoded models — measured fluency, speed, and cost decide."
+  (let ((repl-pick (ignore-errors (%select-model-by-repl-perf prompt))))
+    (if (and repl-pick (stringp repl-pick) (> (length repl-pick) 0))
+        repl-pick
+        (choose-model prompt))))
 
 ;;; --- Wave 2.1: Boundary-wrap external data in prompt assembly ---
 

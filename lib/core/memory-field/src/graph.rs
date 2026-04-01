@@ -155,6 +155,73 @@ pub(crate) fn build_graph(
     }
 }
 
+/// Brandes' algorithm for betweenness centrality on the CSR graph.
+/// Returns normalized centrality [0, 1] per node.
+/// O(V × E) — fast for N ≤ 256.
+pub(crate) fn betweenness_centrality(graph: &SparseGraph) -> Vec<f64> {
+    let n = graph.n;
+    if n <= 2 {
+        return vec![0.0; n];
+    }
+
+    let mut bc = vec![0.0_f64; n];
+
+    for s in 0..n {
+        // BFS from s.
+        let mut stack: Vec<usize> = Vec::with_capacity(n);
+        let mut pred: Vec<Vec<usize>> = vec![Vec::new(); n];
+        let mut sigma = vec![0.0_f64; n]; // Number of shortest paths.
+        sigma[s] = 1.0;
+        let mut dist = vec![-1_i64; n];
+        dist[s] = 0;
+        let mut queue = std::collections::VecDeque::with_capacity(n);
+        queue.push_back(s);
+
+        while let Some(v) = queue.pop_front() {
+            stack.push(v);
+            let start = graph.row_ptr[v];
+            let end = graph.row_ptr[v + 1];
+            for idx in start..end {
+                let w = graph.col_idx[idx];
+                // First visit?
+                if dist[w] < 0 {
+                    dist[w] = dist[v] + 1;
+                    queue.push_back(w);
+                }
+                // Shortest path via v?
+                if dist[w] == dist[v] + 1 {
+                    sigma[w] += sigma[v];
+                    pred[w].push(v);
+                }
+            }
+        }
+
+        // Accumulate dependencies.
+        let mut delta = vec![0.0_f64; n];
+        while let Some(w) = stack.pop() {
+            for &v in &pred[w] {
+                delta[v] += (sigma[v] / sigma[w]) * (1.0 + delta[w]);
+            }
+            if w != s {
+                bc[w] += delta[w];
+            }
+        }
+    }
+
+    // Normalize: undirected graph, divide by (n-1)(n-2)/2.
+    let norm = if n > 2 {
+        ((n - 1) * (n - 2)) as f64 / 2.0
+    } else {
+        1.0
+    };
+    for v in bc.iter_mut() {
+        *v /= norm;
+        if *v > 1.0 { *v = 1.0; }
+    }
+
+    bc
+}
+
 /// Look up a concept's node index via binary search.
 pub(crate) fn concept_index(graph: &SparseGraph, concept: &str) -> Option<usize> {
     concept_index_in(&graph.concept_to_index, concept)

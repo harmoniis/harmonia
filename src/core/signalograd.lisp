@@ -319,6 +319,28 @@
           :decor-density (or (and telemetry (getf telemetry :decor-density)) 0.0)
           :user-affinity (%presentation-user-affinity runtime))))
 
+(defun %signalograd-repl-fluency ()
+  "Average REPL fluency across all models with data. Feeds into signalograd observation."
+  (let ((sum 0.0) (count 0))
+    (when (boundp '*repl-model-perf*)
+      (maphash (lambda (model _perf)
+                 (declare (ignore _perf))
+                 (incf sum (%repl-fluency model))
+                 (incf count))
+               *repl-model-perf*))
+    (if (> count 0) (/ sum count) 0.5)))
+
+(defun %signalograd-repl-speed ()
+  "Average REPL speed across all models with data."
+  (let ((sum 0.0) (count 0))
+    (when (boundp '*repl-model-perf*)
+      (maphash (lambda (model _perf)
+                 (declare (ignore _perf))
+                 (incf sum (%repl-speed model))
+                 (incf count))
+               *repl-model-perf*))
+    (if (> count 0) (/ sum count) 0.5)))
+
 (defun %signalograd-observation-sexp (ctx &optional (runtime *runtime*))
   (let* ((global (getf ctx :global))
          (local (getf ctx :local))
@@ -374,7 +396,10 @@
      :presentation-self-reference (getf presentation :self-reference)
      :presentation-decor-density (getf presentation :decor-density)
      :presentation-user-affinity (getf presentation :user-affinity)
-     :route-tier (symbol-name (or *routing-tier* :auto)))))
+     :route-tier (symbol-name (or *routing-tier* :auto))
+     ;; REPL model fluency — how well the current model speaks s-expressions.
+     :repl-fluency (%signalograd-repl-fluency)
+     :repl-speed (%signalograd-repl-speed))))
 
 (defun %signalograd-feedback-plist (ctx &optional (runtime *runtime*))
   (let* ((projection (%signalograd-projection runtime))

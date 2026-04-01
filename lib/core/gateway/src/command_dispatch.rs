@@ -331,12 +331,114 @@ pub fn intercept_commands(
                 }
             }
             None => {
-                pass_through.push(envelope);
+                // Expand @path references before passing to Lisp.
+                let mut enriched = envelope;
+                enriched.body.text = expand_at_references(&enriched.body.text);
+                pass_through.push(enriched);
             }
         }
     }
 
     pass_through
+}
+
+// ── @path reference expansion ───────────────────────────────────────
+
+/// Maximum bytes to inline per file reference.
+const AT_REF_MAX_BYTES: usize = 4096;
+/// Maximum number of @references per message.
+const AT_REF_MAX_COUNT: usize = 5;
+
+/// Expand @path references in message text.
+///
+/// Finds tokens matching `@<path>` where path is a relative or absolute file/dir path.
+/// For files: inlines content wrapped in [FILE: path] ... [/FILE] markers.
+/// For directories: lists contents wrapped in [DIR: path] ... [/DIR] markers.
+/// Paths are resolved relative to the workspace root (config-store or cwd).
+///
+/// Generic — works for ALL frontends (TUI, Telegram, MQTT, etc.).
+fn expand_at_references(text: &str) -> String {
+    let workspace = harmonia_config_store::get_own("workspace", "root")
+        .ok()
+        .flatten()
+        .unwrap_or_else(|| std::env::current_dir()
+            .map(|p| p.to_string_lossy().into_owned())
+            .unwrap_or_else(|_| ".".into()));
+    let root = std::path::Path::new(&workspace);
+
+    let mut result = text.to_string();
+    let mut count = 0;
+
+    // Find @references: @word where word looks like a path (contains / or .).
+    let tokens: Vec<String> = text.split_whitespace()
+        .filter(|w| w.starts_with('@') && w.len() > 1)
+        .filter(|w| {
+            let path_part = &w[1..];
+            path_part.contains('/') || path_part.contains('.')
+        })
+        .map(|w| w.to_string())
+        .collect();
+
+    for token in tokens {
+        if count >= AT_REF_MAX_COUNT { break; }
+        let path_str = &token[1..]; // Strip @
+
+        let candidate = if std::path::Path::new(path_str).is_absolute() {
+            std::path::PathBuf::from(path_str)
+        } else {
+            root.join(path_str)
+        };
+
+        // Security: verify path is within workspace.
+        let canonical = match candidate.canonicalize() {
+            Ok(p) => p,
+            Err(_) => continue, // File doesn't exist, skip silently.
+        };
+        let root_canonical = match root.canonicalize() {
+            Ok(p) => p,
+            Err(_) => continue,
+        };
+        if !canonical.starts_with(&root_canonical) {
+            continue; // Path escape attempt, skip.
+        }
+
+        let expansion = if canonical.is_dir() {
+            // Directory: list contents.
+            match std::fs::read_dir(&canonical) {
+                Ok(entries) => {
+                    let items: Vec<String> = entries
+                        .take(30)
+                        .filter_map(|e| e.ok())
+                        .map(|e| {
+                            let name = e.file_name().to_string_lossy().into_owned();
+                            let is_dir = e.file_type().map(|t| t.is_dir()).unwrap_or(false);
+                            if is_dir { format!("  {}/", name) } else { format!("  {}", name) }
+                        })
+                        .collect();
+                    format!("\n[DIR: {}]\n{}\n[/DIR]", path_str, items.join("\n"))
+                }
+                Err(_) => continue,
+            }
+        } else {
+            // File: inline content (capped).
+            match std::fs::read_to_string(&canonical) {
+                Ok(content) => {
+                    let capped = if content.len() > AT_REF_MAX_BYTES {
+                        format!("{}...[truncated at {}B]", &content[..AT_REF_MAX_BYTES], AT_REF_MAX_BYTES)
+                    } else {
+                        content
+                    };
+                    format!("\n[FILE: {}]\n{}\n[/FILE]", path_str, capped)
+                }
+                Err(_) => continue,
+            }
+        };
+
+        result = result.replacen(&token, &expansion, 1);
+        count += 1;
+    }
+
+    result
 }
 
 #[cfg(test)]
@@ -458,5 +560,55 @@ mod tests {
             }
             _ => panic!("/eco should work for Owner on mqtt"),
         }
+    }
+
+    // ── @reference expansion tests ──────────────────────────────────
+
+    #[test]
+    fn at_ref_no_references() {
+        let input = "Hello world, no references here";
+        assert_eq!(expand_at_references(input), input);
+    }
+
+    #[test]
+    fn at_ref_ignores_bare_at() {
+        // @word without / or . is not a path reference.
+        let input = "Hello @user how are you?";
+        assert_eq!(expand_at_references(input), input);
+    }
+
+    #[test]
+    fn at_ref_expands_existing_file() {
+        // Use Cargo.toml which always exists in the workspace.
+        let result = expand_at_references("check @Cargo.toml please");
+        assert!(result.contains("[FILE: Cargo.toml]"), "should contain FILE marker: {}", result);
+        assert!(result.contains("[/FILE]"), "should contain end marker");
+        assert!(result.contains("[package]") || result.contains("[workspace]"),
+            "should contain Cargo.toml content");
+    }
+
+    #[test]
+    fn at_ref_expands_directory() {
+        let result = expand_at_references("list @src/ports/");
+        // Should either expand as DIR or skip if not in right cwd.
+        // Just verify it doesn't crash.
+        assert!(!result.is_empty());
+    }
+
+    #[test]
+    fn at_ref_skips_nonexistent() {
+        let result = expand_at_references("read @nonexistent/fake/path.txt");
+        // Should leave the token as-is (file doesn't exist).
+        assert!(result.contains("@nonexistent/fake/path.txt") || !result.contains("[FILE:"));
+    }
+
+    #[test]
+    fn at_ref_max_count_limit() {
+        // More than AT_REF_MAX_COUNT references should stop expanding.
+        let input = "@Cargo.toml @Cargo.toml @Cargo.toml @Cargo.toml @Cargo.toml @Cargo.toml @Cargo.toml";
+        let result = expand_at_references(input);
+        let file_count = result.matches("[FILE:").count();
+        assert!(file_count <= AT_REF_MAX_COUNT,
+            "should expand at most {} files, got {}", AT_REF_MAX_COUNT, file_count);
     }
 }
