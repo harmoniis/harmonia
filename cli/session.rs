@@ -81,6 +81,11 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
         }
     }
 
+    // Initialize repl-status path from data dir (same root the daemon uses).
+    if let Ok(data_dir) = crate::paths::data_dir() {
+        init_repl_status_path(&data_dir.to_string_lossy());
+    }
+
     let stream = UnixStream::connect(&socket_path)
         .map_err(|e| format!("cannot connect to session service — is it running? ({})", e))?;
 
@@ -1617,16 +1622,17 @@ fn show_thinking_spinner_with_input(
     }
 }
 
+/// Cached state root — set once at session start, used by spinner.
+static REPL_STATUS_PATH: std::sync::OnceLock<std::path::PathBuf> = std::sync::OnceLock::new();
+
+fn init_repl_status_path(state_root: &str) {
+    let _ = REPL_STATUS_PATH.set(std::path::PathBuf::from(state_root).join("repl-status.txt"));
+}
+
 fn read_repl_status() -> String {
-    let default_root = dirs::data_dir()
-        .unwrap_or_else(|| std::path::PathBuf::from("/tmp"))
-        .join("harmoniis/harmonia");
-    let state_root = harmonia_config_store::get_config_or(
-        "harmonia-runtime", "global", "state-root",
-        &default_root.to_string_lossy(),
-    ).unwrap_or_else(|_| default_root.to_string_lossy().into());
-    let path = std::path::Path::new(&state_root).join("repl-status.txt");
-    std::fs::read_to_string(path).unwrap_or_default()
+    REPL_STATUS_PATH.get()
+        .and_then(|p| std::fs::read_to_string(p).ok())
+        .unwrap_or_default()
 }
 
 fn draw_spinner_line(row: u16, dot: &str, has_queued: bool) {
@@ -2731,6 +2737,7 @@ fn query_tui_runtime_modules() -> Result<Vec<(String, String, String)>, Box<dyn 
     let state_root =
         harmonia_config_store::get_config_or("harmonia-runtime", "global", "state-root", &default)
             .unwrap_or(default);
+    init_repl_status_path(&state_root);
     let sock_path = std::path::PathBuf::from(state_root).join("runtime.sock");
     if !sock_path.exists() {
         return Err("runtime socket not found".into());
