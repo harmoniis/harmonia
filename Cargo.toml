@@ -127,6 +127,7 @@ harmonia-transport-auth = { version = "0.1.9", path = "lib/core/transport-auth" 
 harmonia-tailnet = { version = "0.1.9", path = "lib/core/tailnet" }
 harmonia-node-rpc = { version = "0.1.9", path = "lib/core/node-rpc" }
 harmonia-qr-terminal = { version = "0.1.9", path = "lib/core/qr-terminal" }
+harmonia-tui = { version = "0.1.9", path = "lib/frontends/tui" }
 harmonia-whatsapp = { version = "0.1.9", path = "lib/frontends/whatsapp" }
 harmonia-signal = { version = "0.1.1", path = "lib/frontends/signal" }
 rusqlite = { version = "0.37", features = ["bundled"] }

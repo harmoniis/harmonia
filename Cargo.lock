@@ -2175,6 +2175,7 @@ dependencies = [
  "harmonia-signal",
  "harmonia-tailnet",
  "harmonia-transport-auth",
+ "harmonia-tui",
  "harmonia-vault",
  "harmonia-whatsapp",
  "indicatif",
@@ -2831,10 +2832,14 @@ dependencies = [
 name = "harmonia-tui"
 version = "0.1.9"
 dependencies = [
+ "console",
  "crossterm",
+ "ctrlc",
  "dirs",
  "harmonia-config-store",
  "libc",
+ "serde_json",
+ "unicode-width",
 ]
 
 [[package]]

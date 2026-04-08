@@ -51,6 +51,7 @@ pub(crate) fn execute_help(_args: &str) -> String {
         kv("/security posture", "Current posture details"),
         kv("/security errors", "Recent errors from error ring"),
         kv("/feedback <note>", "Record human feedback"),
+        kv("/policies", "Channel sender policies"),
         kv("/exit", "Exit the TUI session (TUI only)"),
         String::new(),
         "Gateway-native (Rust):".to_string(),

@@ -1045,19 +1045,19 @@ fn read_input_line(
     result
 }
 
+/// Autocomplete hints for the TUI input box.
+/// Command EXECUTION is handled by the gateway (for most commands) or TUI-local
+/// (for /clear, /session, /resume, /rewind, /log, /menu, /pair).
+/// This list is a display aid only — the gateway is the source of truth for
+/// what commands exist and how they behave.
 const SLASH_COMMANDS: &[(&str, &str)] = &[
+    // Gateway-handled commands
     ("/help", "Show this help"),
     ("/exit", "Exit session"),
-    ("/clear", "New session, clear screen"),
-    ("/resume", "Resume a past session"),
-    ("/rewind", "Rewind to a previous turn"),
     ("/status", "System health + subsystems"),
-    ("/providers", "Active providers by category"),
+    ("/backends", "Active backends by category"),
     ("/tools", "Registered tools"),
-    ("/session", "Current session info"),
     ("/frontends", "Setup and pair frontends"),
-    ("/log", "Recent log entries"),
-    ("/menu", "Interactive menu"),
     ("/chronicle", "Chronicle event query"),
     ("/metrics", "Runtime metrics"),
     ("/security", "Security posture"),
@@ -1065,6 +1065,17 @@ const SLASH_COMMANDS: &[(&str, &str)] = &[
     ("/identity", "Agent identity"),
     ("/wallet", "Wallet/vault status"),
     ("/policies", "Channel sender policies"),
+    ("/auto", "Intelligent routing (default)"),
+    ("/eco", "Cost-optimized routing"),
+    ("/premium", "Quality-optimized routing"),
+    ("/free", "Zero-cost routing (local CLI only)"),
+    ("/route", "Current routing status"),
+    // TUI-local commands
+    ("/clear", "New session, clear screen"),
+    ("/resume", "Resume a past session"),
+    ("/rewind", "Rewind to a previous turn"),
+    ("/session", "Current session info"),
+    ("/log", "Recent log entries"),
 ];
 
 const SLASH_MENU_MAX: usize = 8;
@@ -1826,21 +1837,17 @@ fn handle_command(
     cmd: &str,
     term: &Term,
     stdout: &mut std::io::Stdout,
-    writer: &mut UnixStream,
-    waiting: &Arc<AtomicBool>,
-    running: &Arc<AtomicBool>,
-    reader_alive: &Arc<AtomicBool>,
-    response_buf: &Arc<Mutex<Vec<String>>>,
-    assistant_label: &str,
+    _writer: &mut UnixStream,
+    _waiting: &Arc<AtomicBool>,
+    _running: &Arc<AtomicBool>,
+    _reader_alive: &Arc<AtomicBool>,
+    _response_buf: &Arc<Mutex<Vec<String>>>,
+    _assistant_label: &str,
     session: &crate::paths::SessionPaths,
 ) -> CommandResult {
     let base = cmd.split_whitespace().next().unwrap_or("");
     match base {
-        // ── TUI-local commands ──
-        "/help" | "/h" | "/?" => {
-            print_help();
-            CommandResult::Handled
-        }
+        // ── TUI-local commands (session-local / terminal-local) ──
         "/session" => {
             print_session_summary(session);
             CommandResult::Handled
@@ -1908,32 +1915,16 @@ fn handle_command(
             }
         }
 
-        // ── Channel sender policies ──
-        "/policies" => {
-            if let Err(e) = run_policies_flow(stdout, session) {
-                eprintln!("\n  {RED}Policies error: {}{RESET}", e);
-            }
+        // ── Interactive menu (TUI navigation aid) ──
+        "/menu" | "/m" => {
+            eprintln!("\n  {DIM}Use slash commands directly. /help for available commands.{RESET}\n");
             CommandResult::Handled
         }
 
-        // ── Interactive menu ──
-        "/menu" | "/m" => match run_menu_flow(
-            stdout,
-            writer,
-            waiting,
-            running,
-            reader_alive,
-            response_buf,
-            assistant_label,
-        ) {
-            Ok(()) => CommandResult::Handled,
-            Err(_) => CommandResult::Handled,
-        },
-
-        // ── Device pairing ──
+        // ── Device pairing (TUI-local interactive flow) ──
         "/pair" | "/link" => {
             eprintln!(
-                "\n  {DIM}Use Frontends from /menu. /pair is a compatibility alias.{RESET}\n"
+                "\n  {DIM}Use /frontends from /menu. /pair is a compatibility alias.{RESET}\n"
             );
             match crate::paths::current_node_identity() {
                 Ok(node_identity) => {
@@ -1950,141 +1941,28 @@ fn handle_command(
             CommandResult::Handled
         }
 
-        "/frontends" => {
-            match crate::paths::current_node_identity() {
-                Ok(node_identity) => {
-                    if let Err(e) =
-                        crate::frontend_pairing::run_pairing_menu(stdout, &node_identity)
-                    {
-                        eprintln!("\n  {RED}Frontend error: {}{RESET}", e);
-                    }
+        // ── Everything else: delegate to the gateway ──
+        // Gateway handles: /help, /status, /backends, /providers, /frontends,
+        // /tools, /chronicle, /metrics, /security, /identity, /feedback,
+        // /wallet, /policies, /auto, /eco, /premium, /free, /route, /exit
+        // Unknown commands pass through to the agent as prompts.
+        _ if base.starts_with('/') => {
+            // Remap TUI aliases to gateway-canonical names
+            let canonical = match base {
+                "/h" | "/?" => "/help".to_string(),
+                "/providers" => {
+                    // /providers -> /backends (gateway name)
+                    cmd.replacen("/providers", "/backends", 1)
                 }
-                Err(e) => {
-                    eprintln!("\n  {RED}Cannot load node identity: {}{RESET}", e);
-                }
-            }
-            CommandResult::Handled
+                _ => cmd.to_string(),
+            };
+            CommandResult::SendToAgent(canonical)
         }
-
-        // ── Status (handled locally for proper formatting) ──
-        "/status" => {
-            print_status();
-            CommandResult::Handled
-        }
-
-        // ── Providers (handled locally) ──
-        "/providers" | "/backends" => {
-            print_providers();
-            CommandResult::Handled
-        }
-
-        // ── System commands (sent to daemon) ──
-        "/tools" | "/chronicle" | "/metrics" | "/security" | "/identity" | "/feedback"
-        | "/wallet" => CommandResult::SendToAgent(cmd.to_string()),
 
         _ => CommandResult::SessionText,
     }
 }
 
-fn run_menu_flow(
-    stdout: &mut std::io::Stdout,
-    writer: &mut UnixStream,
-    waiting: &Arc<AtomicBool>,
-    running: &Arc<AtomicBool>,
-    reader_alive: &Arc<AtomicBool>,
-    response_buf: &Arc<Mutex<Vec<String>>>,
-    assistant_label: &str,
-) -> Result<(), Box<dyn std::error::Error>> {
-    let mut menu_stack: Vec<String> = vec!["main".to_string()];
-
-    loop {
-        if !running.load(Ordering::Relaxed) {
-            break;
-        }
-
-        let current = menu_stack.last().unwrap().clone();
-        let (title, items) = match current.as_str() {
-            "main" => ("Harmonia Session", crate::menus::main_menu_items()),
-            other => {
-                if let Some((t, items)) = crate::menus::submenu_items(other) {
-                    (t, items)
-                } else {
-                    break;
-                }
-            }
-        };
-
-        match crate::menus::interactive_select(stdout, title, &items)? {
-            crate::menus::MenuAction::Command(cmd) => {
-                if cmd.starts_with("action:") {
-                    // Handle built-in actions that don't go through the daemon
-                    match cmd.as_str() {
-                        "action:pair-frontend" => {
-                            let node_identity = crate::paths::current_node_identity()?;
-                            if let Err(e) =
-                                crate::frontend_pairing::run_pairing_menu(stdout, &node_identity)
-                            {
-                                eprintln!("\n  {RED}Pairing error: {}{RESET}", e);
-                                eprintln!("  {DIM}Press any key to continue...{RESET}\n");
-                                let _ = crossterm::terminal::enable_raw_mode();
-                                let _ = crossterm::event::read();
-                                let _ = crossterm::terminal::disable_raw_mode();
-                            }
-                        }
-                        "action:resume-session" => {
-                            let node_identity = crate::paths::current_node_identity()?;
-                            let dummy_session = crate::paths::create_session(&node_identity)?;
-                            match run_resume_flow(stdout, &dummy_session, &node_identity) {
-                                Ok(true) => {
-                                    eprintln!(
-                                        "\n  {BOLD_CYAN}◆{RESET} Session history loaded.{RESET}\n"
-                                    );
-                                }
-                                Ok(false) => {} // cancelled
-                                Err(e) => {
-                                    eprintln!("\n  {RED}Resume error: {}{RESET}\n", e);
-                                }
-                            }
-                        }
-                        act if act.starts_with("action:policy-") => {
-                            let frontend = &act["action:policy-".len()..];
-                            if let Err(e) = run_policy_frontend_menu(stdout, frontend) {
-                                eprintln!("\n  {RED}Policy error: {}{RESET}\n", e);
-                            }
-                        }
-                        _ => {}
-                    }
-                } else {
-                    // Send command to daemon
-                    eprintln!();
-                    eprintln!("  {DIM}→ {}{RESET}", cmd);
-                    send_to_daemon(writer, &cmd, waiting, running)?;
-
-                    // Wait for response, then render buffered output
-                    let _ = show_thinking_spinner_with_input(waiting, running, reader_alive);
-                    render_buffered_response(response_buf, assistant_label);
-                }
-
-                // Stay in menu for another selection
-            }
-            crate::menus::MenuAction::SubMenu(name) => {
-                menu_stack.push(name);
-            }
-            crate::menus::MenuAction::Back => {
-                if menu_stack.len() > 1 {
-                    menu_stack.pop();
-                } else {
-                    break;
-                }
-            }
-            crate::menus::MenuAction::Cancel => {
-                break;
-            }
-        }
-    }
-
-    Ok(())
-}
 
 /// Returns true if session was switched (caller should reconnect), false if cancelled.
 fn run_resume_flow(
@@ -2339,616 +2217,6 @@ fn replay_session_history(session: &crate::paths::SessionPaths, node_label: &str
     eprintln!();
 }
 
-const MESSAGING_FRONTENDS: &[(&str, &str)] = &[
-    ("email", "Email"),
-    ("signal", "Signal"),
-    ("whatsapp", "WhatsApp"),
-    ("imessage", "iMessage"),
-    ("slack", "Slack"),
-    ("discord", "Discord"),
-    ("mattermost", "Mattermost"),
-    ("telegram", "Telegram"),
-    ("nostr", "Nostr"),
-];
-
-fn run_policies_flow(
-    stdout: &mut std::io::Stdout,
-    _session: &crate::paths::SessionPaths,
-) -> Result<(), Box<dyn std::error::Error>> {
-    let items: Vec<crate::menus::MenuItem> = MESSAGING_FRONTENDS
-        .iter()
-        .map(|(key, label)| {
-            crate::menus::MenuItem::new(
-                label,
-                &format!("action:policy-{}", key),
-                &format!("{} sender allowlist", label),
-            )
-        })
-        .collect();
-
-    loop {
-        match crate::menus::interactive_select(stdout, "Sender Policies", &items)? {
-            crate::menus::MenuAction::Command(cmd) => {
-                if let Some(frontend) = cmd.strip_prefix("action:policy-") {
-                    run_policy_frontend_menu(stdout, frontend)?;
-                }
-            }
-            crate::menus::MenuAction::Back | crate::menus::MenuAction::Cancel => break,
-            _ => {}
-        }
-    }
-    Ok(())
-}
-
-fn run_policy_frontend_menu(
-    stdout: &mut std::io::Stdout,
-    frontend: &str,
-) -> Result<(), Box<dyn std::error::Error>> {
-    let display_name = MESSAGING_FRONTENDS
-        .iter()
-        .find(|(k, _)| *k == frontend)
-        .map(|(_, v)| *v)
-        .unwrap_or(frontend);
-
-    loop {
-        let items = vec![
-            crate::menus::MenuItem::new(
-                "List allowed senders",
-                "action:list",
-                "Show current allowlist",
-            ),
-            crate::menus::MenuItem::new(
-                "Add allowed sender",
-                "action:add",
-                "Add a sender to the allowlist",
-            ),
-            crate::menus::MenuItem::new(
-                "Remove allowed sender",
-                "action:remove",
-                "Remove a sender from the allowlist",
-            ),
-            crate::menus::MenuItem::new(
-                "Allow all (not recommended)",
-                "action:allow-all",
-                "Accept messages from anyone",
-            ),
-            crate::menus::MenuItem::new(
-                "Deny all (default)",
-                "action:deny-all",
-                "Block all senders",
-            ),
-        ];
-
-        let title = format!("{} Sender Policy", display_name);
-        match crate::menus::interactive_select(stdout, &title, &items)? {
-            crate::menus::MenuAction::Command(action) => match action.as_str() {
-                "action:list" => {
-                    let key = format!("allowlist-{}", frontend);
-                    let mode_key = format!("mode-{}", frontend);
-                    let mode = crate::paths::config_value("sender-policy", &mode_key)?
-                        .unwrap_or_else(|| "deny".to_string());
-                    let allowlist =
-                        crate::paths::config_value("sender-policy", &key)?.unwrap_or_default();
-
-                    eprintln!();
-                    eprintln!(
-                        "  {BOLD_CYAN}◆{RESET} {BOLD}{} Sender Policy{RESET}",
-                        display_name
-                    );
-                    eprintln!("  {DIM}──────────────────────────────────────{RESET}");
-                    eprintln!(
-                        "  {CYAN}mode{RESET}      {}",
-                        if mode == "allow-all" {
-                            format!("{YELLOW}allow-all{RESET}")
-                        } else {
-                            format!("{GREEN}deny (default){RESET}")
-                        }
-                    );
-                    if allowlist.is_empty() {
-                        eprintln!("  {CYAN}senders{RESET}   {DIM}(none){RESET}");
-                    } else {
-                        for sender in allowlist.split(',') {
-                            let sender = sender.trim();
-                            if !sender.is_empty() {
-                                eprintln!("  {CYAN}•{RESET} {}", sender);
-                            }
-                        }
-                    }
-                    eprintln!();
-                }
-                "action:add" => {
-                    eprintln!();
-                    eprint!("  {BOLD_CYAN}◆{RESET} Enter sender identifier: ");
-                    let _ = std::io::stderr().flush();
-                    let mut input = String::new();
-                    std::io::stdin().read_line(&mut input)?;
-                    let sender = input.trim().to_string();
-                    if sender.is_empty() {
-                        eprintln!("  {DIM}Cancelled.{RESET}\n");
-                        continue;
-                    }
-
-                    let key = format!("allowlist-{}", frontend);
-                    let existing =
-                        crate::paths::config_value("sender-policy", &key)?.unwrap_or_default();
-                    let new_val = if existing.is_empty() {
-                        sender.clone()
-                    } else {
-                        format!("{},{}", existing, sender)
-                    };
-                    crate::paths::set_config_value("sender-policy", &key, &new_val)?;
-                    eprintln!(
-                        "  {GREEN}✓{RESET} Added '{}' to {} allowlist.\n",
-                        sender, display_name
-                    );
-                }
-                "action:remove" => {
-                    let key = format!("allowlist-{}", frontend);
-                    let existing =
-                        crate::paths::config_value("sender-policy", &key)?.unwrap_or_default();
-                    let senders: Vec<&str> = existing
-                        .split(',')
-                        .map(|s| s.trim())
-                        .filter(|s| !s.is_empty())
-                        .collect();
-                    if senders.is_empty() {
-                        eprintln!("\n  {DIM}No senders to remove.{RESET}\n");
-                        continue;
-                    }
-
-                    let items: Vec<crate::menus::MenuItem> = senders
-                        .iter()
-                        .map(|s| crate::menus::MenuItem::new(s, s, ""))
-                        .collect();
-                    match crate::menus::interactive_select(stdout, "Remove Sender", &items)? {
-                        crate::menus::MenuAction::Command(to_remove) => {
-                            let remaining: Vec<&str> = senders
-                                .into_iter()
-                                .filter(|s| *s != to_remove.as_str())
-                                .collect();
-                            let new_val = remaining.join(",");
-                            crate::paths::set_config_value("sender-policy", &key, &new_val)?;
-                            eprintln!(
-                                "\n  {GREEN}✓{RESET} Removed '{}' from {} allowlist.\n",
-                                to_remove, display_name
-                            );
-                        }
-                        _ => {}
-                    }
-                }
-                "action:allow-all" => {
-                    let mode_key = format!("mode-{}", frontend);
-                    crate::paths::set_config_value("sender-policy", &mode_key, "allow-all")?;
-                    eprintln!("\n  {YELLOW}⚠{RESET} {} set to allow-all. Anyone can send messages to this frontend.{RESET}\n", display_name);
-                }
-                "action:deny-all" => {
-                    let mode_key = format!("mode-{}", frontend);
-                    crate::paths::set_config_value("sender-policy", &mode_key, "deny")?;
-                    eprintln!("\n  {GREEN}✓{RESET} {} set to deny-all (default). Only allowlisted senders will be accepted.\n", display_name);
-                }
-                _ => {}
-            },
-            crate::menus::MenuAction::Back | crate::menus::MenuAction::Cancel => break,
-            _ => {}
-        }
-    }
-    Ok(())
-}
-
-fn print_help() {
-    eprintln!();
-    eprintln!("  {BOLD_CYAN}◆{RESET} {BOLD}Commands{RESET}");
-    eprintln!("  {DIM}──────────────────────────────────────{RESET}");
-    eprintln!();
-    eprintln!("  {DIM}Session{RESET}");
-    eprintln!("  {CYAN}/help{RESET}                Show this help");
-    eprintln!("  {CYAN}/exit{RESET}                Exit");
-    eprintln!("  {CYAN}/clear{RESET}               New session, clear screen");
-    eprintln!("  {CYAN}/resume{RESET}              Resume a past session");
-    eprintln!("  {CYAN}/rewind{RESET}              Rewind to a previous turn");
-    eprintln!("  {CYAN}/session{RESET}             Current session info");
-    eprintln!("  {CYAN}/log{RESET}                 Recent log entries");
-    eprintln!("  {CYAN}/menu{RESET}                Interactive menu");
-    eprintln!();
-    eprintln!("  {DIM}System{RESET}");
-    eprintln!("  {CYAN}/status{RESET}              System health & info");
-    eprintln!("  {CYAN}/providers{RESET}           Active providers by category");
-    eprintln!("  {CYAN}/frontends{RESET}           Frontend channels");
-    eprintln!("  {CYAN}/tools{RESET}               Tool API status");
-    eprintln!();
-    eprintln!("  {DIM}Observability{RESET}");
-    eprintln!("  {CYAN}/chronicle{RESET} {DIM}[sub]{RESET}     History & knowledge");
-    eprintln!("  {CYAN}/metrics{RESET}             Model performance");
-    eprintln!("  {CYAN}/security{RESET} {DIM}[sub]{RESET}      Security audit");
-    eprintln!("  {CYAN}/feedback{RESET} {DIM}<note>{RESET}    Record style feedback");
-    eprintln!("  {CYAN}/identity{RESET}            Agent identity");
-    eprintln!("  {CYAN}/wallet{RESET}              Wallet/vault status");
-    eprintln!("  {CYAN}/policies{RESET}            Channel sender policies");
-    eprintln!();
-    eprintln!("  {DIM}──────────────────────────────────────{RESET}");
-    eprintln!("  {DIM}Everything else is sent to the agent.{RESET}");
-    eprintln!("  {DIM}Shortcuts{RESET}");
-    eprintln!("  {DIM}Up/Down             Input history{RESET}");
-    eprintln!("  {DIM}Ctrl+Z / Ctrl+Y     Undo / Redo (word-level){RESET}");
-    eprintln!("  {DIM}Ctrl+W              Delete word back{RESET}");
-    eprintln!("  {DIM}Ctrl+U              Clear line{RESET}");
-    eprintln!();
-}
-
-fn print_status() {
-    eprintln!();
-    eprintln!("  {BOLD_CYAN}◆{RESET} {BOLD}Status{RESET}");
-    eprintln!("  {DIM}──────────────────────────────────────{RESET}");
-
-    // ── Phoenix health (HTTP) ──
-    match query_tui_phoenix_health() {
-        Ok(json) => {
-            if let Ok(health) = serde_json::from_str::<serde_json::Value>(&json) {
-                if let Some(uptime) = health.get("uptime_secs").and_then(|v| v.as_u64()) {
-                    let hours = uptime / 3600;
-                    let mins = (uptime % 3600) / 60;
-                    let secs = uptime % 60;
-                    if hours > 0 {
-                        eprintln!(
-                            "  {CYAN}uptime{RESET}              {}h {}m {}s",
-                            hours, mins, secs
-                        );
-                    } else if mins > 0 {
-                        eprintln!("  {CYAN}uptime{RESET}              {}m {}s", mins, secs);
-                    } else {
-                        eprintln!("  {CYAN}uptime{RESET}              {}s", secs);
-                    }
-                }
-                if let Some(mode) = health.pointer("/mode/mode").and_then(|v| v.as_str()) {
-                    let styled = match mode {
-                        "full" => format!("{GREEN}{mode}{RESET}"),
-                        "starting" => format!("{YELLOW}{mode}{RESET}"),
-                        _ => mode.to_string(),
-                    };
-                    eprintln!("  {CYAN}mode{RESET}                {styled}");
-                }
-                eprintln!();
-                if let Some(subs) = health.get("subsystems").and_then(|v| v.as_object()) {
-                    eprintln!("  {DIM}Subsystems{RESET}");
-                    for (name, info) in subs {
-                        let status = info
-                            .get("status")
-                            .and_then(|v| v.as_str())
-                            .unwrap_or("unknown");
-                        let styled = match status {
-                            "running" => format!("{GREEN}{status}{RESET}"),
-                            "backoff" | "starting" => format!("{YELLOW}{status}{RESET}"),
-                            "stopped" | "crashed" => format!("{RED}{status}{RESET}"),
-                            _ => status.to_string(),
-                        };
-                        let detail = info
-                            .get("attempt")
-                            .and_then(|v| v.as_u64())
-                            .map(|a| format!(" {DIM}(attempt {a}/10){RESET}"))
-                            .unwrap_or_default();
-                        eprintln!("  {:<20}{styled}{detail}", name);
-                    }
-                }
-            } else {
-                eprintln!("  {DIM}health{RESET}              {json}");
-            }
-        }
-        Err(_) => {
-            eprintln!("  {DIM}health{RESET}              {RED}unavailable{RESET}");
-        }
-    }
-
-    // ── Modules (runtime IPC) ──
-    if let Ok(modules) = query_tui_runtime_modules() {
-        eprintln!();
-        eprintln!("  {DIM}Modules{RESET}");
-
-        let mut loaded = Vec::new();
-        let mut unconfigured = Vec::new();
-        for m in &modules {
-            match m.1.as_str() {
-                "loaded" => loaded.push(m.0.as_str()),
-                _ => unconfigured.push(m),
-            }
-        }
-        if !loaded.is_empty() {
-            eprintln!(
-                "  {GREEN}{}{RESET} loaded          {DIM}{}{RESET}",
-                loaded.len(),
-                loaded.join(", ")
-            );
-        }
-        if !unconfigured.is_empty() {
-            eprintln!("  {YELLOW}{}{RESET} unconfigured", unconfigured.len());
-            for (name, _, needs) in &unconfigured {
-                if !needs.is_empty() {
-                    let clean = needs.replace("\\\"", "\"").replace("\\\\", "\\");
-                    eprintln!("    {:<18} {DIM}needs: {clean}{RESET}", name);
-                } else {
-                    eprintln!("    {name}");
-                }
-            }
-        }
-    }
-
-    eprintln!();
-}
-
-fn query_tui_phoenix_health() -> Result<String, Box<dyn std::error::Error>> {
-    let url = "http://127.0.0.1:9100/health";
-    let resp = ureq::get(url)
-        .timeout(std::time::Duration::from_secs(3))
-        .call()?;
-    Ok(resp.into_string()?)
-}
-
-fn extract_sexp_quoted(sexp: &str, key: &str) -> Option<String> {
-    let idx = sexp.find(key)?;
-    let after = sexp[idx + key.len()..].trim_start();
-    if !after.starts_with('"') {
-        return None;
-    }
-    let bytes = after[1..].as_bytes();
-    let mut end = 0;
-    while end < bytes.len() {
-        if bytes[end] == b'"' {
-            return Some(
-                after[1..1 + end]
-                    .replace("\\\"", "\"")
-                    .replace("\\\\", "\\"),
-            );
-        }
-        if bytes[end] == b'\\' {
-            end += 1;
-        }
-        end += 1;
-    }
-    None
-}
-
-fn extract_sexp_unquoted(sexp: &str, key: &str) -> Option<String> {
-    let idx = sexp.find(key)?;
-    let after = sexp[idx + key.len()..].trim_start();
-    let val: String = after
-        .chars()
-        .take_while(|c| !c.is_whitespace() && *c != ')' && *c != '"')
-        .collect();
-    if val.is_empty() {
-        None
-    } else {
-        Some(val)
-    }
-}
-
-#[cfg(unix)]
-fn query_tui_runtime_modules() -> Result<Vec<(String, String, String)>, Box<dyn std::error::Error>>
-{
-    use std::io::{Read, Write};
-
-    let data_dir = crate::paths::data_dir()?;
-    if std::env::var_os("HARMONIA_STATE_ROOT").is_none() {
-        std::env::set_var("HARMONIA_STATE_ROOT", data_dir.to_string_lossy().as_ref());
-    }
-    let _ = harmonia_config_store::init_v2();
-    let default = std::env::temp_dir()
-        .join("harmonia")
-        .to_string_lossy()
-        .to_string();
-    let state_root =
-        harmonia_config_store::get_config_or("harmonia-runtime", "global", "state-root", &default)
-            .unwrap_or(default);
-    init_repl_status_path(&state_root);
-    let sock_path = std::path::PathBuf::from(state_root).join("runtime.sock");
-    if !sock_path.exists() {
-        return Err("runtime socket not found".into());
-    }
-
-    let mut stream = UnixStream::connect(&sock_path)?;
-    stream.set_read_timeout(Some(std::time::Duration::from_secs(3)))?;
-    let msg = b"(:modules :op \"list\")";
-    let len = (msg.len() as u32).to_be_bytes();
-    stream.write_all(&len)?;
-    stream.write_all(msg)?;
-    stream.flush()?;
-
-    let mut hdr = [0u8; 4];
-    stream.read_exact(&mut hdr)?;
-    let rlen = u32::from_be_bytes(hdr) as usize;
-    let mut buf = vec![0u8; rlen];
-    stream.read_exact(&mut buf)?;
-    let sexp = String::from_utf8_lossy(&buf).to_string();
-
-    let mut result = Vec::new();
-    let chars: Vec<char> = sexp.chars().collect();
-    let mut i = 0;
-    while i < chars.len() {
-        if i + 5 < chars.len() && chars[i] == '(' && chars[i + 1] == ':' && chars[i + 2] == 'n' {
-            let start = i;
-            let mut depth = 0;
-            let mut end = i;
-            for j in start..chars.len() {
-                if chars[j] == '(' {
-                    depth += 1;
-                } else if chars[j] == ')' {
-                    depth -= 1;
-                    if depth == 0 {
-                        end = j + 1;
-                        break;
-                    }
-                }
-            }
-            let entry: String = chars[start..end].iter().collect();
-            if let Some(name) = extract_sexp_quoted(&entry, ":name") {
-                let status = extract_sexp_unquoted(&entry, ":status").unwrap_or_default();
-                let needs = extract_sexp_quoted(&entry, ":needs").unwrap_or_default();
-                result.push((name, status, needs));
-            }
-            i = end;
-        } else {
-            i += 1;
-        }
-    }
-    Ok(result)
-}
-
-#[cfg(not(unix))]
-fn query_tui_runtime_modules() -> Result<Vec<(String, String, String)>, Box<dyn std::error::Error>>
-{
-    Err("module query requires Unix sockets".into())
-}
-
-fn print_providers() {
-    eprintln!();
-    eprintln!("  {BOLD_CYAN}◆{RESET} {BOLD}Providers{RESET}");
-    eprintln!("  {DIM}──────────────────────────────────────{RESET}");
-
-    // Provider registry: (id, display_name, vault_symbols)
-    // grouped by category.
-
-    struct ProviderEntry {
-        id: &'static str,
-        display: &'static str,
-        secrets: &'static [&'static str],
-    }
-
-    struct Category {
-        label: &'static str,
-        providers: &'static [ProviderEntry],
-    }
-
-    const TEXT_PROVIDERS: &[ProviderEntry] = &[
-        ProviderEntry {
-            id: "openrouter",
-            display: "OpenRouter",
-            secrets: &["openrouter-api-key"],
-        },
-        ProviderEntry {
-            id: "openai",
-            display: "OpenAI",
-            secrets: &["openai-api-key"],
-        },
-        ProviderEntry {
-            id: "anthropic",
-            display: "Anthropic",
-            secrets: &["anthropic-api-key"],
-        },
-        ProviderEntry {
-            id: "xai",
-            display: "xAI",
-            secrets: &["xai-api-key"],
-        },
-        ProviderEntry {
-            id: "google-ai-studio",
-            display: "Google AI Studio",
-            secrets: &["google-ai-studio-api-key"],
-        },
-        ProviderEntry {
-            id: "google-vertex",
-            display: "Google Vertex",
-            secrets: &["google-vertex-access-token"],
-        },
-        ProviderEntry {
-            id: "bedrock",
-            display: "Amazon Bedrock",
-            secrets: &["aws-access-key-id"],
-        },
-        ProviderEntry {
-            id: "groq",
-            display: "Groq",
-            secrets: &["groq-api-key"],
-        },
-        ProviderEntry {
-            id: "alibaba",
-            display: "Alibaba",
-            secrets: &["alibaba-api-key"],
-        },
-    ];
-
-    const VOICE_PROVIDERS: &[ProviderEntry] = &[
-        ProviderEntry {
-            id: "elevenlabs",
-            display: "ElevenLabs (TTS)",
-            secrets: &["elevenlabs-api-key"],
-        },
-        ProviderEntry {
-            id: "whisper-groq",
-            display: "Whisper via Groq (STT)",
-            secrets: &["groq-api-key"],
-        },
-        ProviderEntry {
-            id: "whisper-openai",
-            display: "Whisper via OpenAI (STT)",
-            secrets: &["openai-api-key"],
-        },
-    ];
-
-    let categories: &[Category] = &[
-        Category {
-            label: "Text",
-            providers: TEXT_PROVIDERS,
-        },
-        Category {
-            label: "Voice",
-            providers: VOICE_PROVIDERS,
-        },
-        // Future: Image, Video, Environments, Sim2Real
-    ];
-
-    let active_provider =
-        harmonia_config_store::get_config("harmonia-cli", "model-policy", "provider")
-            .ok()
-            .flatten()
-            .unwrap_or_default();
-
-    let mut any_active = false;
-    for cat in categories {
-        let active: Vec<&ProviderEntry> = cat
-            .providers
-            .iter()
-            .filter(|p| {
-                p.secrets
-                    .iter()
-                    .all(|s| harmonia_vault::has_secret_for_symbol(s))
-            })
-            .collect();
-
-        if active.is_empty() {
-            continue;
-        }
-        any_active = true;
-
-        eprintln!();
-        eprintln!("  {DIM}{}{RESET}", cat.label);
-        for p in &active {
-            let is_primary = p.id == active_provider;
-            let label = if is_primary {
-                format!("{GREEN}●{RESET} {BOLD}{}{RESET}", p.display)
-            } else {
-                format!("{GREEN}●{RESET} {}", p.display)
-            };
-            eprintln!("  {label}");
-
-            // Show seed models for text providers
-            if cat.label == "Text" {
-                let provider_key = format!("seed-models-{}", p.id);
-                if let Ok(Some(seeds)) =
-                    harmonia_config_store::get_config("harmonia-cli", "model-policy", &provider_key)
-                {
-                    for model in seeds.split(',').map(|s| s.trim()).filter(|s| !s.is_empty()) {
-                        eprintln!("      {DIM}{model}{RESET}");
-                    }
-                }
-            }
-        }
-    }
-
-    if !any_active {
-        eprintln!();
-        eprintln!("  {DIM}No providers configured. Run {RESET}{CYAN}harmonia setup{RESET}{DIM} to add API keys.{RESET}");
-    }
-
-    eprintln!();
-}
 
 fn print_session_summary(session: &crate::paths::SessionPaths) {
     eprintln!();

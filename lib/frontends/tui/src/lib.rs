@@ -14,3 +14,18 @@ pub mod terminal {
 
     pub fn shutdown() {}
 }
+
+// ── Client-side TUI modules ──────────────────────────────────────────
+
+pub mod theme;
+pub mod bridge;
+pub mod render;
+pub mod spinner;
+pub mod input;
+pub mod autocomplete;
+pub mod prompt;
+pub mod commands;
+pub mod session;
+
+pub use input::InputCallbacks;
+pub use session::{run, SessionHost};

@@ -134,6 +134,12 @@ pub(crate) static ALL_COMMANDS: &[CommandMeta] = &[
         min_security: Some(is_read_allowed),
         tui_only: false,
     },
+    CommandMeta {
+        name: "/policies",
+        kind: CommandKind::Delegated,
+        min_security: Some(is_read_allowed),
+        tui_only: false,
+    },
 ];
 
 /// Look up a command by its slash-name (case-insensitive).
