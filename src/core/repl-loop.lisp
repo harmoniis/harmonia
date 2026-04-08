@@ -214,14 +214,21 @@ No score branching, no model selection, no bootstrap modes. ONE path."
                       (model-policy-record-outcome :model model :success nil :latency-ms 0))))
                  (latency-ms (truncate (* 1000 (/ (- (get-internal-real-time) call-start)
                                                    (float internal-time-units-per-second))))))
-            ;; Record errors in memory field — system learns failure patterns.
+            ;; Record errors in memory field + ouroboros — system learns patterns.
             (when failed-models
-              (handler-case
-                  (memory-put :tool
-                    (format nil "(:provider-errors ~{(:model ~S :error ~S)~^ ~})"
-                            (reduce #'append failed-models))
-                    :depth 0 :tags '(:provider-error :system-health))
-                (error () nil)))
+              (let ((error-sexp (format nil "(:provider-errors ~{(:model ~S :error ~S)~^ ~})"
+                                       (reduce #'append failed-models))))
+                (handler-case (memory-put :tool error-sexp :depth 0
+                                :tags '(:provider-error :system-health))
+                  (error () nil))
+                ;; Ouroboros: crash ledger tracks provider failures for evolution.
+                (handler-case
+                    (when (fboundp 'ouroboros-record-crash)
+                      (dolist (fm failed-models)
+                        (funcall 'ouroboros-record-crash
+                                 (format nil "provider/~A" (first fm))
+                                 (or (second fm) "unknown error"))))
+                  (error () nil))))
             (cond
               ((null llm-output)
                (%log :info "sexp-eval" "REPL ~D: all models unavailable" round)

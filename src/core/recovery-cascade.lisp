@@ -19,15 +19,21 @@
     (setf (gethash comp *component-health*)
           (list :failures (1+ (or (getf h :failures) 0))
                 :last-failure (get-universal-time)))
-    ;; Evolutionary: record failure in memory field so patterns accumulate in basins.
-    (handler-case
-        (when (fboundp 'memory-put)
-          (funcall 'memory-put :system
-                 (format nil "Component failure: ~A (failures: ~D)"
-                         comp (1+ (or (getf h :failures) 0)))
-                 :depth 0
-                 :tags (list :failure (intern (string-upcase comp) :keyword))))
-      (error () nil))))
+    ;; Evolutionary: record failure in memory field + ouroboros crash ledger.
+    ;; The error becomes intelligence: memory field absorbs patterns,
+    ;; ouroboros tracks history, signalograd observes in next harmonic cycle.
+    (let ((detail (format nil "Component failure: ~A (failures: ~D)"
+                          comp (1+ (or (getf h :failures) 0)))))
+      (handler-case
+          (when (fboundp 'memory-put)
+            (funcall 'memory-put :system detail
+                     :depth 0
+                     :tags (list :failure (intern (string-upcase comp) :keyword))))
+        (error () nil))
+      (handler-case
+          (when (fboundp 'ouroboros-record-crash)
+            (funcall 'ouroboros-record-crash comp detail))
+        (error () nil)))))
 
 (defun %health-failures (comp)
   (or (getf (gethash comp *component-health*) :failures) 0))
