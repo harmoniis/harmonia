@@ -26,10 +26,12 @@ Primary conceptual source: `../genesis/concepts.md`.
 | `src/core/evolution-versioning.lisp` | snapshot version management |
 | `src/core/signalograd.lisp` | adaptive checkpoint/restore orchestration tied to accepted evolution versions |
 | `src/ports/evolution.lisp` | mode dispatch + rollback hooks |
-| `lib/core/ouroboros` | Self-healing crash ledger and patch writing — fully wired as IPC component (ComponentSlot 11) |
+| `lib/core/ouroboros` | Pure Rust self-healing crash ledger (rewritten from FFI to actor model), registered in DynamicRegistry |
 | `lib/core/phoenix` | supervisor-level restart/rollout control |
 | `lib/core/recovery` | canonical crash/restart ledger substrate |
 | `lib/core/signalograd` | compact adaptive model whose checkpoint artifact travels with accepted evolution |
+| `lib/core/mempalace` | graph-structured knowledge palace with AAAK compression |
+| `lib/core/terraphon` | platform datamining tools with cross-node extraction |
 | `src/core/introspection.lisp` | runtime self-knowledge, self-compilation, hot-reload, error ring |
 
 ## Versioned Evolution State

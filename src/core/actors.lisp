@@ -89,11 +89,11 @@
                          (serious-condition (c2)
                            (%log :error (actor-name actor)
                                  "Error handler failed: ~A (original: ~A)"
-                                 (ignore-errors (princ-to-string c2))
-                                 (ignore-errors (princ-to-string c)))))
+                                 (handler-case (princ-to-string c2) (error () "<unprintable>"))
+                                 (handler-case (princ-to-string c) (error () "<unprintable>")))))
                        (%log :error (actor-name actor)
                              "Unhandled error: ~A"
-                             (ignore-errors (princ-to-string c)))))))))
+                             (handler-case (princ-to-string c) (error () "<unprintable>")))))))))
   (%log :info (actor-name actor) "Actor stopped."))
 
 ;;; ─── Message passing ───────────────────────────────────────────────────
@@ -132,10 +132,13 @@
   (when actor
     (setf (actor-running actor) nil)
     ;; Send a wake-up message so the mailbox receive unblocks
-    (ignore-errors
-      (sb-concurrency:send-message
+    (handler-case
+
+        (sb-concurrency:send-message
        (actor-mailbox actor)
-       (make-actor-message :tag :stop)))
+       (make-actor-message :tag :stop)
+
+      (error () nil)))
     ;; Wait for thread to finish (with timeout)
     (when (and (actor-thread actor)
                (sb-thread:thread-alive-p (actor-thread actor)))
@@ -196,7 +199,7 @@
   "Shut down all actors and timers in the system."
   ;; Stop timers first
   (dolist (stop-fn (actor-system-timers system))
-    (ignore-errors (funcall stop-fn)))
+    (handler-case (funcall stop-fn) (error () nil)))
   ;; Stop all actors
   (maphash (lambda (name actor)
              (declare (ignore name))

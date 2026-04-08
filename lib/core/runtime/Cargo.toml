@@ -19,6 +19,7 @@ path = "src/main.rs"
 harmonia-actor-protocol = { version = "0.1.9", path = "../actor-protocol" }
 harmonia-config-store = { version = "0.1.9", path = "../config-store" }
 harmonia-chronicle = { version = "0.1.9", path = "../chronicle" }
+harmonia-ouroboros = { version = "0.1.9", path = "../ouroboros" }
 harmonia-vault = { version = "0.1.9", path = "../vault" }
 harmonia-gateway = { version = "0.1.9", path = "../gateway" }
 harmonia-tailnet = { version = "0.1.9", path = "../tailnet" }
@@ -27,8 +28,8 @@ harmonia-harmonic-matrix = { version = "0.1.9", path = "../harmonic-matrix" }
 harmonia-observability = { version = "0.1.9", path = "../observability" }
 harmonia-memory = { version = "0.1.9", path = "../memory" }
 harmonia-memory-field = { version = "0.1.9", path = "../memory-field" }
-harmonia-git-ops = { version = "0.1.9", path = "../git-ops" }
-harmonia-ouroboros = { version = "0.1.9", path = "../ouroboros" }
+harmonia-mempalace = { version = "0.1.9", path = "../mempalace" }
+harmonia-terraphon = { version = "0.1.9", path = "../terraphon" }
 harmonia-parallel-agents = { version = "0.1.9", path = "../parallel-agents" }
 
 # Frontends

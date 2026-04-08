@@ -13,5 +13,6 @@ categories = ["development-tools"]
 [lib]
 
 [dependencies]
+harmonia-actor-protocol = { version = "0.1.9", path = "../actor-protocol" }
 harmonia-config-store = { version = "0.1.9", path = "../config-store" }
 harmonia-chronicle = { version = "0.1.9", path = "../chronicle" }

@@ -12,7 +12,7 @@ use interprocess::local_socket::{
 use harmonia_actor_protocol::ActorKind;
 
 use crate::actors::ComponentMsg;
-use crate::component_registry::SharedRegistry;
+use crate::dynamic_registry::SharedDynamicRegistry;
 use crate::msg::RuntimeMsg;
 
 /// FNV-1a 64-bit hash — deterministic across all platforms and Rust versions.
@@ -48,7 +48,8 @@ pub const TOKEN_LEN: usize = 64;
 pub async fn serve(
     name: &str,
     supervisor: ActorRef<RuntimeMsg>,
-    registry: SharedRegistry,
+    registry: SharedDynamicRegistry,
+    topic_bus: crate::topic_bus::SharedTopicBus,
     token: Arc<String>,
     ready: Arc<Notify>,
 ) {
@@ -84,9 +85,10 @@ pub async fn serve(
             Ok(stream) => {
                 let sup = supervisor.clone();
                 let reg = registry.clone();
+                let bus = topic_bus.clone();
                 let tok = token.clone();
                 tokio::spawn(async move {
-                    if let Err(e) = handle_connection(stream, sup, reg, tok).await {
+                    if let Err(e) = handle_connection(stream, sup, reg, bus, tok).await {
                         eprintln!("[WARN] [runtime] IPC connection error: {e}");
                     }
                 });
@@ -101,7 +103,8 @@ pub async fn serve(
 async fn handle_connection(
     mut stream: Stream,
     supervisor: ActorRef<RuntimeMsg>,
-    registry: SharedRegistry,
+    registry: SharedDynamicRegistry,
+    topic_bus: crate::topic_bus::SharedTopicBus,
     expected_token: Arc<String>,
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     // ── Nonce handshake: verify client knows the token ──
@@ -133,7 +136,7 @@ async fn handle_connection(
         stream.read_exact(&mut payload).await?;
         let sexp = String::from_utf8_lossy(&payload).into_owned();
 
-        let reply = dispatch_sexp(sexp, &supervisor, &registry).await;
+        let reply = dispatch_sexp(sexp, &supervisor, &registry, &topic_bus).await;
 
         if let Some(reply_sexp) = reply {
             let reply_bytes = reply_sexp.as_bytes();
@@ -164,7 +167,8 @@ fn constant_time_eq(a: &[u8], b: &[u8]) -> bool {
 async fn dispatch_sexp(
     sexp: String,
     supervisor: &ActorRef<RuntimeMsg>,
-    registry: &SharedRegistry,
+    registry: &SharedDynamicRegistry,
+    topic_bus: &crate::topic_bus::SharedTopicBus,
 ) -> Option<String> {
     let trimmed = sexp.trim();
 
@@ -212,6 +216,20 @@ async fn dispatch_sexp(
     } else if trimmed.starts_with("(:list") {
         let reply = ractor::call_t!(supervisor, RuntimeMsg::ListAll, 5000);
         Some(reply.unwrap_or_else(|_| "()".to_string()))
+    } else if trimmed.starts_with("(:topic-publish") {
+        let topic = harmonia_actor_protocol::extract_sexp_string(trimmed, ":topic").unwrap_or_default();
+        let payload = harmonia_actor_protocol::extract_sexp_string(trimmed, ":payload").unwrap_or_default();
+        let delivered = topic_bus.publish(&topic, &payload);
+        Some(format!("(:ok :topic \"{}\" :delivered {})", topic, delivered))
+    } else if trimmed.starts_with("(:topic-subscribers") {
+        let topic = harmonia_actor_protocol::extract_sexp_string(trimmed, ":topic").unwrap_or_default();
+        let subs = registry.subscribers(&topic);
+        let subs_sexp = subs.iter().map(|s| format!("\"{}\"", s)).collect::<Vec<_>>().join(" ");
+        Some(format!("(:ok :topic \"{}\" :subscribers ({}))", topic, subs_sexp))
+    } else if trimmed.starts_with("(:topic-list") {
+        let topics = topic_bus.topics();
+        let items = topics.iter().map(|(t, c)| format!("(:topic \"{}\" :subscribers {})", t, c)).collect::<Vec<_>>().join(" ");
+        Some(format!("(:ok :topics ({}))", items))
     } else if trimmed.starts_with("(:component") {
         let component = harmonia_actor_protocol::extract_sexp_string(trimmed, ":component").unwrap_or_default();
 
@@ -224,8 +242,8 @@ async fn dispatch_sexp(
             }
         }
 
-        // DIRECT DISPATCH — bypass supervisor entirely for data calls.
-        if let Some(actor) = crate::component_registry::get(registry, &component) {
+        // DIRECT DISPATCH via DynamicRegistry — pluggable, no hardcoded slots.
+        if let Some(actor) = registry.get(&component) {
             // Pass the owned String directly — no extra .to_string() copy.
             match ractor::call_t!(actor, ComponentMsg::Dispatch, 120_000, sexp) {
                 Ok(result) => Some(result),

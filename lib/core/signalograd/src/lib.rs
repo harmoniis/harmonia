@@ -13,7 +13,7 @@ mod sexp;
 pub use checkpoint::{restore_state_from_path, save_state, state_to_sexp, write_state_to_path};
 pub use error::simple_hash;
 pub use feedback::apply_feedback;
-pub use format::{snapshot_sexp, status_sexp};
+pub use format::{projection_to_sexp, snapshot_sexp, status_sexp};
 pub use kernel::step_kernel;
 pub use model::{Feedback, KernelState, Observation, Projection};
 pub use observation::{parse_feedback, parse_observation};

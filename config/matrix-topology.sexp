@@ -5,7 +5,6 @@
    ("vault" . "core")
    ("harmonic-matrix" . "core")
    ("gateway" . "core")
-   ("git-ops" . "core")
    ("parallel-agents" . "core")
 
    ;; Backends — provider nodes
@@ -24,7 +23,6 @@
    ("orchestrator" "harmonic-matrix" 1.20 0.60)
    ("orchestrator" "memory" 1.25 0.10)
    ("orchestrator" "gateway" 1.20 0.15)
-   ("orchestrator" "git-ops" 1.20 0.55)
 
    ;; Orchestrator → backends
    ("orchestrator" "provider-router" 1.15 0.35)
@@ -55,7 +53,6 @@
    ("vault" "memory" 0.95 0.05)
    ("harmonic-matrix" "memory" 0.95 0.05)
    ("parallel-agents" "memory" 0.95 0.05)
-   ("git-ops" "memory" 0.95 0.05)
    ("gateway" "memory" 0.95 0.05))
 
  :tools

@@ -84,9 +84,8 @@
            :harmonic-matrix-route-timeseries
            :harmonic-matrix-time-report
            :harmonic-matrix-report
-           :git-status :git-log :git-diff :git-branch :git-commit :git-push
            :workspace-read-file :workspace-grep :workspace-list-files :workspace-file-exists-p :workspace-file-info
-           :ouroboros-record-crash :ouroboros-last-crash :ouroboros-history :ouroboros-write-patch
+           :workspace-exec :workspace-write-file :workspace-append-file
            :memory-field-dream
            :chronicle-query
            :chronicle-harmony-summary
@@ -190,6 +189,7 @@
       (load path))))
 
 (%load-module (%core-path "state.lisp"))
+(%load-module (%core-path "presentation.lisp"))
 (%load-module (%core-path "tools.lisp"))
 (%load-module (%core-path "../dna/dna.lisp") "dna")
 (%load-module (%core-path "../memory/store.lisp") "memory")
@@ -197,6 +197,8 @@
 (%load-module (%core-path "introspection.lisp"))
 (%load-module (%core-path "recovery-cascade.lisp") "recovery-cascade")
 (%load-module (%core-path "sexp-eval.lisp") "sexp-eval")
+(%load-module (%core-path "repl-primitives.lisp") "repl-primitives")
+(%load-module (%core-path "repl-loop.lisp") "repl-loop")
 (%load-module (%core-path "supervision-state.lisp") "supervision-state")
 (%load-module (%core-path "../harmony/scorer.lisp") "harmony-scorer")
 (%load-module (%core-path "harmony-policy.lisp"))
@@ -205,6 +207,8 @@
 (load-prompts-config)
 (load-security-patterns-config)
 (%load-module (%core-path "model-policy.lisp"))
+(%load-module (%core-path "model-providers.lisp") "model-providers")
+(%load-module (%core-path "model-routing.lisp") "model-routing")
 (%load-module (%core-path "harmonic-machine.lisp"))
 (%load-module (%core-path "evolution-versioning.lisp"))
 (%load-module (%core-path "../ports/ipc-client.lisp") "port/ipc-client")
@@ -213,12 +217,13 @@
 (%load-module (%core-path "../ports/vault.lisp") "port/vault")
 (%load-module (%core-path "../ports/store.lisp") "port/store")
 (%load-module (%core-path "../ports/router.lisp") "port/router")
-(%load-module (%core-path "../ports/gitop.lisp") "port/gitop")
 (%load-module (%core-path "../ports/matrix.lisp") "port/matrix")
 (%load-module (%core-path "../ports/admin-intent.lisp") "port/admin-intent")
 (%load-module (%core-path "../ports/tool-runtime.lisp") "port/tool-runtime")
 (%load-module (%core-path "../ports/baseband.lisp") "port/baseband")
+(%load-module (%core-path "../ports/swarm-tmux.lisp") "port/swarm-tmux")
 (%load-module (%core-path "../ports/swarm.lisp") "port/swarm")
+(%load-module (%core-path "../ports/swarm-parallel.lisp") "port/swarm-parallel")
 (%load-module (%core-path "../ports/workspace.lisp") "port/workspace")
 (%load-module (%core-path "../ports/ouroboros.lisp") "port/ouroboros")
 (%load-module (%core-path "../ports/evolution.lisp") "port/evolution")
@@ -227,9 +232,16 @@
 (%load-module (%core-path "../ports/memory-field.lisp") "port/memory-field")
 (%load-module (%core-path "supervisor.lisp") "supervisor")
 (%load-module (%core-path "system-commands.lisp") "system-commands")
+(%load-module (%core-path "../orchestrator/parsing.lisp") "parsing")
+(%load-module (%core-path "../orchestrator/tool-handlers.lisp") "tool-handlers")
+(%load-module (%core-path "../orchestrator/security.lisp") "security")
+(%load-module (%core-path "../orchestrator/a2ui.lisp") "a2ui")
 (%load-module (%core-path "../orchestrator/conductor.lisp") "conductor")
 (%load-module (%core-path "rewrite.lisp"))
 (%load-module (%core-path "actors.lisp"))
+(%load-module (%core-path "tick-gateway.lisp") "tick-gateway")
+(%load-module (%core-path "tick-actors.lisp") "tick-actors")
+(%load-module (%core-path "tick-process.lisp") "tick-process")
 (%load-module (%core-path "loop.lisp"))
 
 (%log :info "boot" "All modules loaded.")
@@ -323,9 +335,7 @@
   (%seed-rust-config)
   (init-router-port)
   (%log :info "router" "Initialized.")
-  (init-gitop-port)
   (init-workspace-port)
-  (init-ouroboros-port)
   (bootstrap-harmonic-matrix)
   (%log :info "matrix" "Initialized.")
   (init-tool-runtime-port)
@@ -339,19 +349,36 @@
     (error (e)
       (%log :warn "boot" "Observability init failed (non-fatal): ~A" e)))
   ;; Load persistent memories from Chronicle.
-  (ignore-errors
-    (when (fboundp '%load-memories-from-chronicle)
-      (%load-memories-from-chronicle)))
+  (handler-case
+      (when (fboundp '%load-memories-from-chronicle)
+        (%load-memories-from-chronicle))
+    (error (e) (%log :warn "boot" "load-memories-from-chronicle failed: ~A" e) nil))
   ;; Always ensure genesis memories exist (idempotent — dedup by content hash).
   (memory-seed-soul-from-dna)
   (init-signalograd-port)
-  (ignore-errors
-    (signalograd-restore-for-current-evolution :runtime *runtime*))
+  (handler-case
+      (signalograd-restore-for-current-evolution :runtime *runtime*)
+    (error (e) (%log :warn "boot" "signalograd-restore failed: ~A" e) nil))
   ;; Memory-field: initialize port, push graph, warm-start basin.
-  (ignore-errors (init-memory-field-port))
-  (ignore-errors (memory-field-warm-start-from-chronicle))
+  (handler-case (init-memory-field-port)
+    (error (e) (%log :warn "boot" "init-memory-field-port failed: ~A" e) nil))
+  (handler-case (memory-field-warm-start-from-chronicle)
+    (error (e) (%log :warn "boot" "memory-field-warm-start failed: ~A" e) nil))
+  ;; MemPalace: graph-structured knowledge palace.
+  (handler-case (init-mempalace-port)
+    (error (e) (%log :warn "boot" "init-mempalace-port failed: ~A" e) nil))
+  ;; Terraphon: platform datamining tools.
+  (handler-case (init-terraphon-port)
+    (error (e) (%log :warn "boot" "init-terraphon-port failed: ~A" e) nil))
+  ;; Ouroboros: self-healing crash ledger.
+  (handler-case (init-ouroboros-port)
+    (error (e) (%log :warn "boot" "init-ouroboros-port failed: ~A" e) nil))
   (%log :info "chronicle" "Initialized.")
   (%log :info "signalograd" "Initialized.")
+  (%log :info "mempalace" "Initialized (~A)."
+        (if *mempalace-ready* "active" "unavailable"))
+  (%log :info "terraphon" "Initialized (~A)."
+        (if *terraphon-ready* "active" "unavailable"))
   (%log :info "memory-field" "Initialized (basin: ~A, memories: ~D)."
         (if (and (fboundp 'memory-field-port-ready-p)
                  (funcall 'memory-field-port-ready-p))

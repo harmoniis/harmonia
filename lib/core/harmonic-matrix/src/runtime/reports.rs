@@ -4,7 +4,7 @@ use crate::model::MatrixEvent;
 
 use super::shared::{state, store_config};
 
-#[allow(dead_code)]
+
 pub fn route_timeseries(from: &str, to: &str, limit: i32) -> Result<String, String> {
     let st = state()
         .read()
@@ -43,7 +43,7 @@ pub fn route_timeseries(from: &str, to: &str, limit: i32) -> Result<String, Stri
     ))
 }
 
-#[allow(dead_code)]
+
 pub fn time_report(since_unix: u64) -> Result<String, String> {
     let st = state()
         .read()
@@ -104,7 +104,7 @@ pub fn time_report(since_unix: u64) -> Result<String, String> {
     ))
 }
 
-#[allow(dead_code)]
+
 pub fn report() -> Result<String, String> {
     let st = state()
         .read()

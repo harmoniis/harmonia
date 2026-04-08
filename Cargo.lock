@@ -2340,10 +2340,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "harmonia-git-ops"
-version = "0.1.9"
-
-[[package]]
 name = "harmonia-google-ai-studio"
 version = "0.1.9"
 dependencies = [
@@ -2461,6 +2457,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "harmonia-mempalace"
+version = "0.1.9"
+dependencies = [
+ "harmonia-config-store",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "harmonia-mqtt-client"
 version = "0.1.9"
 dependencies = [
@@ -2539,6 +2544,7 @@ dependencies = [
 name = "harmonia-ouroboros"
 version = "0.1.9"
 dependencies = [
+ "harmonia-actor-protocol",
  "harmonia-chronicle",
  "harmonia-config-store",
 ]
@@ -2651,7 +2657,6 @@ dependencies = [
  "harmonia-discord",
  "harmonia-email-client",
  "harmonia-gateway",
- "harmonia-git-ops",
  "harmonia-harmonic-matrix",
  "harmonia-hfetch",
  "harmonia-http",
@@ -2660,6 +2665,7 @@ dependencies = [
  "harmonia-mattermost",
  "harmonia-memory",
  "harmonia-memory-field",
+ "harmonia-mempalace",
  "harmonia-mqtt-client",
  "harmonia-nostr",
  "harmonia-observability",
@@ -2676,6 +2682,7 @@ dependencies = [
  "harmonia-tailnet",
  "harmonia-tailscale-frontend",
  "harmonia-telegram",
+ "harmonia-terraphon",
  "harmonia-tui",
  "harmonia-vault",
  "harmonia-voice-router",
@@ -2786,6 +2793,15 @@ dependencies = [
  "serde",
  "serde_json",
  "ureq 2.12.1",
+]
+
+[[package]]
+name = "harmonia-terraphon"
+version = "0.1.9"
+dependencies = [
+ "harmonia-config-store",
+ "serde",
+ "serde_json",
 ]
 
 [[package]]

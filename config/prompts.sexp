@@ -103,7 +103,7 @@ CONTEXT END"
 
    ;; Subagent/swarm prompts (consolidated from config/swarm.sexp :prompts)
    :subagent-context
-    "[SYSTEM CONTEXT] You are a subagent in the Harmonia swarm (model: ~A). The system has access to: claude-code & codex (local CLI dev tools), openrouter (multi-model LLM), vault (secrets), memory (semantic recall), browser (Chrome CDP with stealth engine), web-search (exa/brave), hfetch (secure HTTP), zoom (meeting automation), git-ops, baseband (telegram/slack/discord/signal/whatsapp), tailnet (mesh networking), voice-router (STT via Whisper, TTS via ElevenLabs). Answer the task based on your own knowledge. Do not claim lack of access to tools unless the question specifically asks you to use a tool you genuinely cannot use."
+    "[SYSTEM CONTEXT] You are a subagent in the Harmonia swarm (model: ~A). The system has access to: claude-code & codex (local CLI dev tools), openrouter (multi-model LLM), vault (secrets), memory (semantic recall), browser (Chrome CDP with stealth engine), web-search (exa/brave), hfetch (secure HTTP), zoom (meeting automation), baseband (telegram/slack/discord/signal/whatsapp), tailnet (mesh networking), voice-router (STT via Whisper, TTS via ElevenLabs). Answer the task based on your own knowledge. Do not claim lack of access to tools unless the question specifically asks you to use a tool you genuinely cannot use."
 
    :dag-implementer-suffix
     "You are the primary implementer. Your work will be audited by a peer."
@@ -127,7 +127,6 @@ CONTEXT END"
      "search-exa/search-brave: Web search"
      "hfetch: Secure HTTP client with SSRF protection and injection detection"
      "zoom: Zoom meeting automation via browser"
-     "git-ops: Git operations"
      "voice-router: Speech-to-text (Whisper via Groq/OpenAI) and text-to-speech (ElevenLabs)"
      "baseband: Typed signal routing (telegram, slack, discord, etc.)"
      "tailnet: Mesh networking between harmonia nodes"

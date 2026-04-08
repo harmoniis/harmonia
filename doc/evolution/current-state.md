@@ -1,6 +1,6 @@
 # Current State
 
-Snapshot date: 2026-04-01
+Snapshot date: 2026-04-07
 
 ## DNA Architecture
 
@@ -13,9 +13,27 @@ DNA (`src/dna/dna.lisp`) is constraints as code, not a system prompt:
 
 Descriptions live in memory field seeds (genesis entries at depth 1-2). DNA does not describe — it constrains.
 
+## Tonal Function Theory
+
+Harmonic phases are classified into tonal functions (T/S/D/R) following functional harmony:
+
+- **Tonic (T)**: stable, at-rest phases (`:stabilize`, `:attractor-sync`)
+- **Subdominant (S)**: preparatory/observational phases (`:observe`, `:evaluate-global`, `:evaluate-local`)
+- **Dominant (D)**: tension/decision phases (`:logistic-balance`, `:lambdoma-project`, `:rewrite-plan`)
+- **Retardant (R)**: security/audit phases (`:security-audit`)
+
+Phase transitions follow cadence patterns:
+- **Authentic cadence** (D->T): decision resolves to stability
+- **Plagal cadence** (S->T): preparation resolves to stability
+- **Half cadence** (*->D): any phase moves to tension
+
+## Policy-Weighted Sum
+
+All harmonic weight calculations now flow through `%policy-weighted-sum`. This ensures every weight in the system is sourced from `harmony-policy` configuration rather than hardcoded constants. The weighted sum reads current policy values at call time, making the harmonic system fully data-driven and auditable.
+
 ## Active Evolution Mode
 
-Current configured mode is `:source-rewrite` by default. Ouroboros is fully wired as IPC component (ComponentSlot 11).
+Current configured mode is `:source-rewrite` by default. Ouroboros is fully wired as an IPC actor in the DynamicRegistry (HashMap-based pluggable registry).
 
 From `src/ports/evolution.lisp` and `src/ports/ouroboros.lisp`:
 
@@ -182,12 +200,24 @@ Push notifications: `lib/frontends/push` is a utility library consumed by mqtt-c
 All CFFI/cdylib/dlopen code has been fully removed. Every component communicates via IPC through ractor actors in `harmonia-runtime`.
 
 - **Transport**: Unix domain socket (`$STATE_ROOT/runtime.sock`), length-prefixed s-expressions, 0600 permissions.
-- **Actors (12)**: RuntimeSupervisor, SbclBridgeActor, GatewayActor, ChronicleActor, TailnetActor, SignalogradActor, ObservabilityActor, HarmonicMatrixActor, MemoryFieldActor, GitOpsActor, OuroborosActor, ProviderRouterActor.
+- **DynamicRegistry**: HashMap-based pluggable component registry replacing the former slot-indexed array. Components register via the `ComponentDescriptor` trait (universal component protocol). Supports dynamic component registration at runtime.
+- **TopicBus**: Pub/sub capability-based message routing between actors. Components subscribe to topic channels and receive messages matching their declared capabilities.
+- **Actors**: RuntimeSupervisor, SbclBridgeActor, GatewayActor, ChronicleActor, TailnetActor, SignalogradActor, ObservabilityActor, HarmonicMatrixActor, MemoryFieldActor, OuroborosActor, MempalaceActor, TerraphonActor, ProviderRouterActor.
 - **Supervisor restart**: All component actors are supervisor-managed. On crash, the RuntimeSupervisor automatically respawns the failed actor.
-- **IPC dispatch** (`dispatch.rs`): routes 50+ operations across component domains — vault, config, chronicle, gateway, signalograd, tailnet, harmonic-matrix, observability, provider-router, parallel, memory-field, git-ops, ouroboros.
+- **IPC dispatch** (`dispatch.rs`): routes 50+ operations across component domains — vault, config, chronicle, gateway, signalograd, tailnet, harmonic-matrix, observability, provider-router, parallel, memory-field, ouroboros, mempalace, terraphon.
 - **Gateway cleanliness**: Zero FFI remnants — no `extern "C"`, no `libloading`, no `frontend_ffi.rs`/`tool_ffi.rs`. All crates are pure rlib linked into the single binary.
-- **SBCL side**: `ipc-client.lisp` (socket transport, auto-reconnect), `ipc-ports.lisp` (typed port accessors), 14 port files all converted to IPC.
+- **SBCL side**: `ipc-client.lisp` (socket transport, auto-reconnect), `ipc-ports.lisp` (typed port accessors), port files all converted to IPC.
 - **Data flow**: SBCL → ipc-call → Unix socket → dispatch.rs → crate API → reply → SBCL.
+- **Code quality**: 0 warnings, 0 dead_code, 0 ignore-errors, 0 format-nil IPC.
+
+## New Crates Since v11
+
+| Crate | Path | Purpose |
+|---|---|---|
+| mempalace | `lib/core/mempalace` | Graph-structured knowledge palace with AAAK compression |
+| terraphon | `lib/core/terraphon` | Platform datamining tools with cross-node extraction |
+| ouroboros (rewrite) | `lib/core/ouroboros` | Pure Rust self-healing crash ledger, rewritten from FFI to actor model |
+| signal-integrity (expanded) | `lib/core/signal-integrity` | Now 48 patterns, 5 severity-tiered categories, NFKC Unicode normalization |
 
 ## Unified Command Dispatch (v10)
 

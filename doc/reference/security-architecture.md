@@ -225,7 +225,6 @@ In `config/matrix-topology.sexp`, privileged edges have elevated min_harmony:
 |---|---|---|---|
 | orchestrator → vault | 1.20 | 0.70 | Was 0.10 |
 | orchestrator → harmonic-matrix | 1.20 | 0.60 | Was 0.10 |
-| orchestrator → git-ops | 1.20 | 0.55 | Was 0.20 |
 
 These are defense-in-depth alongside the policy gate, not the primary authorization mechanism.
 
@@ -237,9 +236,9 @@ Shared injection detection and boundary wrapping:
 - `scan_for_injection(text) -> ScanReport`
 - `compute_dissonance(report) -> f64`
 - `wrap_secure(data, source) -> String`
-- `normalize_unicode(text) -> String`
+- `normalize_unicode(text) -> String` (NFKC Unicode normalization)
 
-Extended patterns cover social engineering, Harmonia-specific tool injection, and Lisp reader macros.
+48 patterns across 5 severity-tiered categories covering social engineering, Harmonia-specific tool injection, Lisp reader macros, Unicode homoglyph attacks, and system prompt manipulation.
 
 ### admin-intent (`lib/core/admin-intent`)
 

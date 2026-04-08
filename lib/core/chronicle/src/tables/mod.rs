@@ -3,5 +3,7 @@ pub mod graph;
 pub mod harmonic;
 pub mod memory;
 pub mod ouroboros;
+pub mod palace;
 pub mod phoenix;
 pub mod signalograd;
+pub mod terraphon;

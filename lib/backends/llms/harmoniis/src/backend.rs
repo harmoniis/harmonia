@@ -1,18 +1,12 @@
-//! Harmoniis BER1 backend — self-hosted inference via router.harmoniis.com.
+//! Harmoniis backend — native Harmoniis inference provider.
 //!
-//! Routes to the Harmoniis BER1 datacenter running llama.cpp with TurboQuant
-//! CUDA on an NVIDIA L4 GPU. Three models available (one active at a time):
+//! Models:
+//!   - ber1-ai/qwen3.5-27b   — reasoning, orchestration, coding
+//!   - ber1-ai/magistral-24b — reasoning, orchestration, planning
+//!   - ber1-ai/nanbeige-3b   — fast execution, subagent tasks
 //!
-//!   - ber1-ai/qwen3.5-27b       — Jackrong Qwen3.5-27B distilled, 220K ctx, reasoning
-//!   - ber1-ai/magistral-24b     — Magistral Small 2509 24B, 350K ctx, reasoning
-//!   - ber1-ai/nanbeige-3b       — Nanbeige4.1-3B f16, 240K ctx, fast execution
-//!
-//! All models are free (self-hosted). The backend uses the OpenAI-compatible API
-//! exposed by llama-server through a Cloudflare tunnel.
-//!
-//! Reasoning: Qwen3.5-27B and Magistral use ChatML `<think>` blocks natively.
-//! When reasoning is enabled via capabilities, the agent can invoke them for
-//! orchestration and planning tasks. Nanbeige is a fast subagent for execution.
+//! OpenAI-compatible API. Qwen3.5-27B and Magistral support reasoning
+//! natively via ChatML `<think>` blocks. Nanbeige is optimised for speed.
 
 use harmonia_provider_protocol::*;
 use serde_json::json;
@@ -20,9 +14,7 @@ use serde_json::json;
 const COMPONENT: &str = "harmoniis-backend";
 const DEFAULT_URL: &str = "https://router.harmoniis.com/v1/chat/completions";
 
-/// BER1 datacenter model catalogue.
-/// All models are free (self-hosted on NVIDIA L4 GPU).
-/// Only one model is active at a time — the server handles model switching.
+/// Harmoniis model catalogue.
 pub static OFFERINGS: &[ModelOffering] = &[
     ModelOffering {
         id: "ber1-ai/qwen3.5-27b",

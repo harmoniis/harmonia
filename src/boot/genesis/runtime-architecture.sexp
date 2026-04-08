@@ -12,7 +12,7 @@
       "Validate DNA (dna-valid-p)."
       "Register tools from config/tools.sexp."
       "Seed soul memory from DNA."
-      "Initialize ports in strict order: vault, store, harmony-policy, model-policy, router, gitop, ouroboros, matrix, tool-runtime, baseband frontends, swarm, evolution, chronicle, signalograd, memory-field."
+      "Initialize ports in strict order: vault, store, harmony-policy, model-policy, router, ouroboros, matrix, tool-runtime, baseband frontends, swarm, evolution, chronicle, signalograd, memory-field, mempalace, terraphon."
       "Restore the evolution-matched signalograd checkpoint if present."
       "Warm-start memory-field basin from last Chronicle harmonic snapshot (session continuity)."))
 

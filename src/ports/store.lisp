@@ -29,8 +29,9 @@
 
 (defun config-list (&optional (scope ""))
   (let ((reply (ipc-call
-                (format nil "(:component \"config\" :op \"list\" :scope \"~A\")"
-                        (sexp-escape-lisp (or scope ""))))))
+                (%sexp-to-ipc-string
+                 `(:component "config" :op "list"
+                   :scope ,(or scope ""))))))
     (if (and reply (ipc-reply-ok-p reply))
         (let ((val (ipc-extract-value reply)))
           (if (and val (> (length val) 0))
@@ -58,9 +59,9 @@
 (defun config-delete-for (component key &optional (scope component))
   "Delete a config value (admin-only via policy)."
   (let ((reply (ipc-call
-                (format nil "(:component \"config\" :op \"delete\" :component \"~A\" :scope \"~A\" :key \"~A\")"
-                        (sexp-escape-lisp component) (sexp-escape-lisp scope)
-                        (sexp-escape-lisp key)))))
+                (%sexp-to-ipc-string
+                 `(:component "config" :op "delete"
+                   :component ,component :scope ,scope :key ,key)))))
     (when (ipc-reply-error-p reply)
       (error "Config store delete-for failed: ~A" reply))
     t))
@@ -68,8 +69,9 @@
 (defun config-dump (component &optional (scope component))
   "Dump all key=value pairs in a scope as a list of lines."
   (let ((reply (ipc-call
-                (format nil "(:component \"config\" :op \"dump\" :component \"~A\" :scope \"~A\")"
-                        (sexp-escape-lisp component) (sexp-escape-lisp scope)))))
+                (%sexp-to-ipc-string
+                 `(:component "config" :op "dump"
+                   :component ,component :scope ,scope)))))
     (if (and reply (ipc-reply-ok-p reply))
         (let ((val (ipc-extract-value reply)))
           (if (and val (> (length val) 0))
@@ -79,7 +81,8 @@
 
 (defun config-ingest-env ()
   "Seed config DB from environment variables (first-run only)."
-  (let ((reply (ipc-call "(:component \"config\" :op \"ingest-env\")")))
+  (let ((reply (ipc-call (%sexp-to-ipc-string
+                           '(:component "config" :op "ingest-env")))))
     (when (ipc-reply-error-p reply)
       (error "Config store ingest-env failed: ~A" reply))
     t))

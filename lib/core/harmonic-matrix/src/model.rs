@@ -1,9 +1,7 @@
 use std::collections::HashMap;
 
-#[allow(dead_code)]
 const COMPONENT: &str = "harmonic-matrix";
 
-#[allow(dead_code)]
 fn state_root() -> String {
     let default = std::env::temp_dir()
         .join("harmonia")
@@ -13,13 +11,11 @@ fn state_root() -> String {
         .unwrap_or_else(|_| default)
 }
 
-#[allow(dead_code)]
 fn default_matrix_db() -> String {
     format!("{}/harmonic-matrix.db", state_root())
 }
 
 #[derive(Clone, Debug)]
-#[allow(dead_code)]
 pub struct Edge {
     pub weight: f64,
     pub min_harmony: f64,
@@ -30,7 +26,6 @@ pub struct Edge {
 }
 
 #[derive(Clone, Debug)]
-#[allow(dead_code)]
 pub struct RouteSample {
     pub ts: u64,
     pub success: bool,
@@ -39,7 +34,6 @@ pub struct RouteSample {
 }
 
 #[derive(Clone, Debug)]
-#[allow(dead_code)]
 pub struct MatrixEvent {
     pub ts: u64,
     pub component: String,
@@ -51,7 +45,6 @@ pub struct MatrixEvent {
 }
 
 #[derive(Default, Clone)]
-#[allow(dead_code)]
 pub struct State {
     pub nodes: HashMap<String, String>,
     pub edges: HashMap<(String, String), Edge>,
@@ -63,7 +56,6 @@ pub struct State {
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-#[allow(dead_code)]
 pub enum StoreKind {
     Memory,
     Sqlite,
@@ -71,7 +63,6 @@ pub enum StoreKind {
 }
 
 #[derive(Clone, Debug)]
-#[allow(dead_code)]
 pub struct StoreConfig {
     pub kind: StoreKind,
     pub path: String,
@@ -105,7 +96,6 @@ impl Default for StoreConfig {
 }
 
 impl StoreConfig {
-    #[allow(dead_code)]
     pub fn kind_name(&self) -> &'static str {
         match self.kind {
             StoreKind::Memory => "memory",

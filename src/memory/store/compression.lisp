@@ -109,87 +109,103 @@
           (incf count))))
     count))
 
+(defun %find-compression-candidates ()
+  "Group uncompressed daily entries by intent key. Returns a hash-table of intent -> entries."
+  (let ((groups (make-hash-table :test 'equal)))
+    (dolist (entry (%daily-uncompressed-entries))
+      (when (and (>= (%daily-signal-score entry) *noise-score-threshold*)
+                 (not (member :crystal (memory-entry-tags entry))))
+        (push entry (gethash (%intent-key-from-daily entry) groups))))
+    groups))
+
+(defun %cross-link-concepts (group skill-id intent)
+  "Create concept edges between source entries and the compressed skill entry."
+  (let ((skill-concepts (%split-words intent)))
+    (dolist (src group)
+      (let ((src-concepts (%split-words (%entry-text src))))
+        (mapcan (lambda (a)
+                  (mapcar (lambda (b) (%upsert-concept-edge a b :compressed-link))
+                          skill-concepts))
+                src-concepts))
+      (%index-entry-concepts skill-id :skill 1 (memory-entry-content src)
+                             :reason :compression-source))))
+
+(defun %merge-candidate-group (intent group)
+  "Merge one candidate group into a compressed :skill entry. Returns 1 if created, 0 otherwise."
+  (if (< (length group) 2)
+      0
+      (let ((source-ids (mapcar #'memory-entry-id group)))
+        (let ((skill-id (memory-put :skill
+                                    (%build-skill-summary intent group)
+                                    :depth 1
+                                    :tags (list :compressed :nightly :solomonoff :occam)
+                                    :source-ids source-ids)))
+          (%cross-link-concepts group skill-id intent))
+        (%upsert-concept-edge "skill" "memory" :skill-memory)
+        (dolist (id source-ids)
+          (setf (gethash id *memory-compressed-source-ids*) t))
+        1)))
+
+(defun %crystallize-structural-entries (runtime)
+  "Run crystallization pass and log results. Returns count of crystallized entries."
+  (let ((n (%crystallize-before-compression)))
+    (when (> n 0)
+      (handler-case
+
+          (chronicle-record-memory-event "crystallise"
+          :entries-created n
+          :node-count (hash-table-count *memory-concept-nodes*)
+          :edge-count (hash-table-count *memory-concept-edges*)
+
+        (error () nil)))
+      (when runtime
+        (runtime-log runtime :memory-crystallized (list :count n))))
+    n))
+
+(defun %compression-window-p (now)
+  "Check whether conditions allow compression. Returns (values ok-p idle-for hour cfg) or nil."
+  (let* ((cfg (%night-config))
+         (idle-for (- now *memory-last-active-at*))
+         (hour (%local-hour now)))
+    (values (and (>= idle-for (getf cfg :idle-seconds))
+                 (%within-night-window-p hour (getf cfg :start) (getf cfg :end))
+                 (>= (- now *memory-last-compression-at*) (getf cfg :heartbeat-seconds)))
+            idle-for hour cfg)))
+
 (defun memory-compress-idle-night (&key (runtime *runtime*))
   "Non-destructive compression:
 1) raw :daily layer is preserved
 2) new :skill compressed layer is added
 3) only runs during idle night heartbeat window."
-  (let* ((now (get-universal-time))
-         (cfg (%night-config))
-         (start (getf cfg :start))
-         (end (getf cfg :end))
-         (idle-seconds (getf cfg :idle-seconds))
-         (heartbeat-seconds (getf cfg :heartbeat-seconds))
-         (idle-for (- now *memory-last-active-at*))
-         (hour (%local-hour now)))
-    (cond
-      ((< idle-for idle-seconds)
-       (when runtime
-         (runtime-log runtime :memory-compress-skipped
-                      (list :reason :active :idle-for idle-for)))
-       0)
-      ((not (%within-night-window-p hour start end))
-       (when runtime
-         (runtime-log runtime :memory-compress-skipped
-                      (list :reason :not-night :hour hour :night-start start :night-end end)))
-       0)
-      ((< (- now *memory-last-compression-at*) heartbeat-seconds)
-       0)
-      (t
-       (let ((groups (make-hash-table :test 'equal))
-             (created 0)
-             (crystallized (progn
-                         (let ((n (%crystallize-before-compression)))
-                           (when (> n 0)
-                             (ignore-errors
-                               (chronicle-record-memory-event "crystallise"
-                                 :entries-created n
-                                 :node-count (hash-table-count *memory-concept-nodes*)
-                                 :edge-count (hash-table-count *memory-concept-edges*))))
-                           n))))
-         (dolist (entry (%daily-uncompressed-entries))
-           (when (and (>= (%daily-signal-score entry) *noise-score-threshold*)
-                      (not (member :crystal (memory-entry-tags entry))))
-             (let ((key (%intent-key-from-daily entry)))
-               (push entry (gethash key groups)))))
-        (maphash
-          (lambda (intent group)
-            (when (>= (length group) 2)
-              (let ((source-ids (mapcar #'memory-entry-id group)))
-                (let ((skill-id
-                        (memory-put :skill
-                                    (%build-skill-summary intent group)
-                                    :depth 1
-                                    :tags (list :compressed :nightly :solomonoff :occam)
-                                    :source-ids source-ids)))
-                  (dolist (src group)
-                    (let ((src-concepts (%split-words (%entry-text src)))
-                          (skill-concepts (%split-words intent)))
-                      (dolist (a src-concepts)
-                        (dolist (b skill-concepts)
-                         (%upsert-concept-edge a b :compressed-link))))
-                    (%index-entry-concepts skill-id :skill 1 (memory-entry-content src)
-                                           :reason :compression-source)))
-                (%upsert-concept-edge "skill" "memory" :skill-memory)
-                (dolist (id source-ids)
-                  (setf (gethash id *memory-compressed-source-ids*) t))
-                (incf created))))
-          groups)
-         (setf *memory-last-compression-at* now)
-         (when (and runtime (> crystallized 0))
-           (runtime-log runtime :memory-crystallized
-                        (list :count crystallized)))
+  (let ((now (get-universal-time)))
+    (multiple-value-bind (window-ok idle-for hour cfg) (%compression-window-p now)
+      (declare (ignore cfg))
+      (cond
+        ((not window-ok)
          (when runtime
-           (runtime-log runtime :memory-compressed
-                        (list :created created :hour hour :idle-for idle-for)))
-         (when (> created 0)
-           (ignore-errors
-             (chronicle-record-memory-event "compress"
-               :entries-created created
-               :node-count (hash-table-count *memory-concept-nodes*)
-               :edge-count (hash-table-count *memory-concept-edges*)
-               :detail (format nil "hour=~D idle=~Ds" hour idle-for))))
-         created)))))
+           (runtime-log runtime :memory-compress-skipped
+                        (list :reason :window-check-failed :idle-for idle-for :hour hour)))
+         0)
+        (t
+         (%crystallize-structural-entries runtime)
+         (let* ((groups (%find-compression-candidates))
+                (created 0))
+           (maphash (lambda (intent group)
+                      (incf created (%merge-candidate-group intent group)))
+                    groups)
+           (setf *memory-last-compression-at* now)
+           (when runtime
+             (runtime-log runtime :memory-compressed
+                          (list :created created :hour hour :idle-for idle-for)))
+           (when (> created 0)
+             (handler-case
+                 (chronicle-record-memory-event "compress"
+                   :entries-created created
+                   :node-count (hash-table-count *memory-concept-nodes*)
+                   :edge-count (hash-table-count *memory-concept-edges*)
+                   :detail (format nil "hour=~D idle=~Ds" hour idle-for))
+               (error (e) (%log :warn "memory" "chronicle compress record failed: ~A" e))))
+           created))))))
 
 (defun memory-heartbeat (&key (runtime *runtime*))
   (memory-compress-idle-night :runtime runtime))

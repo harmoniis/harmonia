@@ -14,7 +14,6 @@ use harmonia_voice_protocol::{clear_error, get_secret_any, last_error_message, s
 
 struct VoiceProvider {
     id: &'static str,
-    #[allow(dead_code)] // Used for future model-prefix routing
     prefixes: &'static [&'static str],
     vault_component: &'static str,
     vault_symbols: &'static [&'static str],
@@ -65,9 +64,24 @@ fn is_provider_active(id: &str) -> bool {
     active_providers().iter().any(|a| a == id)
 }
 
+/// Resolve a provider by matching the model hint against registered prefixes.
+fn resolve_provider(model_hint: &str) -> Option<&'static VoiceProvider> {
+    let lower = model_hint.to_ascii_lowercase();
+    PROVIDERS
+        .iter()
+        .find(|p| p.prefixes.iter().any(|pfx| lower.starts_with(pfx)))
+}
+
 // ── Routing ────────────────────────────────────────────────────────────────
 
 pub fn transcribe(audio_path: &str, model_hint: &str) -> Result<String, String> {
+    // Route to specific whisper backend when model_hint matches a prefix.
+    if let Some(provider) = resolve_provider(model_hint) {
+        if is_provider_active(provider.id) {
+            return harmonia_whisper::backend::transcribe(audio_path, model_hint);
+        }
+    }
+    // Default: first active whisper provider, or fallback.
     harmonia_whisper::backend::transcribe(audio_path, model_hint)
 }
 
@@ -77,6 +91,12 @@ pub fn tts_to_file(
     out_path: &str,
     model_hint: &str,
 ) -> Result<(), String> {
+    // Route to elevenlabs when model_hint matches its prefix.
+    if let Some(provider) = resolve_provider(model_hint) {
+        if is_provider_active(provider.id) && provider.id == "elevenlabs" {
+            return harmonia_elevenlabs::backend::tts_to_file(text, voice_id, out_path, model_hint);
+        }
+    }
     harmonia_elevenlabs::backend::tts_to_file(text, voice_id, out_path, model_hint)
 }
 

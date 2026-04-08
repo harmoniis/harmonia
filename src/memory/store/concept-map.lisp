@@ -100,3 +100,72 @@ E.g. tag :identity connects to content words, so 'who are you' finds identity en
                                  0 (min edge-limit (length nodes)))
           :concept-edges (subseq (sort edges #'> :key (lambda (e) (getf e :weight)))
                                  0 (min edge-limit (length edges))))))
+
+;;; ═══════════════════════════════════════════════════════════════════════
+;;; MEDITATION — active field strengthening after successful interactions
+;;;
+;;; Dreaming COMPRESSES (offline, idle, prune/merge/crystallize).
+;;; Meditation GROWS (active, post-interaction, strengthen/connect/damp).
+;;;
+;;; Hebbian learning: concepts that fire together wire together.
+;;; New bridges emerge between co-activated concepts.
+;;; Pure functional: takes activated concepts + success, returns graph changes.
+;;; ═══════════════════════════════════════════════════════════════════════
+
+(defparameter *meditation-learning-rate* 2
+  "Edge weight boost per co-activation. Higher = faster learning. DNA bound.")
+
+(defparameter *meditation-bridge-threshold* 3
+  "Min co-activations before creating a new bridge edge.")
+
+(defparameter *meditation-co-activation-log* (make-hash-table :test 'equal)
+  "Tracks concept pairs co-activated without existing edges. Key: edge-key, Value: count.")
+
+(defun %compute-co-activation-pairs (concepts)
+  "Return a list of (A B EDGE-KEY) for all unique ordered pairs of CONCEPTS.
+   Pure function — no side effects."
+  (let ((vec (coerce concepts 'vector)))
+    (loop for i from 0 below (length vec)
+          nconc (loop for j from (1+ i) below (length vec)
+                      collect (let ((a (aref vec i))
+                                    (b (aref vec j)))
+                                (list a b (%edge-key a b)))))))
+
+(defun %strengthen-edges (pairs boost)
+  "Apply Hebbian edge weight updates for each pair.
+   Existing edges get boosted; missing edges accumulate co-activation counts
+   and bridge when threshold is reached.
+   Returns (values strengthened-count bridged-count)."
+  (let ((strengthened 0)
+        (bridged 0))
+    (dolist (pair pairs)
+      (destructuring-bind (a b k) pair
+        (let ((existing (gethash k *memory-concept-edges*)))
+          (cond
+            (existing
+             (setf (getf (gethash k *memory-concept-edges*) :weight)
+                   (+ (getf existing :weight) boost))
+             (incf strengthened))
+            (t
+             (let ((count (1+ (or (gethash k *meditation-co-activation-log*) 0))))
+               (setf (gethash k *meditation-co-activation-log*) count)
+               (when (>= count *meditation-bridge-threshold*)
+                 (%upsert-concept-edge a b :meditation)
+                 (remhash k *meditation-co-activation-log*)
+                 (incf bridged))))))))
+    (values strengthened bridged)))
+
+(defun memory-meditate (activated-concepts &key (success t))
+  "Post-interaction meditation. Strengthens the concept graph based on co-activation.
+   ACTIVATED-CONCEPTS: list of concept strings that were active during this interaction.
+   SUCCESS: whether the interaction produced a useful response.
+
+   Returns (:strengthened N :bridged N) — count of edges modified/created."
+  (when (or (null activated-concepts) (< (length activated-concepts) 2))
+    (return-from memory-meditate (list :strengthened 0 :bridged 0)))
+  (let ((pairs (%compute-co-activation-pairs activated-concepts))
+        (boost (if success *meditation-learning-rate* 1)))
+    (multiple-value-bind (strengthened bridged) (%strengthen-edges pairs boost)
+      (%log :info "meditate" "~D strengthened, ~D bridged from ~D concepts"
+            strengthened bridged (length activated-concepts))
+      (list :strengthened strengthened :bridged bridged))))

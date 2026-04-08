@@ -154,7 +154,6 @@ pub fn is_signal_allowed(envelope: &ChannelEnvelope) -> bool {
 }
 
 /// Force-reload policies from config-store (called after TUI updates policies).
-#[allow(dead_code)]
 pub fn reload_policies() {
     let mut guard = CACHE.lock().unwrap_or_else(|e| e.into_inner());
     *guard = Some(load_policies());

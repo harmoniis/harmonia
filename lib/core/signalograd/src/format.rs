@@ -40,7 +40,7 @@ pub fn observation_to_sexp(obs: &Observation) -> String {
          :error-pressure {} :prior-confidence {} :presentation-cleanliness {} \
          :presentation-verbosity {} :presentation-markdown-density {} \
          :presentation-symbolic-density {} :presentation-self-reference {} \
-         :presentation-decor-density {} :presentation-user-affinity {})",
+         :presentation-decor-density {} :presentation-user-affinity {} :route-tier \"{}\")",
         obs.cycle,
         format_f64(obs.global_score),
         format_f64(obs.local_score),
@@ -74,6 +74,7 @@ pub fn observation_to_sexp(obs: &Observation) -> String {
         format_f64(obs.presentation_self_reference),
         format_f64(obs.presentation_decor_density),
         format_f64(obs.presentation_user_affinity),
+        escape_string(&obs.route_tier),
     )
 }
 
@@ -130,7 +131,6 @@ pub fn projection_body_sexp(proj: &Projection) -> String {
     )
 }
 
-#[allow(dead_code)]
 pub fn projection_to_sexp(proj: &Projection) -> String {
     format!("(:signalograd-proposal {})", projection_body_sexp(proj))
 }

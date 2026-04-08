@@ -3,6 +3,9 @@
 ;;; Stores harmonic snapshots, memory events, delegation decisions, concept graph
 ;;; decompositions, and lifecycle events in a durable SQLite knowledge base.
 ;;; All data is queryable via complex SQL from Lisp, returning s-expressions.
+;;;
+;;; HOMOICONIC: all IPC commands are built as Lisp LISTS, then serialized
+;;; with %sexp-to-ipc-string. S-expressions are law — no format strings.
 
 (in-package :harmonia)
 
@@ -13,8 +16,11 @@
   (let ((reply (ipc-chronicle-init)))
     ;; Register chronicle as actor through the unified registry
     (when *runtime*
-      (ignore-errors
-        (let ((actor-id (actor-register "chronicle")))
+      (handler-case
+
+          (let ((actor-id (actor-register "chronicle")
+
+        (error () nil)))
           (setf (runtime-state-chronicle-actor-id *runtime*) actor-id)
           (setf (gethash actor-id (runtime-state-actor-kinds *runtime*)) "chronicle"))))
     (runtime-log *runtime* :chronicle-init
@@ -25,8 +31,11 @@
 
 (defun chronicle-record-harmonic (ctx)
   "Record a full harmonic snapshot from the harmonic context plist."
-  (ignore-errors
-    (let* ((plan (getf ctx :plan))
+  (handler-case
+
+      (let* ((plan (getf ctx :plan)
+
+    (error () nil))
            (vitruvian (getf plan :vitruvian))
            (logistic (getf ctx :logistic))
            (lorenz (getf ctx :lorenz))
@@ -35,31 +44,32 @@
            (local (getf ctx :local))
            (security (getf ctx :security)))
       (ipc-call
-       (format nil "(:component \"chronicle\" :op \"record-harmonic\" :cycle ~D :phase \"~A\" :strength ~F :utility ~F :beauty ~F :signal ~F :noise ~F :logistic-x ~F :logistic-r ~F :chaos-risk ~F :rewrite-aggression ~F :lorenz-x ~F :lorenz-y ~F :lorenz-z ~F :lorenz-radius ~F :lorenz-bounded ~F :lambdoma-global ~F :lambdoma-local ~F :lambdoma-ratio ~F :lambdoma-convergent ~D :rewrite-ready ~D :rewrite-count ~D :security-posture \"~A\" :security-events ~D)"
-               (or (getf ctx :cycle) 0)
-               (string-downcase (symbol-name (or (getf plan :state-machine) :observe)))
-               (coerce (or (getf vitruvian :strength) 0.0) 'double-float)
-               (coerce (or (getf vitruvian :utility) 0.0) 'double-float)
-               (coerce (or (getf vitruvian :beauty) 0.0) 'double-float)
-               (coerce (or (getf vitruvian :signal) 0.0) 'double-float)
-               (coerce (or (getf vitruvian :noise) 0.0) 'double-float)
-               (coerce (or (getf logistic :x) 0.5) 'double-float)
-               (coerce (or (getf logistic :r) 3.45) 'double-float)
-               (coerce (or (getf logistic :chaos-risk) 0.0) 'double-float)
-               (coerce (or (getf logistic :rewrite-aggression) 0.0) 'double-float)
-               (coerce (or (getf lorenz :x) 0.0) 'double-float)
-               (coerce (or (getf lorenz :y) 0.0) 'double-float)
-               (coerce (or (getf lorenz :z) 0.0) 'double-float)
-               (coerce (or (getf lorenz :radius) 0.0) 'double-float)
-               (coerce (or (getf lorenz :bounded-score) 0.0) 'double-float)
-               (coerce (or (getf global :global-score) 0.0) 'double-float)
-               (coerce (or (getf local :local-score) 0.0) 'double-float)
-               (coerce (or (getf projection :ratio) 0.0) 'double-float)
-               (if (getf projection :convergent-p) 1 0)
-               (if (and plan (getf plan :ready)) 1 0)
-               (or (getf plan :rewrite-count) 0)
-               (string-downcase (symbol-name (or (getf security :posture) :nominal)))
-               (or (getf security :events) 0))))))
+       (%sexp-to-ipc-string
+        `(:component "chronicle" :op "record-harmonic"
+          :cycle ,(or (getf ctx :cycle) 0)
+          :phase ,(string-downcase (symbol-name (or (getf plan :state-machine) :observe)))
+          :strength ,(coerce (or (getf vitruvian :strength) 0.0) 'double-float)
+          :utility ,(coerce (or (getf vitruvian :utility) 0.0) 'double-float)
+          :beauty ,(coerce (or (getf vitruvian :beauty) 0.0) 'double-float)
+          :signal ,(coerce (or (getf vitruvian :signal) 0.0) 'double-float)
+          :noise ,(coerce (or (getf vitruvian :noise) 0.0) 'double-float)
+          :logistic-x ,(coerce (or (getf logistic :x) 0.5) 'double-float)
+          :logistic-r ,(coerce (or (getf logistic :r) 3.45) 'double-float)
+          :chaos-risk ,(coerce (or (getf logistic :chaos-risk) 0.0) 'double-float)
+          :rewrite-aggression ,(coerce (or (getf logistic :rewrite-aggression) 0.0) 'double-float)
+          :lorenz-x ,(coerce (or (getf lorenz :x) 0.0) 'double-float)
+          :lorenz-y ,(coerce (or (getf lorenz :y) 0.0) 'double-float)
+          :lorenz-z ,(coerce (or (getf lorenz :z) 0.0) 'double-float)
+          :lorenz-radius ,(coerce (or (getf lorenz :radius) 0.0) 'double-float)
+          :lorenz-bounded ,(coerce (or (getf lorenz :bounded-score) 0.0) 'double-float)
+          :lambdoma-global ,(coerce (or (getf global :global-score) 0.0) 'double-float)
+          :lambdoma-local ,(coerce (or (getf local :local-score) 0.0) 'double-float)
+          :lambdoma-ratio ,(coerce (or (getf projection :ratio) 0.0) 'double-float)
+          :lambdoma-convergent ,(if (getf projection :convergent-p) 1 0)
+          :rewrite-ready ,(if (and plan (getf plan :ready)) 1 0)
+          :rewrite-count ,(or (getf plan :rewrite-count) 0)
+          :security-posture ,(string-downcase (symbol-name (or (getf security :posture) :nominal)))
+          :security-events ,(or (getf security :events) 0)))))))
 
 (defun chronicle-record-memory-event (event-type &key
                                        (entries-created 0) (entries-source 0)
@@ -68,39 +78,45 @@
                                        (interdisciplinary-edges 0)
                                        (max-depth 0) detail)
   "Record a memory evolution event."
-  (ignore-errors
-    (ipc-call
-     (format nil "(:component \"chronicle\" :op \"record-memory-event\" :event-type \"~A\" :entries-created ~D :entries-source ~D :old-size ~D :new-size ~D :node-count ~D :edge-count ~D :interdisciplinary-edges ~D :max-depth ~D :detail \"~A\")"
-             (sexp-escape-lisp event-type) entries-created entries-source
-             old-size new-size node-count edge-count
-             interdisciplinary-edges max-depth
-             (sexp-escape-lisp (or detail ""))))))
+  (handler-case
+      (ipc-call
+       (%sexp-to-ipc-string
+        `(:component "chronicle" :op "record-memory-event"
+          :event-type ,event-type
+          :entries-created ,entries-created :entries-source ,entries-source
+          :old-size ,old-size :new-size ,new-size
+          :node-count ,node-count :edge-count ,edge-count
+          :interdisciplinary-edges ,interdisciplinary-edges
+          :max-depth ,max-depth :detail ,(or detail ""))))
+    (error (e) (%log :warn "chronicle" "record-memory-event failed: ~A" e))))
 
 (defun chronicle-record-delegation (&key task-hint model backend reason
                                       escalated escalated-from
                                       cost-usd latency-ms success
                                       tokens-in tokens-out)
   "Record a model delegation decision."
-  (ignore-errors
-    (ipc-call
-     (format nil "(:component \"chronicle\" :op \"record-delegation\" :task-hint \"~A\" :model \"~A\" :backend \"~A\" :reason \"~A\" :escalated ~D :escalated-from \"~A\" :cost-usd ~F :latency-ms ~D :success ~D :tokens-in ~D :tokens-out ~D)"
-             (sexp-escape-lisp (or task-hint ""))
-             (sexp-escape-lisp (or model "unknown"))
-             (sexp-escape-lisp (or backend "provider-router"))
-             (sexp-escape-lisp (or reason ""))
-             (if escalated 1 0)
-             (sexp-escape-lisp (or escalated-from ""))
-             (coerce (or cost-usd 0.0) 'double-float)
-             (or latency-ms 0)
-             (if success 1 0)
-             (or tokens-in 0)
-             (or tokens-out 0)))))
+  (handler-case
+      (ipc-call
+       (%sexp-to-ipc-string
+        `(:component "chronicle" :op "record-delegation"
+          :task-hint ,(or task-hint "")
+          :model ,(or model "unknown")
+          :backend ,(or backend "provider-router")
+          :reason ,(or reason "")
+          :escalated ,(if escalated 1 0)
+          :escalated-from ,(or escalated-from "")
+          :cost-usd ,(coerce (or cost-usd 0.0) 'double-float)
+          :latency-ms ,(or latency-ms 0)
+          :success ,(if success 1 0)
+          :tokens-in ,(or tokens-in 0)
+          :tokens-out ,(or tokens-out 0))))
+    (error (e) (%log :warn "chronicle" "record-delegation failed: ~A" e))))
 
 (defun chronicle-record-graph-snapshot ()
   "Snapshot the current concept graph into the chronicle knowledge base.
    Decomposes the s-expression graph into relational nodes/edges for SQL traversal."
-  (ignore-errors
-    (let* ((map (memory-map-sexp :entry-limit 200 :edge-limit 300))
+  (handler-case
+      (let* ((map (memory-map-sexp :entry-limit 200 :edge-limit 300))
            (sexp-str (prin1-to-string map))
            (concept-nodes (getf map :concept-nodes))
            (concept-edges (getf map :concept-edges))
@@ -127,61 +143,68 @@
                                        (format nil "~{~A~^,~}" (mapcar #'symbol-name (or (getf e :reasons) '())))))
                              concept-edges))))
       (ipc-call
-       (format nil "(:component \"chronicle\" :op \"record-graph\" :source \"memory\" :sexp \"~A\" :nodes-json \"~A\" :edges-json \"~A\")"
-               (sexp-escape-lisp sexp-str)
-               (sexp-escape-lisp nodes-json)
-               (sexp-escape-lisp edges-json))))))
+       (%sexp-to-ipc-string
+        `(:component "chronicle" :op "record-graph"
+          :source "memory" :sexp ,sexp-str
+          :nodes-json ,nodes-json :edges-json ,edges-json))))
+    (error (e) (%log :warn "chronicle" "record-graph-snapshot failed: ~A" e))))
 
 (defun chronicle-record-signalograd-event (event-type &key cycle confidence stability novelty
                                                       reward accepted recall-hits checkpoint-path
                                                       checkpoint-digest detail)
   "Record an auditable Signalograd lifecycle event."
-  (ignore-errors
-    (ipc-call
-     (format nil "(:component \"chronicle\" :op \"record-signalograd-event\" :event-type \"~A\" :cycle ~D :confidence ~F :stability ~F :novelty ~F :reward ~F :accepted ~D :recall-hits ~D :checkpoint-path \"~A\" :checkpoint-digest \"~A\" :detail \"~A\")"
-             (sexp-escape-lisp (or event-type "unknown"))
-             (or cycle 0)
-             (coerce (or confidence 0.0) 'double-float)
-             (coerce (or stability 0.0) 'double-float)
-             (coerce (or novelty 0.0) 'double-float)
-             (coerce (or reward 0.0) 'double-float)
-             (if accepted 1 0)
-             (or recall-hits 0)
-             (sexp-escape-lisp (or checkpoint-path ""))
-             (sexp-escape-lisp (or checkpoint-digest ""))
-             (sexp-escape-lisp (or detail ""))))))
+  (handler-case
+      (ipc-call
+       (%sexp-to-ipc-string
+        `(:component "chronicle" :op "record-signalograd-event"
+          :event-type ,(or event-type "unknown")
+        :cycle ,(or cycle 0)
+        :confidence ,(coerce (or confidence 0.0) 'double-float)
+        :stability ,(coerce (or stability 0.0) 'double-float)
+        :novelty ,(coerce (or novelty 0.0) 'double-float)
+        :reward ,(coerce (or reward 0.0) 'double-float)
+        :accepted ,(if accepted 1 0)
+        :recall-hits ,(or recall-hits 0)
+        :checkpoint-path ,(or checkpoint-path "")
+          :checkpoint-digest ,(or checkpoint-digest "")
+          :detail ,(or detail ""))))
+    (error (e) (%log :warn "chronicle" "record-signalograd-event failed: ~A" e))))
 
 (defun chronicle-record-phoenix-event (event-type &key exit-code attempt max-attempts
                                                    recovery-ms detail)
   "Record a phoenix lifecycle event."
-  (ignore-errors
-    (ipc-call
-     (format nil "(:component \"chronicle\" :op \"record-phoenix-event\" :event-type \"~A\" :exit-code ~D :attempt ~D :max-attempts ~D :recovery-ms ~D :detail \"~A\")"
-             (sexp-escape-lisp (or event-type "unknown"))
-             (or exit-code 0)
-             (or attempt 0)
-             (or max-attempts 0)
-             (or recovery-ms 0)
-             (sexp-escape-lisp (or detail ""))))))
+  (handler-case
+      (ipc-call
+       (%sexp-to-ipc-string
+        `(:component "chronicle" :op "record-phoenix-event"
+          :event-type ,(or event-type "unknown")
+        :exit-code ,(or exit-code 0)
+        :attempt ,(or attempt 0)
+        :max-attempts ,(or max-attempts 0)
+          :recovery-ms ,(or recovery-ms 0)
+          :detail ,(or detail ""))))
+    (error (e) (%log :warn "chronicle" "record-phoenix-event failed: ~A" e))))
 
 (defun chronicle-record-ouroboros-event (event-type &key component detail patch-size success)
   "Record an ouroboros lifecycle event."
-  (ignore-errors
-    (ipc-call
-     (format nil "(:component \"chronicle\" :op \"record-ouroboros-event\" :event-type \"~A\" :component \"~A\" :detail \"~A\" :patch-size ~D :success ~D)"
-             (sexp-escape-lisp (or event-type "unknown"))
-             (sexp-escape-lisp (or component ""))
-             (sexp-escape-lisp (or detail ""))
-             (or patch-size 0)
-             (if success 1 0)))))
+  (handler-case
+      (ipc-call
+       (%sexp-to-ipc-string
+        `(:component "chronicle" :op "record-ouroboros-event"
+        :event-type ,(or event-type "unknown")
+        :component ,(or component "")
+        :detail ,(or detail "")
+          :patch-size ,(or patch-size 0)
+          :success ,(if success 1 0))))
+    (error (e) (%log :warn "chronicle" "record-ouroboros-event failed: ~A" e))))
 
 ;;; --- Query API ---
 
-(defun %chronicle-ipc-query-sexp (op &optional extra-params)
-  "Send a chronicle query via IPC and parse the result as sexp."
-  (let* ((cmd (if extra-params
-                  (format nil "(:component \"chronicle\" :op \"~A\" ~A)" op extra-params)
-                  (format nil "(:component \"chronicle\" :op \"~A\")" op)))
+(defun %chronicle-ipc-query-sexp (op &optional extra-plist)
+  "Send a chronicle query via IPC and parse the result as sexp.
+   EXTRA-PLIST is a plist of additional keyword-value pairs to include."
+  (let* ((base (list :component "chronicle" :op op))
+         (cmd (%sexp-to-ipc-string (append base (or extra-plist '()))))
          (reply (ipc-call cmd))
          (val (ipc-extract-value reply)))
     (when val
@@ -208,27 +231,28 @@
 
 (defun chronicle-cost-report (&optional (since-ts 0))
   (%chronicle-ipc-query-sexp "cost-report"
-    (format nil ":since-ts ~D" since-ts)))
+    (list :since-ts since-ts)))
 
 (defun chronicle-full-digest ()
   (%chronicle-ipc-query-sexp "full-digest"))
 
 (defun chronicle-harmonic-history (&key (since-ts 0) (limit 50))
   (%chronicle-ipc-query-sexp "harmonic-history"
-    (format nil ":since-ts ~D :limit ~D" since-ts limit)))
+    (list :since-ts since-ts :limit limit)))
 
 (defun chronicle-memory-history (&key (since-ts 0) (limit 50))
   (%chronicle-ipc-query-sexp "memory-history"
-    (format nil ":since-ts ~D :limit ~D" since-ts limit)))
+    (list :since-ts since-ts :limit limit)))
 
 (defun chronicle-delegation-history (&key (since-ts 0) (limit 50))
   (%chronicle-ipc-query-sexp "delegation-history"
-    (format nil ":since-ts ~D :limit ~D" since-ts limit)))
+    (list :since-ts since-ts :limit limit)))
 
 (defun chronicle-dashboard-json ()
   "Generate an A2UI Composite dashboard as JSON string."
   (or (ipc-extract-value
-       (ipc-call "(:component \"chronicle\" :op \"dashboard\")"))
+       (ipc-call (%sexp-to-ipc-string
+                  '(:component "chronicle" :op "dashboard"))))
       "{}"))
 
 ;;; --- Graph Query API ---
@@ -236,28 +260,27 @@
 (defun chronicle-graph-traverse (concept &key (max-hops 3) (snapshot-id 0))
   "Traverse the knowledge graph from CONCEPT up to MAX-HOPS using recursive CTE."
   (%chronicle-ipc-query-sexp "graph-traverse"
-    (format nil ":concept \"~A\" :max-hops ~D :snapshot-id ~D"
-            (sexp-escape-lisp concept) max-hops snapshot-id)))
+    (list :concept concept :max-hops max-hops :snapshot-id snapshot-id)))
 
 (defun chronicle-graph-bridges (&key (snapshot-id 0))
   "Find interdisciplinary bridge edges in the knowledge graph."
   (%chronicle-ipc-query-sexp "graph-bridges"
-    (format nil ":snapshot-id ~D" snapshot-id)))
+    (list :snapshot-id snapshot-id)))
 
 (defun chronicle-graph-domains (&key (snapshot-id 0))
   "Get domain distribution of the knowledge graph."
   (%chronicle-ipc-query-sexp "graph-domains"
-    (format nil ":snapshot-id ~D" snapshot-id)))
+    (list :snapshot-id snapshot-id)))
 
 (defun chronicle-graph-central (&key (snapshot-id 0) (limit 20))
   "Find most central (highest-degree) concepts in the knowledge graph."
   (%chronicle-ipc-query-sexp "graph-central"
-    (format nil ":snapshot-id ~D :limit ~D" snapshot-id limit)))
+    (list :snapshot-id snapshot-id :limit limit)))
 
 (defun chronicle-graph-evolution (&key (since-ts 0))
   "Track how the knowledge graph has grown/changed over time."
   (%chronicle-ipc-query-sexp "graph-evolution"
-    (format nil ":since-ts ~D" since-ts)))
+    (list :since-ts since-ts)))
 
 ;;; --- Batched recording support ---
 

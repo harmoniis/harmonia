@@ -8,8 +8,6 @@
     :responsibility "Mutable non-secret runtime config")
    (:port "Router" :lisp "src/ports/router.lisp" :rust "lib/backends/llms/provider-router"
     :responsibility "Generic LLM provider router over provider adapters")
-   (:port "GitOps" :lisp "src/ports/gitop.lisp" :rust "lib/core/git-ops"
-    :responsibility "Git operations (status, log, diff, commit, push) via IPC actor")
    (:port "Matrix" :lisp "src/ports/matrix.lisp" :rust "lib/core/harmonic-matrix"
     :responsibility "Route constraints + telemetry")
    (:port "Ouroboros" :lisp "src/ports/ouroboros.lisp" :rust "lib/core/ouroboros"

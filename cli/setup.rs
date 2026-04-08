@@ -1,5 +1,5 @@
 use console::{style, Term};
-use dialoguer::{Input, MultiSelect, Select};
+use dialoguer::{Input, MultiSelect};
 use std::fs;
 use std::io::Write;
 use std::path::{Path, PathBuf};
@@ -35,7 +35,7 @@ fn llm_provider_defs() -> Vec<LlmProviderDef> {
     vec![
         LlmProviderDef {
             id: "openrouter",
-            display: "OpenRouter (recommended — routes to all providers)",
+            display: "OpenRouter",
             required_command: None,
             secrets: vec![LlmSecretDef {
                 symbol: "openrouter-api-key",
@@ -46,8 +46,20 @@ fn llm_provider_defs() -> Vec<LlmProviderDef> {
             }],
         },
         LlmProviderDef {
+            id: "harmoniis",
+            display: "Harmoniis",
+            required_command: None,
+            secrets: vec![LlmSecretDef {
+                symbol: "harmoniis-api-key",
+                prompt: "Harmoniis Router API key (HARMONIIS_ROUTER_API_KEY)",
+                is_password: true,
+                required: true,
+                default: None,
+            }],
+        },
+        LlmProviderDef {
             id: "openai",
-            display: "OpenAI (direct)",
+            display: "OpenAI",
             required_command: None,
             secrets: vec![LlmSecretDef {
                 symbol: "openai-api-key",
@@ -59,7 +71,7 @@ fn llm_provider_defs() -> Vec<LlmProviderDef> {
         },
         LlmProviderDef {
             id: "anthropic",
-            display: "Anthropic (direct)",
+            display: "Anthropic",
             required_command: None,
             secrets: vec![LlmSecretDef {
                 symbol: "anthropic-api-key",
@@ -71,7 +83,7 @@ fn llm_provider_defs() -> Vec<LlmProviderDef> {
         },
         LlmProviderDef {
             id: "xai",
-            display: "xAI (direct)",
+            display: "xAI",
             required_command: None,
             secrets: vec![LlmSecretDef {
                 symbol: "xai-api-key",
@@ -83,7 +95,7 @@ fn llm_provider_defs() -> Vec<LlmProviderDef> {
         },
         LlmProviderDef {
             id: "google-ai-studio",
-            display: "Google AI Studio (direct)",
+            display: "Google AI Studio",
             required_command: None,
             secrets: vec![LlmSecretDef {
                 symbol: "google-ai-studio-api-key",
@@ -95,7 +107,7 @@ fn llm_provider_defs() -> Vec<LlmProviderDef> {
         },
         LlmProviderDef {
             id: "google-vertex",
-            display: "Google Vertex AI (direct)",
+            display: "Google Vertex AI",
             required_command: None,
             secrets: vec![
                 LlmSecretDef {
@@ -123,7 +135,7 @@ fn llm_provider_defs() -> Vec<LlmProviderDef> {
         },
         LlmProviderDef {
             id: "bedrock",
-            display: "Amazon Bedrock / Nova (direct)",
+            display: "Amazon Bedrock",
             required_command: Some("aws"),
             secrets: vec![
                 LlmSecretDef {
@@ -158,7 +170,7 @@ fn llm_provider_defs() -> Vec<LlmProviderDef> {
         },
         LlmProviderDef {
             id: "groq",
-            display: "Groq (direct)",
+            display: "Groq",
             required_command: None,
             secrets: vec![LlmSecretDef {
                 symbol: "groq-api-key",
@@ -170,23 +182,11 @@ fn llm_provider_defs() -> Vec<LlmProviderDef> {
         },
         LlmProviderDef {
             id: "alibaba",
-            display: "Alibaba / DashScope / Qwen (direct)",
+            display: "Alibaba",
             required_command: None,
             secrets: vec![LlmSecretDef {
                 symbol: "alibaba-api-key",
                 prompt: "Alibaba API key",
-                is_password: true,
-                required: true,
-                default: None,
-            }],
-        },
-        LlmProviderDef {
-            id: "harmoniis",
-            display: "Harmoniis BER1 (self-hosted L4 GPU — free)",
-            required_command: None,
-            secrets: vec![LlmSecretDef {
-                symbol: "harmoniis-api-key",
-                prompt: "Harmoniis Router API key (HARMONIIS_ROUTER_API_KEY)",
                 is_password: true,
                 required: true,
                 default: None,
@@ -197,33 +197,33 @@ fn llm_provider_defs() -> Vec<LlmProviderDef> {
 
 fn default_seed_models_for_provider(provider_id: &str) -> Vec<&'static str> {
     match provider_id {
-        "openrouter" => vec![
-            "inception/mercury-2",
-            "qwen/qwen3.5-flash-02-23",
-            "minimax/minimax-m2.5",
-            "google/gemini-3.1-flash-lite-preview",
-        ],
-        "openai" => vec!["openai/gpt-5"],
-        "anthropic" => vec!["anthropic/claude-sonnet-4.6", "anthropic/claude-opus-4.6"],
-        "xai" => vec!["x-ai/grok-4-fast:online"],
-        "google-ai-studio" | "google-vertex" => {
-            vec![
-                "google/gemini-3.1-flash-lite-preview",
-                "google/gemini-2.5-pro",
-            ]
-        }
-        "bedrock" => vec![
-            "amazon/nova-micro-v1",
-            "amazon/nova-lite-v1",
-            "amazon/nova-pro-v1",
-        ],
-        "groq" => vec!["qwen/qwen3-coder:free"],
-        "alibaba" => vec!["qwen/qwen3-coder:free"],
+        // Free self-hosted (always first in pool)
         "harmoniis" => vec![
             "ber1-ai/qwen3.5-27b",
             "ber1-ai/magistral-24b",
             "ber1-ai/nanbeige-3b",
         ],
+        // Eco/Auto — smart + fast + free/cheap
+        "openrouter" => vec![
+            "qwen/qwen3.6-plus:free",
+            "google/gemini-2.5-flash-lite-preview-09-2025",
+            "x-ai/grok-4.1-fast",
+            "inception/mercury-2",
+            "qwen/qwen3.5-flash-02-23",
+            "minimax/minimax-m2.5",
+        ],
+        // Premium only
+        "xai" => vec!["x-ai/grok-4.20"],
+        "anthropic" => vec!["anthropic/claude-opus-4.6"],
+        "google-ai-studio" | "google-vertex" => {
+            vec!["google/gemini-2.5-flash-lite-preview-09-2025"]
+        }
+        "bedrock" => vec![
+            "amazon/nova-micro-v1",
+            "amazon/nova-lite-v1",
+        ],
+        "groq" => vec!["qwen/qwen3.6-plus:free"],
+        "alibaba" => vec!["qwen/qwen3.6-plus:free"],
         _ => vec![],
     }
 }
@@ -485,38 +485,6 @@ fn seed_provider_ids(configured_provider_ids: &[String]) -> Vec<String> {
     provider_ids
 }
 
-fn stored_seed_models_for_provider(provider_id: &str) -> Option<String> {
-    let provider_key = format!("seed-models-{}", provider_id);
-    let provider_seed_csv =
-        harmonia_config_store::get_config("harmonia-cli", "model-policy", &provider_key)
-            .ok()
-            .flatten()
-            .map(|raw| normalize_model_csv(&raw))
-            .filter(|csv| !csv.is_empty());
-    if provider_seed_csv.is_some() {
-        return provider_seed_csv;
-    }
-
-    let active_provider =
-        harmonia_config_store::get_config("harmonia-cli", "model-policy", "provider")
-            .ok()
-            .flatten();
-    if active_provider.as_deref() != Some(provider_id) {
-        return None;
-    }
-
-    harmonia_config_store::get_config("harmonia-cli", "model-policy", "seed-models")
-        .ok()
-        .flatten()
-        .map(|raw| normalize_model_csv(&raw))
-        .filter(|csv| !csv.is_empty())
-}
-
-fn seed_prompt_default_for_provider(provider_id: &str) -> String {
-    stored_seed_models_for_provider(provider_id).unwrap_or_else(|| {
-        normalize_model_csv(&default_seed_models_for_provider(provider_id).join(","))
-    })
-}
 
 fn configure_model_seed_policy(
     configured_provider_ids: &[String],
@@ -527,7 +495,7 @@ fn configure_model_seed_policy(
     }
 
     let defs = llm_provider_defs();
-    let provider_labels: Vec<String> = provider_ids
+    let _provider_labels: Vec<String> = provider_ids
         .iter()
         .map(|id| {
             defs.iter()
@@ -537,42 +505,45 @@ fn configure_model_seed_policy(
         })
         .collect();
 
-    let stored_primary_provider =
-        harmonia_config_store::get_config("harmonia-cli", "model-policy", "provider")
-            .ok()
-            .flatten();
-    let default_primary = stored_primary_provider
-        .as_deref()
-        .and_then(|provider| provider_ids.iter().position(|id| id == provider))
-        .or_else(|| provider_ids.iter().position(|id| id == "openrouter"))
-        .unwrap_or(0);
-
-    let selected_idx = Select::new()
-        .with_prompt("  Primary provider for seed models")
-        .items(&provider_labels)
-        .default(default_primary)
-        .interact()?;
-
-    let active_provider = provider_ids[selected_idx].clone();
-    let default_seed_csv = seed_prompt_default_for_provider(&active_provider);
+    // Unified model pool — no "primary provider". All enabled providers contribute
+    // models to ONE pool. Free models first, then ranked by intelligence × speed / price.
+    // The REPL measures performance and adapts dynamically.
+    let mut unified_seeds: Vec<String> = Vec::new();
+    // Free models first (harmoniis self-hosted — always available, zero cost).
+    for (provider, defaults) in all_provider_seed_defaults() {
+        if provider == "harmoniis" && provider_ids.contains(&provider.to_string()) {
+            for m in &defaults {
+                unified_seeds.push(m.to_string());
+            }
+        }
+    }
+    // Then all other enabled provider defaults.
+    for (provider, defaults) in all_provider_seed_defaults() {
+        if provider != "harmoniis" && provider_ids.contains(&provider.to_string()) {
+            for m in &defaults {
+                if !unified_seeds.contains(&m.to_string()) {
+                    unified_seeds.push(m.to_string());
+                }
+            }
+        }
+    }
+    let unified_csv = unified_seeds.join(",");
+    // Show the unified pool for review.
     let entered_seed_csv: String = Input::new()
-        .with_prompt("    Seed models for primary provider (comma-separated)")
-        .default(default_seed_csv.clone())
+        .with_prompt("  Default models pool")
+        .default(unified_csv.clone())
         .interact_text()?;
     let normalized_seed_csv = {
         let n = normalize_model_csv(&entered_seed_csv);
-        if n.is_empty() {
-            default_seed_csv
-        } else {
-            n
-        }
+        if n.is_empty() { unified_csv } else { n }
     };
 
     let cs = |scope: &str, key: &str, val: &str| -> Result<(), Box<dyn std::error::Error>> {
         harmonia_config_store::set_config("harmonia-cli", scope, key, val).map_err(|e| e.into())
     };
 
-    cs("model-policy", "provider", &active_provider)?;
+    // Store unified — no primary provider, just the pool.
+    cs("model-policy", "provider", "unified")?;
     cs("model-policy", "seed-models", &normalized_seed_csv)?;
 
     for (provider, defaults) in all_provider_seed_defaults() {
@@ -581,13 +552,9 @@ fn configure_model_seed_policy(
         cs("model-policy", &key, &csv)?;
     }
 
-    let active_key = format!("seed-models-{}", active_provider);
-    cs("model-policy", &active_key, &normalized_seed_csv)?;
-
     println!(
-        "    {} Seed policy stored (provider={}, models={})",
+        "    {} Default models pool stored (models={})",
         style("✓").green().bold(),
-        active_provider,
         normalized_seed_csv
     );
 
@@ -708,7 +675,7 @@ pub fn run_headless(config_path: &str) -> Result<(), Box<dyn std::error::Error>>
     let enabled_modules = resolve_configured_modules();
     if !enabled_modules.is_empty() {
         let csv = enabled_modules.join(",");
-        harmonia_config_store::set_config("harmonia-runtime", "runtime", "components", &csv)
+        harmonia_config_store::set_config("harmonia-cli", "runtime", "components", &csv)
             .map_err(|e| format!("failed to persist runtime components: {e}"))?;
         eprintln!("[INFO] [setup]   runtime modules: {}", csv);
     }
@@ -797,40 +764,20 @@ fn configure_langsmith_observability() -> Result<(), Box<dyn std::error::Error>>
     Ok(())
 }
 
-fn configure_evolution_profile(home: &Path) -> Result<(), Box<dyn std::error::Error>> {
+fn configure_evolution_profile(_home: &Path) -> Result<(), Box<dyn std::error::Error>> {
     println!();
     let options = vec![
-        "Binary-only evolution (artifact rollout, no source rewrite)",
-        "Local source rewrite (ouroboros + git lineage)",
-        "Distributed evolution participant (organization harmonization)",
+        "Local evolution",
+        "Distributed evolution",
     ];
 
-    // Detect existing evolution mode to set default selection
-    let existing_mode = harmonia_config_store::get_config("harmonia-cli", "evolution", "mode")
-        .ok()
-        .flatten();
-    let default_idx = match existing_mode.as_deref() {
-        Some("source-rewrite") => 1,
-        Some("artifact-rollout") => {
-            // Check if distributed is enabled
-            let distributed = harmonia_config_store::get_config(
-                "harmonia-cli",
-                "evolution",
-                "distributed-enabled",
-            )
-            .ok()
-            .flatten();
-            if distributed.as_deref() == Some("1") {
-                2
-            } else {
-                0
-            }
-        }
-        _ => 0,
-    };
+    let distributed = harmonia_config_store::get_config(
+        "harmonia-cli", "evolution", "distributed-enabled",
+    ).ok().flatten();
+    let default_idx = if distributed.as_deref() == Some("1") { 1 } else { 0 };
 
     let selection = dialoguer::Select::new()
-        .with_prompt("  Evolution profile")
+        .with_prompt("  Evolution mode")
         .items(&options)
         .default(default_idx)
         .interact()?;
@@ -839,69 +786,82 @@ fn configure_evolution_profile(home: &Path) -> Result<(), Box<dyn std::error::Er
         harmonia_config_store::set_config("harmonia-cli", scope, key, val)
     };
 
+    cs("evolution", "mode", "binary")?;
+
     match selection {
         0 => {
-            cs("evolution", "mode", "artifact-rollout")?;
-            cs("evolution", "source-rewrite-enabled", "0")?;
             cs("evolution", "distributed-enabled", "0")?;
-        }
-        1 => {
-            cs("evolution", "mode", "source-rewrite")?;
-            cs("evolution", "source-rewrite-enabled", "1")?;
-            cs("evolution", "distributed-enabled", "0")?;
-
-            if let Some(rewrite_root) = detect_source_rewrite_root(home) {
-                cs("global", "source-dir", &rewrite_root.to_string_lossy())?;
-                println!(
-                    "    {} Source rewrite root: {}",
-                    style("✓").green().bold(),
-                    rewrite_root.display()
-                );
-            } else {
-                println!(
-                    "    {} Source rewrite git checkout not found — can configure later with `harmonia setup`.",
-                    style("!").yellow().bold()
-                );
-            }
         }
         _ => {
-            cs("evolution", "mode", "artifact-rollout")?;
-            cs("evolution", "source-rewrite-enabled", "0")?;
             cs("evolution", "distributed-enabled", "1")?;
-            cs("evolution", "distributed-store-kind", "s3")?;
 
-            let existing_bucket = harmonia_config_store::get_config(
-                "harmonia-cli",
-                "evolution",
-                "distributed-store-bucket",
-            )
-            .ok()
-            .flatten()
-            .unwrap_or_default();
-            let mut bucket_input = Input::<String>::new()
-                .with_prompt("    Distributed evolution bucket")
-                .allow_empty(true);
-            if !existing_bucket.is_empty() {
-                bucket_input = bucket_input.default(existing_bucket);
-            }
-            let bucket: String = bucket_input.interact_text()?;
-            if !bucket.trim().is_empty() {
-                cs("evolution", "distributed-store-bucket", bucket.trim())?;
-            }
+            // Storage backend selection
+            let storage_options = vec!["S3", "Other"];
+            let existing_kind = harmonia_config_store::get_config(
+                "harmonia-cli", "evolution", "distributed-store-kind",
+            ).ok().flatten().unwrap_or_default();
+            let storage_default = if existing_kind == "other" { 1 } else { 0 };
+            let storage_sel = dialoguer::Select::new()
+                .with_prompt("    Storage backend")
+                .items(&storage_options)
+                .default(storage_default)
+                .interact()?;
 
-            let existing_prefix = harmonia_config_store::get_config(
-                "harmonia-cli",
-                "evolution",
-                "distributed-store-prefix",
-            )
-            .ok()
-            .flatten()
-            .unwrap_or_else(|| "harmonia/evolution".to_string());
-            let prefix: String = Input::new()
-                .with_prompt("    Distributed evolution prefix")
-                .default(existing_prefix)
-                .interact_text()?;
-            cs("evolution", "distributed-store-prefix", prefix.trim())?;
+            let store_kind = if storage_sel == 0 { "s3" } else { "other" };
+            cs("evolution", "distributed-store-kind", store_kind)?;
+
+            if storage_sel == 0 {
+                // S3 configuration
+                let existing_bucket = harmonia_config_store::get_config(
+                    "harmonia-cli", "evolution", "distributed-store-bucket",
+                ).ok().flatten().unwrap_or_default();
+                let mut bucket_input = Input::<String>::new()
+                    .with_prompt("    S3 bucket");
+                if !existing_bucket.is_empty() {
+                    bucket_input = bucket_input.default(existing_bucket);
+                }
+                let bucket: String = bucket_input.allow_empty(true).interact_text()?;
+                if !bucket.trim().is_empty() {
+                    cs("evolution", "distributed-store-bucket", bucket.trim())?;
+                }
+
+                let existing_prefix = harmonia_config_store::get_config(
+                    "harmonia-cli", "evolution", "distributed-store-prefix",
+                ).ok().flatten().unwrap_or_else(|| "harmonia/evolution".to_string());
+                let prefix: String = Input::new()
+                    .with_prompt("    S3 prefix")
+                    .default(existing_prefix)
+                    .interact_text()?;
+                cs("evolution", "distributed-store-prefix", prefix.trim())?;
+
+                // S3 credentials
+                let has_s3_key = harmonia_vault::has_secret_for_symbol("s3-access-key-id");
+                let key_prompt = if has_s3_key {
+                    "    AWS access key ID [configured] (Enter to keep)"
+                } else {
+                    "    AWS access key ID"
+                };
+                let access_key: String = Input::new()
+                    .with_prompt(key_prompt)
+                    .allow_empty(true)
+                    .interact_text()?;
+                if !access_key.is_empty() {
+                    harmonia_vault::set_secret_for_symbol("s3-access-key-id", &access_key)
+                        .map_err(|e| format!("vault: {e}"))?;
+                }
+
+                let has_s3_secret = harmonia_vault::has_secret_for_symbol("s3-secret-access-key");
+                let secret_prompt = if has_s3_secret {
+                    "    AWS secret key [configured] (Enter to keep)"
+                } else {
+                    "    AWS secret key"
+                };
+                let secret_key = read_masked(secret_prompt)?;
+                if !secret_key.is_empty() {
+                    harmonia_vault::set_secret_for_symbol("s3-secret-access-key", &secret_key)
+                        .map_err(|e| format!("vault: {e}"))?;
+                }
+            }
         }
     }
 
@@ -1126,95 +1086,10 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
         }
     }
 
-    // Git fork + GitHub token (optional) — detect existing
-    println!();
-    let has_fork = harmonia_vault::has_secret_for_symbol("github-fork-url");
-    let has_gh_token = harmonia_vault::has_secret_for_symbol("github-token");
-    let fork_prompt = if has_fork {
-        "  Git fork URL [configured] (Enter to keep)"
-    } else {
-        "  Git fork URL (Enter to skip)"
-    };
-    let default_fork = "https://github.com/harmoniis/harmonia.git".to_string();
-    let fork_url: String = Input::new()
-        .with_prompt(fork_prompt)
-        .default(default_fork)
-        .interact_text()?;
-    if !fork_url.is_empty() {
-        harmonia_vault::set_secret_for_symbol("github-fork-url", &fork_url)
-            .map_err(|e| format!("vault write failed for github-fork-url: {e}"))?;
-
-        let gh_prompt = if has_gh_token {
-            "    GitHub PAT [configured] (Enter to keep)"
-        } else {
-            "    GitHub PAT (for git push to fork, Enter to skip)"
-        };
-        let github_token = read_masked(gh_prompt)?;
-        if !github_token.is_empty() {
-            harmonia_vault::set_secret_for_symbol("github-token", &github_token)
-                .map_err(|e| format!("vault write failed for github-token: {e}"))?;
-        }
-    }
-
-    // S3 credentials (optional) — detect existing
-    println!();
-    let has_s3 = harmonia_vault::has_secret_for_symbol("s3-bucket");
-    let s3_prompt = if has_s3 {
-        "  S3 bucket [configured] (Enter to keep)"
-    } else {
-        "  S3 bucket for binary backups (Enter to skip)"
-    };
-    let s3_bucket: String = Input::new()
-        .with_prompt(s3_prompt)
-        .allow_empty(true)
-        .interact_text()?;
-    if !s3_bucket.is_empty() {
-        harmonia_vault::set_secret_for_symbol("s3-bucket", &s3_bucket)
-            .map_err(|e| format!("vault write failed for s3-bucket: {e}"))?;
-
-        let has_s3_key = harmonia_vault::has_secret_for_symbol("s3-access-key-id");
-        let s3_key_prompt = if has_s3_key {
-            "    AWS access key ID [configured] (Enter to keep)"
-        } else {
-            "    AWS access key ID"
-        };
-        let s3_access_key: String = Input::new()
-            .with_prompt(s3_key_prompt)
-            .allow_empty(true)
-            .interact_text()?;
-        if !s3_access_key.is_empty() {
-            harmonia_vault::set_secret_for_symbol("s3-access-key-id", &s3_access_key)
-                .map_err(|e| format!("vault write failed for s3-access-key-id: {e}"))?;
-            let _ = harmonia_vault::set_secret_for_symbol("aws-access-key-id", &s3_access_key);
-        }
-
-        let has_s3_secret = harmonia_vault::has_secret_for_symbol("s3-secret-access-key");
-        let s3_secret_prompt = if has_s3_secret {
-            "    AWS secret access key [configured] (Enter to keep)"
-        } else {
-            "    AWS secret access key"
-        };
-        let s3_secret_key = read_masked(s3_secret_prompt)?;
-        if !s3_secret_key.is_empty() {
-            harmonia_vault::set_secret_for_symbol("s3-secret-access-key", &s3_secret_key)
-                .map_err(|e| format!("vault write failed for s3-secret-access-key: {e}"))?;
-            let _ = harmonia_vault::set_secret_for_symbol("aws-secret-access-key", &s3_secret_key);
-        }
-        println!(
-            "    {} S3 credentials stored in vault",
-            style("✓").green().bold()
-        );
-    } else if has_s3 {
-        println!(
-            "    {} S3 credentials — keeping existing",
-            style("✓").green().bold()
-        );
-    }
-
     // LangSmith observability (optional)
     configure_langsmith_observability()?;
 
-    // Evolution profile (optional — defaults to artifact-rollout)
+    // Evolution mode
     configure_evolution_profile(&home)?;
 
     // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -1224,7 +1099,7 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
     let enabled_modules = resolve_configured_modules();
     if !enabled_modules.is_empty() {
         let csv = enabled_modules.join(",");
-        harmonia_config_store::set_config("harmonia-runtime", "runtime", "components", &csv)
+        harmonia_config_store::set_config("harmonia-cli", "runtime", "components", &csv)
             .map_err(|e| format!("failed to persist runtime components: {e}"))?;
         println!(
             "    {} Runtime modules auto-enabled: {}",
@@ -1470,30 +1345,6 @@ fn installed_hrmw_version() -> Option<(u64, u64, u64)> {
     parse_semver_tuple(version)
 }
 
-fn is_git_runtime_root(path: &Path) -> bool {
-    path.join(".git").exists() && path.join("src").join("core").join("boot.lisp").exists()
-}
-
-fn detect_source_rewrite_root(home: &Path) -> Option<PathBuf> {
-    let mut candidates: Vec<PathBuf> = Vec::new();
-
-    if let Ok(env_dir) = std::env::var("HARMONIA_SOURCE_DIR") {
-        candidates.push(PathBuf::from(env_dir));
-    }
-
-    if let Ok(found) = find_source_dir() {
-        candidates.push(found);
-    }
-
-    candidates.push(
-        home.join(".harmoniis")
-            .join("harmonia")
-            .join("source-rewrite"),
-    );
-    candidates.push(home.join(".harmoniis").join("harmonia").join("src"));
-
-    candidates.into_iter().find(|p| is_git_runtime_root(p))
-}
 
 fn parse_semver_tuple(input: &str) -> Option<(u64, u64, u64)> {
     let clean = input

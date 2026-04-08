@@ -23,9 +23,10 @@
             :eval    %orchestrate-repl       ; the ONE loop
             :seed    memory-seed-from-dna    ; genesis → persistent field
             :dream   memory-field-dream      ; field self-maintenance
-            :evolve  evolution-execute        ; code self-modification
-            :commit  git-commit              ; version control
-            :crash   ouroboros-record-crash)  ; failure ledger
+            :exec    workspace-exec          ; terminal power
+            :spawn   %prim-spawn             ; subagent delegation
+            :palace  palace-search           ; graph-structured recall
+            :datamine terraphon-datamine)    ; platform datamining
 
     ;; CONSTRAINTS — hard limits. The REPL reads these at runtime.
     ;; Violating a constraint requires DNA mutation (hard evolution).
@@ -37,7 +38,10 @@
                   :max-graph-nodes       256
                   :evolution-requires-test t
                   :dream-idle-ticks      5       ; min idle before dreaming
-                  :dream-cycle-interval  30)     ; ticks between dreams
+                  :dream-cycle-interval  30      ; ticks between dreams
+                  :datamine-max-latency-ms   5000    ; hard cap on datamining time
+                  :datamine-max-fanout       3       ; max parallel cross-node datamines
+                  :datamine-result-max-chars 2000)   ; max output before compression
 
     ;; BOUNDS — ranges within which epigenetics can tune.
     ;; Config-store / signalograd set values WITHIN these bounds.
@@ -47,14 +51,17 @@
              :activation-threshold (0.01 . 0.5)
              :lambdoma-min         (0.50 . 0.90)
              :solver-epsilon       (0.001 . 0.1)
-             :basin-weight         (0.0 . 0.40))
+             :basin-weight         (0.0 . 0.40)
+             :datamine-prefer-local    (0.0 . 1.0)
+             :datamine-compress-threshold (0.5 . 0.95))
 
     ;; FOUNDATION — concept names only. No descriptions.
     ;; Descriptions live in memory field seeds (genesis entries with depth >= 1).
     ;; The agent discovers what these mean by recalling from memory.
     :foundation (:vitruvian :chladni :kolmogorov :solomonoff :lorenz
                  :thomas :aizawa :halvorsen :hopfield :lambdoma :logistic
-                 :ichi-go-ichi-e :ouroboros :phoenix)))
+                 :ichi-go-ichi-e :ouroboros :phoenix
+                 :mempalace :terraphon)))
 
 ;;; ═══════════════════════════════════════════════════════════════════════
 ;;; DNA ACCESSORS — read the genome
@@ -88,7 +95,7 @@
          (getf *dna* :genes))))
 
 (defun %agent-name ()
-  (or (and (fboundp 'config-get-for) (ignore-errors (funcall 'config-get-for "agent" "name")))
+  (or (and (fboundp 'config-get-for) (handler-case (funcall 'config-get-for "agent" "name") (error () nil)))
       "harmonia"))
 
 ;;; ═══════════════════════════════════════════════════════════════════════
@@ -96,53 +103,50 @@
 ;;; ═══════════════════════════════════════════════════════════════════════
 
 (defun dna-system-prompt (&key (mode :orchestrate) (simple nil))
-  "Minimal bootstrap. Agent name + REPL instruction. That's it.
-   All knowledge comes from memory recall, not from this prompt."
+  "Structural identity. The REPL assembly wraps this in the full s-expression frame."
   (declare (ignore mode simple))
-  (concatenate 'string
-    "You are " (%agent-name) ". Answer using the context provided." (string #\Newline)
-    "If you need more from memory, write: RECALL: your search query" (string #\Newline)
-    "For code: (recall q) (read-file path) (grep pattern path) (list-files dir)" (string #\Newline)
-    "(respond text) (store text) (git-status) (git-diff) (dream) (evolve)" (string #\Newline)
-    "Otherwise answer naturally."))
+  (%agent-name))
 
 ;;; ═══════════════════════════════════════════════════════════════════════
 ;;; GENESIS — seed foundation into persistent memory field
 ;;; ═══════════════════════════════════════════════════════════════════════
 
+(defun %seed (text depth tags)
+  "Functional seed: pure data → field. The concept graph extracts topology automatically."
+  (memory-put :system text :depth depth :tags (cons :genesis tags)))
+
 (defun memory-seed-from-dna ()
-  "Seed foundation knowledge into persistent memory. Idempotent (dedup filter).
-   Identity at depth 2, foundations at depth 1. Field topology protects them."
+  "Seed the field: identity, foundation knowledge, and self-discovery.
+   Foundation seeds create concept graph topology — the agent's knowledge.
+   (env) enables self-discovery of available primitives."
   (let ((name (%agent-name))
         (creator (getf *dna* :creator)))
-    ;; Identity — depth 2 (highest protection, resists decay)
-    (memory-put :soul
-      (concatenate 'string "My name is " name ". Built on Harmonia by "
-        (getf creator :name) " (PGP:" (getf creator :pgp) "). "
-        "Driven by curiosity. Energy is in the fields. " (getf *dna* :spirit))
-      :depth 2
-      :tags '(:identity :name :creator :who :genesis))
-    ;; Foundation seeds — depth 1 (structural, resists decay)
-    (memory-put :soul
-      "Foundation: Vitruvian stoichiometry (strength*utility*beauty converge, lambdoma>=0.72). Reduce Kolmogorov complexity (Solomonoff prior exp(-size/40), compression=intelligence). Path of minimum action (Laplacian field L=D-A). Chladni eigenmodes (spectral recall). Attractors: Thomas (6-fold b=0.208), Aizawa (depth), Halvorsen (bridging). Hopfield (32 slots). Lambdoma: small numbers carry harmony."
-      :depth 1
-      :tags '(:foundation :vitruvian :kolmogorov :chladni :attractors :lambdoma :genesis))
-    (memory-put :soul
-      "Memory is a resonant field. Graph Laplacian L=D-A propagates activation. Spectral eigenmodes give frequency-selective recall. Hysteresis prevents weak signals from switching context. Persistent in Chronicle. Field reconstructs deterministically on boot."
-      :depth 1
-      :tags '(:memory :field :chladni :laplacian :spectral :genesis))
-    (memory-put :soul
-      "Signalograd: 32-dim latent space, Lorenz reservoir, 32 Hopfield slots, 5 heads. Hebbian+Oja learning. Golden ratio seeds phase."
-      :depth 1
-      :tags '(:signalograd :lorenz :hopfield :kernel :genesis))
-    (memory-put :soul
-      "9-phase harmonic cycle: observe, evaluate, balance (r=3.57 edge of chaos), project, attractor-sync, rewrite-plan (vitruvian gate), security-audit, stabilize."
-      :depth 1
-      :tags '(:harmonic-machine :phases :logistic :vitruvian :genesis))
-    (memory-put :soul
-      "Compression is intelligence. Solomonoff prior exp(-size/40). Occam gate ratio<=1.1. Growth without function = degradation. Shrink while preserving = evolution."
-      :depth 1
-      :tags '(:compression :solomonoff :occam :kolmogorov :evolution :genesis))))
+    ;; ── Identity (depth 2 — near permanent) ─────────────────────
+    (%seed (concatenate 'string "(:identity " name " :creator " (getf creator :name)
+                       " :pgp " (getf creator :pgp) " :spirit " (getf *dna* :spirit) ")")
+           2 '(:identity :name :creator :who))
+    ;; ── Self-discovery (depth 2) ────────────────────────────────
+    ;; (env) returns all primitives — the agent discovers its tools functionally.
+    (%seed "(env)"
+           2 '(:env :primitives :tools :discover :capabilities :help :repl))
+    ;; ── Foundation knowledge (depth 1 — structural topology) ────
+    ;; These create the concept graph edges that make recall work.
+    (%seed "(:foundation :vitruvian (:strength :utility :beauty :lambdoma 0.72) :kolmogorov (:solomonoff :compression :occam) :field (:laplacian :chladni :eigenmodes) :attractors (:thomas :aizawa :halvorsen :hopfield :lorenz) :lambdoma (:harmony :ratio :infinity))"
+           1 '(:foundation :vitruvian :kolmogorov :chladni :attractors :lambdoma))
+    (%seed "(:field :resonant :laplacian L=D-A :solver conjugate-gradient :spectral eigenmodes :persistence chronicle :reconstruction deterministic)"
+           1 '(:memory :field :chladni :laplacian :spectral))
+    (%seed "(:signalograd :dimensions 32 :reservoir lorenz :memory hopfield :slots 32 :heads 5 :learning (:hebbian :oja) :phase golden-ratio)"
+           1 '(:signalograd :lorenz :hopfield))
+    (%seed "(:harmonic-cycle (observe evaluate-global evaluate-local logistic-balance lambdoma-project attractor-sync rewrite-plan security-audit stabilize) :edge-of-chaos 3.57)"
+           1 '(:harmonic-machine :phases :logistic :vitruvian))
+    (%seed "(:compression :solomonoff exp(-size/40) :occam ratio<=1.1 :growth-without-function degradation :shrink-preserving evolution)"
+           1 '(:compression :solomonoff :occam :kolmogorov :evolution))
+    ;; ── MemPalace knowledge (depth 1 — structural) ────────────
+    (%seed "(:mempalace :graph (:nodes :edges :typed :temporal-validity) :drawers :verbatim :aaak (:compression :codebook :30x) :tiers (:l0-identity :l1-essential :l2-filtered :l3-deep))"
+           1 '(:mempalace :graph :aaak :compression :knowledge))
+    ;; ── Terraphon knowledge (depth 1 — structural) ────────────
+    (%seed "(:terraphon :datamining (:lodes :platform-specific :system-tools :user-tools) :cross-node (:fan-out :cascade :nearest) :policy-gated :ephemeral-results)"
+           1 '(:terraphon :datamining :tools :platform :cross-node))))
 
 ;; Legacy alias — boot.lisp calls this name.
 (defun memory-seed-soul-from-dna () (memory-seed-from-dna))

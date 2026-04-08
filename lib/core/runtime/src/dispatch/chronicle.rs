@@ -1,102 +1,86 @@
-//! Chronicle component dispatch.
+//! Chronicle component dispatch — pure functional, declarative.
 
-use harmonia_actor_protocol::{extract_sexp_bool, extract_sexp_f64, extract_sexp_string, sexp_escape};
+use harmonia_actor_protocol::{extract_sexp_bool, extract_sexp_string, sexp_escape};
 
-fn esc(s: &str) -> String {
-    sexp_escape(s)
-}
+use super::{dispatch_op, param, param_f64};
 
 pub(crate) fn dispatch(sexp: &str) -> String {
-    let op = extract_sexp_string(sexp, ":op").unwrap_or_default();
+    let op = harmonia_actor_protocol::extract_sexp_string(sexp, ":op").unwrap_or_default();
     match op.as_str() {
-        "init" => match harmonia_chronicle::init() {
-            Ok(_) => "(:ok)".to_string(),
-            Err(e) => format!("(:error \"{}\")", esc(&e)),
-        },
-        "query" => {
-            let sql = extract_sexp_string(sexp, ":sql").unwrap_or_default();
-            match harmonia_chronicle::query_sexp(&sql) {
-                Ok(result) => format!("(:ok :result \"{}\")", esc(&result)),
-                Err(e) => format!("(:error \"{}\")", esc(&e)),
-            }
-        }
-        "harmony-summary" => match harmonia_chronicle::harmony_summary() {
-            Ok(s) => format!("(:ok :result \"{}\")", esc(&s)),
-            Err(e) => format!("(:error \"{}\")", esc(&e)),
-        },
-        "dashboard" => match harmonia_chronicle::dashboard_json() {
-            Ok(s) => format!("(:ok :result \"{}\")", esc(&s)),
-            Err(e) => format!("(:error \"{}\")", esc(&e)),
-        },
-        "gc" => match harmonia_chronicle::gc() {
-            Ok(n) => format!("(:ok :result \"{}\")", n),
-            Err(e) => format!("(:error \"{}\")", esc(&e)),
-        },
-        "gc-status" => match harmonia_chronicle::gc_status() {
-            Ok(s) => format!("(:ok :result \"{}\")", esc(&s)),
-            Err(e) => format!("(:error \"{}\")", esc(&e)),
-        },
-        "cost-report" => match harmonia_chronicle::cost_report(0) {
-            Ok(s) => format!("(:ok :result \"{}\")", esc(&s)),
-            Err(e) => format!("(:error \"{}\")", esc(&e)),
-        },
-        "delegation-report" => match harmonia_chronicle::delegation_report() {
-            Ok(s) => format!("(:ok :result \"{}\")", esc(&s)),
-            Err(e) => format!("(:error \"{}\")", esc(&e)),
-        },
-        "full-digest" => match harmonia_chronicle::full_digest() {
-            Ok(s) => format!("(:ok :result \"{}\")", esc(&s)),
-            Err(e) => format!("(:error \"{}\")", esc(&e)),
-        },
-        "record-harmonic" => {
+        "init" => dispatch_op!("init",
+            harmonia_chronicle::init().map(|_| "(:ok)".to_string())),
+        "query" => dispatch_op!("query", {
+            let sql = param!(sexp, ":sql");
+            harmonia_chronicle::query_sexp(&sql)
+                .map(|result| format!("(:ok :result \"{}\")", sexp_escape(&result)))
+        }),
+        "harmony-summary" => dispatch_op!("harmony-summary",
+            harmonia_chronicle::harmony_summary()
+                .map(|s| format!("(:ok :result \"{}\")", sexp_escape(&s)))),
+        "dashboard" => dispatch_op!("dashboard",
+            harmonia_chronicle::dashboard_json()
+                .map(|s| format!("(:ok :result \"{}\")", sexp_escape(&s)))),
+        "gc" => dispatch_op!("gc",
+            harmonia_chronicle::gc()
+                .map(|n| format!("(:ok :result \"{}\")", n))),
+        "gc-status" => dispatch_op!("gc-status",
+            harmonia_chronicle::gc_status()
+                .map(|s| format!("(:ok :result \"{}\")", sexp_escape(&s)))),
+        "cost-report" => dispatch_op!("cost-report",
+            harmonia_chronicle::cost_report(0)
+                .map(|s| format!("(:ok :result \"{}\")", sexp_escape(&s)))),
+        "delegation-report" => dispatch_op!("delegation-report",
+            harmonia_chronicle::delegation_report()
+                .map(|s| format!("(:ok :result \"{}\")", sexp_escape(&s)))),
+        "full-digest" => dispatch_op!("full-digest",
+            harmonia_chronicle::full_digest()
+                .map(|s| format!("(:ok :result \"{}\")", sexp_escape(&s)))),
+        "record-harmonic" => dispatch_op!("record-harmonic", {
             let snap = harmonia_chronicle::HarmonicSnapshot {
                 cycle: extract_sexp_string(sexp, ":cycle")
                     .and_then(|s| s.parse().ok())
                     .unwrap_or(0),
-                phase: extract_sexp_string(sexp, ":phase").unwrap_or_default(),
-                strength: extract_sexp_f64(sexp, ":strength").unwrap_or(0.0),
-                utility: extract_sexp_f64(sexp, ":utility").unwrap_or(0.0),
-                beauty: extract_sexp_f64(sexp, ":beauty").unwrap_or(0.0),
-                signal: extract_sexp_f64(sexp, ":signal").unwrap_or(0.0),
-                noise: extract_sexp_f64(sexp, ":noise").unwrap_or(0.0),
-                logistic_x: extract_sexp_f64(sexp, ":logistic-x").unwrap_or(0.0),
-                logistic_r: extract_sexp_f64(sexp, ":logistic-r").unwrap_or(0.0),
-                chaos_risk: extract_sexp_f64(sexp, ":chaos-risk").unwrap_or(0.0),
-                rewrite_aggression: extract_sexp_f64(sexp, ":rewrite-aggression").unwrap_or(0.0),
-                lorenz_x: extract_sexp_f64(sexp, ":lorenz-x").unwrap_or(0.0),
-                lorenz_y: extract_sexp_f64(sexp, ":lorenz-y").unwrap_or(0.0),
-                lorenz_z: extract_sexp_f64(sexp, ":lorenz-z").unwrap_or(0.0),
-                lorenz_radius: extract_sexp_f64(sexp, ":lorenz-radius").unwrap_or(0.0),
-                lorenz_bounded: extract_sexp_f64(sexp, ":lorenz-bounded").unwrap_or(0.0),
-                lambdoma_global: extract_sexp_f64(sexp, ":lambdoma-global").unwrap_or(0.0),
-                lambdoma_local: extract_sexp_f64(sexp, ":lambdoma-local").unwrap_or(0.0),
-                lambdoma_ratio: extract_sexp_f64(sexp, ":lambdoma-ratio").unwrap_or(0.0),
+                phase: param!(sexp, ":phase"),
+                strength: param_f64!(sexp, ":strength", 0.0),
+                utility: param_f64!(sexp, ":utility", 0.0),
+                beauty: param_f64!(sexp, ":beauty", 0.0),
+                signal: param_f64!(sexp, ":signal", 0.0),
+                noise: param_f64!(sexp, ":noise", 0.0),
+                logistic_x: param_f64!(sexp, ":logistic-x", 0.0),
+                logistic_r: param_f64!(sexp, ":logistic-r", 0.0),
+                chaos_risk: param_f64!(sexp, ":chaos-risk", 0.0),
+                rewrite_aggression: param_f64!(sexp, ":rewrite-aggression", 0.0),
+                lorenz_x: param_f64!(sexp, ":lorenz-x", 0.0),
+                lorenz_y: param_f64!(sexp, ":lorenz-y", 0.0),
+                lorenz_z: param_f64!(sexp, ":lorenz-z", 0.0),
+                lorenz_radius: param_f64!(sexp, ":lorenz-radius", 0.0),
+                lorenz_bounded: param_f64!(sexp, ":lorenz-bounded", 0.0),
+                lambdoma_global: param_f64!(sexp, ":lambdoma-global", 0.0),
+                lambdoma_local: param_f64!(sexp, ":lambdoma-local", 0.0),
+                lambdoma_ratio: param_f64!(sexp, ":lambdoma-ratio", 0.0),
                 lambdoma_convergent: extract_sexp_bool(sexp, ":lambdoma-convergent").unwrap_or(false),
                 rewrite_ready: extract_sexp_bool(sexp, ":rewrite-ready").unwrap_or(false),
                 rewrite_count: extract_sexp_string(sexp, ":rewrite-count")
                     .and_then(|s| s.parse().ok())
                     .unwrap_or(0),
-                security_posture: extract_sexp_string(sexp, ":security-posture").unwrap_or_default(),
+                security_posture: param!(sexp, ":security-posture"),
                 security_events: extract_sexp_string(sexp, ":security-events")
                     .and_then(|s| s.parse().ok())
                     .unwrap_or(0),
-                field_basin: extract_sexp_string(sexp, ":field-basin").unwrap_or_else(|| "thomas-0".into()),
-                field_coercive_energy: extract_sexp_f64(sexp, ":field-coercive-energy").unwrap_or(0.0),
+                field_basin: param!(sexp, ":field-basin", "thomas-0"),
+                field_coercive_energy: param_f64!(sexp, ":field-coercive-energy", 0.0),
                 field_dwell_ticks: extract_sexp_string(sexp, ":field-dwell-ticks")
                     .and_then(|s| s.parse().ok())
                     .unwrap_or(0),
                 field_threshold: {
-                    let t = extract_sexp_f64(sexp, ":field-threshold").unwrap_or(0.0);
+                    let t = param_f64!(sexp, ":field-threshold", 0.0);
                     if t < 0.01 { 0.35 } else { t }
                 },
             };
-            match harmonia_chronicle::harmonic::record(&snap) {
-                Ok(_) => "(:ok)".to_string(),
-                Err(e) => format!("(:error \"{}\")", esc(&e)),
-            }
-        }
-        "record-memory-event" => {
-            let event_type = extract_sexp_string(sexp, ":event-type").unwrap_or_default();
+            harmonia_chronicle::harmonic::record(&snap).map(|_| "(:ok)".to_string())
+        }),
+        "record-memory-event" => dispatch_op!("record-memory-event", {
+            let event_type = param!(sexp, ":event-type");
             let entries_created: i32 = extract_sexp_string(sexp, ":entries-created")
                 .and_then(|s| s.parse().ok())
                 .unwrap_or(0);
@@ -122,7 +106,7 @@ pub(crate) fn dispatch(sexp: &str) -> String {
                 .and_then(|s| s.parse().ok())
                 .unwrap_or(0);
             let detail = extract_sexp_string(sexp, ":detail");
-            match harmonia_chronicle::memory::record(
+            harmonia_chronicle::memory::record(
                 &event_type,
                 entries_created,
                 entries_source,
@@ -133,49 +117,34 @@ pub(crate) fn dispatch(sexp: &str) -> String {
                 interdisciplinary_edges,
                 max_depth,
                 detail.as_deref(),
-            ) {
-                Ok(_) => "(:ok)".to_string(),
-                Err(e) => format!("(:error \"{}\")", esc(&e)),
-            }
-        }
-        "persist-entry" => {
-            let id = extract_sexp_string(sexp, ":id").unwrap_or_default();
+            ).map(|_| "(:ok)".to_string())
+        }),
+        "persist-entry" => dispatch_op!("persist-entry", {
+            let id = param!(sexp, ":id");
             let ts: i64 = extract_sexp_string(sexp, ":ts").and_then(|s| s.parse().ok()).unwrap_or(0);
-            let content = extract_sexp_string(sexp, ":content").unwrap_or_default();
-            let tags = extract_sexp_string(sexp, ":tags").unwrap_or_default();
-            let source_ids = extract_sexp_string(sexp, ":source-ids").unwrap_or_default();
-            match harmonia_chronicle::memory::persist_entry(&id, ts, &content, &tags, &source_ids) {
-                Ok(_) => "(:ok)".to_string(),
-                Err(e) => format!("(:error \"{}\")", esc(&e)),
-            }
-        }
-        "load-all-entries" => {
-            match harmonia_chronicle::memory::load_all_entries() {
-                Ok(result) => result,
-                Err(e) => format!("(:error \"{}\")", esc(&e)),
-            }
-        }
-        "entry-count" => {
-            match harmonia_chronicle::memory::entry_count() {
-                Ok(count) => format!("(:ok :count {})", count),
-                Err(e) => format!("(:error \"{}\")", esc(&e)),
-            }
-        }
-        "update-access" => {
-            let id = extract_sexp_string(sexp, ":id").unwrap_or_default();
-            match harmonia_chronicle::memory::update_access(&id) {
-                Ok(_) => "(:ok)".to_string(),
-                Err(e) => format!("(:error \"{}\")", esc(&e)),
-            }
-        }
-        "record-delegation" => {
+            let content = param!(sexp, ":content");
+            let tags = param!(sexp, ":tags");
+            let source_ids = param!(sexp, ":source-ids");
+            harmonia_chronicle::memory::persist_entry(&id, ts, &content, &tags, &source_ids)
+                .map(|_| "(:ok)".to_string())
+        }),
+        "load-all-entries" => dispatch_op!("load-all-entries", harmonia_chronicle::memory::load_all_entries()),
+        "entry-count" => dispatch_op!("entry-count",
+            harmonia_chronicle::memory::entry_count()
+                .map(|count| format!("(:ok :count {})", count))),
+        "update-access" => dispatch_op!("update-access", {
+            let id = param!(sexp, ":id");
+            harmonia_chronicle::memory::update_access(&id)
+                .map(|_| "(:ok)".to_string())
+        }),
+        "record-delegation" => dispatch_op!("record-delegation", {
             let task_hint = extract_sexp_string(sexp, ":task-hint");
-            let model_chosen = extract_sexp_string(sexp, ":model-chosen").unwrap_or_default();
-            let backend = extract_sexp_string(sexp, ":backend").unwrap_or_default();
+            let model_chosen = param!(sexp, ":model-chosen");
+            let backend = param!(sexp, ":backend");
             let reason = extract_sexp_string(sexp, ":reason");
             let escalated = extract_sexp_bool(sexp, ":escalated").unwrap_or(false);
             let escalated_from = extract_sexp_string(sexp, ":escalated-from");
-            let cost_usd = extract_sexp_f64(sexp, ":cost-usd").unwrap_or(0.0);
+            let cost_usd = param_f64!(sexp, ":cost-usd", 0.0);
             let latency_ms: i64 = extract_sexp_string(sexp, ":latency-ms")
                 .and_then(|s| s.parse().ok())
                 .unwrap_or(0);
@@ -186,7 +155,7 @@ pub(crate) fn dispatch(sexp: &str) -> String {
             let tokens_out: i64 = extract_sexp_string(sexp, ":tokens-out")
                 .and_then(|s| s.parse().ok())
                 .unwrap_or(0);
-            match harmonia_chronicle::delegation::record(
+            harmonia_chronicle::delegation::record(
                 task_hint.as_deref(),
                 &model_chosen,
                 &backend,
@@ -198,28 +167,23 @@ pub(crate) fn dispatch(sexp: &str) -> String {
                 success,
                 tokens_in,
                 tokens_out,
-            ) {
-                Ok(_) => "(:ok)".to_string(),
-                Err(e) => format!("(:error \"{}\")", esc(&e)),
-            }
-        }
-        "record-graph" => {
-            let source = extract_sexp_string(sexp, ":source").unwrap_or_default();
-            let graph_sexp = extract_sexp_string(sexp, ":sexp").unwrap_or_default();
-            match harmonia_chronicle::graph::record_snapshot(&source, &graph_sexp, &[], &[]) {
-                Ok(id) => format!("(:ok :snapshot-id {})", id),
-                Err(e) => format!("(:error \"{}\")", esc(&e)),
-            }
-        }
-        "record-signalograd-event" => {
-            let event_type = extract_sexp_string(sexp, ":event-type").unwrap_or_default();
+            ).map(|_| "(:ok)".to_string())
+        }),
+        "record-graph" => dispatch_op!("record-graph", {
+            let source = param!(sexp, ":source");
+            let graph_sexp = param!(sexp, ":sexp");
+            harmonia_chronicle::graph::record_snapshot(&source, &graph_sexp, &[], &[])
+                .map(|id| format!("(:ok :snapshot-id {})", id))
+        }),
+        "record-signalograd-event" => dispatch_op!("record-signalograd-event", {
+            let event_type = param!(sexp, ":event-type");
             let cycle: i64 = extract_sexp_string(sexp, ":cycle")
                 .and_then(|s| s.parse().ok())
                 .unwrap_or(0);
-            let confidence = extract_sexp_f64(sexp, ":confidence").unwrap_or(0.0);
-            let stability = extract_sexp_f64(sexp, ":stability").unwrap_or(0.0);
-            let novelty = extract_sexp_f64(sexp, ":novelty").unwrap_or(0.0);
-            let reward = extract_sexp_f64(sexp, ":reward").unwrap_or(0.0);
+            let confidence = param_f64!(sexp, ":confidence", 0.0);
+            let stability = param_f64!(sexp, ":stability", 0.0);
+            let novelty = param_f64!(sexp, ":novelty", 0.0);
+            let reward = param_f64!(sexp, ":reward", 0.0);
             let accepted = extract_sexp_bool(sexp, ":accepted").unwrap_or(false);
             let recall_hits: i32 = extract_sexp_string(sexp, ":recall-hits")
                 .and_then(|s| s.parse().ok())
@@ -227,7 +191,7 @@ pub(crate) fn dispatch(sexp: &str) -> String {
             let checkpoint_path = extract_sexp_string(sexp, ":checkpoint-path");
             let checkpoint_digest = extract_sexp_string(sexp, ":checkpoint-digest");
             let detail = extract_sexp_string(sexp, ":detail");
-            match harmonia_chronicle::signalograd::record(
+            harmonia_chronicle::signalograd::record(
                 &event_type,
                 cycle,
                 confidence,
@@ -239,13 +203,10 @@ pub(crate) fn dispatch(sexp: &str) -> String {
                 checkpoint_path.as_deref(),
                 checkpoint_digest.as_deref(),
                 detail.as_deref(),
-            ) {
-                Ok(_) => "(:ok)".to_string(),
-                Err(e) => format!("(:error \"{}\")", esc(&e)),
-            }
-        }
-        "record-phoenix-event" => {
-            let event_type = extract_sexp_string(sexp, ":event-type").unwrap_or_default();
+            ).map(|_| "(:ok)".to_string())
+        }),
+        "record-phoenix-event" => dispatch_op!("record-phoenix-event", {
+            let event_type = param!(sexp, ":event-type");
             let exit_code: Option<i32> =
                 extract_sexp_string(sexp, ":exit-code").and_then(|s| s.parse().ok());
             let attempt: Option<i32> =
@@ -255,36 +216,30 @@ pub(crate) fn dispatch(sexp: &str) -> String {
             let recovery_ms: Option<i64> =
                 extract_sexp_string(sexp, ":recovery-ms").and_then(|s| s.parse().ok());
             let detail = extract_sexp_string(sexp, ":detail");
-            match harmonia_chronicle::phoenix::record(
+            harmonia_chronicle::phoenix::record(
                 &event_type,
                 exit_code,
                 attempt,
                 max_attempts,
                 recovery_ms,
                 detail.as_deref(),
-            ) {
-                Ok(_) => "(:ok)".to_string(),
-                Err(e) => format!("(:error \"{}\")", esc(&e)),
-            }
-        }
-        "record-ouroboros-event" => {
-            let event_type = extract_sexp_string(sexp, ":event-type").unwrap_or_default();
+            ).map(|_| "(:ok)".to_string())
+        }),
+        "record-ouroboros-event" => dispatch_op!("record-ouroboros-event", {
+            let event_type = param!(sexp, ":event-type");
             let component = extract_sexp_string(sexp, ":component");
             let detail = extract_sexp_string(sexp, ":detail");
             let patch_size: Option<i64> =
                 extract_sexp_string(sexp, ":patch-size").and_then(|s| s.parse().ok());
             let success = extract_sexp_bool(sexp, ":success").unwrap_or(false);
-            match harmonia_chronicle::ouroboros::record(
+            harmonia_chronicle::ouroboros::record(
                 &event_type,
                 component.as_deref(),
                 detail.as_deref(),
                 patch_size,
                 success,
-            ) {
-                Ok(_) => "(:ok)".to_string(),
-                Err(e) => format!("(:error \"{}\")", esc(&e)),
-            }
-        }
+            ).map(|_| "(:ok)".to_string())
+        }),
         _ => format!("(:error \"unknown chronicle op: {}\")", op),
     }
 }

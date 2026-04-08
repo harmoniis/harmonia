@@ -13,7 +13,7 @@
 /// We test not just correctness but *life* -- does the system resonate?
 
 use harmonia_memory_field::{
-    basin_status, eigenmode_status, field_recall, load_graph, reset,
+    basin_status, eigenmode_status, field_recall, load_graph,
     step_attractors, status, restore_basin, FieldState,
 };
 

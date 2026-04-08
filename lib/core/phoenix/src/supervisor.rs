@@ -248,7 +248,8 @@ fn build_snapshot(state: &SupervisorState) -> HealthSnapshot {
         .children
         .iter()
         .map(|(name, entry)| {
-            // Redact PIDs from health output — avoid leaking process IDs over HTTP
+            // Use cached state (kept up-to-date by SubsystemStateChanged messages).
+            // GetState is available for on-demand verification via IPC.
             let sanitized = match &entry.state {
                 SubsystemState::Running { .. } => SubsystemState::Running { pid: 0 },
                 other => other.clone(),
@@ -263,3 +264,4 @@ fn build_snapshot(state: &SupervisorState) -> HealthSnapshot {
         subsystems,
     }
 }
+

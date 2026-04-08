@@ -260,6 +260,24 @@ fn print_response(response: NodeRpcResponse) -> Result<(), Box<dyn std::error::E
                         message
                     );
                 }
+                // Datamining results from cross-node queries.
+                NodeRpcResult::DatamineQuery {
+                    lode_id, data, elapsed_ms, error, ..
+                } => {
+                    if let Some(err) = error {
+                        println!("datamine {} error: {}", lode_id, err);
+                    } else {
+                        println!("datamine {} ({}ms): {}", lode_id, elapsed_ms, data);
+                    }
+                }
+                NodeRpcResult::DatamineCatalog { lodes } => {
+                    for lode in lodes {
+                        println!("  {}", lode);
+                    }
+                }
+                NodeRpcResult::DatamineProbe { lode_id, available } => {
+                    println!("{}: {}", lode_id, if available { "available" } else { "unavailable" });
+                }
             }
             Ok(())
         }

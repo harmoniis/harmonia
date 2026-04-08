@@ -34,40 +34,27 @@
 
 (defun %signalograd-section-value (section key default &optional (runtime *runtime*))
   (let ((node (%signalograd-section section runtime)))
-    (if (and (listp node) (getf node key))
-        (getf node key)
-        default)))
+    (if (and (listp node) (getf node key)) (getf node key) default)))
 
 (defun %signalograd-sexp (tag &rest plist)
-  (prin1-to-string (cons tag plist)))
+  (%sexp-to-ipc-string (cons tag plist)))
 
 (defun %signalograd-detail-string (detail)
-  (let* ((raw (cond
-                ((null detail) "")
-                ((stringp detail) detail)
-                (t (prin1-to-string detail))))
+  (let* ((raw (cond ((null detail) "") ((stringp detail) detail) (t (prin1-to-string detail))))
          (limit (truncate (max 32 (%signalograd-policy-number "audit/detail-max-chars" 320.0)))))
-    (if (> (length raw) limit)
-        (subseq raw 0 limit)
-        raw)))
+    (if (> (length raw) limit) (subseq raw 0 limit) raw)))
 
 (defun %signalograd-record-event (event-type &key cycle confidence stability novelty reward
                                               accepted recall-hits checkpoint-path
                                               checkpoint-digest detail)
   (when (fboundp 'chronicle-record-signalograd-event)
-    (ignore-errors
-      (chronicle-record-signalograd-event
-       event-type
-       :cycle (or cycle 0)
-       :confidence (or confidence 0.0)
-       :stability (or stability 0.0)
-       :novelty (or novelty 0.0)
-       :reward (or reward 0.0)
-       :accepted accepted
-       :recall-hits (or recall-hits 0)
-       :checkpoint-path checkpoint-path
-       :checkpoint-digest checkpoint-digest
-       :detail (%signalograd-detail-string detail)))))
+    (handler-case
+        (chronicle-record-signalograd-event event-type
+       :cycle (or cycle 0) :confidence (or confidence 0.0) :stability (or stability 0.0)
+       :novelty (or novelty 0.0) :reward (or reward 0.0) :accepted accepted
+       :recall-hits (or recall-hits 0) :checkpoint-path checkpoint-path
+       :checkpoint-digest checkpoint-digest :detail (%signalograd-detail-string detail))
+      (error () nil))))
 
 (defun %signalograd-latest-checkpoint-path ()
   (when (and (boundp '*evolution-latest-dir*) *evolution-latest-dir*)
@@ -75,10 +62,7 @@
 
 (defun %signalograd-version-checkpoint-path (&optional (version (and (fboundp 'evolution-current-version)
                                                                      (evolution-current-version))))
-  (when (and version
-             (> version 0)
-             (boundp '*evolution-versions-dir*)
-             *evolution-versions-dir*)
+  (when (and version (> version 0) (boundp '*evolution-versions-dir*) *evolution-versions-dir*)
     (merge-pathnames "signalograd.sexp"
                      (merge-pathnames (format nil "v~D/" version) *evolution-versions-dir*))))
 
@@ -88,164 +72,107 @@
         (memory (if (listp (getf proposal :memory)) (getf proposal :memory) '()))
         (security (if (listp (getf proposal :security-shell)) (getf proposal :security-shell) '()))
         (presentation (if (listp (getf proposal :presentation)) (getf proposal :presentation) '())))
-    (list
-     :cycle (or (getf proposal :cycle) 0)
-     :confidence (%signalograd-clamp (or (getf proposal :confidence) 0.0) 0.0 1.0)
-     :stability (%signalograd-clamp (or (getf proposal :stability) 0.0) 0.0 1.0)
-     :novelty (%signalograd-clamp (or (getf proposal :novelty) 0.0) 0.0 1.0)
-     :latent-energy (%signalograd-clamp (or (getf proposal :latent-energy) 0.0) 0.0 1.0)
-     :recall-strength (%signalograd-clamp (or (getf proposal :recall-strength) 0.0) 0.0 1.0)
-     :harmony
-     (list :signal-bias (%signalograd-policy-symmetric-clamp
-                         (or (getf harmony :signal-bias) 0.0)
-                         "harmony/signal-bias-max" 0.06)
-           :noise-bias (%signalograd-policy-symmetric-clamp
-                        (or (getf harmony :noise-bias) 0.0)
-                        "harmony/noise-bias-max" 0.04)
-           :rewrite-signal-delta (%signalograd-policy-symmetric-clamp
-                                  (or (getf harmony :rewrite-signal-delta) 0.0)
-                                  "harmony/rewrite-signal-delta-max" 0.05)
-           :rewrite-chaos-delta (%signalograd-policy-symmetric-clamp
-                                 (or (getf harmony :rewrite-chaos-delta) 0.0)
-                                 "harmony/rewrite-chaos-delta-max" 0.04)
-           :aggression-bias (%signalograd-policy-symmetric-clamp
-                             (or (getf harmony :aggression-bias) 0.0)
-                             "harmony/aggression-bias-max" 0.08))
-     :routing
-     (list :price-weight-delta (%signalograd-policy-symmetric-clamp
-                                (or (getf routing :price-weight-delta) 0.0)
-                                "routing/price-weight-delta-max" 0.07)
-           :speed-weight-delta (%signalograd-policy-symmetric-clamp
-                                (or (getf routing :speed-weight-delta) 0.0)
-                                "routing/speed-weight-delta-max" 0.07)
-           :success-weight-delta (%signalograd-policy-symmetric-clamp
-                                  (or (getf routing :success-weight-delta) 0.0)
-                                  "routing/success-weight-delta-max" 0.05)
-           :reasoning-weight-delta (%signalograd-policy-symmetric-clamp
-                                    (or (getf routing :reasoning-weight-delta) 0.0)
-                                    "routing/reasoning-weight-delta-max" 0.06)
-           :vitruvian-min-delta (%signalograd-policy-symmetric-clamp
-                                 (or (getf routing :vitruvian-min-delta) 0.0)
-                                 "routing/vitruvian-min-delta-max" 0.04))
-     :memory
-     (list :recall-limit-delta (round (%signalograd-policy-symmetric-clamp
-                                       (float (or (getf memory :recall-limit-delta) 0))
-                                       "memory/recall-limit-delta-max" 2.0))
-           :crystal-threshold-delta (%signalograd-policy-symmetric-clamp
-                                     (or (getf memory :crystal-threshold-delta) 0.0)
-                                     "memory/crystal-threshold-delta-max" 0.05))
-     :security-shell
-     (list :dissonance-weight-delta (%signalograd-policy-symmetric-clamp
-                                     (or (getf security :dissonance-weight-delta) 0.0)
-                                     "security/dissonance-weight-delta-max" 0.03)
-           :anomaly-threshold-delta (%signalograd-policy-symmetric-clamp
-                                     (or (getf security :anomaly-threshold-delta) 0.0)
-                                     "security/anomaly-threshold-delta-max" 0.25))
-     :presentation
-     (list :verbosity-delta (%signalograd-policy-symmetric-clamp
-                             (or (getf presentation :verbosity-delta) 0.0)
-                             "presentation/verbosity-delta-max" 0.22)
-           :markdown-density-delta (%signalograd-policy-symmetric-clamp
-                                    (or (getf presentation :markdown-density-delta) 0.0)
-                                    "presentation/markdown-density-delta-max" 0.18)
-           :symbolic-density-delta (%signalograd-policy-symmetric-clamp
-                                    (or (getf presentation :symbolic-density-delta) 0.0)
-                                    "presentation/symbolic-density-delta-max" 0.22)
-           :self-reference-delta (%signalograd-policy-symmetric-clamp
-                                  (or (getf presentation :self-reference-delta) 0.0)
-                                  "presentation/self-reference-delta-max" 0.22)
-           :decor-density-delta (%signalograd-policy-symmetric-clamp
-                                 (or (getf presentation :decor-density-delta) 0.0)
-                                 "presentation/decor-density-delta-max" 0.25)))))
+    (macrolet ((sc (src key path default)
+                 `(%signalograd-policy-symmetric-clamp (or (getf ,src ,key) 0.0) ,path ,default)))
+      (list
+       :cycle (or (getf proposal :cycle) 0)
+       :confidence (%signalograd-clamp (or (getf proposal :confidence) 0.0) 0.0 1.0)
+       :stability (%signalograd-clamp (or (getf proposal :stability) 0.0) 0.0 1.0)
+       :novelty (%signalograd-clamp (or (getf proposal :novelty) 0.0) 0.0 1.0)
+       :latent-energy (%signalograd-clamp (or (getf proposal :latent-energy) 0.0) 0.0 1.0)
+       :recall-strength (%signalograd-clamp (or (getf proposal :recall-strength) 0.0) 0.0 1.0)
+       :harmony
+       (list :signal-bias (sc harmony :signal-bias "harmony/signal-bias-max" 0.06)
+             :noise-bias (sc harmony :noise-bias "harmony/noise-bias-max" 0.04)
+             :rewrite-signal-delta (sc harmony :rewrite-signal-delta "harmony/rewrite-signal-delta-max" 0.05)
+             :rewrite-chaos-delta (sc harmony :rewrite-chaos-delta "harmony/rewrite-chaos-delta-max" 0.04)
+             :aggression-bias (sc harmony :aggression-bias "harmony/aggression-bias-max" 0.08))
+       :routing
+       (list :price-weight-delta (sc routing :price-weight-delta "routing/price-weight-delta-max" 0.07)
+             :speed-weight-delta (sc routing :speed-weight-delta "routing/speed-weight-delta-max" 0.07)
+             :success-weight-delta (sc routing :success-weight-delta "routing/success-weight-delta-max" 0.05)
+             :reasoning-weight-delta (sc routing :reasoning-weight-delta "routing/reasoning-weight-delta-max" 0.06)
+             :vitruvian-min-delta (sc routing :vitruvian-min-delta "routing/vitruvian-min-delta-max" 0.04))
+       :memory
+       (list :recall-limit-delta (round (%signalograd-policy-symmetric-clamp
+                                         (float (or (getf memory :recall-limit-delta) 0))
+                                         "memory/recall-limit-delta-max" 2.0))
+             :crystal-threshold-delta (sc memory :crystal-threshold-delta "memory/crystal-threshold-delta-max" 0.05))
+       :security-shell
+       (list :dissonance-weight-delta (sc security :dissonance-weight-delta "security/dissonance-weight-delta-max" 0.03)
+             :anomaly-threshold-delta (sc security :anomaly-threshold-delta "security/anomaly-threshold-delta-max" 0.25))
+       :presentation
+       (list :verbosity-delta (sc presentation :verbosity-delta "presentation/verbosity-delta-max" 0.22)
+             :markdown-density-delta (sc presentation :markdown-density-delta "presentation/markdown-density-delta-max" 0.18)
+             :symbolic-density-delta (sc presentation :symbolic-density-delta "presentation/symbolic-density-delta-max" 0.22)
+             :self-reference-delta (sc presentation :self-reference-delta "presentation/self-reference-delta-max" 0.22)
+             :decor-density-delta (sc presentation :decor-density-delta "presentation/decor-density-delta-max" 0.25))))))
 
 (defun signalograd-apply-proposal (proposal &key (runtime *runtime*))
-  "Accept a proposal emitted by the Signalograd actor and make it effective for the next cycle."
-  (when (and (listp proposal) (eq (first proposal) :signalograd-proposal))
-    (setf proposal (rest proposal)))
-  (setf proposal (%signalograd-sanitize-proposal proposal))
-  (when (%trace-level-p :verbose)
-    (trace-event "signalograd-kernel-step" :chain
-                 :metadata (list :cycle (getf proposal :cycle)
-                                 :confidence (getf proposal :confidence)
-                                 :stability (getf proposal :stability)
-                                 :novelty (getf proposal :novelty))))
-  (when runtime
-    (setf (runtime-state-signalograd-projection runtime) proposal)
-    (setf (runtime-state-signalograd-last-updated-at runtime) (get-universal-time))
-    (when (%trace-level-p :standard)
-      (trace-event "signalograd-proposal" :chain
-                   :metadata (list :cycle (getf proposal :cycle)
-                                   :confidence (getf proposal :confidence)
-                                   :stability (getf proposal :stability)
-                                   :novelty (getf proposal :novelty)
-                                   :accepted t)))
-    (runtime-log runtime :signalograd-projection
-                 (list :confidence (getf proposal :confidence)
-                       :stability (getf proposal :stability)
-                       :recall-strength (getf proposal :recall-strength)
-                       :cycle (getf proposal :cycle)))
-    (%signalograd-record-event
-     "proposal"
-     :cycle (getf proposal :cycle)
-     :confidence (getf proposal :confidence)
-     :stability (getf proposal :stability)
-     :novelty (getf proposal :novelty)
-     :recall-hits (if (> (or (getf proposal :recall-strength) 0.0) 0.12) 1 0)
-     :detail (list :harmony (getf proposal :harmony)
-                   :routing (getf proposal :routing)
-                   :memory (getf proposal :memory)
-                   :security-shell (getf proposal :security-shell)
-                   :presentation (getf proposal :presentation))))
-  proposal)
+  "Accept a proposal from the Signalograd actor and make it effective."
+  (let ((sanitized (%signalograd-sanitize-proposal
+                    (if (and (listp proposal) (eq (first proposal) :signalograd-proposal))
+                        (rest proposal) proposal))))
+    (when (%trace-level-p :verbose)
+      (trace-event "signalograd-kernel-step" :chain
+                   :metadata (list :cycle (getf sanitized :cycle)
+                                   :confidence (getf sanitized :confidence)
+                                   :stability (getf sanitized :stability)
+                                   :novelty (getf sanitized :novelty))))
+    (when runtime
+      (setf (runtime-state-signalograd-projection runtime) sanitized
+            (runtime-state-signalograd-last-updated-at runtime) (get-universal-time))
+      (when (%trace-level-p :standard)
+        (trace-event "signalograd-proposal" :chain
+                     :metadata (list :cycle (getf sanitized :cycle)
+                                     :confidence (getf sanitized :confidence)
+                                     :stability (getf sanitized :stability)
+                                     :novelty (getf sanitized :novelty) :accepted t)))
+      (runtime-log runtime :signalograd-projection
+                   (list :confidence (getf sanitized :confidence)
+                         :stability (getf sanitized :stability)
+                         :recall-strength (getf sanitized :recall-strength)
+                         :cycle (getf sanitized :cycle)))
+      (%signalograd-record-event "proposal"
+       :cycle (getf sanitized :cycle) :confidence (getf sanitized :confidence)
+       :stability (getf sanitized :stability) :novelty (getf sanitized :novelty)
+       :recall-hits (if (> (or (getf sanitized :recall-strength) 0.0) 0.12) 1 0)
+       :detail (list :harmony (getf sanitized :harmony) :routing (getf sanitized :routing)
+                     :memory (getf sanitized :memory) :security-shell (getf sanitized :security-shell)
+                     :presentation (getf sanitized :presentation))))
+    sanitized))
 
 (defun %signalograd-graph-stats (map)
   (let* ((nodes (length (getf map :concept-nodes)))
-         (edges (length (getf map :concept-edges)))
-         (inter 0))
-    (dolist (edge (getf map :concept-edges))
-      (when (getf edge :interdisciplinary)
-        (incf inter)))
-    (list :density (if (> nodes 0)
-                       (/ edges (float (max 1 (* nodes nodes))))
-                       0.0)
-          :interdisciplinary (if (> edges 0)
-                                 (/ inter (float edges))
-                                 0.0))))
+         (edge-list (getf map :concept-edges))
+         (edges (length edge-list))
+         (inter (count-if (lambda (edge) (getf edge :interdisciplinary)) edge-list)))
+    (list :density (if (> nodes 0) (/ edges (float (max 1 (* nodes nodes)))) 0.0)
+          :interdisciplinary (if (> edges 0) (/ inter (float edges)) 0.0))))
 
 (defun %signalograd-swarm-observation ()
-  (let ((scores (ignore-errors (if (fboundp '%load-swarm-scores)
-                                   (%load-swarm-scores)
-                                   '()))))
+  (let ((scores (handler-case (if (fboundp '%load-swarm-scores) (%load-swarm-scores) '()) (error () '()))))
     (if (null scores)
         (list :success 0.5 :latency 0.0 :cost 0.0)
-        (let ((success 0.0)
-              (latency 0.0)
-              (cost 0.0)
-              (count 0)
-              (latency-reference (max 1.0 (%signalograd-policy-number "swarm/latency-reference-ms" 8000.0)))
-              (cost-scale (%signalograd-policy-number "swarm/cost-scale" 20.0)))
-          (dolist (entry scores)
-            (incf count)
-            (incf success (or (getf entry :success-rate) 0.5))
-            (incf latency (or (getf entry :latency-ms) 0.0))
-            (incf cost (or (getf entry :cost-avg) 0.0)))
-          (list :success (/ success (max 1 count))
-                :latency (%signalograd-clamp (/ latency (* (max 1 count) latency-reference)) 0.0 1.0)
-                :cost (%signalograd-clamp (* (/ cost (max 1 count)) cost-scale) 0.0 1.0))))))
+        (let* ((count (length scores))
+               (latency-ref (max 1.0 (%signalograd-policy-number "swarm/latency-reference-ms" 8000.0)))
+               (cost-scale (%signalograd-policy-number "swarm/cost-scale" 20.0))
+               (avg (lambda (key default)
+                      (/ (reduce #'+ scores :key (lambda (e) (or (getf e key) default))
+                                 :initial-value 0.0) (max 1 count)))))
+          (list :success (funcall avg :success-rate 0.5)
+                :latency (%signalograd-clamp (/ (funcall avg :latency-ms 0.0) latency-ref) 0.0 1.0)
+                :cost (%signalograd-clamp (* (funcall avg :cost-avg 0.0) cost-scale) 0.0 1.0))))))
 
 (defun %signalograd-reward (ctx runtime)
-  (let* ((plan (getf ctx :plan))
-         (vit (and plan (getf plan :vitruvian)))
+  (let* ((vit (and (getf ctx :plan) (getf (getf ctx :plan) :vitruvian)))
          (signal (or (and vit (getf vit :signal)) 0.0))
          (noise (or (and vit (getf vit :noise)) 1.0))
          (chaos (or (getf (getf ctx :logistic) :chaos-risk) 1.0))
          (error-max (max 1.0 (%signalograd-policy-number "reward/max-errors" 10.0)))
          (queue-max (max 1.0 (%signalograd-policy-number "reward/max-queue-depth" 10.0)))
          (errors (%signalograd-clamp (/ *consecutive-tick-errors* error-max) 0.0 1.0))
-         (queue (%signalograd-clamp (/ (if runtime
-                                           (length (runtime-state-prompt-queue runtime))
-                                           0)
-                                       queue-max)
+         (queue (%signalograd-clamp (/ (if runtime (length (runtime-state-prompt-queue runtime)) 0) queue-max)
                                     0.0 1.0)))
     (%signalograd-clamp (- signal
                            (* (%signalograd-policy-number "reward/noise-weight" 0.6) noise)
@@ -255,108 +182,77 @@
                         0.0 1.0)))
 
 (defun %signalograd-stability (ctx)
-  (let* ((chaos (or (getf (getf ctx :logistic) :chaos-risk) 1.0))
-         (ratio (or (getf (getf ctx :projection) :ratio) 0.0))
-         (bounded (or (getf (getf ctx :lorenz) :bounded-score) 0.0)))
-    (%signalograd-clamp (+ (* (%signalograd-policy-number "stability/chaos-weight" 0.45)
-                              (- 1.0 chaos))
-                           (* (%signalograd-policy-number "stability/ratio-weight" 0.30)
-                              ratio)
-                           (* (%signalograd-policy-number "stability/bounded-weight" 0.25)
-                              bounded))
+  (let ((chaos (or (getf (getf ctx :logistic) :chaos-risk) 1.0))
+        (ratio (or (getf (getf ctx :projection) :ratio) 0.0))
+        (bounded (or (getf (getf ctx :lorenz) :bounded-score) 0.0)))
+    (%signalograd-clamp (+ (* (%signalograd-policy-number "stability/chaos-weight" 0.45) (- 1.0 chaos))
+                           (* (%signalograd-policy-number "stability/ratio-weight" 0.30) ratio)
+                           (* (%signalograd-policy-number "stability/bounded-weight" 0.25) bounded))
                         0.0 1.0)))
 
 (defun %signalograd-novelty (ctx)
-  (let* ((map (getf ctx :map))
-         (stats (%signalograd-graph-stats map)))
+  (let ((stats (%signalograd-graph-stats (getf ctx :map))))
     (%signalograd-clamp (+ (* (%signalograd-policy-number "novelty/interdisciplinary-weight" 0.6)
                               (getf stats :interdisciplinary))
                            (* (%signalograd-policy-number "novelty/density-weight" 0.4)
-                              (min 1.0
-                                   (* (%signalograd-policy-number "novelty/density-scale" 8.0)
-                                      (getf stats :density)))))
+                              (min 1.0 (* (%signalograd-policy-number "novelty/density-scale" 8.0)
+                                          (getf stats :density)))))
                         0.0 1.0)))
 
 (defun %signalograd-security-posture-string (ctx)
-  (let ((security (getf ctx :security)))
-    (string-downcase (symbol-name (or (getf security :posture) :nominal)))))
+  (string-downcase (symbol-name (or (getf (getf ctx :security) :posture) :nominal))))
 
 (defun %signalograd-actor-metrics (&optional (runtime *runtime*))
-  (let ((running 0)
-        (stall-sum 0)
-        (pending (if runtime (length (runtime-state-actor-pending runtime)) 0)))
-    (when runtime
-      (maphash (lambda (_id record)
-                 (declare (ignore _id))
-                 (when (member (actor-record-state record) '(:spawning :running))
-                   (incf running)
-                   (incf stall-sum (max 0 (or (actor-record-stall-ticks record) 0)))))
-               (runtime-state-actor-registry runtime)))
-    (list :load (float (max running pending))
-          :stalls (float stall-sum)
-          :pending pending)))
+  (let ((pending (if runtime (length (runtime-state-actor-pending runtime)) 0)))
+    (multiple-value-bind (running stall-sum)
+        (if runtime
+            (loop for record being the hash-values of (runtime-state-actor-registry runtime)
+                  when (member (actor-record-state record) '(:spawning :running))
+                    count t into running and sum (max 0 (or (actor-record-stall-ticks record) 0)) into stalls
+                  finally (return (values running stalls)))
+            (values 0 0))
+      (list :load (float (max running pending)) :stalls (float stall-sum) :pending pending))))
 
 (defun %signalograd-error-pressure ()
-  (let* ((consecutive-scale (max 1.0 (%signalograd-policy-number "telemetry/error-consecutive-scale" 6.0)))
-         (total-scale (max 1.0 (%signalograd-policy-number "telemetry/error-total-scale" 24.0)))
-         (consecutive (%signalograd-clamp (/ *consecutive-tick-errors* consecutive-scale) 0.0 1.0))
-         (total (%signalograd-clamp (/ *tick-error-count* total-scale) 0.0 1.0)))
-    (%signalograd-clamp (+ (* 0.7 consecutive) (* 0.3 total)) 0.0 1.0)))
+  (let ((c-scale (max 1.0 (%signalograd-policy-number "telemetry/error-consecutive-scale" 6.0)))
+        (t-scale (max 1.0 (%signalograd-policy-number "telemetry/error-total-scale" 24.0))))
+    (%signalograd-clamp (+ (* 0.7 (%signalograd-clamp (/ *consecutive-tick-errors* c-scale) 0.0 1.0))
+                           (* 0.3 (%signalograd-clamp (/ *tick-error-count* t-scale) 0.0 1.0)))
+                        0.0 1.0)))
 
 (defun %signalograd-presentation-observation (&optional (runtime *runtime*))
   (let* ((telemetry (and runtime (runtime-state-last-response-telemetry runtime)))
-         (verbosity-scale (max 1.0
-                               (%signalograd-policy-number
-                                "telemetry/presentation-verbosity-reference-words" 120.0))))
+         (v-scale (max 1.0 (%signalograd-policy-number
+                             "telemetry/presentation-verbosity-reference-words" 120.0))))
     (list :cleanliness (or (and telemetry (getf telemetry :cleanliness)) 1.0)
-          :verbosity (%signalograd-clamp
-                      (/ (or (and telemetry (getf telemetry :verbosity)) 0)
-                         (float verbosity-scale))
-                      0.0 1.0)
+          :verbosity (%signalograd-clamp (/ (or (and telemetry (getf telemetry :verbosity)) 0)
+                                            (float v-scale)) 0.0 1.0)
           :markdown-density (or (and telemetry (getf telemetry :markdown-density)) 0.0)
           :symbolic-density (or (and telemetry (getf telemetry :symbolic-density)) 0.0)
           :self-reference (or (and telemetry (getf telemetry :self-reference)) 0.0)
           :decor-density (or (and telemetry (getf telemetry :decor-density)) 0.0)
           :user-affinity (%presentation-user-affinity runtime))))
 
+(defun %maphash-average (table key-fn)
+  (if (or (null table) (zerop (hash-table-count table))) 0.5
+      (/ (loop for k being the hash-keys of table summing (funcall key-fn k))
+         (float (hash-table-count table)))))
+
 (defun %signalograd-repl-fluency ()
-  "Average REPL fluency across all models with data. Feeds into signalograd observation."
-  (let ((sum 0.0) (count 0))
-    (when (boundp '*repl-model-perf*)
-      (maphash (lambda (model _perf)
-                 (declare (ignore _perf))
-                 (incf sum (%repl-fluency model))
-                 (incf count))
-               *repl-model-perf*))
-    (if (> count 0) (/ sum count) 0.5)))
+  (if (boundp '*repl-model-perf*) (%maphash-average *repl-model-perf* #'%repl-fluency) 0.5))
 
 (defun %signalograd-repl-speed ()
-  "Average REPL speed across all models with data."
-  (let ((sum 0.0) (count 0))
-    (when (boundp '*repl-model-perf*)
-      (maphash (lambda (model _perf)
-                 (declare (ignore _perf))
-                 (incf sum (%repl-speed model))
-                 (incf count))
-               *repl-model-perf*))
-    (if (> count 0) (/ sum count) 0.5)))
+  (if (boundp '*repl-model-perf*) (%maphash-average *repl-model-perf* #'%repl-speed) 0.5))
 
 (defun %signalograd-observation-sexp (ctx &optional (runtime *runtime*))
-  (let* ((global (getf ctx :global))
-         (local (getf ctx :local))
-         (plan (getf ctx :plan))
-         (vit (and plan (getf plan :vitruvian)))
-         (logistic (getf ctx :logistic))
-         (lorenz (getf ctx :lorenz))
-         (projection (getf ctx :projection))
-         (security (getf ctx :security))
-         (map (getf ctx :map))
-         (graph (%signalograd-graph-stats map))
+  (let* ((global (getf ctx :global)) (local (getf ctx :local))
+         (plan (getf ctx :plan)) (vit (and plan (getf plan :vitruvian)))
+         (logistic (getf ctx :logistic)) (lorenz (getf ctx :lorenz))
+         (projection (getf ctx :projection)) (security (getf ctx :security))
+         (graph (%signalograd-graph-stats (getf ctx :map)))
          (swarm (%signalograd-swarm-observation))
          (telemetry (%signalograd-actor-metrics runtime))
          (presentation (%signalograd-presentation-observation runtime))
-         (queue-depth (if runtime (length (runtime-state-prompt-queue runtime)) 0))
-         (prior-confidence (or (getf (%signalograd-projection runtime) :confidence) 0.0))
          (reward (%signalograd-reward ctx runtime))
          (stability (%signalograd-stability ctx))
          (novelty (%signalograd-novelty ctx)))
@@ -374,21 +270,17 @@
      :rewrite-ready (and plan (getf plan :ready))
      :security-posture (%signalograd-security-posture-string ctx)
      :security-events (or (and security (getf security :events)) 0.0)
-     :route-success (getf swarm :success)
-     :route-latency (getf swarm :latency)
+     :route-success (getf swarm :success) :route-latency (getf swarm :latency)
      :cost-pressure (getf swarm :cost)
      :memory-pressure (%signalograd-clamp (- 1.0 reward) 0.0 1.0)
      :graph-density (getf graph :density)
      :graph-interdisciplinary (getf graph :interdisciplinary)
-     :reward reward
-     :stability stability
-     :novelty novelty
-     :actor-load (getf telemetry :load)
-     :actor-stalls (getf telemetry :stalls)
-     :queue-depth queue-depth
+     :reward reward :stability stability :novelty novelty
+     :actor-load (getf telemetry :load) :actor-stalls (getf telemetry :stalls)
+     :queue-depth (if runtime (length (runtime-state-prompt-queue runtime)) 0)
      :error-pressure (%signalograd-error-pressure)
      :supervision (%supervision-rate)
-     :prior-confidence prior-confidence
+     :prior-confidence (or (getf (%signalograd-projection runtime) :confidence) 0.0)
      :presentation-cleanliness (getf presentation :cleanliness)
      :presentation-verbosity (getf presentation :verbosity)
      :presentation-markdown-density (getf presentation :markdown-density)
@@ -397,7 +289,6 @@
      :presentation-decor-density (getf presentation :decor-density)
      :presentation-user-affinity (getf presentation :user-affinity)
      :route-tier (symbol-name (or *routing-tier* :auto))
-     ;; REPL model fluency — how well the current model speaks s-expressions.
      :repl-fluency (%signalograd-repl-fluency)
      :repl-speed (%signalograd-repl-speed))))
 
@@ -415,29 +306,20 @@
              (accepted (and (>= reward (%signalograd-policy-number "feedback/reward-accept-min" 0.58))
                             (>= stability (%signalograd-policy-number "feedback/stability-accept-min" 0.55))
                             (>= user-affinity (%signalograd-policy-number "feedback/user-affinity-accept-min" 0.35))
-                            (>= cleanliness (%signalograd-policy-number "feedback/cleanliness-accept-min" 0.55))))
-             (recall-hits (if (>= recall-strength
-                                  (%signalograd-policy-number "feedback/recall-strength-hit-min" 0.12))
-                              1
-                              0)))
-        (list :cycle (or (getf ctx :cycle) 0)
-              :reward reward
-              :stability stability
-              :novelty novelty
-              :accepted accepted
-              :recall-hits recall-hits
-              :user-affinity user-affinity
-              :cleanliness cleanliness
+                            (>= cleanliness (%signalograd-policy-number "feedback/cleanliness-accept-min" 0.55)))))
+        (list :cycle (or (getf ctx :cycle) 0) :reward reward :stability stability
+              :novelty novelty :accepted accepted
+              :recall-hits (if (>= recall-strength
+                                   (%signalograd-policy-number "feedback/recall-strength-hit-min" 0.12)) 1 0)
+              :user-affinity user-affinity :cleanliness cleanliness
               :applied-confidence confidence)))))
 
 (defun %signalograd-feedback-sexp (ctx &optional (runtime *runtime*))
   (let ((plist (%signalograd-feedback-plist ctx runtime)))
-    (when plist
-      (apply #'%signalograd-sexp :signalograd-feedback plist))))
+    (when plist (apply #'%signalograd-sexp :signalograd-feedback plist))))
 
 (defun signalograd-dispatch-reflection (ctx &key (runtime *runtime*))
-  "Send one compact reflection observation to the Rust kernel.
-The kernel emits its proposal back through the unified actor mailbox."
+  "Send one compact reflection observation to the Rust kernel."
   (when (and runtime (fboundp 'signalograd-port-ready-p) (signalograd-port-ready-p))
     (let* ((feedback-plist (%signalograd-feedback-plist ctx runtime))
            (feedback-sexp (when feedback-plist
@@ -449,95 +331,75 @@ The kernel emits its proposal back through the unified actor mailbox."
                                        :user-affinity (getf feedback-plist :user-affinity)
                                        :recall-hits (getf feedback-plist :recall-hits)
                                        :accepted (getf feedback-plist :accepted))))
-        (ignore-errors
-          (signalograd-feedback feedback-sexp)
-          (%signalograd-record-event
-           "feedback"
-           :cycle (getf feedback-plist :cycle)
-           :confidence (getf feedback-plist :applied-confidence)
-           :stability (getf feedback-plist :stability)
-           :novelty (getf feedback-plist :novelty)
-           :reward (getf feedback-plist :reward)
-           :accepted (getf feedback-plist :accepted)
+        (handler-case
+            (progn (signalograd-feedback feedback-sexp)
+          (%signalograd-record-event "feedback"
+           :cycle (getf feedback-plist :cycle) :confidence (getf feedback-plist :applied-confidence)
+           :stability (getf feedback-plist :stability) :novelty (getf feedback-plist :novelty)
+           :reward (getf feedback-plist :reward) :accepted (getf feedback-plist :accepted)
            :recall-hits (getf feedback-plist :recall-hits)
            :detail (list :user-affinity (getf feedback-plist :user-affinity)
                          :cleanliness (getf feedback-plist :cleanliness)
-                          :feedback feedback-plist)))))
+                         :feedback feedback-plist)))
+          (error (e) (%log :warn "signalograd" "feedback dispatch failed: ~A" e)))))
     (let ((observation-sexp (%signalograd-observation-sexp ctx runtime)))
-      (ignore-errors
-        (signalograd-observe observation-sexp)
-        (%signalograd-record-event
-         "observe"
-         :cycle (or (getf ctx :cycle) 0)
-         :reward (%signalograd-reward ctx runtime)
-         :stability (%signalograd-stability ctx)
-         :novelty (%signalograd-novelty ctx)
-         :detail (list :observation observation-sexp))))))
+      (handler-case
+          (progn (signalograd-observe observation-sexp)
+        (%signalograd-record-event "observe"
+         :cycle (or (getf ctx :cycle) 0) :reward (%signalograd-reward ctx runtime)
+         :stability (%signalograd-stability ctx) :novelty (%signalograd-novelty ctx)
+         :detail (list :observation observation-sexp)))
+        (error (e) (%log :warn "signalograd" "observe dispatch failed: ~A" e))))))
 
-(defun signalograd-checkpoint-latest (&key (runtime *runtime*))
+(defun %signalograd-checkpoint-or-restore (operation path-fn &key (runtime *runtime*) version source)
+  "Shared logic for checkpoint and restore operations."
   (when (and (fboundp 'signalograd-port-ready-p) (signalograd-port-ready-p))
-    (let ((path (%signalograd-latest-checkpoint-path)))
-      (when path
-        (signalograd-checkpoint (namestring path))
-        (let* ((status (ignore-errors (signalograd-status)))
+    (let ((path (funcall path-fn)))
+      (when (and path (or (eq operation :checkpoint) (probe-file path)))
+        (funcall (if (eq operation :checkpoint) #'signalograd-checkpoint #'signalograd-restore)
+                 (namestring path))
+        (let* ((status (handler-case (signalograd-status) (error () nil)))
                (digest (and (listp status) (getf status :checkpoint-digest))))
           (when runtime
-            (runtime-log runtime :signalograd-checkpoint
-                         (list :path (namestring path)
-                               :cycle (and (listp status) (getf status :cycle))
-                               :digest digest)))
-          (%signalograd-record-event
-           "checkpoint"
+            (runtime-log runtime (if (eq operation :checkpoint) :signalograd-checkpoint :signalograd-restore)
+                         (append (list :path (namestring path)
+                                       :cycle (and (listp status) (getf status :cycle))
+                                       :digest digest)
+                                 (when version (list :version version)))))
+          (%signalograd-record-event (symbol-name operation)
            :cycle (and (listp status) (getf status :cycle))
            :confidence (and (listp status) (getf status :confidence))
            :stability (and (listp status) (getf status :stability))
            :novelty (and (listp status) (getf status :novelty))
-           :checkpoint-path (namestring path)
-           :checkpoint-digest digest
-           :detail (list :target :latest)))
+           :checkpoint-path (namestring path) :checkpoint-digest digest
+           :detail (append (list :target (or source :latest))
+                           (when version (list :version version)))))
         path))))
+
+(defun signalograd-checkpoint-latest (&key (runtime *runtime*))
+  (%signalograd-checkpoint-or-restore :checkpoint #'%signalograd-latest-checkpoint-path
+                                      :runtime runtime :source :latest))
 
 (defun signalograd-restore-for-current-evolution (&key (runtime *runtime*))
   (when (and (fboundp 'signalograd-port-ready-p) (signalograd-port-ready-p))
-    (let* ((version (and (fboundp 'evolution-current-version)
-                         (evolution-current-version)))
+    (let* ((version (and (fboundp 'evolution-current-version) (evolution-current-version)))
            (version-path (%signalograd-version-checkpoint-path version))
            (latest-path (%signalograd-latest-checkpoint-path))
-           (selected (cond
-                       ((and version-path (probe-file version-path)) version-path)
-                       ((and latest-path (probe-file latest-path)) latest-path)
-                       (t nil))))
+           (selected (cond ((and version-path (probe-file version-path)) version-path)
+                           ((and latest-path (probe-file latest-path)) latest-path)
+                           (t nil))))
       (when selected
-        (signalograd-restore (namestring selected))
-        (let* ((status (ignore-errors (signalograd-status)))
-               (digest (and (listp status) (getf status :checkpoint-digest))))
-          (when runtime
-            (runtime-log runtime :signalograd-restore
-                         (list :path (namestring selected)
-                               :version version
-                               :cycle (and (listp status) (getf status :cycle))
-                               :digest digest)))
-          (%signalograd-record-event
-           "restore"
-           :cycle (and (listp status) (getf status :cycle))
-           :confidence (and (listp status) (getf status :confidence))
-           :stability (and (listp status) (getf status :stability))
-           :novelty (and (listp status) (getf status :novelty))
-           :checkpoint-path (namestring selected)
-           :checkpoint-digest digest
-           :detail (list :source (if (and version-path (equal selected version-path))
-                                     :version
-                                     :latest)
-                         :version version)))
-        selected))))
+        (%signalograd-checkpoint-or-restore :restore (lambda () selected)
+                                            :runtime runtime :version version
+                                            :source (if (equal selected version-path) :version :latest))))))
 
 (defun signalograd-adjust-vitruvian (vitruvian &optional (runtime *runtime*))
   (let* ((harmony (%signalograd-section :harmony runtime))
          (signal-bias (if harmony (or (getf harmony :signal-bias) 0.0) 0.0))
-         (noise-bias (if harmony (or (getf harmony :noise-bias) 0.0) 0.0))
-         (signal (%signalograd-clamp (+ (or (getf vitruvian :signal) 0.0) signal-bias) 0.0 1.0))
-         (noise (%signalograd-clamp (+ (or (getf vitruvian :noise) 0.0) noise-bias) 0.0 1.0)))
-    (append vitruvian (list :signal signal :noise noise))))
+         (noise-bias (if harmony (or (getf harmony :noise-bias) 0.0) 0.0)))
+    (append vitruvian
+            (list :signal (%signalograd-clamp (+ (or (getf vitruvian :signal) 0.0) signal-bias) 0.0 1.0)
+                  :noise (%signalograd-clamp (+ (or (getf vitruvian :noise) 0.0) noise-bias) 0.0 1.0)))))
 
 (defun signalograd-effective-harmony-number (path default &optional (runtime *runtime*))
   (let* ((base (harmony-policy-number path default))
@@ -567,17 +429,18 @@ The kernel emits its proposal back through the unified actor mailbox."
       (t base))))
 
 (defun signalograd-memory-recall-limit (&optional (runtime *runtime*))
-  (let ((delta (%signalograd-section-value :memory :recall-limit-delta 0 runtime)))
-    (truncate (%signalograd-clamp (+ (harmony-policy-number "memory/recall-limit" 5) delta)
-                                  (%signalograd-policy-number "limits/memory-recall-min" 2.0)
-                                  (%signalograd-policy-number "limits/memory-recall-max" 12.0)))))
+  (truncate (%signalograd-clamp
+             (+ (harmony-policy-number "memory/recall-limit" 5)
+                (%signalograd-section-value :memory :recall-limit-delta 0 runtime))
+             (%signalograd-policy-number "limits/memory-recall-min" 2.0)
+             (%signalograd-policy-number "limits/memory-recall-max" 12.0))))
 
 (defun signalograd-memory-bootstrap-skill-limit (&optional (runtime *runtime*))
   (let ((delta (%signalograd-section-value :memory :recall-limit-delta 0 runtime)))
-    (truncate (%signalograd-clamp (+ (harmony-policy-number "memory/bootstrap-skill-limit" 3)
-                                     (if (> delta 0) 1 0))
-                                  (%signalograd-policy-number "limits/memory-bootstrap-min" 1.0)
-                                  (%signalograd-policy-number "limits/memory-bootstrap-max" 8.0)))))
+    (truncate (%signalograd-clamp
+               (+ (harmony-policy-number "memory/bootstrap-skill-limit" 3) (if (> delta 0) 1 0))
+               (%signalograd-policy-number "limits/memory-bootstrap-min" 1.0)
+               (%signalograd-policy-number "limits/memory-bootstrap-max" 8.0)))))
 
 (defun signalograd-memory-crystal-threshold-delta (&optional (runtime *runtime*))
   (%signalograd-section-value :memory :crystal-threshold-delta 0.0 runtime))
@@ -595,10 +458,10 @@ The kernel emits its proposal back through the unified actor mailbox."
                         (%signalograd-policy-number "limits/routing-weight-max" 0.70))))
 
 (defun signalograd-routing-vitruvian-min (&optional (runtime *runtime*))
-  (let ((base (or (getf *model-evolution-policy* :vitruvian-signal-min) 0.62)))
-    (%signalograd-clamp (+ base (%signalograd-section-value :routing :vitruvian-min-delta 0.0 runtime))
-                        (%signalograd-policy-number "limits/routing-vitruvian-min" 0.30)
-                        (%signalograd-policy-number "limits/routing-vitruvian-max" 0.95))))
+  (%signalograd-clamp (+ (or (getf *model-evolution-policy* :vitruvian-signal-min) 0.62)
+                         (%signalograd-section-value :routing :vitruvian-min-delta 0.0 runtime))
+                      (%signalograd-policy-number "limits/routing-vitruvian-min" 0.30)
+                      (%signalograd-policy-number "limits/routing-vitruvian-max" 0.95)))
 
 (defun signalograd-adjust-aggression (value &optional (runtime *runtime*))
   (%signalograd-clamp (+ value (%signalograd-section-value :harmony :aggression-bias 0.0 runtime))
@@ -607,6 +470,4 @@ The kernel emits its proposal back through the unified actor mailbox."
 
 (defun signalograd-presentation-value (metric default &optional (runtime *runtime*))
   (let ((presentation (%signalograd-section :presentation runtime)))
-    (if (and presentation (getf presentation metric))
-        (getf presentation metric)
-        default)))
+    (if (and presentation (getf presentation metric)) (getf presentation metric) default)))

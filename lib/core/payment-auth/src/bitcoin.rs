@@ -8,8 +8,8 @@ use harmoniis_wallet::{
 use serde_json::json;
 use std::path::Path;
 
-use crate::challenge::open_or_create_wallet;
-use crate::challenge::wallet_db_path;
+use crate::wallet::open_or_create_wallet;
+use crate::wallet::wallet_db_path;
 use crate::model::{PaymentRequirement, COMPONENT};
 use crate::policy::payment_header_for_rail;
 
@@ -79,7 +79,7 @@ pub(crate) fn configured_ark_asp_url() -> String {
 }
 
 pub(crate) fn bitcoin_db_path(master_wallet_path: &Path) -> std::path::PathBuf {
-    crate::challenge::default_sidecar_path(master_wallet_path, "bitcoin.db")
+    crate::wallet::default_sidecar_path(master_wallet_path, "bitcoin.db")
 }
 
 pub(crate) fn bitcoin_network() -> bdk_wallet::bitcoin::Network {

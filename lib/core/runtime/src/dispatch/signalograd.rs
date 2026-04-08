@@ -1,10 +1,6 @@
 //! Signalograd component dispatch — requires actor-owned KernelState.
 
-use harmonia_actor_protocol::{extract_sexp_string, sexp_escape};
-
-fn esc(s: &str) -> String {
-    sexp_escape(s)
-}
+use super::param;
 
 pub(crate) fn dispatch(
     sexp: &str,
@@ -17,14 +13,11 @@ pub(crate) fn dispatch(
     };
     use std::path::PathBuf;
 
-    let op = extract_sexp_string(sexp, ":op").unwrap_or_default();
+    let op = harmonia_actor_protocol::extract_sexp_string(sexp, ":op").unwrap_or_default();
     match op.as_str() {
-        "init" => {
-            // Init is a no-op: the actor already owns a KernelState.
-            "(:ok)".to_string()
-        }
+        "init" => "(:ok)".to_string(),
         "observe" => {
-            let raw = extract_sexp_string(sexp, ":observation").unwrap_or_default();
+            let raw = param!(sexp, ":observation");
             let observation = match parse_observation(&raw) {
                 Ok(o) => o,
                 Err(e) => return format!("(:error \"observe parse: {e}\")"),
@@ -36,16 +29,10 @@ pub(crate) fn dispatch(
             }
             "(:ok)".to_string()
         }
-        "status" => {
-            let result = status_sexp(state);
-            format!("(:ok :result \"{}\")", esc(&result))
-        }
-        "snapshot" => {
-            let result = snapshot_sexp(state);
-            format!("(:ok :result \"{}\")", esc(&result))
-        }
+        "status" => format!("(:ok :result \"{}\")", harmonia_actor_protocol::sexp_escape(&status_sexp(state))),
+        "snapshot" => format!("(:ok :result \"{}\")", harmonia_actor_protocol::sexp_escape(&snapshot_sexp(state))),
         "feedback" => {
-            let raw = extract_sexp_string(sexp, ":feedback").unwrap_or_default();
+            let raw = param!(sexp, ":feedback");
             let feedback = match parse_feedback(&raw) {
                 Ok(f) => f,
                 Err(e) => return format!("(:error \"feedback parse: {e}\")"),
@@ -66,7 +53,7 @@ pub(crate) fn dispatch(
             "(:ok)".to_string()
         }
         "checkpoint" => {
-            let path_str = extract_sexp_string(sexp, ":path").unwrap_or_default();
+            let path_str = param!(sexp, ":path");
             let target = PathBuf::from(path_str.trim());
             if let Err(e) = write_state_to_path(state, &target) {
                 return format!("(:error \"checkpoint failed: {e}\")");
@@ -78,7 +65,7 @@ pub(crate) fn dispatch(
             "(:ok)".to_string()
         }
         "restore" => {
-            let path_str = extract_sexp_string(sexp, ":path").unwrap_or_default();
+            let path_str = param!(sexp, ":path");
             let target = PathBuf::from(path_str.trim());
             match restore_state_from_path(&target) {
                 Ok(restored) => {

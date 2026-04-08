@@ -1,6 +1,9 @@
 mod api;
 mod connection;
 mod device;
+mod envelope;
+mod ffi;
+mod frontend;
 mod model;
 mod publish;
 mod queue;

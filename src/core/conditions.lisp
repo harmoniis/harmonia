@@ -47,8 +47,11 @@
                 :depth 0
                 :tags tags)
     (runtime-log *runtime* :runtime-error (list :kind kind :message msg :prompt prompt))
-    (ignore-errors
-      (harmonic-matrix-log-event "runtime" "error" (string-downcase (string kind))
+    (handler-case
+
+        (harmonic-matrix-log-event "runtime" "error" (string-downcase (string kind)
+
+      (error () nil))
                                  (or prompt "")
                                  nil
                                  msg))

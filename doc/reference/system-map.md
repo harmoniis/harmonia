@@ -19,6 +19,8 @@ Harmonia is layered as a constrained orchestration system:
 
 3. `Rust Capability Layer` (`lib/`)
 - `core/runtime`: single Rust binary (`harmonia-runtime`) containing ractor actors + IPC listener (`runtime.sock`)
+  - DynamicRegistry — HashMap-based pluggable component registry with ComponentDescriptor trait
+  - TopicBus — pub/sub capability-based message routing between actors
   - RuntimeSupervisor — actor registry, IPC component dispatch, supervisor restart of failed actors
   - SbclBridgeActor — drain queue for SBCL
   - GatewayActor — poll_baseband, route signals
@@ -28,8 +30,10 @@ Harmonia is layered as a constrained orchestration system:
   - ObservabilityActor — provider-agnostic trace sink (sampling, correlation, batch dispatch to configured provider)
   - HarmonicMatrixActor — matrix topology, route constraints, telemetry
   - MemoryFieldActor — field propagation, basin monitoring, StateChanged events on basin transitions
+  - MempalaceActor — graph-structured knowledge palace with AAAK compression
+  - TerraphonActor — platform datamining tools with cross-node extraction
   - VaultActor, ConfigActor, ProviderRouterActor, ParallelActor, RouterActor
-  - IPC dispatch routes to: vault, config, chronicle, gateway, signalograd, tailnet, harmonic-matrix, observability, provider-router, parallel, memory-field, git-ops, ouroboros
+  - IPC dispatch routes to: vault, config, chronicle, gateway, signalograd, tailnet, harmonic-matrix, observability, provider-router, parallel, memory-field, ouroboros, mempalace, terraphon
 - `core/phoenix`: ractor-based process supervisor, health endpoint (`127.0.0.1:9100`), pidfile management
 - `core/`: vault, gateway, matrix, recovery, forge, etc.
 - `signalograd`: tiny chaotic advisory kernel with local online learning and evolution checkpoints.
@@ -141,7 +145,17 @@ Harmonia is layered as a constrained orchestration system:
             │          │  Telemetry accumulation│
             │          └───────────────────────┘
             │
-            ▼
+            ├──────────────────────────────────────────────┐
+            │                                              │
+            ▼                                              ▼
+    ┌───────────────────────┐              ┌───────────────────────┐
+    │  MEMPALACE (Rust)     │              │  TERRAPHON (Rust)     │
+    │  Graph knowledge      │              │  Platform datamining  │
+    │  AAAK compression     │              │  Cross-node extract   │
+    └───────────┬───────────┘              └───────────┬───────────┘
+                └──────────────┬───────────────────────┘
+                               │
+                               ▼
     ┌───────────────────────────────────────────────────────┐
     │                    CHRONICLE (Rust/SQLite)             │
     │                                                       │

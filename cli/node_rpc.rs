@@ -311,6 +311,35 @@ fn execute_request_inner(
                 message,
             })
         }
+        // Datamining operations — dispatched to Terraphon actor via runtime IPC.
+        NodeRpcRequest::DatamineQuery { query_id, lode_id, args, timeout_ms: _, compress } => {
+            // Cross-node datamine: forward to local Terraphon actor.
+            let args_str = args.join(" ");
+            let sexp = format!(
+                "(:component \"terraphon\" :op \"datamine\" :lode-id \"{}\" :args \"{}\")",
+                lode_id, args_str
+            );
+            // TODO: route through runtime IPC when cross-node dispatch is wired.
+            Ok(NodeRpcResult::DatamineQuery {
+                query_id: query_id.clone(),
+                lode_id: lode_id.clone(),
+                data: format!("(:pending \"cross-node datamine not yet wired: {}\")", sexp),
+                compressed: *compress,
+                elapsed_ms: 0,
+                error: None,
+            })
+        }
+        NodeRpcRequest::DatamineCatalog => {
+            Ok(NodeRpcResult::DatamineCatalog {
+                lodes: vec!["(:pending \"catalog not yet wired\")".into()],
+            })
+        }
+        NodeRpcRequest::DatamineProbe { lode_id } => {
+            Ok(NodeRpcResult::DatamineProbe {
+                lode_id: lode_id.clone(),
+                available: false,
+            })
+        }
     }
 }
 

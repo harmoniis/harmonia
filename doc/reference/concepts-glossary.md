@@ -17,8 +17,14 @@
 - `Unified Command Dispatch`: gateway-level interception of ALL /commands from ALL frontends. Native Rust handlers for wallet/identity/help; Lisp callback delegation for runtime-state commands.
 - `Router`: LLM completion boundary used by orchestration.
 - `Swarm`: parallel subagent system (API tier + tmux CLI tier).
-- `GitOps`: Git operations (status, log, diff, commit, push) via IPC actor. Replaces the former `Lineage` stub.
 - `Matrix`: route-constraint and telemetry graph for allowed operations.
+- `DynamicRegistry`: HashMap-based pluggable component registry replacing the former slot-indexed array. Components register via the `ComponentDescriptor` trait.
+- `ComponentDescriptor`: universal component protocol trait that all actors implement for dynamic registration in the DynamicRegistry.
+- `TopicBus`: pub/sub capability-based message routing between actors. Components subscribe to topic channels and receive messages matching their declared capabilities.
+- `Mempalace`: graph-structured knowledge palace with AAAK compression (`lib/core/mempalace`).
+- `Terraphon`: platform datamining tools with cross-node extraction (`lib/core/terraphon`).
+- `Tonal Function`: harmonic phase classification into Tonic (T), Subdominant (S), Dominant (D), and Retardant (R) following functional harmony theory. Phase transitions follow cadence patterns (authentic D->T, plagal S->T, half *->D).
+- `%policy-weighted-sum`: centralized weighted sum function that reads all weights from `harmony-policy` at call time, ensuring fully data-driven harmonic calculations with no hardcoded constants.
 
 ## Memory And Scoring
 
@@ -46,7 +52,7 @@
 
 ## Recovery And Evolution
 
-- `Ouroboros`: self-healing crash ledger and patch writing subsystem. Fully wired as IPC actor (ComponentSlot 11). Records failures, writes patches, maintains crash history. The REPL can call `(ouroboros-history)`, `(ouroboros-crash comp detail)`, `(ouroboros-patch comp body)`.
+- `Ouroboros`: pure Rust self-healing crash ledger (rewritten from FFI to actor model). Registered in DynamicRegistry. Records failures, writes patches, maintains crash history. The REPL can call `(ouroboros-history)`, `(ouroboros-crash comp detail)`, `(ouroboros-patch comp body)`.
 - `Phoenix`: supervisor lifecycle and restart/rollout guard.
 - `DNA Constraints`: hard limits defined in `*dna*` that the REPL reads at runtime. Include max-rounds, chaos-risk ceiling, vitruvian gate thresholds, graph caps. Violating a constraint requires DNA mutation (hard evolution). Epigenetic tuning (config-store, signalograd) works within DNA-defined bounds.
 - `DNA Bounds`: ranges within which epigenetic parameters can be tuned (e.g., decay-lambda 0.001..0.1, thomas-b 0.18..0.24). Going outside bounds requires DNA mutation.
@@ -97,7 +103,7 @@
 - `Boundary Wrapping`: external data wrapped with `=== EXTERNAL DATA [...] ===` markers in prompts, memory recalls, and search results to resist prompt injection.
 - `Invariant Guard`: hardcoded non-configurable safety limits (vault min_harmony >= 0.30, dissonance-weight >= 0.05) that cannot be weakened by any configuration or admin intent.
 - `Security Posture`: system-wide security state (`:nominal`/`:elevated`/`:alert`) tracked by `:security-audit` phase in harmonic machine.
-- `Signal Integrity`: shared crate (`lib/core/signal-integrity`) for injection pattern detection, dissonance scoring, and boundary wrapping.
+- `Signal Integrity`: shared crate (`lib/core/signal-integrity`) for injection pattern detection (48 patterns, 5 severity-tiered categories), dissonance scoring, boundary wrapping, and NFKC Unicode normalization.
 - `Admin Intent`: Ed25519 signed authorization for privileged mutations. Owner's public key in vault, private key on owner's device.
 - `Safe Parser`: `%safe-parse-number` and `%safe-parse-policy-value` — replacements for `read-from-string` that prevent Lisp reader macro attacks.
 - `Confused Deputy`: attack where the LLM is tricked (via prompt injection) into proposing privileged actions on behalf of an untrusted signal. Mitigated by taint propagation + policy gate.

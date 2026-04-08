@@ -6,7 +6,6 @@ members = [
     "lib/core/ouroboros",
     "lib/core/vault",
     "lib/core/memory",
-    "lib/core/git-ops",
     "lib/core/rust-forge",
     "lib/core/cron-scheduler",
     "lib/core/recovery",
@@ -30,6 +29,8 @@ members = [
     "lib/core/qr-terminal",
     "lib/core/complexity-encoder",
     "lib/core/memory-field",
+    "lib/core/mempalace",
+    "lib/core/terraphon",
 
     # Backends — provider protocol + LLM providers + storage + HTTP
     "lib/backends/llms/provider-protocol",

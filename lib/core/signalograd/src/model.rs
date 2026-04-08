@@ -3,7 +3,7 @@ use serde::Deserialize;
 use crate::error::seeded_weight;
 
 pub const LATENT_DIM: usize = 32;
-pub const INPUT_DIM: usize = 28;
+pub const INPUT_DIM: usize = 31;
 pub const MEMORY_SLOTS: usize = 32;
 pub const HEAD_COUNT: usize = 5;
 pub const PHI: f64 = 1.618_033_988_749_895;
@@ -54,8 +54,11 @@ pub struct Observation {
     pub presentation_decor_density: f64,
     pub presentation_user_affinity: f64,
     #[serde(default)]
-    #[allow(dead_code)] // consumed by Lisp via sexp observation, not read in Rust
     pub route_tier: String,
+    // Datamining feedback metrics (terraphon + mempalace).
+    pub datamine_success_rate: f64,
+    pub datamine_avg_latency: f64,
+    pub palace_graph_density: f64,
 }
 
 #[derive(Debug, Clone, Default)]

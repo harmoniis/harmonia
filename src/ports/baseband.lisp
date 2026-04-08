@@ -23,11 +23,15 @@
 
 (defun init-baseband-port ()
   "Initialize the gateway via IPC. Register gateway as actor."
-  (let ((reply (ipc-call "(:component \"gateway\" :op \"init\")")))
+  (let ((reply (ipc-call (%sexp-to-ipc-string
+                           '(:component "gateway" :op "init")))))
     ;; Register gateway as actor through the unified registry
     (when (and (ipc-reply-ok-p reply) *runtime*)
-      (ignore-errors
-        (let ((actor-id (actor-register "gateway")))
+      (handler-case
+
+          (let ((actor-id (actor-register "gateway")
+
+        (error () nil)))
           (setf (runtime-state-gateway-actor-id *runtime*) actor-id)
           (setf (gethash actor-id (runtime-state-actor-kinds *runtime*)) "gateway"))))
     ;; Command and payment-policy callbacks are now handled by the Rust
@@ -40,27 +44,30 @@
 
 (defun gateway-version ()
   (or (ipc-extract-value
-       (ipc-call "(:component \"gateway\" :op \"version\")"))
+       (ipc-call (%sexp-to-ipc-string
+                  '(:component "gateway" :op "version"))))
       "unknown"))
 
 (defun gateway-healthcheck ()
-  (let ((reply (ipc-call "(:component \"gateway\" :op \"healthcheck\")")))
+  (let ((reply (ipc-call (%sexp-to-ipc-string
+                           '(:component "gateway" :op "healthcheck")))))
     (and reply (ipc-reply-ok-p reply))))
 
 (defun gateway-register (name so-path config-sexp security-label)
   (let ((reply (ipc-call
-                (format nil "(:component \"gateway\" :op \"register\" :name \"~A\" :so-path \"~A\" :config \"~A\" :security-label \"~A\")"
-                        (sexp-escape-lisp name) (sexp-escape-lisp so-path)
-                        (sexp-escape-lisp config-sexp) (sexp-escape-lisp security-label)))))
+                (%sexp-to-ipc-string
+                 `(:component "gateway" :op "register"
+                   :name ,name :so-path ,so-path
+                   :config ,config-sexp :security-label ,security-label)))))
     (when (ipc-reply-error-p reply)
       (error "gateway-register failed for ~A: ~A" name reply))
-    (ignore-errors (%register-loaded-lib name so-path))
+    (handler-case (%register-loaded-lib name so-path) (error () nil))
     t))
 
 (defun gateway-unregister (name)
   (let ((reply (ipc-call
-                (format nil "(:component \"gateway\" :op \"unregister\" :name \"~A\")"
-                        (sexp-escape-lisp name)))))
+                (%sexp-to-ipc-string
+                 `(:component "gateway" :op "unregister" :name ,name)))))
     (when (ipc-reply-error-p reply)
       (error "gateway-unregister failed for ~A: ~A" name reply))
     t))
@@ -68,11 +75,11 @@
 (defun gateway-reload (name)
   "Hot-reload a frontend by name."
   (let ((reply (ipc-call
-                (format nil "(:component \"gateway\" :op \"reload\" :name \"~A\")"
-                        (sexp-escape-lisp name)))))
+                (%sexp-to-ipc-string
+                 `(:component "gateway" :op "reload" :name ,name)))))
     (if (ipc-reply-ok-p reply)
         (progn
-          (ignore-errors (%mark-lib-recovered name))
+          (handler-case (%mark-lib-recovered name) (error () nil))
           (%log :info "gateway" "Reloaded frontend ~A" name)
           t)
         (progn
@@ -82,8 +89,8 @@
 (defun gateway-crash-count (name)
   "Return the crash count for a frontend from the gateway's tracking."
   (let ((reply (ipc-call
-                (format nil "(:component \"gateway\" :op \"crash-count\" :name \"~A\")"
-                        (sexp-escape-lisp name)))))
+                (%sexp-to-ipc-string
+                 `(:component "gateway" :op "crash-count" :name ,name)))))
     (or (ipc-extract-u64 reply ":result") 0)))
 
 (defun gateway-poll ()
@@ -111,14 +118,15 @@
 (defun gateway-list-frontends ()
   (%parse-gateway-sexp
    (or (ipc-extract-value
-        (ipc-call "(:component \"gateway\" :op \"list-frontends\")"))
+        (ipc-call (%sexp-to-ipc-string
+                   '(:component "gateway" :op "list-frontends"))))
        "nil")))
 
 (defun gateway-frontend-status (name)
   (%parse-gateway-sexp
    (or (ipc-extract-value
-        (ipc-call (format nil "(:component \"gateway\" :op \"frontend-status\" :name \"~A\")"
-                          (sexp-escape-lisp name))))
+        (ipc-call (%sexp-to-ipc-string
+                   `(:component "gateway" :op "frontend-status" :name ,name))))
        "nil")))
 
 (defun baseband-channel-status (channel-kind)
@@ -127,15 +135,16 @@
 (defun gateway-list-channels (name)
   (%parse-gateway-sexp
    (or (ipc-extract-value
-        (ipc-call (format nil "(:component \"gateway\" :op \"list-channels\" :name \"~A\")"
-                          (sexp-escape-lisp name))))
+        (ipc-call (%sexp-to-ipc-string
+                   `(:component "gateway" :op "list-channels" :name ,name))))
        "nil")))
 
 (defun baseband-list-channels (name)
   (gateway-list-channels name))
 
 (defun gateway-shutdown ()
-  (let ((reply (ipc-call "(:component \"gateway\" :op \"shutdown\")")))
+  (let ((reply (ipc-call (%sexp-to-ipc-string
+                           '(:component "gateway" :op "shutdown")))))
     (runtime-log *runtime* :gateway-shutdown
                  (list :status (if (ipc-reply-ok-p reply) 0 -1)))
     (ipc-reply-ok-p reply)))
@@ -202,7 +211,7 @@
     ((and (consp entry) (= (length entry) 2))
      (let* ((scope (%config-fragment-string (first entry)))
             (key (%config-fragment-string (second entry)))
-            (value (ignore-errors (config-get key scope))))
+            (value (handler-case (config-get key scope) (error () nil))))
        (and value
             (> (length (string-trim '(#\Space #\Tab #\Newline #\Return) value)) 0))))
     (t

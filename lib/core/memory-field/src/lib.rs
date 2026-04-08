@@ -1,15 +1,19 @@
-/// Memory Field — graph Laplacian field propagation for dynamical memory recall.
+/// Memory Field -- graph Laplacian field propagation for dynamical memory recall.
 ///
 /// Memory is a field, not a database. Recall is relaxation into attractors,
 /// not search through records. Relevance is resonance, not matching.
 
 mod api;
 mod attractor;
+mod attractor_api;
 pub mod basin;
+pub(crate) mod config;
+mod dream;
 mod error;
 pub mod field;
 pub mod graph;
 mod model;
+mod recall;
 pub mod scoring;
 pub mod spectral;
 
@@ -18,6 +22,7 @@ use basin::{Basin, HysteresisTracker};
 use graph::SparseGraph;
 
 // ── Typed API: actor-owned state, no singletons ──────────────────────
+pub use api::edge_current_status;
 pub use api::{
     basin_status, eigenmode_status, field_dream, field_recall, load_graph, reset, restore_basin,
     status, step_attractors,
@@ -28,7 +33,7 @@ pub(crate) fn graph_sexp_escape(s: &str) -> String {
     s.replace('\\', "\\\\").replace('"', "\\\"")
 }
 
-/// Complete field state — all field computation lives here.
+/// Complete field state -- all field computation lives here.
 /// Reconstructed from concept graph on each boot (stateless persistence).
 pub struct FieldState {
     pub(crate) graph: SparseGraph,

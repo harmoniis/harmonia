@@ -16,7 +16,6 @@ pub enum SupervisorMsg {
 
 // ── Subsystem messages ───────────────────────────────────────────────
 
-#[allow(dead_code)]
 pub enum SubsystemMsg {
     /// (Re)start the managed OS process.
     Start,
@@ -24,7 +23,10 @@ pub enum SubsystemMsg {
     Stop { timeout_secs: u64 },
     /// Watcher task reports the OS process exited.
     ProcessExited { exit_code: Option<i32> },
-    /// Query current state.
+    /// Query current state synchronously. Part of OTP gen_server contract.
+    /// Currently the supervisor uses reactive push (SubsystemStateChanged) instead,
+    /// but this variant completes the protocol for direct actor queries.
+    #[allow(dead_code)] // OTP protocol completeness — handler exists in subsystem.rs
     GetState(RpcReplyPort<SubsystemState>),
 }
 
@@ -40,12 +42,7 @@ pub enum SubsystemState {
     Failed { reason: String, attempts: u32 },
 }
 
-#[allow(dead_code)]
 impl SubsystemState {
-    pub fn is_running(&self) -> bool {
-        matches!(self, SubsystemState::Running { .. })
-    }
-
     pub fn is_failed(&self) -> bool {
         matches!(self, SubsystemState::Failed { .. })
     }

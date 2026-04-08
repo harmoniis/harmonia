@@ -3,6 +3,8 @@ mod bitcoin;
 mod challenge;
 mod model;
 mod policy;
+mod settlement;
+mod wallet;
 
 pub use api::extract_payment_metadata;
 pub use challenge::{

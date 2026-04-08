@@ -1,23 +1,19 @@
 //! Gateway component dispatch — poll/send across all frontends.
 
-use harmonia_actor_protocol::{extract_sexp_string, sexp_escape};
+use super::{dispatch_op, param};
+use harmonia_actor_protocol::sexp_escape;
 use serde_json::json;
 
-fn esc(s: &str) -> String {
-    sexp_escape(s)
-}
-
 pub(crate) fn dispatch(sexp: &str) -> String {
-    let op = extract_sexp_string(sexp, ":op").unwrap_or_default();
+    let op = harmonia_actor_protocol::extract_sexp_string(sexp, ":op").unwrap_or_default();
     match op.as_str() {
         "poll" => {
             let envelopes = poll_all_frontends();
             format!("(:ok :envelopes ({}))", envelopes.join(" "))
         }
         "send" => {
-            let frontend = extract_sexp_string(sexp, ":frontend").unwrap_or_default();
-            let channel = extract_sexp_string(sexp, ":channel").unwrap_or_default();
-            let payload = extract_sexp_string(sexp, ":payload").unwrap_or_default();
+            let (frontend, channel, payload) =
+                (param!(sexp, ":frontend"), param!(sexp, ":channel"), param!(sexp, ":payload"));
             let result = send_to_frontend(&frontend, &channel, &payload);
             if harmonia_observability::harmonia_observability_is_standard() {
                 let obs_ref = harmonia_observability::get_obs_actor().cloned();
@@ -28,10 +24,7 @@ pub(crate) fn dispatch(sexp: &str) -> String {
                     json!({"frontend": frontend, "channel": channel, "success": result.is_ok()}),
                 );
             }
-            match result {
-                Ok(()) => "(:ok)".to_string(),
-                Err(e) => format!("(:error \"{}\")", esc(&e)),
-            }
+            dispatch_op!("send", result.map(|_| "(:ok)".to_string()))
         }
         "is-allowed" => "(:ok :allowed t)".to_string(),
         _ => format!("(:error \"unknown gateway op: {}\")", op),
@@ -40,99 +33,64 @@ pub(crate) fn dispatch(sexp: &str) -> String {
 
 /// Poll ALL initialized frontends and return sexp envelopes.
 fn poll_all_frontends() -> Vec<String> {
-    let mut envelopes = Vec::new();
+    let tui_envelopes = harmonia_tui::terminal::poll()
+        .into_iter()
+        .map(|(address, payload)| make_envelope("tui", &address, &payload, "owner"));
 
-    // TUI — local trusted session
-    for (address, payload) in harmonia_tui::terminal::poll() {
-        envelopes.push(make_envelope("tui", &address, &payload, "owner"));
-    }
-
-    // Messaging frontends — each gracefully returns empty if not initialized
-    poll_frontend(
-        &mut envelopes,
-        "telegram",
-        harmonia_telegram::bot::poll(),
-        "authenticated",
-    );
-    poll_frontend(
-        &mut envelopes,
-        "slack",
-        harmonia_slack::client::poll(),
-        "authenticated",
-    );
-    poll_frontend(
-        &mut envelopes,
-        "discord",
-        harmonia_discord::client::poll(),
-        "authenticated",
-    );
-    poll_frontend(
-        &mut envelopes,
-        "signal",
-        harmonia_signal::client::poll(),
-        "authenticated",
-    );
-    poll_frontend(
-        &mut envelopes,
-        "mattermost",
-        harmonia_mattermost::client::poll(),
-        "authenticated",
-    );
-    poll_frontend(
-        &mut envelopes,
-        "whatsapp",
-        harmonia_whatsapp::client::poll(),
-        "authenticated",
-    );
-    poll_frontend(
-        &mut envelopes,
-        "nostr",
-        harmonia_nostr::client::poll(),
-        "authenticated",
-    );
-    poll_frontend(
-        &mut envelopes,
-        "email",
-        harmonia_email_client::client::poll(),
-        "authenticated",
-    );
+    let messaging_envelopes = [
+        ("telegram", harmonia_telegram::bot::poll()),
+        ("slack", harmonia_slack::client::poll()),
+        ("discord", harmonia_discord::client::poll()),
+        ("signal", harmonia_signal::client::poll()),
+        ("mattermost", harmonia_mattermost::client::poll()),
+        ("whatsapp", harmonia_whatsapp::client::poll()),
+        ("nostr", harmonia_nostr::client::poll()),
+        ("email", harmonia_email_client::client::poll()),
+    ].into_iter().flat_map(|(kind, result)| {
+        collect_frontend(kind, result, "authenticated")
+    });
 
     #[cfg(target_os = "macos")]
-    poll_frontend(
-        &mut envelopes,
+    let platform_envelopes = collect_frontend(
         "imessage",
         harmonia_imessage::client::poll(),
         "authenticated",
     );
+    #[cfg(not(target_os = "macos"))]
+    let platform_envelopes = Vec::new();
 
-    poll_frontend(
-        &mut envelopes,
+    let tailscale_envelopes = collect_frontend(
         "tailscale",
         harmonia_tailscale_frontend::bridge::poll(),
         "authenticated",
     );
 
-    envelopes
+    tui_envelopes
+        .chain(messaging_envelopes)
+        .chain(platform_envelopes)
+        .chain(tailscale_envelopes)
+        .collect()
 }
 
-fn poll_frontend(
-    envelopes: &mut Vec<String>,
+fn collect_frontend(
     kind: &str,
     result: Result<Vec<(String, String, Option<String>)>, String>,
     label: &str,
-) {
-    for (address, payload, _metadata) in result.unwrap_or_default() {
-        envelopes.push(make_envelope(kind, &address, &payload, label));
-    }
+) -> Vec<String> {
+    result
+        .unwrap_or_default()
+        .into_iter()
+        .map(|(address, payload, _metadata)| make_envelope(kind, &address, &payload, label))
+        .collect()
 }
 
 fn make_envelope(kind: &str, address: &str, payload: &str, label: &str) -> String {
     format!(
         "(:channel (:kind \"{}\" :address \"{}\") :body (:text \"{}\") :peer (:device-id \"{}\") :security (:label :{}) :capabilities (:text t))",
-        esc(kind),
-        esc(address),
-        esc(payload),
-        esc(address),
+        sexp_escape(kind),
+        sexp_escape(address),
+        sexp_escape(payload),
+        sexp_escape(address),
         label
     )
 }

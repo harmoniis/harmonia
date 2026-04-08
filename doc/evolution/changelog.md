@@ -71,7 +71,7 @@ Append-only evolution ledger.
     - `:security-audit` phase added to harmonic state machine (observe injection counts, update posture, auto-adjust noise floors).
     - `*security-posture*` tracking (`:nominal`/`:elevated`/`:alert`).
   - **Boundary Wrapping**: External data wrapped with `=== EXTERNAL DATA [...] ===` markers in prompt assembly, memory recall, and search tool results (search-exa, search-brave).
-  - **Matrix Hardening**: Raised min_harmony on privileged edges — vault `0.10→0.70`, harmonic-matrix `0.10→0.60`, git-ops `0.20→0.55`.
+  - **Matrix Hardening**: Raised min_harmony on privileged edges — vault `0.10→0.70`, harmonic-matrix `0.10→0.60`.
   - **Tailnet HMAC Auth**: `MeshMessage` carries `timestamp_ms` + `hmac` (HMAC-SHA256). 5-minute replay window. Shared secret from env var.
   - **MQTT Fingerprint Validation**: `validate_agent_fingerprint` compares `agent_fp` against vault-stored expected fingerprint.
   - **Vault Encryption at Rest**: Values encrypted with AES-256-GCM, rooted in wallet slot family `vault` (legacy-compatible with `harmonia-vault`) first; explicit `HARMONIA_VAULT_MASTER_KEY` is fallback-only. Component-scoped read policy enabled.

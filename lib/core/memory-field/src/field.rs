@@ -90,7 +90,6 @@ pub(crate) fn build_source_vector(graph: &SparseGraph, query_concepts: &[String]
 ///
 /// Current I_ij = w_ij · |φ_i - φ_j| through each edge.
 /// Returns (node_a, node_b, current_magnitude) for all edges.
-#[allow(dead_code)]
 pub(crate) fn edge_currents(graph: &SparseGraph, phi: &[f64]) -> Vec<(usize, usize, f64)> {
     let mut currents = Vec::new();
     for i in 0..graph.n {
@@ -144,5 +143,34 @@ mod tests {
         let g = build_graph(&[], &[]);
         let phi = solve_field(&g, &[], 50, 1e-8, 0.01);
         assert!(phi.is_empty());
+    }
+
+    #[test]
+    fn test_edge_currents_path_graph() {
+        // Path graph: A -- B -- C, source at A.
+        // Current should flow from high potential (A) to low (C).
+        let nodes = vec![
+            ("a".into(), "generic".into(), 5, vec![]),
+            ("b".into(), "generic".into(), 3, vec![]),
+            ("c".into(), "generic".into(), 1, vec![]),
+        ];
+        let edges = vec![
+            ("a".into(), "b".into(), 1.0, false),
+            ("b".into(), "c".into(), 1.0, false),
+        ];
+        let g = build_graph(&nodes, &edges);
+        let sources = build_source_vector(&g, &["a".into()]);
+        let phi = solve_field(&g, &sources, 100, 1e-8, 0.01);
+        let currents = edge_currents(&g, &phi);
+
+        assert_eq!(currents.len(), 2, "path graph has 2 edges");
+        for &(_i, _j, mag) in &currents {
+            assert!(mag >= 0.0, "current magnitude must be non-negative");
+        }
+        // Edge A-B should carry more current than B-C (A has higher potential diff).
+        assert!(
+            currents[0].2 > currents[1].2,
+            "A-B edge should carry more current than B-C"
+        );
     }
 }

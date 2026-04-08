@@ -45,7 +45,6 @@
 | `src/ports/vault.lisp` | secret symbol store and lookup | `lib/core/vault` |
 | `src/ports/store.lisp` | runtime non-secret KV config | `lib/core/config-store` |
 | `src/ports/router.lisp` | LLM completion router (OpenRouter + native provider adapters) | `lib/backends/llms/openrouter` |
-| `src/ports/gitop.lisp` | git operations via IPC actor | `lib/core/git-ops` |
 | `src/ports/matrix.lisp` | route constraints + telemetry | `lib/core/harmonic-matrix` |
 | `src/ports/ouroboros.lisp` | self-healing crash ledger and patch writing via IPC actor | `lib/core/ouroboros` |
 | `src/ports/tool-runtime.lisp` | search/voice tool dispatch | `lib/tools/*` |
@@ -54,6 +53,8 @@
 | `src/ports/evolution.lisp` | source-rewrite/artifact-rollout mode dispatch | `lib/core/ouroboros` + phoenix supervision model |
 | `src/ports/chronicle.lisp` | graph-native knowledge base queries, harmonic/memory/delegation recording, concept graph SQL traversal | `lib/core/chronicle` |
 | `src/ports/signalograd.lisp` | chaotic advisory kernel IPC (`observe`, `feedback`, `checkpoint`, `restore`, `status`) | `lib/core/signalograd` |
+| `src/ports/mempalace.lisp` | graph-structured knowledge palace with AAAK compression | `lib/core/mempalace` |
+| `src/ports/terraphon.lisp` | platform datamining tools with cross-node extraction | `lib/core/terraphon` |
 | `src/ports/observability.lisp` | provider-agnostic distributed tracing; fire-and-forget `ipc-cast`, client-side UUID run-ids, `with-trace` macro | `lib/core/observability` |
 
 ## Rust Runtime (`lib/core/runtime/src`)
@@ -61,10 +62,10 @@
 | File | Role |
 |---|---|
 | `supervisor.rs` | RuntimeSupervisor actor — registry, IPC component dispatch, child actor lifecycle |
-| `dispatch.rs` | IPC message dispatch — routes to vault, config, chronicle, gateway, signalograd, tailnet, harmonic-matrix, observability, provider-router, parallel, git-ops, ouroboros |
+| `dispatch.rs` | IPC message dispatch — routes to vault, config, chronicle, gateway, signalograd, tailnet, harmonic-matrix, observability, provider-router, parallel, ouroboros, mempalace, terraphon |
 | `bridge.rs` | SbclBridgeActor — Unix socket connection handler, drain queue for SBCL |
 | `ipc.rs` | IPC listener — Unix socket accept loop, length-prefixed sexp framing |
-| `actors.rs` | Actor definitions — GatewayActor, ChronicleActor, TailnetActor, SignalogradActor, ObservabilityActor (ObsMsg, sampling, correlation), HarmonicMatrixActor, VaultActor, ConfigActor, ProviderRouterActor, ParallelActor, RouterActor, OuroborosActor, GitOpsActor |
+| `actors.rs` | Actor definitions — GatewayActor, ChronicleActor, TailnetActor, SignalogradActor, ObservabilityActor (ObsMsg, sampling, correlation), HarmonicMatrixActor, VaultActor, ConfigActor, ProviderRouterActor, ParallelActor, RouterActor, OuroborosActor, MempalaceActor, TerraphonActor |
 | `msg.rs` | Actor message types and routing enums |
 
 All crates are compiled as rlib and linked into the single `harmonia-runtime` binary. No cdylib shared libraries.
@@ -84,7 +85,7 @@ Based on `src/core/boot.lisp`:
 
 1. Load state/tools/DNA/memory/harmony modules.
 2. Load `supervision-state.lisp`, `signalograd.lisp`, and `evolution-versioning.lisp`.
-3. Load ports in order: vault -> store -> harmony-policy -> model-policy -> router -> gitop -> ouroboros -> matrix -> tool-runtime -> baseband -> swarm -> evolution -> chronicle -> signalograd -> memory-field.
+3. Load ports in order: vault -> store -> harmony-policy -> model-policy -> router -> ouroboros -> matrix -> tool-runtime -> baseband -> swarm -> evolution -> chronicle -> signalograd -> memory-field -> mempalace -> terraphon.
 4. Initialize runtime and DNA guard.
 5. Load evolution version state (`init-evolution-versioning`).
 6. Initialize ports, bootstrap matrix, and register configured frontends from `config/baseband.sexp`.

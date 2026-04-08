@@ -5,7 +5,7 @@ use super::shared::{
 };
 use super::store::persist_if_needed;
 
-#[allow(dead_code)]
+
 fn tool_allowed(st: &State, node_id: &str) -> bool {
     if st.nodes.get(node_id).map(|k| k.as_str()) != Some("tool") {
         return true;
@@ -13,7 +13,7 @@ fn tool_allowed(st: &State, node_id: &str) -> bool {
     st.plugged.get(node_id).copied().unwrap_or(true)
 }
 
-#[allow(dead_code)]
+
 fn validate_node_kind(kind: &str) -> Result<(), String> {
     match kind {
         "core" | "backend" | "tool" => Ok(()),
@@ -24,7 +24,7 @@ fn validate_node_kind(kind: &str) -> Result<(), String> {
     }
 }
 
-#[allow(dead_code)]
+
 pub fn register_node(node_id: &str, kind: &str) -> Result<(), String> {
     validate_node_kind(kind)?;
 
@@ -40,7 +40,7 @@ pub fn register_node(node_id: &str, kind: &str) -> Result<(), String> {
     persist_if_needed(&st)
 }
 
-#[allow(dead_code)]
+
 pub fn set_tool_enabled(tool_id: &str, enabled: bool) -> Result<(), String> {
     let mut st = state()
         .write()
@@ -56,7 +56,7 @@ pub fn set_tool_enabled(tool_id: &str, enabled: bool) -> Result<(), String> {
     }
 }
 
-#[allow(dead_code)]
+
 pub fn register_edge(from: &str, to: &str, weight: f64, min_harmony: f64) -> Result<(), String> {
     let mut st = state()
         .write()
@@ -82,14 +82,14 @@ pub fn register_edge(from: &str, to: &str, weight: f64, min_harmony: f64) -> Res
     persist_if_needed(&st)
 }
 
-#[allow(dead_code)]
+
 pub fn route_allowed(from: &str, to: &str, signal: f64, noise: f64) -> Result<bool, String> {
     route_allowed_with_context(from, to, signal, noise, 1.0, 0.0)
 }
 
 /// Wave 3.2: Security-aware routing with dissonance and security weight.
 /// This is the adaptive shell's routing layer — defense-in-depth alongside the kernel's policy gate.
-#[allow(dead_code)]
+
 pub fn route_allowed_with_context(
     from: &str,
     to: &str,
@@ -130,7 +130,7 @@ pub fn route_allowed_with_context(
     Ok(true)
 }
 
-#[allow(dead_code)]
+
 pub fn observe_route(
     from: &str,
     to: &str,
@@ -169,7 +169,7 @@ pub fn observe_route(
     persist_if_needed(&st)
 }
 
-#[allow(dead_code)]
+
 pub fn log_event(
     component: &str,
     direction: &str,

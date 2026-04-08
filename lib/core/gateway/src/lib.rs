@@ -1,10 +1,13 @@
-#[allow(dead_code)]
 mod baseband;
+mod commands;
 mod command_dispatch;
+mod envelope;
 mod model;
 mod payment_auth;
+mod polling;
 mod registry;
 mod sender_policy;
+mod sending;
 mod state;
 mod tool_baseband;
 mod tool_registry;
@@ -16,6 +19,6 @@ pub use model::{
     SecurityContext, SecurityLabel, SessionContext, TransportContext, UserTier,
 };
 pub use registry::Registry;
-pub use sender_policy::is_signal_allowed;
+pub use sender_policy::{is_signal_allowed, reload_policies};
 pub use tool_baseband::{invoke_tool_raw, invoke_tool_signal};
 pub use tool_registry::ToolRegistry;

@@ -147,30 +147,57 @@
 ;;; ─── Actor Protocol (via IPC) ───────────────────────────────────────
 
 (defun ipc-actor-register (kind)
-  (let ((reply (ipc-call (format nil "(:register :kind \"~A\")" (sexp-escape-lisp kind)))))
+  (let ((reply (ipc-call (%sexp-to-ipc-string
+                           `(:register :kind ,kind)))))
     (when (ipc-reply-ok-p reply)
       (ipc-extract-u64 reply ":id"))))
 
 (defun ipc-actor-heartbeat (id bytes-delta)
-  (ipc-cast (format nil "(:heartbeat :id ~D :bytes-delta ~D)" id bytes-delta)))
+  (ipc-cast (%sexp-to-ipc-string
+              `(:heartbeat :id ,id :bytes-delta ,bytes-delta))))
 
 (defun ipc-actor-post (source target payload-sexp)
-  (ipc-cast (format nil "(:post :source ~D :target ~D :payload \"~A\")"
-                    source target (sexp-escape-lisp payload-sexp))))
+  (ipc-cast (%sexp-to-ipc-string
+              `(:post :source ,source :target ,target :payload ,payload-sexp))))
 
 (defun ipc-actor-drain ()
-  (or (ipc-call "(:drain)") "()"))
+  (or (ipc-call (%sexp-to-ipc-string '(:drain))) "()"))
 
 (defun ipc-actor-state (id)
-  (ipc-call (format nil "(:state :id ~D)" id)))
+  (ipc-call (%sexp-to-ipc-string `(:state :id ,id))))
 
 (defun ipc-actor-list ()
-  (or (ipc-call "(:list)") "()"))
+  (or (ipc-call (%sexp-to-ipc-string '(:list))) "()"))
 
 (defun ipc-actor-deregister (id)
-  (ipc-call (format nil "(:deregister :id ~D)" id)))
+  (ipc-call (%sexp-to-ipc-string `(:deregister :id ,id))))
 
 ;;; ─── Helpers ────────────────────────────────────────────────────────
+
+(defun %sexp-to-ipc-string (form)
+  "Serialize a Lisp list to an IPC sexp string. Homoiconic: code IS data.
+Build your IPC commands as LISTS (backquote), serialize here. Never format nil."
+  (with-output-to-string (out)
+    (labels ((emit (x)
+               (cond
+                 ((null x) (write-string "nil" out))
+                 ((eq x t) (write-string "t" out))
+                 ((keywordp x) (format out ":~(~A~)" (symbol-name x)))
+                 ((symbolp x) (write-string (string-downcase (symbol-name x)) out))
+                 ((integerp x) (princ x out))
+                 ((floatp x) (format out "~F" x))
+                 ((stringp x)
+                  (write-char #\" out)
+                  (write-string (sexp-escape-lisp x) out)
+                  (write-char #\" out))
+                 ((listp x)
+                  (write-char #\( out)
+                  (loop for (item . rest) on x
+                        do (emit item)
+                        when rest do (write-char #\Space out))
+                  (write-char #\) out))
+                 (t (princ x out)))))
+      (emit form))))
 
 (defun sexp-escape-lisp (s)
   "Escape a string for safe embedding in sexp double-quoted values.
@@ -194,29 +221,8 @@ when values contain newlines or binary data."
 (defun build-ipc-sexp (&rest pairs)
   "Build a properly-escaped sexp string from keyword-value pairs.
 Example: (build-ipc-sexp :component \"vault\" :op \"set-secret\" :symbol sym :value val)
-Strings are automatically escaped via sexp-escape-lisp and quoted.
-Numbers, nil, t, and keywords are printed as-is (unquoted)."
-  (with-output-to-string (out)
-    (write-char #\( out)
-    (loop for (key val . rest) on pairs by #'cddr
-          for first = t then nil
-          do (progn
-               (unless first (write-char #\Space out))
-               ;; Write keyword
-               (format out "~(~S~)" key)  ; lowercase keyword
-               (write-char #\Space out)
-               ;; Write value: strings get escaped+quoted, everything else as-is
-               (cond
-                 ((stringp val)
-                  (write-char #\" out)
-                  (write-string (sexp-escape-lisp val) out)
-                  (write-char #\" out))
-                 ((null val)    (write-string "nil" out))
-                 ((eq val t)    (write-string "t" out))
-                 ((keywordp val) (format out "~(~S~)" val))
-                 ((numberp val) (format out "~A" val))
-                 (t             (format out "~A" val)))))
-    (write-char #\) out)))
+Delegates to %sexp-to-ipc-string — the homoiconic serializer."
+  (%sexp-to-ipc-string pairs))
 
 (defun ipc-extract-value (reply)
   "Extract the :result value from an IPC reply like (:ok :result \"...\")."

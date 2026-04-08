@@ -114,8 +114,11 @@
       (setf (getf entry :status) :crashed)
       (setf (gethash name *loaded-libs*) entry)))
   (%log :error "supervisor" "Library ~A crashed: ~A" name error-detail)
-  (ignore-errors
-    (harmonic-matrix-log-event "supervisor" "lib-crash" name error-detail nil "")))
+  (handler-case
+
+      (harmonic-matrix-log-event "supervisor" "lib-crash" name error-detail nil "")
+
+    (error () nil)))
 
 (defun %mark-lib-recovered (name)
   "Mark a library as recovered after reload."
@@ -169,11 +172,14 @@
                       source-root crate-name)))
     (%log :info "self-compile" "Building ~A..." crate-name)
     (multiple-value-bind (output err-output exit-code)
-        (ignore-errors
-          (let ((proc (sb-ext:run-program "/bin/sh" (list "-c" cmd)
+        (handler-case
+
+            (let ((proc (sb-ext:run-program "/bin/sh" (list "-c" cmd)
                                           :output :stream
                                           :error :output
-                                          :wait t)))
+                                          :wait t)
+
+          (error () nil)))
             (let ((out (with-output-to-string (s)
                          (let ((stream (sb-ext:process-output proc)))
                            (loop for line = (read-line stream nil nil)
@@ -212,7 +218,7 @@
    :phoenix-health (%phoenix-health)
    :libraries (introspect-libs)
    :recent-errors (introspect-recent-errors 5)
-   :frontends (ignore-errors (gateway-list-frontends))))
+   :frontends (handler-case (gateway-list-frontends) (error () nil))))
 
 ;;; ─── Self-knowledge for DNA system prompt ──────────────────────────────
 
@@ -224,8 +230,8 @@
   "Query Phoenix health endpoint via raw HTTP GET to localhost:9100.
    Returns JSON string or nil. Uses sb-bsd-sockets (loaded by ipc-client.lisp
    before this function is ever called at runtime)."
-  (ignore-errors
-    ;; sb-bsd-sockets is loaded at runtime by ipc-client.lisp (require :sb-bsd-sockets).
+  (handler-case
+      (progn ;; sb-bsd-sockets is loaded at runtime by ipc-client.lisp (require :sb-bsd-sockets).
     ;; We use funcall+find-symbol to avoid read-time package dependency since
     ;; introspection.lisp loads before ipc-client.lisp.
     (let* ((pkg (find-package "SB-BSD-SOCKETS"))
@@ -258,7 +264,8 @@
                                  (setf body-start t))))
                   (let ((body (format nil "~{~A~}" (nreverse lines))))
                     (when (> (length body) 2) body)))))
-          (ignore-errors (funcall close-fn socket)))))))
+          (handler-case (funcall close-fn socket) (error () nil))))))
+    (error () nil)))
 
 (defun %phoenix-identity-block ()
   "Self-knowledge about the process architecture.
@@ -295,45 +302,25 @@ a restart, or simply to answer a question about your health — use
 (defun %runtime-identity ()
   "Self-knowledge for :rewrite mode. Architecture, not identity — identity comes from memory."
   (let ((field-status
-          (ignore-errors
-            (when (and (fboundp 'memory-field-port-ready-p)
-                       (funcall 'memory-field-port-ready-p))
+          (handler-case
+
+              (when (and (fboundp 'memory-field-port-ready-p)
+                       (funcall 'memory-field-port-ready-p)
+
+            (error () nil))
               (let ((bs (funcall 'memory-field-basin-status)))
                 (when bs
                   (format nil "basin=~A dwell=~A"
                           (or (getf bs :current) "unknown")
                           (or (getf bs :dwell-ticks) 0))))))))
     (format nil
-"ARCHITECTURE (Harmonia)
-Driven by mathematical, physical, biological, and philosophical foundation.
-Creator: Harmoniq Punk (PGP: 88E016462EFF9672). Agent identity from memory field.
-
-ARCHITECTURE
-- Lisp orchestration (SBCL) + Rust actors (ractor) via IPC.
-- 9-phase harmonic state machine: observe → evaluate → balance → project → attractor-sync → rewrite-plan → security-audit → stabilize.
-- Signalograd: chaos-computing adaptive kernel (Lorenz reservoir, 32 Hopfield memory slots, 5 readout heads).
-- Vitruvian triad: strength (resilience), utility (completion), beauty (coherence).
-
-MEMORY
-- 4 memory classes: soul (immutable DNA), skill (compressed learnings), daily (interactions), tool (metrics).
-- Memory field: graph Laplacian field propagation on concept graph. Spectral eigenmodes (Chladni patterns).
-- 3 attractors for basin assignment: Thomas (6 domains), Aizawa (depth), Halvorsen (bridging).
-- Hysteresis: basin switching requires sustained coercive energy — prevents memory over-eagerness.
-- ~A
-
-SELF-HEALING
-- Guardian Healer: LLM-guarded recovery cascade (retry → fallback → diagnose → restart → report).
-- Guardian whitelist: restart-component, reload-config, switch-model, skip-feature, clear-cache, reduce-load.
-- Never shows 'internal error' — always honest, helpful messages.
-- Phoenix: process supervisor restarts dead actors. Ouroboros: crash ledger for evolution.
-
-FOUNDATION
-- Vitruvian stoichiometry: strength*utility*beauty converge (lambdoma>=0.72).
-- Discover harmonies, fall into attractors. Curiosity discovers, does not impose.
-- Energy is in the fields. Reduce Kolmogorov complexity. Path of minimum action.
-- Functional not imperative. Lambdoma: small numbers, infinity meets nothingness.
-- Compression as intelligence (Solomonoff prior). Ichi-go ichi-e.
-- ~A"
+"Harmonia — self-healing orchestration agent.
+Creator: Harmoniq Punk (PGP: 88E016462EFF9672).
+Lisp orchestration (SBCL) + Rust actors (ractor) via IPC. 11 component actors.
+Memory field: graph Laplacian, spectral eigenmodes, 3 attractors, temporal decay, dreaming, meditation.
+DNA: constraints as code (genes, bounds, limits). REPL: 43 primitives.
+9-phase harmonic cycle. Vitruvian triad. Signalograd chaos kernel.
+Field status: ~A"
       (or field-status "field: initializing"))))
 
 (defun %runtime-self-knowledge ()

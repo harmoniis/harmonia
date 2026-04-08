@@ -62,6 +62,9 @@ pub(crate) fn parse_observation_sexp(sexp: &Sexp) -> Result<Observation, String>
         presentation_decor_density: plist_f64(items, "presentation-decor-density").unwrap_or(0.0),
         presentation_user_affinity: plist_f64(items, "presentation-user-affinity").unwrap_or(0.5),
         route_tier: plist_string(items, "route-tier").unwrap_or_else(|| "auto".to_string()),
+        datamine_success_rate: plist_f64(items, "datamine-success-rate").unwrap_or(0.0),
+        datamine_avg_latency: plist_f64(items, "datamine-avg-latency").unwrap_or(0.0),
+        palace_graph_density: plist_f64(items, "palace-graph-density").unwrap_or(0.0),
     })
 }
 
@@ -148,10 +151,14 @@ pub fn observation_vector(obs: &Observation) -> [f64; INPUT_DIM] {
         clamp(obs.error_pressure, 0.0, 1.0),
         clamp(obs.supervision, 0.0, 1.0),
         clamp(obs.prior_confidence, 0.0, 1.0),
-        // Memory-field feedback (3 new dimensions).
+        // Memory-field feedback (3 dimensions).
         clamp(obs.field_recall_strength, 0.0, 1.0),
         clamp(obs.field_basin_stability, 0.0, 1.0),
         clamp(obs.field_eigenmode_coherence, 0.0, 1.0),
+        // Datamining feedback (3 dimensions: terraphon + mempalace).
+        clamp(obs.datamine_success_rate, 0.0, 1.0),
+        clamp(obs.datamine_avg_latency / 5000.0, 0.0, 1.0), // normalize to DNA max-latency
+        clamp(obs.palace_graph_density, 0.0, 1.0),
     ]
 }
 

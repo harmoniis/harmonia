@@ -29,7 +29,6 @@ fn dispatch_native(provider_id: &str, prompt: &str, model: &str) -> Result<Strin
     }
 }
 
-#[allow(dead_code)]
 fn dispatch_native_for_task(
     provider_id: &str,
     prompt: &str,
@@ -65,5 +64,11 @@ pub fn route_complete(prompt: &str, model: &str) -> Result<String, String> {
 }
 
 pub fn route_complete_for_task(prompt: &str, task_hint: &str) -> Result<String, String> {
+    for provider_id in crate::registry::active_providers().iter() {
+        match dispatch_native_for_task(provider_id, prompt, task_hint) {
+            Ok(text) => return Ok(text),
+            Err(_) => continue,
+        }
+    }
     openrouter::complete_for_task(prompt, task_hint)
 }

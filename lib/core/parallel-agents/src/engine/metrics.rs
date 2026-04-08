@@ -3,12 +3,10 @@
 
 use crate::model::{state, ModelPrice};
 
-#[allow(dead_code)]
 fn estimate_tokens(s: &str) -> f64 {
     (s.chars().count() as f64 / 4.0).max(1.0)
 }
 
-#[allow(dead_code)]
 pub(super) fn estimate_cost(model: &str, prompt: &str, response: &str) -> f64 {
     let st = match state().read() {
         Ok(s) => s,
@@ -24,7 +22,6 @@ pub(super) fn estimate_cost(model: &str, prompt: &str, response: &str) -> f64 {
 }
 
 /// Performance report — queries the SQLite metrics database.
-#[allow(dead_code)]
 pub(super) fn render_report() -> String {
     harmonia_provider_protocol::query_performance_report()
 }

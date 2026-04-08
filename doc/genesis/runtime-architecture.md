@@ -6,7 +6,7 @@ Harmonia runtime is Lisp-first orchestration with Rust execution ports.
 
 - Lisp coordinates prompts, memory, model selection, routing, and loop control.
 - Rust crates provide external capabilities via `harmonia-runtime`, a single Rust binary containing all ractor actors.
-- SBCL communicates with `harmonia-runtime` over IPC (Unix domain socket, sexp protocol). 12 component actors in SharedRegistry.
+- SBCL communicates with `harmonia-runtime` over IPC (Unix domain socket, sexp protocol). Component actors in DynamicRegistry (HashMap-based pluggable registry).
 
 ### Process Topology
 
@@ -21,15 +21,15 @@ Phoenix (harmonia-phoenix, ractor supervisor, health at 127.0.0.1:9100)
   │     ├─ SignalogradActor       (kernel init, observe, status)
   │     ├─ ObservabilityActor     (provider-agnostic trace sink — sampling, correlation, batch dispatch)
   │     ├─ HarmonicMatrixActor    (matrix topology, route constraints, telemetry)
-  │     ├─ VaultActor, ConfigActor, ProviderRouterActor, ParallelActor, RouterActor
+  │     ├─ VaultActor, ConfigActor, ProviderRouterActor, ParallelActor, RouterActor, MempalaceActor, TerraphonActor
   │     └─ IPC listener (Unix socket, length-prefixed sexp)
   │           └─ dispatch.rs routes to: vault, config, chronicle, gateway,
-  │              signalograd, tailnet, harmonic-matrix, observability, provider-router, parallel
+  │              signalograd, tailnet, harmonic-matrix, observability, provider-router, parallel, ouroboros, mempalace, terraphon
   │
   ├─ sbcl-agent (SBCL/Common Lisp orchestrator)
   │     ├─ ipc-client.lisp        (socket transport, auto-reconnect)
   │     ├─ ipc-ports.lisp         (ipc-vault-*, ipc-config-*, etc.)
-  │     └─ 13 port files (all IPC, 12 component actors in SharedRegistry)
+  │     └─ port files (all IPC, actors in DynamicRegistry)
   │
   └─ provision-server
 ```
@@ -40,7 +40,7 @@ Tick loop: gateway-poll → process-prompt → memory-heartbeat → harmonic-ste
 
 Harmonic state: signalograd observe/feedback → harmonic-machine state transitions → chronicle record
 
-Phoenix (`lib/core/phoenix/`) is a ractor-based process supervisor with a health HTTP endpoint at `127.0.0.1:9100`. It writes a pidfile and manages all child processes. The RuntimeSupervisor implements automatic restart for all 8 component actors — if any actor crashes, the supervisor respawns it without requiring a full process restart.
+Phoenix (`lib/core/phoenix/`) is a ractor-based process supervisor with a health HTTP endpoint at `127.0.0.1:9100`. It writes a pidfile and manages all child processes. The RuntimeSupervisor implements automatic restart for all component actors — if any actor crashes, the supervisor respawns it without requiring a full process restart.
 
 CLI lifecycle commands:
 - `harmonia start` → Phoenix → spawns runtime + sbcl-agent + provision-server
@@ -62,9 +62,10 @@ Boot sequence:
 5. Seed soul memory from DNA.
 6. Initialize ports in strict order:
    - vault, store, harmony-policy, model-policy,
-   - router, gitop, ouroboros, matrix,
+   - router, ouroboros, matrix,
    - tool-runtime, baseband frontends,
-   - swarm, evolution, chronicle, signalograd, memory-field.
+   - swarm, evolution, chronicle, signalograd, memory-field,
+   - mempalace, terraphon.
 7. Restore the evolution-matched `signalograd` checkpoint if present, otherwise continue from live working state.
 
 ## Deterministic Tick Model

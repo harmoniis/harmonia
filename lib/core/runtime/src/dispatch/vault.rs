@@ -1,42 +1,24 @@
-//! Vault component dispatch.
+//! Vault component dispatch — declarative operation table.
 
-use harmonia_actor_protocol::{extract_sexp_string, sexp_escape};
-
-fn esc(s: &str) -> String {
-    sexp_escape(s)
-}
+use super::{dispatch_op, param, sexp_string_list};
 
 pub(crate) fn dispatch(sexp: &str) -> String {
-    let op = extract_sexp_string(sexp, ":op").unwrap_or_default();
+    let op = harmonia_actor_protocol::extract_sexp_string(sexp, ":op").unwrap_or_default();
     match op.as_str() {
-        "init" => {
-            let rc = harmonia_vault::init_from_env();
-            if rc.is_ok() {
-                "(:ok)".to_string()
-            } else {
-                format!("(:error \"{}\")", esc(&format!("{:?}", rc.err())))
-            }
-        }
-        "set-secret" => {
-            let symbol = extract_sexp_string(sexp, ":symbol").unwrap_or_default();
-            let value = extract_sexp_string(sexp, ":value").unwrap_or_default();
-            match harmonia_vault::set_secret_for_symbol(&symbol, &value) {
-                Ok(_) => "(:ok)".to_string(),
-                Err(e) => format!("(:error \"{}\")", esc(&e)),
-            }
-        }
+        "init" => dispatch_op!("init",
+            harmonia_vault::init_from_env().map(|_| "(:ok)".to_string())),
+        "set-secret" => dispatch_op!("set-secret", {
+            let (symbol, value) = (param!(sexp, ":symbol"), param!(sexp, ":value"));
+            harmonia_vault::set_secret_for_symbol(&symbol, &value).map(|_| "(:ok)".to_string())
+        }),
         "has-secret" => {
-            let symbol = extract_sexp_string(sexp, ":symbol").unwrap_or_default();
-            if harmonia_vault::has_secret_for_symbol(&symbol) {
-                "(:ok :result t)".to_string()
-            } else {
-                "(:ok :result nil)".to_string()
-            }
+            let symbol = param!(sexp, ":symbol");
+            let has = harmonia_vault::has_secret_for_symbol(&symbol);
+            format!("(:ok :result {})", if has { "t" } else { "nil" })
         }
         "list-symbols" => {
             let symbols = harmonia_vault::list_secret_symbols();
-            let items: Vec<String> = symbols.iter().map(|s| format!("\"{}\"", esc(s))).collect();
-            format!("(:ok :symbols ({}))", items.join(" "))
+            format!("(:ok :symbols ({}))", sexp_string_list(&symbols))
         }
         _ => format!("(:error \"unknown vault op: {}\")", op),
     }

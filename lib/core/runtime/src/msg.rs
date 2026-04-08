@@ -36,6 +36,10 @@ pub enum RuntimeMsg {
     RegisterMatrixActor(ActorRef<MatrixMsg>),
     /// Register the observability actor (separate message type — ObsMsg, not ComponentMsg).
     RegisterObsActor(ActorRef<ObsMsg>),
+    /// Inject the DynamicRegistry so supervisor can re-register actors on restart.
+    SetDynamicRegistry(crate::dynamic_registry::SharedDynamicRegistry),
+    /// Inject the TopicBus so supervisor can unsubscribe crashed actors.
+    SetTopicBus(crate::topic_bus::SharedTopicBus),
     /// List all modules and their status. call_t!(sup, ListModules, timeout) → String
     ListModules(RpcReplyPort<String>),
     /// Load a module by name. call_t!(sup, LoadModule, name, timeout) → String

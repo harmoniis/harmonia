@@ -492,8 +492,10 @@ fn read_input_line(
     let mut ac_mode = AutocompleteMode::None;
     let mut box_height: u16 = 3; // initial: top border + 1 line + bottom border
 
-    // Try to load workspace path for @file autocomplete
-    let workspace = crate::paths::user_workspace().ok();
+    // @file autocomplete: use current working directory (like Claude Code).
+    // Falls back to configured workspace if cwd fails.
+    let workspace = std::env::current_dir().ok()
+        .or_else(|| crate::paths::user_workspace().ok());
 
     terminal::enable_raw_mode()?;
 
@@ -1123,14 +1125,13 @@ fn draw_file_menu(box_row: u16, box_height: u16, matches: &[FileMatch], selected
         let _ = queue!(err, MoveTo(0, row), Clear(ClearType::CurrentLine));
         if i < visible {
             let fm = &matches[i];
-            let icon = if fm.is_dir { "📁" } else { "📄" };
             if i == selected {
                 let _ = queue!(
                     err,
-                    Print(format!("  {BOLD_CYAN}  {icon} {}{RESET}", fm.display))
+                    Print(format!("  {BOLD_CYAN}  {}{RESET}", fm.display))
                 );
             } else {
-                let _ = queue!(err, Print(format!("  {DIM}  {icon} {}{RESET}", fm.display)));
+                let _ = queue!(err, Print(format!("  {DIM}  {}{RESET}", fm.display)));
             }
         }
     }
@@ -1222,7 +1223,12 @@ fn find_at_token(input: &str, cursor_pos: usize) -> Option<(usize, String)> {
     None
 }
 
-/// List files/directories matching partial path from workspace root.
+/// File completion: navigate into directories as user types path.
+/// @             → workspace root contents
+/// @harm         → items starting with "harm" at root
+/// @harmoniis/   → contents of harmoniis/
+/// @harmoniis/agent/ → contents of harmoniis/agent/
+/// Each level shows direct children. Selecting a dir appends / and shows next level.
 fn file_matches(workspace: &Path, partial: &str) -> Vec<FileMatch> {
     let (parent_dir, prefix) = if let Some(slash_pos) = partial.rfind('/') {
         (&partial[..=slash_pos], &partial[slash_pos + 1..])
@@ -1236,44 +1242,26 @@ fn file_matches(workspace: &Path, partial: &str) -> Vec<FileMatch> {
         workspace.join(parent_dir)
     };
 
-    let show_hidden = prefix.starts_with('.');
     let prefix_lower = prefix.to_lowercase();
-
-    let entries = match std::fs::read_dir(&search_dir) {
-        Ok(e) => e,
-        Err(_) => return Vec::new(),
+    let Ok(entries) = std::fs::read_dir(&search_dir) else {
+        return Vec::new();
     };
 
     let mut dirs = Vec::new();
     let mut files = Vec::new();
-    for entry in entries.flatten() {
+    let mut items: Vec<_> = entries.flatten().collect();
+    items.sort_by_key(|e| e.file_name());
+
+    for entry in items {
         let name = entry.file_name().to_string_lossy().to_string();
-        if !show_hidden && name.starts_with('.') {
-            continue;
-        }
-        if !prefix.is_empty() && !name.to_lowercase().starts_with(&prefix_lower) {
-            continue;
-        }
+        if name.starts_with('.') || name == "target" || name == "node_modules" { continue; }
+        if !prefix.is_empty() && !name.to_lowercase().starts_with(&prefix_lower) { continue; }
         let is_dir = entry.file_type().map(|ft| ft.is_dir()).unwrap_or(false);
-        let display = if is_dir {
-            format!("{}/", name)
-        } else {
-            name.clone()
-        };
-        let full_path = format!("{}{}", parent_dir, if is_dir { &display } else { &name });
-        let fm = FileMatch {
-            display,
-            full_path,
-            is_dir,
-        };
-        if is_dir {
-            dirs.push(fm);
-        } else {
-            files.push(fm);
-        }
+        let full_path = format!("{}{}{}", parent_dir, name, if is_dir { "/" } else { "" });
+        let display = full_path.clone();
+        let fm = FileMatch { display, full_path, is_dir };
+        if is_dir { dirs.push(fm); } else { files.push(fm); }
     }
-    dirs.sort_by(|a, b| a.display.to_lowercase().cmp(&b.display.to_lowercase()));
-    files.sort_by(|a, b| a.display.to_lowercase().cmp(&b.display.to_lowercase()));
     dirs.append(&mut files);
     dirs.truncate(SLASH_MENU_MAX);
     dirs

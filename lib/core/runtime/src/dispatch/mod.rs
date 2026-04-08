@@ -5,20 +5,67 @@
 //! and the per-component module calls the corresponding Rust API and
 //! returns the result as an sexp string.
 
-mod chronicle;
-mod config;
-mod gateway;
-mod git_ops;
-mod matrix;
-mod ouroboros;
-mod workspace;
-mod memory_field;
-mod observability;
-mod parallel;
-mod provider_router;
-mod signalograd;
-mod tailnet;
-mod vault;
+pub(crate) mod chronicle;
+pub(crate) mod config;
+pub(crate) mod gateway;
+pub(crate) mod matrix;
+pub(crate) mod workspace;
+pub(crate) mod memory_field;
+pub(crate) mod observability;
+pub(crate) mod parallel;
+pub(crate) mod provider_router;
+pub(crate) mod signalograd;
+pub(crate) mod mempalace;
+pub(crate) mod tailnet;
+pub(crate) mod terraphon;
+pub(crate) mod vault;
+
+/// Dispatch a single operation: call function, wrap errors in sexp.
+macro_rules! dispatch_op {
+    ($op_name:expr, $body:expr) => {
+        match $body {
+            Ok(r) => r,
+            Err(e) => format!("(:error \"{}: {}\")", $op_name, harmonia_actor_protocol::sexp_escape(&e)),
+        }
+    };
+}
+pub(crate) use dispatch_op;
+
+/// Extract a string parameter from sexp, defaulting to empty.
+/// Pure functional: no mutation, just extraction.
+macro_rules! param {
+    ($sexp:expr, $key:literal) => {
+        harmonia_actor_protocol::extract_sexp_string($sexp, $key).unwrap_or_default()
+    };
+    ($sexp:expr, $key:literal, $default:expr) => {
+        harmonia_actor_protocol::extract_sexp_string($sexp, $key).unwrap_or_else(|| $default.to_string())
+    };
+}
+pub(crate) use param;
+
+/// Extract an optional u64 parameter from sexp.
+macro_rules! param_u64 {
+    ($sexp:expr, $key:literal, $default:expr) => {
+        harmonia_actor_protocol::extract_sexp_u64($sexp, $key).unwrap_or($default)
+    };
+}
+pub(crate) use param_u64;
+
+/// Extract an optional f64 parameter from sexp.
+macro_rules! param_f64 {
+    ($sexp:expr, $key:literal, $default:expr) => {
+        harmonia_actor_protocol::extract_sexp_f64($sexp, $key).unwrap_or($default)
+    };
+}
+pub(crate) use param_f64;
+
+/// Format a list of strings as sexp: ("a" "b" "c")
+pub(crate) fn sexp_string_list(items: &[String]) -> String {
+    items.iter()
+        .map(|s| format!("\"{}\"", harmonia_actor_protocol::sexp_escape(s)))
+        .collect::<Vec<_>>()
+        .join(" ")
+}
 
 use std::ffi::{CStr, CString};
 use std::os::raw::c_char;
@@ -33,6 +80,22 @@ pub(crate) fn dispatch_signalograd(
     state: &mut harmonia_signalograd::KernelState,
 ) -> String {
     signalograd::dispatch(sexp, state)
+}
+
+/// Dispatch mempalace commands (requires actor-owned PalaceState).
+pub(crate) fn dispatch_mempalace(
+    sexp: &str,
+    state: &mut harmonia_mempalace::PalaceState,
+) -> String {
+    mempalace::dispatch(sexp, state)
+}
+
+/// Dispatch terraphon commands (requires actor-owned TerraphonState).
+pub(crate) fn dispatch_terraphon(
+    sexp: &str,
+    state: &mut harmonia_terraphon::TerraphonState,
+) -> String {
+    terraphon::dispatch(sexp, state)
 }
 
 /// Dispatch memory-field commands (requires actor-owned FieldState).
@@ -87,11 +150,9 @@ pub fn dispatch(component: &str, sexp: &str) -> String {
         "harmonic-matrix" | "matrix" => matrix::dispatch(sexp),
         "provider-router" => provider_router::dispatch(sexp),
         "parallel" => parallel::dispatch(sexp),
-        "git-ops" => git_ops::dispatch(sexp),
-        "ouroboros" => ouroboros::dispatch(sexp),
         "workspace" => workspace::dispatch(sexp),
         "observability" => observability::dispatch(sexp),
-        "signalograd" | "memory-field" => {
+        "signalograd" | "memory-field" | "mempalace" | "terraphon" => {
             format!(
                 "(:error \"component '{}' requires actor-owned state\")",
                 harmonia_actor_protocol::sexp_escape(component)

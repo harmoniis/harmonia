@@ -45,9 +45,7 @@ impl Domain {
 
 /// A concept node in the field graph.
 #[derive(Clone, Debug)]
-#[allow(dead_code)]
 pub(crate) struct FieldNode {
-    pub(crate) index: usize,
     pub(crate) concept: String,
     pub(crate) domain: Domain,
     pub(crate) count: i32,
@@ -99,7 +97,6 @@ pub(crate) fn build_graph(
 
     for (i, (concept, domain_str, count, entry_ids)) in nodes.iter().enumerate().take(n) {
         field_nodes.push(FieldNode {
-            index: i,
             concept: concept.clone(),
             domain: Domain::from_str(domain_str),
             count: *count,

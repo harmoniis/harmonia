@@ -10,12 +10,14 @@
 (defparameter *harmonic-matrix-seed-config*
   (merge-pathnames "../../config/matrix-topology.sexp" *boot-file*))
 (defparameter *harmonic-route-default-signal*
-  (or (ignore-errors (let ((*read-eval* nil))
-                       (read-from-string (or (config-get-for "harmonic-matrix" "route-signal-default") ""))))
+  (or (handler-case (let ((*read-eval* nil))
+                      (read-from-string (or (config-get-for "harmonic-matrix" "route-signal-default") "")))
+        (error () nil))
       1.0d0))
 (defparameter *harmonic-route-default-noise*
-  (or (ignore-errors (let ((*read-eval* nil))
-                       (read-from-string (or (config-get-for "harmonic-matrix" "route-noise-default") ""))))
+  (or (handler-case (let ((*read-eval* nil))
+                      (read-from-string (or (config-get-for "harmonic-matrix" "route-noise-default") "")))
+        (error () nil))
       0.1d0))
 
 (defun %matrix-state-root ()
@@ -26,11 +28,11 @@
 ;;; When the matrix IPC component is wired, these will call through IPC.
 ;;; For now, they call IPC and gracefully degrade on failure.
 
-(defun %hm-ipc-call (op &optional extra)
-  "Call the harmonic-matrix IPC component. Returns reply or nil."
-  (let ((cmd (if extra
-                 (format nil "(:component \"harmonic-matrix\" :op \"~A\" ~A)" op extra)
-                 (format nil "(:component \"harmonic-matrix\" :op \"~A\")" op))))
+(defun %hm-ipc-call (op &optional extra-plist)
+  "Call the harmonic-matrix IPC component. Returns reply or nil.
+   EXTRA-PLIST is an optional plist of additional keyword-value pairs."
+  (let* ((base (list :component "harmonic-matrix" :op op))
+         (cmd (%sexp-to-ipc-string (append base (or extra-plist '())))))
     (ipc-call cmd)))
 
 (defun harmonic-matrix-last-error ()
@@ -44,15 +46,13 @@
 (defun harmonic-matrix-register-node (node kind)
   (%harmonic-matrix-check
    (%hm-ipc-call "register-node"
-     (format nil ":node \"~A\" :kind \"~A\""
-             (sexp-escape-lisp node) (sexp-escape-lisp kind)))
+     (list :node node :kind kind))
    "register-node"))
 
 (defun harmonic-matrix-set-store (kind &optional (path ""))
   (%harmonic-matrix-check
    (%hm-ipc-call "set-store"
-     (format nil ":kind \"~A\" :path \"~A\""
-             (sexp-escape-lisp kind) (sexp-escape-lisp path)))
+     (list :kind kind :path path))
    "set-store"))
 
 (defun harmonic-matrix-store-config ()
@@ -61,16 +61,15 @@
 (defun harmonic-matrix-set-tool-enabled (tool-id enabled)
   (%harmonic-matrix-check
    (%hm-ipc-call "set-tool-enabled"
-     (format nil ":tool-id \"~A\" :enabled ~D"
-             (sexp-escape-lisp tool-id) (if enabled 1 0)))
+     (list :tool-id tool-id :enabled (if enabled 1 0)))
    "set-tool-enabled"))
 
 (defun harmonic-matrix-register-edge (from to weight min-harmony)
   (%harmonic-matrix-check
    (%hm-ipc-call "register-edge"
-     (format nil ":from \"~A\" :to \"~A\" :weight ~F :min-harmony ~F"
-             (sexp-escape-lisp from) (sexp-escape-lisp to)
-             (coerce weight 'double-float) (coerce min-harmony 'double-float)))
+     (list :from from :to to
+           :weight (coerce weight 'double-float)
+           :min-harmony (coerce min-harmony 'double-float)))
    "register-edge"))
 
 (defun harmonic-matrix-route-defaults ()
@@ -85,9 +84,9 @@
 
 (defun harmonic-matrix-route-allowed-p (from to &key (signal *harmonic-route-default-signal*) (noise *harmonic-route-default-noise*))
   (let ((reply (%hm-ipc-call "route-allowed"
-                 (format nil ":from \"~A\" :to \"~A\" :signal ~F :noise ~F"
-                         (sexp-escape-lisp from) (sexp-escape-lisp to)
-                         (coerce signal 'double-float) (coerce noise 'double-float)))))
+                 (list :from from :to to
+                       :signal (coerce signal 'double-float)
+                       :noise (coerce noise 'double-float)))))
     (let ((ok (and reply (ipc-reply-ok-p reply) (search ":allowed t" reply))))
       (unless ok
         (%log :warn "matrix" "route-allowed ~A -> ~A reply=~A" from to (or reply "nil")))
@@ -105,10 +104,11 @@
                                            (dissonance 0.0d0))
   "Wave 3.2: Security-aware routing with dissonance and security weight."
   (let ((reply (%hm-ipc-call "route-allowed-ctx"
-                 (format nil ":from \"~A\" :to \"~A\" :signal ~F :noise ~F :security-weight ~F :dissonance ~F"
-                         (sexp-escape-lisp from) (sexp-escape-lisp to)
-                         (coerce signal 'double-float) (coerce noise 'double-float)
-                         (coerce security-weight 'double-float) (coerce dissonance 'double-float)))))
+                 (list :from from :to to
+                       :signal (coerce signal 'double-float)
+                       :noise (coerce noise 'double-float)
+                       :security-weight (coerce security-weight 'double-float)
+                       :dissonance (coerce dissonance 'double-float)))))
     (and reply (ipc-reply-ok-p reply)
          (search ":allowed t" reply))))
 
@@ -129,32 +129,30 @@
 (defun harmonic-matrix-observe-route (from to success latency-ms &optional (cost-usd 0.0d0))
   (%harmonic-matrix-check
    (%hm-ipc-call "observe-route"
-     (format nil ":from \"~A\" :to \"~A\" :success ~D :latency-ms ~D :cost-usd ~F"
-             (sexp-escape-lisp from) (sexp-escape-lisp to)
-             (if success 1 0) (max 0 latency-ms)
-             (coerce cost-usd 'double-float)))
+     (list :from from :to to
+           :success (if success 1 0)
+           :latency-ms (max 0 latency-ms)
+           :cost-usd (coerce cost-usd 'double-float)))
    "observe-route"))
 
 (defun harmonic-matrix-log-event (component direction channel payload success &optional (error-text ""))
   (%harmonic-matrix-check
    (%hm-ipc-call "log-event"
-     (format nil ":component \"~A\" :direction \"~A\" :channel \"~A\" :payload \"~A\" :success ~D :error \"~A\""
-             (sexp-escape-lisp component) (sexp-escape-lisp direction)
-             (sexp-escape-lisp channel) (sexp-escape-lisp (or payload ""))
-             (if success 1 0) (sexp-escape-lisp (or error-text ""))))
+     (list :component component :direction direction
+           :channel channel :payload (or payload "")
+           :success (if success 1 0) :error (or error-text "")))
    "log-event"))
 
 (defun harmonic-matrix-route-timeseries (from to &optional (limit 100))
   (or (ipc-extract-value
        (%hm-ipc-call "route-timeseries"
-         (format nil ":from \"~A\" :to \"~A\" :limit ~D"
-                 (sexp-escape-lisp from) (sexp-escape-lisp to) (max 1 limit))))
+         (list :from from :to to :limit (max 1 limit))))
       ""))
 
 (defun harmonic-matrix-time-report (&optional (since-unix 0))
   (or (ipc-extract-value
        (%hm-ipc-call "time-report"
-         (format nil ":since-unix ~D" (max 0 since-unix))))
+         (list :since-unix (max 0 since-unix))))
       ""))
 
 (defun harmonic-matrix-report ()

@@ -1,272 +1,96 @@
-use std::ffi::{CStr, CString};
-use std::fs;
-use std::io::{BufRead, BufReader, Write};
-use std::os::raw::c_char;
-use std::path::PathBuf;
-use std::sync::{OnceLock, RwLock};
-use std::time::{SystemTime, UNIX_EPOCH};
+//! Ouroboros — self-healing crash ledger and patch writing.
+//!
+//! Pure Rust actor state. No FFI, no unsafe, no singletons.
+//! All state owned by OuroborosState, dispatched through ComponentDescriptor.
+//!
+//! Crash ledger: dual-tier (recovery.log file + SQLite chronicle).
+//! Patch writing: writes diff files to patch directory for evolution.
 
-const VERSION: &[u8] = b"harmonia-ouroboros/0.2.0\0";
-const COMPONENT: &str = "ouroboros-core";
-static LAST_ERROR: OnceLock<RwLock<String>> = OnceLock::new();
+mod ledger;
+mod patch;
 
-fn last_error() -> &'static RwLock<String> {
-    LAST_ERROR.get_or_init(|| RwLock::new(String::new()))
+pub use ledger::CrashEntry;
+
+/// Actor-owned state. No globals — passed through ComponentDescriptor.
+pub struct OuroborosState {
+    pub(crate) recovery_log_path: String,
+    pub(crate) patch_dir: String,
 }
 
-fn now_secs() -> u64 {
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_secs()
-}
-
-fn set_error(msg: impl Into<String>) {
-    if let Ok(mut slot) = last_error().write() {
-        *slot = msg.into();
+impl OuroborosState {
+    /// Test constructor with isolated paths to avoid parallel test collisions.
+    pub fn with_paths(recovery_log_path: String, patch_dir: String) -> Self {
+        Self { recovery_log_path, patch_dir }
     }
 }
 
-fn clear_error() {
-    if let Ok(mut slot) = last_error().write() {
-        slot.clear();
+impl OuroborosState {
+    pub fn new() -> Self {
+        let state_root = harmonia_config_store::get_config_or(
+            "ouroboros-core", "global", "state-root",
+            &std::env::temp_dir().join("harmonia").to_string_lossy(),
+        ).unwrap_or_else(|_| std::env::temp_dir().join("harmonia").to_string_lossy().into());
+
+        let recovery_log_path = harmonia_config_store::get_config(
+            "ouroboros-core", "global", "recovery-log",
+        ).ok().flatten().unwrap_or_else(|| format!("{}/recovery.log", state_root));
+
+        let patch_dir = harmonia_config_store::get_own("ouroboros-core", "patch-dir")
+            .ok().flatten()
+            .unwrap_or_else(|| format!("{}/patches", state_root));
+
+        Self { recovery_log_path, patch_dir }
     }
 }
 
-fn cstr_to_string(ptr: *const c_char) -> Result<String, String> {
-    if ptr.is_null() {
-        return Err("null pointer".to_string());
-    }
-    // Safety: caller provides valid null-terminated string.
-    let c = unsafe { CStr::from_ptr(ptr) };
-    Ok(c.to_string_lossy().into_owned())
-}
-
-fn to_c_string(value: String) -> *mut c_char {
-    match CString::new(value) {
-        Ok(v) => v.into_raw(),
-        Err(_) => std::ptr::null_mut(),
-    }
-}
-
-fn state_root() -> String {
-    let default = std::env::temp_dir()
-        .join("harmonia")
-        .to_string_lossy()
-        .to_string();
-    harmonia_config_store::get_config_or(COMPONENT, "global", "state-root", &default)
-        .unwrap_or_else(|_| default)
-}
-
-fn recovery_log_path() -> String {
-    harmonia_config_store::get_config(COMPONENT, "global", "recovery-log")
-        .ok()
-        .flatten()
-        .unwrap_or_else(|| format!("{}/recovery.log", state_root()))
-}
-
-fn append_recovery(kind: &str, detail: &str) -> Result<(), String> {
-    let path = recovery_log_path();
-    if let Some(parent) = std::path::Path::new(&path).parent() {
-        fs::create_dir_all(parent).map_err(|e| format!("create recovery dir failed: {e}"))?;
-    }
-    let mut file = std::fs::OpenOptions::new()
-        .create(true)
-        .append(true)
-        .open(&path)
-        .map_err(|e| format!("open recovery log failed: {e}"))?;
-    let ts = now_secs();
-    writeln!(file, "{}\t{}\t{}", ts, kind, detail)
-        .map_err(|e| format!("write recovery log failed: {e}"))?;
-    Ok(())
-}
-
-fn last_recovery_line() -> Result<String, String> {
-    let path = recovery_log_path();
-    let file = std::fs::File::open(&path).map_err(|e| format!("open recovery log failed: {e}"))?;
-    let reader = BufReader::new(file);
-    let mut last = None;
-    for line in reader.lines() {
-        match line {
-            Ok(v) if !v.trim().is_empty() => last = Some(v),
-            Ok(_) => {}
-            Err(e) => return Err(format!("read recovery log failed: {e}")),
-        }
-    }
-    last.ok_or_else(|| "no crash event".to_string())
-}
-
-pub fn harmonia_ouroboros_version() -> *const c_char {
-    VERSION.as_ptr().cast()
-}
-
-pub fn harmonia_ouroboros_healthcheck() -> i32 {
-    1
-}
-
-pub fn harmonia_ouroboros_record_crash(component: *const c_char, detail: *const c_char) -> i32 {
-    let component = match cstr_to_string(component) {
-        Ok(v) => v,
-        Err(e) => {
-            set_error(e);
-            return -1;
-        }
-    };
-    let detail = match cstr_to_string(detail) {
-        Ok(v) => v,
-        Err(e) => {
-            set_error(e);
-            return -1;
-        }
-    };
-    let kind = format!("ouroboros/{}", component);
-    let _ = harmonia_chronicle::ouroboros::record(
-        "crash",
-        Some(&component),
-        Some(&detail),
-        None,
-        false,
-    );
-    match append_recovery(&kind, &detail) {
-        Ok(()) => {
-            clear_error();
-            0
-        }
-        Err(e) => {
-            set_error(e);
-            -1
-        }
-    }
-}
-
-pub fn harmonia_ouroboros_last_crash() -> *mut c_char {
-    match last_recovery_line() {
-        Ok(line) => {
-            clear_error();
-            to_c_string(line)
-        }
-        Err(e) => {
-            set_error(e);
-            std::ptr::null_mut()
-        }
-    }
-}
-
-pub fn harmonia_ouroboros_history(limit: i32) -> *mut c_char {
-    let n = if limit <= 0 { 20 } else { limit as usize };
-    let path = recovery_log_path();
-    let file = match std::fs::File::open(&path) {
-        Ok(v) => v,
-        Err(_) => {
-            set_error("open recovery log failed");
-            return std::ptr::null_mut();
-        }
-    };
-    let reader = BufReader::new(file);
-    let mut lines: Vec<String> = Vec::new();
-    for line in reader.lines() {
-        match line {
-            Ok(v) if !v.trim().is_empty() => lines.push(v),
-            Ok(_) => {}
-            Err(e) => {
-                set_error(format!("read recovery log failed: {e}"));
-                return std::ptr::null_mut();
+/// Dispatch IPC command. Pure: sexp in → sexp out. Actor-owned state.
+pub fn dispatch(state: &mut OuroborosState, sexp: &str) -> String {
+    let op = harmonia_actor_protocol::extract_sexp_string(sexp, ":op").unwrap_or_default();
+    let esc = harmonia_actor_protocol::sexp_escape;
+    match op.as_str() {
+        "healthcheck" => "(:ok :status \"ok\" :role \"repair-engine\")".into(),
+        "record-crash" => {
+            let component = harmonia_actor_protocol::extract_sexp_string(sexp, ":component-name")
+                .or_else(|| harmonia_actor_protocol::extract_sexp_string(sexp, ":component"))
+                .unwrap_or_else(|| "unknown".into());
+            let detail = harmonia_actor_protocol::extract_sexp_string(sexp, ":detail")
+                .unwrap_or_default();
+            match ledger::record_crash(state, &component, &detail) {
+                Ok(()) => "(:ok)".into(),
+                Err(e) => format!("(:error \"record-crash: {}\")", esc(&e)),
             }
         }
-    }
-    let start = lines.len().saturating_sub(n);
-    clear_error();
-    to_c_string(lines[start..].join("\n"))
-}
-
-pub fn harmonia_ouroboros_write_patch(component: *const c_char, patch_body: *const c_char) -> i32 {
-    let component = match cstr_to_string(component) {
-        Ok(v) => v,
-        Err(e) => {
-            set_error(e);
-            return -1;
+        "last-crash" => match ledger::last_crash(state) {
+            Ok(entry) => format!("(:ok :result \"{}\")", esc(&entry.to_string())),
+            Err(e) => format!("(:error \"last-crash: {}\")", esc(&e)),
+        },
+        "history" => {
+            let limit = harmonia_actor_protocol::extract_sexp_string(sexp, ":limit")
+                .and_then(|s| s.parse::<usize>().ok()).unwrap_or(20);
+            match ledger::history(state, limit) {
+                Ok(entries) => {
+                    let items = entries.iter()
+                        .map(|e| format!("\"{}\"", esc(&e.to_string())))
+                        .collect::<Vec<_>>().join(" ");
+                    format!("(:ok :result ({}))", items)
+                }
+                Err(e) => format!("(:error \"history: {}\")", esc(&e)),
+            }
         }
-    };
-    let patch = match cstr_to_string(patch_body) {
-        Ok(v) => v,
-        Err(e) => {
-            set_error(e);
-            return -1;
+        "write-patch" => {
+            let component = harmonia_actor_protocol::extract_sexp_string(sexp, ":component-name")
+                .or_else(|| harmonia_actor_protocol::extract_sexp_string(sexp, ":component"))
+                .unwrap_or_else(|| "unknown".into());
+            let body = harmonia_actor_protocol::extract_sexp_string(sexp, ":patch-body")
+                .unwrap_or_default();
+            if body.is_empty() {
+                return "(:error \"write-patch: :patch-body required\")".into();
+            }
+            match patch::write_patch(state, &component, &body) {
+                Ok(path) => format!("(:ok :path \"{}\")", esc(&path)),
+                Err(e) => format!("(:error \"write-patch: {}\")", esc(&e)),
+            }
         }
-    };
-
-    let patch_dir = harmonia_config_store::get_own(COMPONENT, "patch-dir")
-        .ok()
-        .flatten()
-        .map(PathBuf::from)
-        .unwrap_or_else(|| std::env::temp_dir().join("harmonia-ouroboros/patches"));
-    if let Err(e) = fs::create_dir_all(&patch_dir) {
-        set_error(format!("patch dir create failed: {e}"));
-        return -1;
-    }
-    let filename = format!("{}-{}.patch", component.replace('/', "_"), now_secs());
-    let path = patch_dir.join(filename);
-    if let Err(e) = fs::write(&path, &patch) {
-        set_error(format!("patch write failed: {e}"));
-        return -1;
-    }
-    let _ = harmonia_chronicle::ouroboros::record(
-        "patch_write",
-        Some(&component),
-        None,
-        Some(patch.len() as i64),
-        true,
-    );
-    clear_error();
-    0
-}
-
-pub fn harmonia_ouroboros_last_error() -> *mut c_char {
-    let msg = last_error()
-        .read()
-        .map(|v| v.clone())
-        .unwrap_or_else(|_| "ouroboros lock poisoned".to_string());
-    to_c_string(msg)
-}
-
-pub fn harmonia_ouroboros_health() -> *mut c_char {
-    clear_error();
-    to_c_string(
-        "{\"status\":\"ok\",\"role\":\"repair-engine\",\"crash-ledger\":\"recovery\"}".to_string(),
-    )
-}
-
-pub fn harmonia_ouroboros_free_string(ptr: *mut c_char) {
-    if ptr.is_null() {
-        return;
-    }
-    // Safety: pointer must come from CString::into_raw in this crate.
-    unsafe { drop(CString::from_raw(ptr)) };
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn healthcheck_returns_one() {
-        assert_eq!(harmonia_ouroboros_healthcheck(), 1);
-    }
-
-    #[test]
-    fn version_ptr_is_non_null() {
-        assert!(!harmonia_ouroboros_version().is_null());
-    }
-
-    #[test]
-    fn record_and_read_crash() {
-        let c = CString::new("http").unwrap();
-        let d = CString::new("timeout panic").unwrap();
-        assert_eq!(harmonia_ouroboros_record_crash(c.as_ptr(), d.as_ptr()), 0);
-        let ptr = harmonia_ouroboros_last_crash();
-        assert!(!ptr.is_null());
-        let text = unsafe { CStr::from_ptr(ptr) }.to_string_lossy().to_string();
-        harmonia_ouroboros_free_string(ptr);
-        assert!(text.contains("ouroboros/http"));
+        _ => format!("(:error \"ouroboros: unknown op '{}'\")", esc(&op)),
     }
 }

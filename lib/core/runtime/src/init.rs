@@ -91,53 +91,53 @@ pub fn init_all() -> HashMap<String, ModuleEntry> {
             .join(", ")
     });
 
-    let mut registry_map: HashMap<String, ModuleEntry> = HashMap::new();
-    let mut ok_count = 0usize;
-    let mut total_count = 0usize;
+    let registry_map: HashMap<String, ModuleEntry> = modules
+        .into_iter()
+        .map(|mut entry| {
+            let name = entry.name.clone();
+            let should_init = entry.core || enabled.contains(&name);
 
-    for mut entry in modules {
-        let name = entry.name.clone();
-        let should_init = entry.core || enabled.contains(&name);
-
-        if !should_init {
-            // Module exists in registry but is not enabled — keep as Unloaded
-            registry_map.insert(name, entry);
-            continue;
-        }
-
-        total_count += 1;
-
-        // Validate config requirements first
-        if let Err(e) = registry::validate_config(&entry.config_reqs) {
-            if entry.core {
-                eprintln!("[WARN] [init] {name} config check failed: {e}");
-            } else {
-                eprintln!("[INFO] [init] {name}: {e}");
-            }
-            entry.status = ModuleStatus::Error(e);
-            registry_map.insert(name, entry);
-            continue;
-        }
-
-        // Try to initialize
-        match (entry.init_fn)() {
-            Ok(()) => {
-                eprintln!("[INFO] [init] {name} initialized");
-                entry.status = ModuleStatus::Loaded;
-                ok_count += 1;
-            }
-            Err(e) => {
-                if entry.core {
-                    eprintln!("[WARN] [init] {name} failed: {e}");
+            if should_init {
+                // Validate config requirements first
+                if let Err(e) = registry::validate_config(&entry.config_reqs) {
+                    if entry.core {
+                        eprintln!("[WARN] [init] {name} config check failed: {e}");
+                    } else {
+                        eprintln!("[INFO] [init] {name}: {e}");
+                    }
+                    entry.status = ModuleStatus::Error(e);
                 } else {
-                    eprintln!("[INFO] [init] {name}: {e}");
+                    // Try to initialize
+                    match (entry.init_fn)() {
+                        Ok(()) => {
+                            eprintln!("[INFO] [init] {name} initialized");
+                            entry.status = ModuleStatus::Loaded;
+                        }
+                        Err(e) => {
+                            if entry.core {
+                                eprintln!("[WARN] [init] {name} failed: {e}");
+                            } else {
+                                eprintln!("[INFO] [init] {name}: {e}");
+                            }
+                            entry.status = ModuleStatus::Error(e);
+                        }
+                    }
                 }
-                entry.status = ModuleStatus::Error(e);
             }
-        }
+            // Not enabled — keep as Unloaded (default status)
+            (name, entry)
+        })
+        .collect();
 
-        registry_map.insert(name, entry);
-    }
+    let (ok_count, total_count) = registry_map.values()
+        .filter(|e| e.core || enabled.contains(&e.name))
+        .fold((0usize, 0usize), |(ok, total), entry| {
+            if matches!(entry.status, ModuleStatus::Loaded) {
+                (ok + 1, total + 1)
+            } else {
+                (ok, total + 1)
+            }
+        });
 
     eprintln!("[INFO] [init] Initialization complete: {ok_count}/{total_count} components ready");
 

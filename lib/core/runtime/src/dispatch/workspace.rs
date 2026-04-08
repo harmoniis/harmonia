@@ -6,12 +6,10 @@
 //! Ops: read-file, grep, list-files, file-exists, file-info, write-file.
 //! Security: paths are sandboxed to workspace root (no escape via ../).
 
-use harmonia_actor_protocol::{extract_sexp_string, extract_sexp_u64_or, sexp_escape};
+use harmonia_actor_protocol::sexp_escape;
 use std::path::{Path, PathBuf};
 
-fn esc(s: &str) -> String {
-    sexp_escape(s)
-}
+use super::{param, param_u64};
 
 /// Resolve and validate a path within the workspace root.
 /// Returns None if the path escapes the sandbox.
@@ -21,13 +19,12 @@ fn safe_path(root: &Path, relative: &str) -> Option<PathBuf> {
     } else {
         root.join(relative)
     };
-    // Canonicalize to resolve .. and symlinks.
     let canonical = candidate.canonicalize().ok()?;
     let root_canonical = root.canonicalize().ok()?;
     if canonical.starts_with(&root_canonical) {
         Some(canonical)
     } else {
-        None // Escape attempt blocked.
+        None
     }
 }
 
@@ -41,53 +38,51 @@ fn workspace_root() -> PathBuf {
 }
 
 pub(crate) fn dispatch(sexp: &str) -> String {
-    let op = extract_sexp_string(sexp, ":op").unwrap_or_default();
+    let op = harmonia_actor_protocol::extract_sexp_string(sexp, ":op").unwrap_or_default();
     let root = workspace_root();
 
     match op.as_str() {
         "healthcheck" => "(:ok :status \"workspace ready\")".to_string(),
 
         "read-file" => {
-            let path_str = extract_sexp_string(sexp, ":path").unwrap_or_default();
+            let path_str = param!(sexp, ":path");
             if path_str.is_empty() {
                 return "(:error \"read-file: :path required\")".to_string();
             }
             let Some(path) = safe_path(&root, &path_str) else {
-                return format!("(:error \"read-file: path outside workspace: {}\")", esc(&path_str));
+                return format!("(:error \"read-file: path outside workspace: {}\")", sexp_escape(&path_str));
             };
-            let offset = extract_sexp_u64_or(sexp, ":offset", 0) as usize;
-            let limit = extract_sexp_u64_or(sexp, ":limit", 200) as usize;
+            let offset = param_u64!(sexp, ":offset", 0) as usize;
+            let limit = param_u64!(sexp, ":limit", 200) as usize;
             match std::fs::read_to_string(&path) {
                 Ok(content) => {
                     let lines: Vec<&str> = content.lines().collect();
-                    let end = (offset + limit).min(lines.len());
                     let start = offset.min(lines.len());
-                    let slice: Vec<String> = lines[start..end]
+                    let end = (offset + limit).min(lines.len());
+                    let result: String = lines[start..end]
                         .iter()
                         .enumerate()
                         .map(|(i, line)| format!("{}: {}", start + i + 1, line))
-                        .collect();
-                    let result = slice.join("\n");
-                    // Cap at 8KB to prevent memory explosion.
+                        .collect::<Vec<_>>()
+                        .join("\n");
                     let capped = if result.len() > 8192 { &result[..8192] } else { &result };
                     format!("(:ok :lines {} :total {} :result \"{}\")",
-                        end - start, lines.len(), esc(capped))
+                        end - start, lines.len(), sexp_escape(capped))
                 }
-                Err(e) => format!("(:error \"read-file: {}\")", esc(&e.to_string())),
+                Err(e) => format!("(:error \"read-file: {}\")", sexp_escape(&e.to_string())),
             }
         }
 
         "grep" => {
-            let pattern = extract_sexp_string(sexp, ":pattern").unwrap_or_default();
-            let path_str = extract_sexp_string(sexp, ":path").unwrap_or_else(|| ".".into());
+            let pattern = param!(sexp, ":pattern");
+            let path_str = param!(sexp, ":path", ".");
             if pattern.is_empty() {
                 return "(:error \"grep: :pattern required\")".to_string();
             }
             let Some(search_path) = safe_path(&root, &path_str) else {
-                return format!("(:error \"grep: path outside workspace: {}\")", esc(&path_str));
+                return format!("(:error \"grep: path outside workspace: {}\")", sexp_escape(&path_str));
             };
-            let limit = extract_sexp_u64_or(sexp, ":limit", 30) as usize;
-            // Use grep command for speed and regex support.
+            let limit = param_u64!(sexp, ":limit", 30) as usize;
             let output = std::process::Command::new("grep")
                 .args(["-rn", "--include=*.lisp", "--include=*.rs",
                        "--include=*.md", "--include=*.sexp",
@@ -99,50 +94,50 @@ pub(crate) fn dispatch(sexp: &str) -> String {
             match output {
                 Ok(out) => {
                     let stdout = String::from_utf8_lossy(&out.stdout);
-                    // Strip workspace root prefix for cleaner output.
                     let root_str = root.to_string_lossy();
                     let cleaned = stdout.replace(&*root_str, ".");
                     let capped = if cleaned.len() > 8192 { &cleaned[..8192] } else { &cleaned };
                     let count = capped.lines().count();
-                    format!("(:ok :matches {} :result \"{}\")", count, esc(capped.trim()))
+                    format!("(:ok :matches {} :result \"{}\")", count, sexp_escape(capped.trim()))
                 }
-                Err(e) => format!("(:error \"grep: {}\")", esc(&e.to_string())),
+                Err(e) => format!("(:error \"grep: {}\")", sexp_escape(&e.to_string())),
             }
         }
 
         "list-files" => {
-            let path_str = extract_sexp_string(sexp, ":path").unwrap_or_else(|| ".".into());
+            let path_str = param!(sexp, ":path", ".");
             let Some(dir) = safe_path(&root, &path_str) else {
-                return format!("(:error \"list-files: path outside workspace: {}\")", esc(&path_str));
+                return format!("(:error \"list-files: path outside workspace: {}\")", sexp_escape(&path_str));
             };
-            let pattern = extract_sexp_string(sexp, ":pattern").unwrap_or_default();
-            let limit = extract_sexp_u64_or(sexp, ":limit", 50) as usize;
+            let pattern = param!(sexp, ":pattern");
+            let limit = param_u64!(sexp, ":limit", 50) as usize;
             match std::fs::read_dir(&dir) {
                 Ok(entries) => {
-                    let mut items: Vec<String> = Vec::new();
-                    for entry in entries.take(limit * 2) {
-                        if let Ok(entry) = entry {
+                    let items: Vec<String> = entries
+                        .take(limit * 2)
+                        .filter_map(|e| e.ok())
+                        .filter(|entry| {
+                            pattern.is_empty() || entry.file_name().to_string_lossy().contains(&*pattern)
+                        })
+                        .take(limit)
+                        .map(|entry| {
                             let name = entry.file_name().to_string_lossy().to_string();
-                            if !pattern.is_empty() && !name.contains(&pattern) {
-                                continue;
-                            }
                             let is_dir = entry.file_type().map(|t| t.is_dir()).unwrap_or(false);
                             let size = entry.metadata().map(|m| m.len()).unwrap_or(0);
-                            items.push(format!("(:name \"{}\" :type {} :size {})",
-                                esc(&name),
+                            format!("(:name \"{}\" :type {} :size {})",
+                                sexp_escape(&name),
                                 if is_dir { ":dir" } else { ":file" },
-                                size));
-                            if items.len() >= limit { break; }
-                        }
-                    }
+                                size)
+                        })
+                        .collect();
                     format!("(:ok :count {} :entries ({}))", items.len(), items.join(" "))
                 }
-                Err(e) => format!("(:error \"list-files: {}\")", esc(&e.to_string())),
+                Err(e) => format!("(:error \"list-files: {}\")", sexp_escape(&e.to_string())),
             }
         }
 
         "file-exists" => {
-            let path_str = extract_sexp_string(sexp, ":path").unwrap_or_default();
+            let path_str = param!(sexp, ":path");
             let Some(path) = safe_path(&root, &path_str) else {
                 return "(:ok :exists nil)".to_string();
             };
@@ -150,9 +145,9 @@ pub(crate) fn dispatch(sexp: &str) -> String {
         }
 
         "file-info" => {
-            let path_str = extract_sexp_string(sexp, ":path").unwrap_or_default();
+            let path_str = param!(sexp, ":path");
             let Some(path) = safe_path(&root, &path_str) else {
-                return format!("(:error \"file-info: path outside workspace: {}\")", esc(&path_str));
+                return format!("(:error \"file-info: path outside workspace: {}\")", sexp_escape(&path_str));
             };
             match std::fs::metadata(&path) {
                 Ok(meta) => {
@@ -166,10 +161,77 @@ pub(crate) fn dispatch(sexp: &str) -> String {
                     format!("(:ok :size {} :lines {} :type {})",
                         size, lines, if is_dir { ":dir" } else { ":file" })
                 }
-                Err(e) => format!("(:error \"file-info: {}\")", esc(&e.to_string())),
+                Err(e) => format!("(:error \"file-info: {}\")", sexp_escape(&e.to_string())),
             }
         }
 
-        _ => format!("(:error \"workspace: unknown op '{}'\")", esc(&op)),
+        "exec" => {
+            let cmd = param!(sexp, ":cmd");
+            if cmd.is_empty() {
+                return "(:error \"exec: :cmd required\")".to_string();
+            }
+            let args_str = param!(sexp, ":args");
+            let args: Vec<&str> = if args_str.is_empty() {
+                vec![]
+            } else {
+                args_str.split_whitespace().collect()
+            };
+            let cwd_str = param!(sexp, ":cwd", ".");
+            let cwd = root.join(&cwd_str);
+            let output = std::process::Command::new(&cmd)
+                .args(&args)
+                .current_dir(&cwd)
+                .output();
+            match output {
+                Ok(out) => {
+                    let stdout = String::from_utf8_lossy(&out.stdout);
+                    let stderr = String::from_utf8_lossy(&out.stderr);
+                    let combined = if stderr.is_empty() {
+                        stdout.to_string()
+                    } else {
+                        format!("{}\nSTDERR:\n{}", stdout, stderr)
+                    };
+                    let capped = if combined.len() > 8192 { &combined[..8192] } else { &combined };
+                    let exit_code = out.status.code().unwrap_or(-1);
+                    format!("(:ok :exit {} :result \"{}\")", exit_code, sexp_escape(capped.trim()))
+                }
+                Err(e) => format!("(:error \"exec: {}\")", sexp_escape(&e.to_string())),
+            }
+        }
+
+        "write-file" => {
+            let path_str = param!(sexp, ":path");
+            let content = param!(sexp, ":content");
+            if path_str.is_empty() {
+                return "(:error \"write-file: :path required\")".to_string();
+            }
+            let path = root.join(&path_str);
+            if let Some(parent) = path.parent() {
+                let _ = std::fs::create_dir_all(parent);
+            }
+            match std::fs::write(&path, &content) {
+                Ok(_) => format!("(:ok :bytes {})", content.len()),
+                Err(e) => format!("(:error \"write-file: {}\")", sexp_escape(&e.to_string())),
+            }
+        }
+
+        "append-file" => {
+            let path_str = param!(sexp, ":path");
+            let content = param!(sexp, ":content");
+            if path_str.is_empty() {
+                return "(:error \"append-file: :path required\")".to_string();
+            }
+            let path = root.join(&path_str);
+            use std::io::Write;
+            match std::fs::OpenOptions::new().create(true).append(true).open(&path) {
+                Ok(mut f) => match f.write_all(content.as_bytes()) {
+                    Ok(_) => format!("(:ok :bytes {})", content.len()),
+                    Err(e) => format!("(:error \"append-file: {}\")", sexp_escape(&e.to_string())),
+                },
+                Err(e) => format!("(:error \"append-file: {}\")", sexp_escape(&e.to_string())),
+            }
+        }
+
+        _ => format!("(:error \"workspace: unknown op '{}'\")", sexp_escape(&op)),
     }
 }

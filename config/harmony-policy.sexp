@@ -10,7 +10,11 @@
          :codemode-chain-weight 0.45
          :codemode-relay-weight 0.40
          :codemode-sources-weight 0.15)
- :complexity (:density-simple-mult 3.0 :density-possible-mult 8.0)
+ :cadence (:plagal-chaos-max 0.15)
+ :global (:simplicity-weight 0.45 :occam-weight 0.30 :interdisciplinary-weight 0.25)
+ :local (:simplicity-weight 0.6 :interdisciplinary-weight 0.4)
+ :complexity (:density-simple-mult 3.0 :density-possible-mult 8.0
+              :simple-weight 0.5 :possible-weight 0.5)
  :vitruvian (:strength-chaos-weight 0.6 :strength-bounded-weight 0.4
              :utility-global-weight 0.35 :utility-coherence-weight 0.25 :utility-balance-weight 0.20
              :utility-supervision-weight 0.20

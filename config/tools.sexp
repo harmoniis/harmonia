@@ -7,7 +7,6 @@
   ("memory" . "lib/core/memory")
   ("http" . "lib/backends/http")
   ("s3" . "lib/backends/storage/s3")
-  ("git-ops" . "lib/core/git-ops")
   ("rust-forge" . "lib/core/rust-forge")
   ("cron-scheduler" . "lib/core/cron-scheduler")
   ("push" . "lib/frontends/push")
