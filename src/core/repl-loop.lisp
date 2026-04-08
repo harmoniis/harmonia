@@ -176,17 +176,36 @@ No score branching, no model selection, no bootstrap modes. ONE path."
               (used-model (or (handler-case (%select-model user-text) (error () nil)) ""))
               (call-start (get-internal-real-time)))
 
-          (let ((llm-output
-                  (handler-case (backend-complete round-prompt used-model)
-                    (error (c)
-                      (%log :warn "sexp-eval" "REPL ~D error: ~A" round c)
-                      (%record-repl-perf used-model :error)
-                      nil)))
-                (latency-ms (truncate (* 1000 (/ (- (get-internal-real-time) call-start)
-                                                  (float internal-time-units-per-second))))))
+          ;; CASCADE: try used-model first, on failure try next models from chain.
+          ;; Circuit breaker records failure instantly for scoring demotion.
+          (let* ((llm-output
+                   (handler-case (backend-complete round-prompt used-model)
+                     (error (c)
+                       (%log :warn "sexp-eval" "REPL ~D: ~A failed: ~A" round used-model c)
+                       (%record-repl-perf used-model :error)
+                       (model-policy-record-outcome :model used-model :success nil :latency-ms 0)
+                       nil)))
+                 ;; If first model failed, cascade through selection chain.
+                 (llm-output
+                   (or llm-output
+                       (let ((chain (handler-case (%selection-chain-tiered user-text) (error () nil))))
+                         (dolist (alt-model (rest chain)) ; skip first (already tried)
+                           (when (string/= alt-model used-model)
+                             (%log :info "sexp-eval" "REPL ~D: cascading to ~A" round alt-model)
+                             (let ((result (handler-case (backend-complete round-prompt alt-model)
+                                            (error (c)
+                                              (%log :warn "sexp-eval" "REPL ~D: ~A also failed: ~A" round alt-model c)
+                                              (model-policy-record-outcome :model alt-model :success nil :latency-ms 0)
+                                              nil))))
+                               (when result
+                                 (setf used-model alt-model)
+                                 (return result)))))
+                         nil)))
+                 (latency-ms (truncate (* 1000 (/ (- (get-internal-real-time) call-start)
+                                                   (float internal-time-units-per-second))))))
             (cond
               ((null llm-output)
-               (%log :info "sexp-eval" "REPL ~D: LLM unavailable" round)
+               (%log :info "sexp-eval" "REPL ~D: all models unavailable" round)
                (%record-repl-perf used-model :unavailable :latency-ms latency-ms)
                (when last-eval-result
                  (%log :info "sexp-eval" "REPL: using eval data from previous rounds")

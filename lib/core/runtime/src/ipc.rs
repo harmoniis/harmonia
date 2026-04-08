@@ -245,7 +245,7 @@ async fn dispatch_sexp(
         // DIRECT DISPATCH via DynamicRegistry — pluggable, no hardcoded slots.
         if let Some(actor) = registry.get(&component) {
             // Pass the owned String directly — no extra .to_string() copy.
-            match ractor::call_t!(actor, ComponentMsg::Dispatch, 120_000, sexp) {
+            match ractor::call_t!(actor, ComponentMsg::Dispatch, 30_000, sexp) {
                 Ok(result) => Some(result),
                 Err(_) => Some(format!(
                     "(:error \"component '{}' dispatch timeout\")",

@@ -1,6 +1,51 @@
 ;;; model-providers.lisp — Provider preferences, backend configuration, scoring, outcome recording.
+;;; Circuit breaker: models that fail instantly get blacklisted for the session.
+;;; Blacklist auto-expires after cooldown. Like harmonic dissonance — instant state change.
 
 (in-package :harmonia)
+
+;;; ─── Session Circuit Breaker ──────────────────────────────────────
+;;; Models that return immediate errors (connection refused, 503, timeout)
+;;; get blacklisted instantly. No waiting for rolling average to catch up.
+;;; Cooldown is short — models recover when they come back.
+
+(defparameter *model-circuit-breaker* (make-hash-table :test 'equal)
+  "Model-ID → (failures . last-failure-time). Instant blacklist for down models.")
+
+(defparameter *circuit-breaker-threshold* 2
+  "Consecutive failures before circuit opens.")
+
+(defparameter *circuit-breaker-cooldown-secs* 120
+  "Seconds before a tripped circuit resets and model is retried.")
+
+(defun %circuit-breaker-tripped-p (model-id)
+  "Is this model currently circuit-broken? Pure: reads state, no mutation."
+  (let ((entry (gethash model-id *model-circuit-breaker*)))
+    (when entry
+      (let ((failures (car entry))
+            (last-time (cdr entry))
+            (now (%now-secs)))
+        (and (>= failures *circuit-breaker-threshold*)
+             (< (- now last-time) *circuit-breaker-cooldown-secs*))))))
+
+(defun %circuit-breaker-record-failure (model-id)
+  "Record an instant failure. Opens circuit after threshold."
+  (let* ((entry (or (gethash model-id *model-circuit-breaker*) (cons 0 0)))
+         (now (%now-secs))
+         (age (- now (cdr entry))))
+    ;; Reset if cooldown expired (model may have recovered).
+    (when (> age *circuit-breaker-cooldown-secs*)
+      (setf entry (cons 0 now)))
+    (setf (gethash model-id *model-circuit-breaker*)
+          (cons (1+ (car entry)) now))
+    (when (>= (1+ (car entry)) *circuit-breaker-threshold*)
+      (%log :warn "circuit-breaker" "Model ~A tripped after ~D failures — blacklisted for ~Ds"
+            model-id (1+ (car entry)) *circuit-breaker-cooldown-secs*)))
+  t)
+
+(defun %circuit-breaker-record-success (model-id)
+  "Reset circuit breaker on success."
+  (remhash model-id *model-circuit-breaker*))
 
 (defun %plist-merge (base override)
   (let ((result (copy-list (or base '()))))
@@ -476,6 +521,10 @@ User prompt: ~A")
     (%save-swarm-scores
      (cons entry (remove id scores :key (lambda (e) (getf e :model-id)) :test #'string=)))
     (%route-feedback-to-actor id success latency-ms cost-usd)
+    ;; Circuit breaker: instant demotion for failures, reset on success.
+    (if success
+        (%circuit-breaker-record-success id)
+        (%circuit-breaker-record-failure id))
     entry))
 
 (defun %route-feedback-to-actor (model-id success latency-ms cost-usd)

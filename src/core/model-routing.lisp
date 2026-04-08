@@ -122,15 +122,18 @@
     (* base-score (max 0.1 repl-fluency))))
 
 (defun %score-and-rank-within-tier (model-ids task)
-  "Re-rank MODEL-IDS using tier-biased weights + signalograd."
+  "Re-rank MODEL-IDS using tier-biased weights + signalograd + circuit breaker.
+   Circuit-broken models get score 0 — instant demotion for down providers."
   (declare (ignore task))
   (let* ((bias (%tier-weight-bias *routing-tier*))
          (scored
            (mapcar (lambda (id)
-                     (let ((p (%profile-by-id id)))
-                       (if p
-                           (cons id (%seed-score-with-bias p bias))
-                           (cons id 0.0))))
+                     (if (%circuit-breaker-tripped-p id)
+                         (cons id 0.0) ; Instant zero — model is down
+                         (let ((p (%profile-by-id id)))
+                           (if p
+                               (cons id (%seed-score-with-bias p bias))
+                               (cons id 0.0)))))
                    model-ids)))
     (mapcar #'car (sort scored #'> :key #'cdr))))
 
