@@ -1426,8 +1426,9 @@ fn show_thinking_spinner_with_input(
     let mut input_buf = String::new();
     let mut cursor_pos: usize = 0;
     let started = std::time::Instant::now();
-    // Timeout: if no response after 90 seconds, break the spinner
-    const SPINNER_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(90);
+    // Adaptive timeout: check live status — if "all models unavailable", break early.
+    // Base timeout is generous (120s for thinking models), but cascade failures break fast.
+    const SPINNER_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(120);
 
     let _ = terminal::enable_raw_mode();
 
@@ -1469,6 +1470,18 @@ fn show_thinking_spinner_with_input(
             };
         }
 
+        // Early break: if REPL reports all models unavailable, don't wait.
+        {
+            let status = read_repl_status();
+            if status.contains("all models unavailable") {
+                clear_spinner_and_box(spinner_row, box_row, box_height);
+                let _ = terminal::disable_raw_mode();
+                waiting.store(false, Ordering::Release);
+                eprintln!("\n  {RED}✗{RESET} All models unavailable — check network/providers.");
+                eprintln!();
+                return if !input_buf.trim().is_empty() { Some(input_buf) } else { None };
+            }
+        }
         // Break if we've been waiting too long
         if started.elapsed() > SPINNER_TIMEOUT {
             clear_spinner_and_box(spinner_row, box_row, box_height);
@@ -1604,12 +1617,30 @@ fn show_thinking_spinner_with_input(
     }
 }
 
+fn read_repl_status() -> String {
+    let default_root = dirs::data_dir()
+        .unwrap_or_else(|| std::path::PathBuf::from("/tmp"))
+        .join("harmoniis/harmonia");
+    let state_root = harmonia_config_store::get_config_or(
+        "harmonia-runtime", "global", "state-root",
+        &default_root.to_string_lossy(),
+    ).unwrap_or_else(|_| default_root.to_string_lossy().into());
+    let path = std::path::Path::new(&state_root).join("repl-status.txt");
+    std::fs::read_to_string(path).unwrap_or_default()
+}
+
 fn draw_spinner_line(row: u16, dot: &str, has_queued: bool) {
     let mut err = std::io::stderr();
-    let status = if has_queued {
-        format!("  {CYAN}{dot}{RESET} {DIM}thinking...{RESET}  {DIM}(queued){RESET}")
+    let live_status = read_repl_status();
+    let status_text = if !live_status.trim().is_empty() {
+        live_status.trim().to_string()
     } else {
-        format!("  {CYAN}{dot}{RESET} {DIM}thinking...{RESET}")
+        "thinking...".to_string()
+    };
+    let status = if has_queued {
+        format!("  {CYAN}{dot}{RESET} {DIM}{status_text}{RESET}  {DIM}(queued){RESET}")
+    } else {
+        format!("  {CYAN}{dot}{RESET} {DIM}{status_text}{RESET}")
     };
     let _ = queue!(
         err,

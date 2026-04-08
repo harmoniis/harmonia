@@ -8,24 +8,45 @@
 ;;; Each failure: circuit breaker records, callback notified, next model tried.
 ;;; Pure functional: cascade is a fold over the model chain.
 
+(defun %repl-status (text)
+  "Write live status to $STATE_ROOT/repl-status.txt for TUI display.
+   Pure: write-only, no state, no side effects beyond the file."
+  (handler-case
+      (let ((path (format nil "~A/repl-status.txt"
+                          (or (config-get-for "harmonia-runtime" "state-root") "/tmp/harmonia"))))
+        (with-open-file (out path :direction :output :if-exists :supersede :if-does-not-exist :create)
+          (write-string text out)))
+    (error () nil)))
+
 (defun %try-models-cascade (prompt primary-model user-text on-failure-fn)
   "Try PRIMARY-MODEL first, then cascade through selection chain on failure.
    ON-FAILURE-FN is called with (model error-string) for each failure.
+   Writes live status for TUI spinner display.
    Returns the first successful response, or nil if all fail."
   (flet ((try-model (model)
+           (%repl-status (format nil "trying ~A..." model))
            (handler-case (backend-complete prompt model)
              (error (c)
-               (funcall on-failure-fn model (princ-to-string c))
-               nil))))
+               (let ((err (princ-to-string c)))
+                 (%repl-status (format nil "~A failed: ~A" model
+                                       (subseq err 0 (min 60 (length err)))))
+                 (funcall on-failure-fn model err)
+                 nil)))))
     ;; Try primary first.
     (let ((result (try-model primary-model)))
-      (when result (return-from %try-models-cascade result)))
+      (when result
+        (%repl-status (format nil "~A responding" primary-model))
+        (return-from %try-models-cascade result)))
     ;; Cascade through ranked alternatives.
     (let ((chain (handler-case (%selection-chain-tiered user-text) (error () nil))))
       (dolist (alt-model (or chain '()))
         (unless (string= alt-model primary-model)
+          (%repl-status (format nil "cascade → ~A" alt-model))
           (let ((result (try-model alt-model)))
-            (when result (return-from %try-models-cascade result))))))
+            (when result
+              (%repl-status (format nil "~A responding" alt-model))
+              (return-from %try-models-cascade result))))))
+    (%repl-status "all models unavailable")
     nil))
 
 ;;; ═══════════════════════════════════════════════════════════════════════
