@@ -1,6 +1,32 @@
 ;;; repl-loop.lisp — REPL orchestration loop, parse/detect, model performance tracking.
+;;; Cascade pattern: try models in ranked order, circuit-break failures instantly.
 
 (in-package :harmonia)
+
+;;; ─── Model Cascade (Handle/Service Pattern) ──────────────────────
+;;; Try primary model, on failure cascade through selection chain.
+;;; Each failure: circuit breaker records, callback notified, next model tried.
+;;; Pure functional: cascade is a fold over the model chain.
+
+(defun %try-models-cascade (prompt primary-model user-text on-failure-fn)
+  "Try PRIMARY-MODEL first, then cascade through selection chain on failure.
+   ON-FAILURE-FN is called with (model error-string) for each failure.
+   Returns the first successful response, or nil if all fail."
+  (flet ((try-model (model)
+           (handler-case (backend-complete prompt model)
+             (error (c)
+               (funcall on-failure-fn model (princ-to-string c))
+               nil))))
+    ;; Try primary first.
+    (let ((result (try-model primary-model)))
+      (when result (return-from %try-models-cascade result)))
+    ;; Cascade through ranked alternatives.
+    (let ((chain (handler-case (%selection-chain-tiered user-text) (error () nil))))
+      (dolist (alt-model (or chain '()))
+        (unless (string= alt-model primary-model)
+          (let ((result (try-model alt-model)))
+            (when result (return-from %try-models-cascade result))))))
+    nil))
 
 ;;; ═══════════════════════════════════════════════════════════════════════
 ;;; PARALLEL CONTEXT GATHERING
@@ -176,39 +202,32 @@ No score branching, no model selection, no bootstrap modes. ONE path."
               (used-model (or (handler-case (%select-model user-text) (error () nil)) ""))
               (call-start (get-internal-real-time)))
 
-          ;; CASCADE: try used-model first, on failure try next models from chain.
-          ;; Circuit breaker records failure instantly for scoring demotion.
-          (let* ((llm-output
-                   (handler-case (backend-complete round-prompt used-model)
-                     (error (c)
-                       (%log :warn "sexp-eval" "REPL ~D: ~A failed: ~A" round used-model c)
-                       (%record-repl-perf used-model :error)
-                       (model-policy-record-outcome :model used-model :success nil :latency-ms 0)
-                       nil)))
-                 ;; If first model failed, cascade through selection chain.
+          ;; CASCADE with structured error feedback.
+          ;; Errors flow into: circuit breaker, signalograd, memory field, and REPL.
+          (let* ((failed-models '())
                  (llm-output
-                   (or llm-output
-                       (let ((chain (handler-case (%selection-chain-tiered user-text) (error () nil))))
-                         (dolist (alt-model (rest chain)) ; skip first (already tried)
-                           (when (string/= alt-model used-model)
-                             (%log :info "sexp-eval" "REPL ~D: cascading to ~A" round alt-model)
-                             (let ((result (handler-case (backend-complete round-prompt alt-model)
-                                            (error (c)
-                                              (%log :warn "sexp-eval" "REPL ~D: ~A also failed: ~A" round alt-model c)
-                                              (model-policy-record-outcome :model alt-model :success nil :latency-ms 0)
-                                              nil))))
-                               (when result
-                                 (setf used-model alt-model)
-                                 (return result)))))
-                         nil)))
+                   (%try-models-cascade
+                    round-prompt used-model user-text
+                    (lambda (model err)
+                      (push (list model err) failed-models)
+                      (%log :warn "sexp-eval" "REPL ~D: ~A failed: ~A" round model err)
+                      (model-policy-record-outcome :model model :success nil :latency-ms 0))))
                  (latency-ms (truncate (* 1000 (/ (- (get-internal-real-time) call-start)
                                                    (float internal-time-units-per-second))))))
+            ;; Record errors in memory field — system learns failure patterns.
+            (when failed-models
+              (handler-case
+                  (memory-put :tool
+                    (format nil "(:provider-errors ~{(:model ~S :error ~S)~^ ~})"
+                            (reduce #'append failed-models))
+                    :depth 0 :tags '(:provider-error :system-health))
+                (error () nil)))
             (cond
               ((null llm-output)
                (%log :info "sexp-eval" "REPL ~D: all models unavailable" round)
                (%record-repl-perf used-model :unavailable :latency-ms latency-ms)
+               ;; Feed error context to REPL — LLM understands what happened.
                (when last-eval-result
-                 (%log :info "sexp-eval" "REPL: using eval data from previous rounds")
                  (return-from %orchestrate-repl
                    (format nil "Based on what I found: ~A"
                            (subseq last-eval-result 0
