@@ -150,9 +150,8 @@ If text: first sentence + keyword list."
          (keywords (remove-duplicates
                     (append (mapcar #'princ-to-string (or tags '()))
                             (remove-if (lambda (w) (< (length w) 4))
-                                       (uiop:split-string
-                                        (subseq text 0 (min 200 (length text)))
-                                        :separator '(#\Space #\Newline #\Tab))))
+                                       (%split-words
+                                        (subseq text 0 (min 200 (length text))))))
                     :test #'string-equal)))
     (format nil "(:summary \"~A\" :keywords ~A)"
             first-sentence
@@ -163,7 +162,7 @@ If text: first sentence + keyword list."
   (let* ((all-words (reduce #'append
                             (mapcar (lambda (text)
                                       (remove-if (lambda (w) (< (length w) 3))
-                                                 (uiop:split-string
+                                                 (%split-words
                                                   (string-downcase text)
                                                   :separator '(#\Space #\Newline #\Tab #\( #\) #\" #\:))))
                                     texts)))
@@ -188,7 +187,7 @@ This is the maximally compressed form: ~10 tokens per entry."
                         (append (mapcar #'princ-to-string (or tags '()))
                                 (loop for text in texts
                                       append (remove-if (lambda (w) (< (length w) 4))
-                                                        (uiop:split-string
+                                                        (%split-words
                                                          (string-downcase text)
                                                          :separator '(#\Space #\Newline #\Tab #\( #\) #\" #\:)))))
                         :test #'string-equal))
