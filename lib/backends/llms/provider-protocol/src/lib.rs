@@ -4,6 +4,7 @@
 //! metrics database, and FFI scaffolding shared by every LLM backend crate.
 
 pub mod capabilities;
+pub mod error;
 mod extract;
 mod http;
 pub mod metrics;

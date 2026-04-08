@@ -76,38 +76,51 @@ pub fn json_error_message(v: &Value) -> Option<String> {
 }
 
 /// Execute an HTTP POST with JSON body via `curl`, return parsed JSON.
+/// Returns structured CompletionError on failure for circuit-breaker + signalograd feedback.
 pub fn run_curl_json_post(
     url: &str,
     headers: &[String],
     payload: &Value,
     timeout: TimeoutConfig,
 ) -> Result<Value, String> {
+    let provider = url.split('/').nth(2).unwrap_or("unknown").to_string();
     let payload_str =
         serde_json::to_string(payload).map_err(|e| format!("json encode failed: {e}"))?;
-    let mut cmd = Command::new("curl");
-    cmd.arg("-sS")
-        .arg("-X")
-        .arg("POST")
-        .arg("--connect-timeout")
-        .arg(timeout.connect_timeout_secs.to_string())
-        .arg("--max-time")
-        .arg(timeout.max_time_secs.to_string())
-        .arg(url)
-        .arg("-H")
-        .arg("Content-Type: application/json");
-    for h in headers {
-        cmd.arg("-H").arg(h);
-    }
-    cmd.arg("-d").arg(payload_str);
-    let output = cmd.output().map_err(|e| format!("curl exec failed: {e}"))?;
+    let args: Vec<String> = [
+        "-sS", "-X", "POST",
+        "--connect-timeout", &timeout.connect_timeout_secs.to_string(),
+        "--max-time", &timeout.max_time_secs.to_string(),
+        url, "-H", "Content-Type: application/json",
+    ].iter().map(|s| s.to_string())
+     .chain(headers.iter().flat_map(|h| vec!["-H".to_string(), h.clone()]))
+     .chain(std::iter::once("-d".to_string()))
+     .chain(std::iter::once(payload_str))
+     .collect();
+    let output = Command::new("curl").args(&args).output()
+        .map_err(|e| crate::error::CompletionError::ConnectionFailed {
+            provider: provider.clone(), detail: format!("curl exec: {e}"),
+        }.to_string())?;
     if !output.status.success() {
-        let stderr = String::from_utf8_lossy(&output.stderr).to_string();
-        return Err(format!("curl failed: {}", clip(&stderr, 320)));
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        let detail = clip(&stderr, 320);
+        // Classify curl exit codes: 7=connection refused, 28=timeout, 35=TLS
+        let code = output.status.code().unwrap_or(-1);
+        return Err(match code {
+            7 | 35 => crate::error::CompletionError::ConnectionFailed {
+                provider, detail }.to_string(),
+            28 => crate::error::CompletionError::Timeout {
+                provider, elapsed_ms: timeout.max_time_secs * 1000 }.to_string(),
+            _ => crate::error::CompletionError::ServerError {
+                provider, status: 0, detail }.to_string(),
+        });
     }
     let stdout = String::from_utf8_lossy(&output.stdout).to_string();
-    let parsed = parse_json_response(&stdout)?;
+    let parsed = parse_json_response(&stdout)
+        .map_err(|e| crate::error::CompletionError::ParseError {
+            provider: provider.clone(), detail: e }.to_string())?;
     if let Some(msg) = json_error_message(&parsed) {
-        return Err(msg);
+        return Err(crate::error::CompletionError::ModelError {
+            provider, model: String::new(), detail: msg }.to_string());
     }
     Ok(parsed)
 }
