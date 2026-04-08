@@ -148,7 +148,8 @@ fn main() {
             std::process::exit(1);
         }
         Some(Commands::Version) => {
-            println!("harmonia {}", VERSION);
+            println!("harmonia {} ({} {})", VERSION, cli_args::BUILD_HASH, cli_args::BUILD_DATE);
+            println!("build:   {} ({})", cli_args::BUILD_HASH, cli_args::BUILD_DATE);
             println!("runtime: SBCL (Steel Bank Common Lisp)");
             println!("tools:   Rust rlib (compiled into harmonia-runtime)");
             if check_sbcl() {
@@ -156,6 +157,7 @@ fn main() {
             } else {
                 println!("sbcl:    NOT FOUND — run `harmonia setup`");
             }
+            println!("\nRun `harmonia upgrade` to check for updates.");
             Ok(())
         }
     };

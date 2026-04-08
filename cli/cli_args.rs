@@ -3,12 +3,15 @@
 use clap::{Parser, Subcommand};
 
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");
+pub const BUILD_HASH: &str = env!("BUILD_HASH");
+pub const BUILD_DATE: &str = env!("BUILD_DATE");
 
 #[derive(Parser)]
 #[command(
     name = "harmonia",
     about = "Harmonia — self-improving Common Lisp + Rust agent",
-    version = VERSION,
+    long_version = const_format::concatcp!(VERSION, " (", BUILD_HASH, " ", BUILD_DATE, ")"),
+    version = const_format::concatcp!(VERSION, " (", BUILD_HASH, ")"),
     after_help = "Run `harmonia` with no arguments to open the interactive TUI session."
 )]
 pub struct Cli {
