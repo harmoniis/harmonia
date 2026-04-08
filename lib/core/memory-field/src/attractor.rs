@@ -10,6 +10,20 @@
 
 use crate::error::clamp;
 
+// ─── Basin classification trait ─────────────────────────────────────────────
+
+/// Unifying trait for basin classification across attractor families.
+///
+/// Each attractor partitions phase space into basins with different geometry:
+/// Thomas → 6 octant-pair basins, Aizawa → 2 depth basins, Halvorsen → 3 lobes.
+/// `classify_basin` returns a u8 basin index whose meaning is attractor-specific.
+///
+/// Note: `step` is not part of this trait because different attractors require
+/// different parameters (Thomas needs `b`, Aizawa/Halvorsen only need `dt`).
+pub(crate) trait BasinClassifier {
+    fn classify_basin(&self) -> u8;
+}
+
 // ─── Thomas Attractor ───────────────────────────────────────────────────────
 
 /// Thomas attractor state (cyclically symmetric chaotic system).
@@ -76,6 +90,12 @@ pub(crate) fn classify_thomas_basin(thomas: &ThomasState) -> u8 {
     }
 }
 
+impl BasinClassifier for ThomasState {
+    fn classify_basin(&self) -> u8 {
+        classify_thomas_basin(self)
+    }
+}
+
 // ─── Aizawa Attractor ───────────────────────────────────────────────────────
 
 /// Aizawa attractor state (Langford system).
@@ -136,6 +156,13 @@ pub(crate) fn classify_aizawa_depth(aizawa: &AizawaState) -> bool {
     aizawa.z.abs() > 1.5
 }
 
+impl BasinClassifier for AizawaState {
+    /// Returns 0 for surface (shallow), 1 for tube (deep/crystal).
+    fn classify_basin(&self) -> u8 {
+        if classify_aizawa_depth(self) { 1 } else { 0 }
+    }
+}
+
 // ─── Halvorsen Attractor ────────────────────────────────────────────────────
 
 /// Halvorsen attractor state (cyclically symmetric, 3-lobed propeller).
@@ -193,6 +220,12 @@ pub(crate) fn classify_halvorsen_lobe(halvorsen: &HalvorsenState) -> u8 {
         1
     } else {
         2
+    }
+}
+
+impl BasinClassifier for HalvorsenState {
+    fn classify_basin(&self) -> u8 {
+        classify_halvorsen_lobe(self)
     }
 }
 
@@ -265,5 +298,20 @@ mod tests {
             z: 1.0,
         };
         assert_eq!(classify_halvorsen_lobe(&h2), 1);
+    }
+
+    #[test]
+    fn test_basin_classifier_trait() {
+        // Verify BasinClassifier trait produces same results as standalone functions.
+        let t = ThomasState { x: 1.0, y: 1.0, z: -1.0 };
+        assert_eq!(t.classify_basin(), classify_thomas_basin(&t));
+
+        let a = AizawaState { x: 0.1, y: 0.1, z: 2.0 }; // deep (tube)
+        assert_eq!(a.classify_basin(), 1);
+        let a2 = AizawaState { x: 0.1, y: 0.1, z: 0.5 }; // surface
+        assert_eq!(a2.classify_basin(), 0);
+
+        let h = HalvorsenState { x: 5.0, y: 1.0, z: 1.0 };
+        assert_eq!(h.classify_basin(), classify_halvorsen_lobe(&h));
     }
 }

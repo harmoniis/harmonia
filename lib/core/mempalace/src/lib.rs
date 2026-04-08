@@ -11,7 +11,7 @@ mod sexp;
 
 pub use harmonia_actor_protocol::MemoryError;
 pub use graph::{Domain, EdgeKind, GraphEdge, GraphNode, NodeKind};
-pub use aaak::{codebook_lookup, compress_aaak};
+pub use aaak::{codebook_lookup, codebook_register, compress_aaak};
 pub use drawer::{file_drawer, get_drawer, search_drawers};
 pub use graph::{add_edge, add_node, find_tunnels, graph_stats};
 pub use layers::{context_l0, context_l1, context_l2, context_l3};

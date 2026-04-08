@@ -278,6 +278,16 @@ fn print_response(response: NodeRpcResponse) -> Result<(), Box<dyn std::error::E
                 NodeRpcResult::DatamineProbe { lode_id, available } => {
                     println!("{}: {}", lode_id, if available { "available" } else { "unavailable" });
                 }
+                // Cross-node memory operations (Phase 7).
+                NodeRpcResult::CrossNodeRecallResponse { activations, source_node } => {
+                    println!("recall from {}: {} activations", source_node, activations.len());
+                    for (concept, score) in activations {
+                        println!("  {}: {:.3}", concept, score);
+                    }
+                }
+                NodeRpcResult::MemoryDigestResponse { digest_sexp } => {
+                    println!("{}", digest_sexp);
+                }
             }
             Ok(())
         }

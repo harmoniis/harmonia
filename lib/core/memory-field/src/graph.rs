@@ -10,7 +10,7 @@ pub(crate) const MAX_NODES: usize = 256;
 
 /// Domain classification for concept nodes, matching Lisp concept-map.lisp.
 #[derive(Clone, Debug, Copy, PartialEq, Eq, Hash)]
-pub(crate) enum Domain {
+pub enum Domain {
     Music,
     Math,
     Engineering,
@@ -152,11 +152,14 @@ pub(crate) fn build_graph(
     }
 }
 
-/// Brandes' algorithm for betweenness centrality on the CSR graph.
+/// Brandes' algorithm for betweenness centrality, generic over ConceptGraph.
 /// Returns normalized centrality [0, 1] per node.
-/// O(V × E) — fast for N ≤ 256.
-pub(crate) fn betweenness_centrality(graph: &SparseGraph) -> Vec<f64> {
-    let n = graph.n;
+/// O(V x E) -- fast for N <= 256.
+///
+/// Uses `neighbor_indices()` from the ConceptGraph trait for BFS traversal,
+/// making this algorithm reusable across any graph implementation.
+pub(crate) fn betweenness_centrality<G: harmonia_actor_protocol::ConceptGraph>(graph: &G) -> Vec<f64> {
+    let n = graph.node_count();
     if n <= 2 {
         return vec![0.0; n];
     }
@@ -176,10 +179,7 @@ pub(crate) fn betweenness_centrality(graph: &SparseGraph) -> Vec<f64> {
 
         while let Some(v) = queue.pop_front() {
             stack.push(v);
-            let start = graph.row_ptr[v];
-            let end = graph.row_ptr[v + 1];
-            for idx in start..end {
-                let w = graph.col_idx[idx];
+            for &w in graph.neighbor_indices(v) {
                 // First visit?
                 if dist[w] < 0 {
                     dist[w] = dist[v] + 1;
@@ -270,15 +270,12 @@ impl harmonia_actor_protocol::ConceptGraph for SparseGraph {
     }
 }
 
-/// Compute L*x where L = D - A (graph Laplacian times vector).
+/// CSR-optimized Laplacian matrix-vector multiply: out = L * x.
 ///
-/// (Lx)_i = degree[i]*x[i] - Σ_{j ∈ N(i)} w_ij * x[j]
+/// (Lx)_i = degree[i]*x[i] - sum_{j in N(i)} w_ij * x[j]
 ///
-/// This is O(|E|) per call — the core operation for conjugate gradient.
-pub(crate) fn laplacian_mul(graph: &SparseGraph, x: &[f64], out: &mut [f64]) {
-    laplacian_mul_impl(graph, x, out);
-}
-
+/// This is O(|E|) per call -- the core operation for conjugate gradient.
+/// Used by the ConceptGraph trait impl and the spectral decomposition.
 fn laplacian_mul_impl(graph: &SparseGraph, x: &[f64], out: &mut [f64]) {
     for i in 0..graph.n {
         let mut sum = graph.degree[i] * x[i];
@@ -288,19 +285,6 @@ fn laplacian_mul_impl(graph: &SparseGraph, x: &[f64], out: &mut [f64]) {
             sum -= graph.values[idx] * x[graph.col_idx[idx]];
         }
         out[i] = sum;
-    }
-}
-
-/// Compute (L + εI)*x — regularized Laplacian for CG solver.
-pub(crate) fn regularized_laplacian_mul(
-    graph: &SparseGraph,
-    x: &[f64],
-    out: &mut [f64],
-    epsilon: f64,
-) {
-    laplacian_mul(graph, x, out);
-    for i in 0..graph.n {
-        out[i] += epsilon * x[i];
     }
 }
 
@@ -331,11 +315,12 @@ mod tests {
 
     #[test]
     fn test_laplacian_constant_nullspace() {
+        use harmonia_actor_protocol::ConceptGraph;
         // L * 1 = 0 for any graph Laplacian.
         let g = triangle_graph();
         let ones = vec![1.0; g.n];
         let mut out = vec![0.0; g.n];
-        laplacian_mul(&g, &ones, &mut out);
+        g.laplacian_mul(&ones, &mut out);
         for val in &out {
             assert!(val.abs() < 1e-12, "L*1 should be zero, got {val}");
         }

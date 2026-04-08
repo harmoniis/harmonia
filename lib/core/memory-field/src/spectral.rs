@@ -7,14 +7,20 @@
 /// The Fiedler vector (eigenvector for λ₁) gives the optimal graph bisection.
 /// Higher eigenvectors provide finer clustering.
 
+use harmonia_actor_protocol::ConceptGraph;
+
 use crate::error::clamp;
-use crate::graph::{regularized_laplacian_mul, SparseGraph};
+use crate::graph::SparseGraph;
 
 /// Compute the first k non-trivial eigenvectors of the graph Laplacian.
 ///
 /// Uses inverse power iteration: find the smallest eigenvalues of L by
 /// finding the largest eigenvalues of (σI - L) where σ is an upper bound.
 /// Then deflate to get subsequent eigenvectors.
+///
+/// Laplacian multiplication is dispatched through the `ConceptGraph` trait,
+/// so this function works with any graph implementation (SparseGraph,
+/// KnowledgeGraph, etc.) that implements the trait.
 ///
 /// Returns (eigenvalues[k], eigenvectors[k][n]).
 pub(crate) fn spectral_decompose(
@@ -23,7 +29,7 @@ pub(crate) fn spectral_decompose(
     max_iter: usize,
     tol: f64,
 ) -> (Vec<f64>, Vec<Vec<f64>>) {
-    let n = graph.n;
+    let n = graph.node_count();
     if n < 2 {
         return (Vec::new(), Vec::new());
     }
@@ -33,7 +39,7 @@ pub(crate) fn spectral_decompose(
     let mut eigenvectors: Vec<Vec<f64>> = Vec::with_capacity(k);
 
     // Upper bound on largest eigenvalue: max degree * 2 (Gershgorin bound).
-    let sigma = graph.degree.iter().cloned().fold(0.0_f64, f64::max) * 2.0 + 1.0;
+    let sigma = (0..n).map(|i| graph.degree(i)).fold(0.0_f64, f64::max) * 2.0 + 1.0;
 
     for ki in 0..k {
         // Power iteration on (σI - L) to find eigenvector of L for smallest eigenvalue.
@@ -52,8 +58,8 @@ pub(crate) fn spectral_decompose(
         let mut lv = vec![0.0; n]; // Reused across iterations (was per-iteration alloc)
 
         for _iter in 0..max_iter {
-            // w = (σI - L) · v
-            regularized_laplacian_mul(graph, &v, &mut tmp, 0.0);
+            // w = (σI - L) · v  (with ε=0, this is just L·v)
+            graph.laplacian_mul(&v, &mut tmp);
             for i in 0..n {
                 tmp[i] = sigma * v[i] - tmp[i]; // (σI - L)·v
             }
@@ -73,7 +79,7 @@ pub(crate) fn spectral_decompose(
             }
 
             // Rayleigh quotient: eigenvalue of L = σ - (σ eigenvalue of (σI-L))
-            regularized_laplacian_mul(graph, &tmp, &mut lv, 0.0);
+            graph.laplacian_mul(&tmp, &mut lv);
             eigenvalue = dot(&tmp, &lv);
 
             // Check convergence: ||Lv - λv|| < tol

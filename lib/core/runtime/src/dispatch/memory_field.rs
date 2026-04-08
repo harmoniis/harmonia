@@ -21,7 +21,7 @@ pub(crate) fn dispatch(
             let access = parse_memory_field_access_counts(sexp);
             let limit = param_u64!(sexp, ":limit", 0) as usize;
             let limit = if limit == 0 { 10 } else { limit };
-            dispatch_op!("field-recall", harmonia_memory_field::field_recall(field, concepts, access, limit))
+            dispatch_op!("field-recall", harmonia_memory_field::field_recall(field, concepts, access, limit).map(|r| r.to_sexp()))
         }
         "step-attractors" => {
             let signal = param_f64!(sexp, ":signal", 0.0);
@@ -54,12 +54,21 @@ pub(crate) fn dispatch(
             let concepts = parse_string_list(sexp, ":query-concepts");
             let limit = param_u64!(sexp, ":limit", 0) as usize;
             let limit = if limit == 0 { 5 } else { limit };
-            dispatch_op!("field-recall-structural", harmonia_memory_field::field_recall_structural(field, concepts, limit))
+            dispatch_op!("field-recall-structural", harmonia_memory_field::field_recall_structural(field, concepts, limit).map(|r| r.to_sexp_structural()))
         }
         "current-basin" => dispatch_op!("current-basin", harmonia_memory_field::current_basin(field)),
-        "dream" => dispatch_op!("dream", harmonia_memory_field::field_dream(field)),
+        "dream" => dispatch_op!("dream", harmonia_memory_field::field_dream(field).map(|r| harmonia_memory_field::dream_report_to_sexp(&r))),
+        "dream-stats" => dispatch_op!("dream-stats", harmonia_memory_field::dream_stats(field)),
         "edge-currents" => dispatch_op!("edge-currents", harmonia_memory_field::edge_current_status(field)),
         "reset" => dispatch_op!("reset", harmonia_memory_field::reset(field)),
+        "digest" => dispatch_op!("digest", harmonia_memory_field::compute_digest(field).map(|d| d.to_sexp())),
+        "load-genesis" => {
+            let concepts = parse_genesis_concepts(sexp);
+            let edges = parse_genesis_edges(sexp);
+            let entry = harmonia_memory_field::GenesisEntry { concepts, edges };
+            dispatch_op!("load-genesis", harmonia_memory_field::load_genesis(field, vec![entry]))
+        }
+        "bootstrap" => dispatch_op!("bootstrap", harmonia_memory_field::bootstrap(field)),
         _ => format!("(:error \"unknown memory-field op: {}\")", op),
     }
 }
@@ -178,4 +187,23 @@ fn extract_string_list_inline(s: &str, key: &str) -> Vec<String> {
                 .collect()
         })
         .unwrap_or_default()
+}
+
+// ── Phase 8: Genesis sexp parsers ──────────────────────────────────────
+
+/// Parse genesis concept pairs from sexp: :concepts ("concept1" "domain1" "concept2" "domain2" ...)
+fn parse_genesis_concepts(sexp: &str) -> Vec<(String, String)> {
+    harmonia_actor_protocol::extract_sexp_string_list(sexp, ":concepts")
+        .chunks(2)
+        .filter_map(|pair| {
+            if pair.len() == 2 { Some((pair[0].clone(), pair[1].clone())) } else { None }
+        })
+        .collect()
+}
+
+/// Parse genesis edge triples from sexp, reusing the existing edge parser.
+fn parse_genesis_edges(sexp: &str) -> Vec<(String, String, f64)> {
+    parse_memory_field_edges(sexp).into_iter()
+        .map(|(a, b, w, _)| (a, b, w))
+        .collect()
 }

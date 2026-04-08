@@ -93,7 +93,7 @@ fn test_codebook_persistence() {
     let json = s.codebook.to_json();
     let restored = codebook::AaakCodebook::from_json(&json);
     assert_eq!(restored.len(), 2);
-    assert_eq!(restored.lookup("memory-field"), Some("AAA".into()));
+    assert_eq!(restored.lookup("memory-field"), Some("A".into()));
 }
 
 #[test]

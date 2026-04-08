@@ -18,16 +18,25 @@ pub mod scoring;
 pub mod spectral;
 
 use attractor::{AizawaState, HalvorsenState, ThomasState};
-use basin::{Basin, HysteresisTracker};
+use basin::HysteresisTracker;
 use graph::SparseGraph;
 
 // ── Typed API: actor-owned state, no singletons ──────────────────────
+pub use api::dream_stats;
 pub use api::edge_current_status;
 pub use api::{
     basin_status, current_basin, eigenmode_status, field_dream, field_recall,
     field_recall_structural, load_graph, reset, restore_basin, status, step_attractors,
     ConceptActivation, RecallResult,
 };
+// Dream report type and serializer.
+pub use api::{DreamReport, dream_report_to_sexp};
+// Phase 7: Cross-node memory digest.
+pub use api::{compute_digest, MemoryDigest};
+// Phase 8: Genesis improvement.
+pub use api::{bootstrap, load_genesis, GenesisEntry};
+pub use basin::Basin;
+pub use graph::Domain;
 
 /// Re-export sexp escape from the shared protocol crate.
 pub(crate) use harmonia_actor_protocol::sexp_escape as graph_sexp_escape;
@@ -47,6 +56,12 @@ pub struct FieldState {
     pub(crate) node_basins: Vec<Basin>,
     pub(crate) cycle: i64,
     pub(crate) thomas_b: f64,
+    // ── Entropy bookkeeping (Phase 4D) ──
+    pub(crate) cumulative_entropy_delta: f64,
+    pub(crate) dream_count: u64,
+    pub(crate) total_pruned: u64,
+    pub(crate) total_merged: u64,
+    pub(crate) total_crystallized: u64,
 }
 
 impl FieldState {
@@ -64,6 +79,11 @@ impl FieldState {
             node_basins: Vec::new(),
             cycle: 0,
             thomas_b: 0.208,
+            cumulative_entropy_delta: 0.0,
+            dream_count: 0,
+            total_pruned: 0,
+            total_merged: 0,
+            total_crystallized: 0,
         }
     }
 }

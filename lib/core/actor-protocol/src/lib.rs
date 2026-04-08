@@ -33,3 +33,4 @@ pub use sexp::extract_u64 as extract_sexp_u64;
 pub use sexp::extract_u64_or as extract_sexp_u64_or;
 pub use sexp::truncate_safe;
 pub use sexp::clamp_f64;
+pub use sexp::SexpBuilder;

@@ -134,6 +134,13 @@ pub enum NodeRpcResult {
         lode_id: String,
         available: bool,
     },
+    CrossNodeRecallResponse {
+        activations: Vec<(String, f64)>,
+        source_node: String,
+    },
+    MemoryDigestResponse {
+        digest_sexp: String,
+    },
 }
 
 pub fn success_response(id: impl Into<String>, result: NodeRpcResult) -> NodeRpcResponseEnvelope {

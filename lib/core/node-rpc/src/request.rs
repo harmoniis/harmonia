@@ -131,6 +131,13 @@ pub enum NodeRpcRequest {
     DatamineProbe {
         lode_id: String,
     },
+    CrossNodeRecall {
+        query_concepts: Vec<String>,
+        #[serde(default = "default_cross_node_max_results")]
+        max_results: usize,
+        requesting_node: String,
+    },
+    MemoryDigestRequest,
 }
 
 fn default_max_entries() -> u32 {
@@ -151,4 +158,8 @@ fn default_tmux_history_lines() -> u32 {
 
 fn default_datamine_timeout() -> u64 {
     5000
+}
+
+fn default_cross_node_max_results() -> usize {
+    10
 }

@@ -90,12 +90,12 @@ fn classify_node(
 // ── Accumulation ──
 
 /// Accumulated dream report from classification fold.
-struct DreamReport {
-    pruned_entries: Vec<String>,
-    merge_groups: Vec<Vec<String>>,
-    crystallized_entries: Vec<String>,
-    entropy_delta: f64,
-    node_count: usize,
+pub struct DreamReport {
+    pub pruned_entries: Vec<String>,
+    pub merge_groups: Vec<Vec<String>>,
+    pub crystallized_entries: Vec<String>,
+    pub entropy_delta: f64,
+    pub node_count: usize,
 }
 
 /// Collect classifications into merge groups by basin, then build the report.
@@ -151,7 +151,7 @@ fn collect_dream_report(
 
 // ── Sexp serialization (separated from logic) ──
 
-fn dream_report_to_sexp(report: &DreamReport) -> String {
+pub fn dream_report_to_sexp(report: &DreamReport) -> String {
     let escape = crate::graph_sexp_escape;
 
     let pruned_sexp: Vec<String> = report.pruned_entries
@@ -187,12 +187,18 @@ fn dream_report_to_sexp(report: &DreamReport) -> String {
 
 // ── Public API ──
 
-/// Field dreaming: classify → collect → serialize.
-/// Returns DreamReport as sexp.
-pub fn field_dream(s: &mut FieldState) -> Result<String, MemoryError> {
+/// Field dreaming: classify → collect → report.
+/// Returns structured DreamReport; caller serializes at dispatch boundary.
+pub fn field_dream(s: &mut FieldState) -> Result<DreamReport, MemoryError> {
     let n = s.graph.n;
     if n == 0 {
-        return Ok("(:ok :pruned () :merged () :crystallized () :stats (:nodes 0 :pruned 0 :merged 0 :crystallized 0 :entropy-delta 0.0))".into());
+        return Ok(DreamReport {
+            pruned_entries: Vec::new(),
+            merge_groups: Vec::new(),
+            crystallized_entries: Vec::new(),
+            entropy_delta: 0.0,
+            node_count: 0,
+        });
     }
 
     let thresholds = DreamThresholds::from_config();
@@ -237,6 +243,12 @@ pub fn field_dream(s: &mut FieldState) -> Result<String, MemoryError> {
     // 4. Collect classifications into dream report — functional fold.
     let report = collect_dream_report(classifications, &s.graph, n);
 
-    // 5. Serialize — pure presentation, separated from logic.
-    Ok(dream_report_to_sexp(&report))
+    // 5. Update entropy bookkeeping (Phase 4D).
+    s.cumulative_entropy_delta += report.entropy_delta;
+    s.dream_count += 1;
+    s.total_pruned += report.pruned_entries.len() as u64;
+    s.total_merged += report.merge_groups.len() as u64;
+    s.total_crystallized += report.crystallized_entries.len() as u64;
+
+    Ok(report)
 }

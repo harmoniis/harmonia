@@ -24,5 +24,7 @@ pub fn capability_for_request(request: &NodeRpcRequest) -> &'static str {
         NodeRpcRequest::DatamineQuery { .. } => capability::DATAMINE_QUERY,
         NodeRpcRequest::DatamineCatalog => capability::DATAMINE_CATALOG,
         NodeRpcRequest::DatamineProbe { .. } => capability::DATAMINE_PROBE,
+        NodeRpcRequest::CrossNodeRecall { .. } => capability::CROSS_NODE_RECALL,
+        NodeRpcRequest::MemoryDigestRequest => capability::MEMORY_DIGEST,
     }
 }

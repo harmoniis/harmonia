@@ -5,7 +5,7 @@
 /// only strong, sustained context drives the system across an energy barrier.
 
 use crate::attractor::{
-    classify_aizawa_depth, classify_halvorsen_lobe, classify_thomas_basin, AizawaState,
+    classify_aizawa_depth, classify_halvorsen_lobe, BasinClassifier, AizawaState,
     HalvorsenState, ThomasState,
 };
 use crate::error::clamp;
@@ -13,7 +13,7 @@ use crate::graph::Domain;
 
 /// Which attractor basin a concept node currently belongs to.
 #[derive(Clone, Debug, Copy, PartialEq, Eq)]
-pub(crate) enum Basin {
+pub enum Basin {
     /// Thomas lobe 0-5, one per domain.
     ThomasLobe(u8),
     /// Aizawa surface — shallow memories.
@@ -94,8 +94,10 @@ pub(crate) fn domain_to_thomas_basin(domain: Domain) -> u8 {
 /// The Thomas attractor provides the primary basin (domain routing).
 /// Aizawa provides depth overlay. Halvorsen provides bridge overlay.
 /// The primary basin used for hysteresis is the Thomas basin.
+///
+/// Uses the `BasinClassifier` trait so any attractor type can be substituted.
 pub(crate) fn classify_primary_basin(thomas: &ThomasState) -> Basin {
-    Basin::ThomasLobe(classify_thomas_basin(thomas))
+    Basin::ThomasLobe(thomas.classify_basin())
 }
 
 /// Assign each concept node a basin based on its domain and attractor state.

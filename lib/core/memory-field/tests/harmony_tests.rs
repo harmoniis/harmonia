@@ -162,7 +162,7 @@ fn recall(s: &mut FieldState, concepts: &[&str], limit: usize) -> Vec<(String, f
     let query: Vec<String> = concepts.iter().map(|c| c.to_string()).collect();
     let access: Vec<(String, f64, f64)> = vec![];
     match field_recall(s, query, access, limit) {
-        Ok(result) => parse_activations(&result),
+        Ok(result) => parse_activations(&result.to_sexp()),
         Err(_) => Vec::new(),
     }
 }

@@ -7,21 +7,26 @@
 /// This is the lightning pathfinding principle: source concepts are electrodes,
 /// the field concentrates current along optimal paths to memory nodes.
 
-use crate::error::clamp;
-use crate::graph::{concept_index, regularized_laplacian_mul, SparseGraph};
+use harmonia_actor_protocol::ConceptGraph;
 
-/// Solve the regularized Laplacian system (L + εI) · φ = b via conjugate gradient.
+use crate::error::clamp;
+use crate::graph::{concept_index, SparseGraph};
+
+/// Solve the regularized Laplacian system (L + eI) . phi = b via conjugate gradient.
 ///
 /// For a ~120 node sparse graph, this converges in 10-30 iterations.
-/// Total cost per solve: O(max_iter × |E|).
-pub(crate) fn solve_field(
-    graph: &SparseGraph,
+/// Total cost per solve: O(max_iter x |E|).
+///
+/// Generic over ConceptGraph -- uses `laplacian_mul()` from the trait with
+/// inline regularization (+ epsilon * x[i]).
+pub(crate) fn solve_field<G: ConceptGraph>(
+    graph: &G,
     sources: &[f64],
     max_iter: usize,
     tol: f64,
     epsilon: f64,
 ) -> Vec<f64> {
-    let n = graph.n;
+    let n = graph.node_count();
     if n == 0 {
         return Vec::new();
     }
@@ -40,8 +45,9 @@ pub(crate) fn solve_field(
     let mut ap = vec![0.0; n];
 
     for _iter in 0..max_iter {
-        // Ap = (L + εI) * p
-        regularized_laplacian_mul(graph, &p, &mut ap, epsilon);
+        // Ap = (L + eI) * p
+        graph.laplacian_mul(&p, &mut ap);
+        for i in 0..n { ap[i] += epsilon * p[i]; }
 
         let p_ap = dot(&p, &ap);
         if p_ap.abs() < 1e-30 {
@@ -50,7 +56,7 @@ pub(crate) fn solve_field(
 
         let alpha = rs_old / p_ap;
 
-        // x += α·p, r -= α·Ap
+        // x += alpha*p, r -= alpha*Ap
         for i in 0..n {
             x[i] += alpha * p[i];
             r[i] -= alpha * ap[i];

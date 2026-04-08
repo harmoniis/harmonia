@@ -19,6 +19,8 @@ pub const FRONTEND_PAIR_STATUS: &str = "frontend.pair-status";
 pub const DATAMINE_QUERY: &str = "datamine.query";
 pub const DATAMINE_CATALOG: &str = "datamine.catalog";
 pub const DATAMINE_PROBE: &str = "datamine.probe";
+pub const CROSS_NODE_RECALL: &str = "memory.cross-node-recall";
+pub const MEMORY_DIGEST: &str = "memory.digest";
 
 pub fn default_capabilities() -> Vec<String> {
     vec![
@@ -43,5 +45,7 @@ pub fn default_capabilities() -> Vec<String> {
         DATAMINE_QUERY.to_string(),
         DATAMINE_CATALOG.to_string(),
         DATAMINE_PROBE.to_string(),
+        CROSS_NODE_RECALL.to_string(),
+        MEMORY_DIGEST.to_string(),
     ]
 }

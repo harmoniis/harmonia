@@ -178,26 +178,25 @@ fn build_access_vector(
 
 // ── Public API ──
 
-/// Full field recall — returns sexp string (backward compatible).
+/// Full field recall — returns structured RecallResult.
+/// Caller serializes at the dispatch boundary via `.to_sexp()`.
 pub fn field_recall(
     s: &mut FieldState,
     query_concepts: Vec<String>,
     access_counts: Vec<(String, f64, f64)>,
     limit: usize,
-) -> Result<String, MemoryError> {
-    let result = compute_recall(s, &query_concepts, &access_counts, limit);
-    Ok(result.to_sexp())
+) -> Result<RecallResult, MemoryError> {
+    Ok(compute_recall(s, &query_concepts, &access_counts, limit))
 }
 
 /// Structural-only recall — concept names + scores + basins, no entry content.
-/// For progressive context injection: ~10 tokens per concept vs ~50+ for full.
+/// Caller serializes at the dispatch boundary via `.to_sexp_structural()`.
 pub fn field_recall_structural(
     s: &mut FieldState,
     query_concepts: Vec<String>,
     limit: usize,
-) -> Result<String, MemoryError> {
-    let result = compute_recall(s, &query_concepts, &[], limit);
-    Ok(result.to_sexp_structural())
+) -> Result<RecallResult, MemoryError> {
+    Ok(compute_recall(s, &query_concepts, &[], limit))
 }
 
 /// Current basin status — lightweight, no field solve.

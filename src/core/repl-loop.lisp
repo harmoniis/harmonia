@@ -116,7 +116,7 @@ Only #\\ (character literal) is benign; all others are rejected."
   "model-id → (:code-ok N :code-error N :natural N :recall N :error N
                :unavailable N :total-ms N :calls N)")
 
-(defun %record-repl-perf (model outcome &key (latency-ms 0))
+(defun %record-repl-perf (model outcome &key (latency-ms 0) (tokens 0))
   "Record one REPL interaction outcome for a model."
   (when (and model (stringp model) (> (length model) 0))
     (let ((perf (or (gethash model *repl-model-perf*) '())))
@@ -124,6 +124,8 @@ Only #\\ (character literal) is benign; all others are rejected."
       (when (> latency-ms 0)
         (setf (getf perf :total-ms) (+ (or (getf perf :total-ms) 0) latency-ms))
         (setf (getf perf :calls) (1+ (or (getf perf :calls) 0))))
+      (when (> tokens 0)
+        (setf (getf perf :total-tokens) (+ (or (getf perf :total-tokens) 0) tokens)))
       (setf (gethash model *repl-model-perf*) perf))))
 
 (defun %repl-fluency (model)
@@ -148,15 +150,25 @@ Only #\\ (character literal) is benign; all others are rejected."
     ;; Sigmoid: 1000ms → 0.73, 3000ms → 0.5, 10000ms → 0.17
     (/ 1.0 (+ 1.0 (exp (/ (- avg-ms 3000.0) 2000.0))))))
 
+(defun %repl-compression-score (model)
+  "Kolmogorov compression score [0.0-1.0]. Fewer total tokens = better.
+Models that solve queries in fewer tokens score higher."
+  (let* ((perf (gethash model *repl-model-perf*))
+         (total-tokens (or (getf perf :total-tokens) 0))
+         (calls (max 1 (or (getf perf :calls) 1)))
+         (avg-tokens (/ (float total-tokens) (float calls))))
+    (/ 1.0 (+ 1.0 (/ avg-tokens 500.0)))))
+
 (defun %repl-model-score (model)
-  "Combined REPL score: 0.5×fluency + 0.3×speed + 0.2×(1-cost).
+  "Combined REPL score: 0.35×fluency + 0.25×speed + 0.15×cost + 0.25×compression.
    Higher = better. Models with no data get 0.5 (try them)."
   (let* ((fluency (%repl-fluency model))
          (speed (%repl-speed model))
          (profile (handler-case (%profile-by-id model) (error () nil)))
          (cost (if profile (or (getf profile :cost) 5) 5))
-         (cost-factor (/ 1.0 (+ 1.0 (float cost)))))
-    (+ (* 0.5 fluency) (* 0.3 speed) (* 0.2 cost-factor))))
+         (cost-factor (/ 1.0 (+ 1.0 (float cost))))
+         (compression (%repl-compression-score model)))
+    (+ (* 0.35 fluency) (* 0.25 speed) (* 0.15 cost-factor) (* 0.25 compression))))
 
 (defun %select-model-by-repl-perf (prompt)
   "Select the best model by measured REPL performance. Start from free, escalate.
@@ -172,6 +184,103 @@ Only #\\ (character literal) is benign; all others are rejected."
     (or (car (first ranked)) "")))
 
 ;;; ═══════════════════════════════════════════════════════════════════════
+;;; CONTEXT FRAME — tracks progressive injection state across rounds
+;;; ═══════════════════════════════════════════════════════════════════════
+
+(defstruct context-frame
+  (round 1 :type fixnum)
+  (basin nil)
+  (domain nil)
+  (injected-layer :none)
+  (tokens-used 0 :type fixnum)
+  (token-budget 4000 :type fixnum)
+  (recalled-ids nil :type list)
+  (concepts-active nil :type list))
+
+(defun %token-estimate (text)
+  "Estimate token count: ~4 chars per token."
+  (if (and text (stringp text)) (ceiling (length text) 4) 0))
+
+(defun %context-frame-remaining (frame)
+  "Remaining token budget."
+  (max 0 (- (context-frame-token-budget frame) (context-frame-tokens-used frame))))
+
+(defun %allocate-round-budget (frame)
+  "Budget allocation per round: 15% round 1, 30% round 2, 35% round 3, rest split."
+  (let ((total (context-frame-token-budget frame))
+        (round (context-frame-round frame)))
+    (case round
+      (1 (truncate (* total 0.15)))
+      (2 (truncate (* total 0.30)))
+      (3 (truncate (* total 0.35)))
+      (t (truncate (/ (%context-frame-remaining frame)
+                      (max 1 (- (or (dna-constraint :repl-max-rounds) 5) round -1))))))))
+
+(defun %build-round-prompt (user-text frame)
+  "Build prompt for current round using progressive context injection.
+Round 1: structural only (basin + concept names). Minimal tokens.
+Round 2: focused recall with content, basin-filtered.
+Round 3+: deep search from mempalace."
+  (let ((round (context-frame-round frame))
+        (budget (%allocate-round-budget frame)))
+    (cond
+      ;; Round 1: Orientation — structure only, no content.
+      ((= round 1)
+       (let* ((basin-info (handler-case (memory-field-current-basin) (error () nil)))
+              (basin (when basin-info (getf basin-info :basin)))
+              (structural (handler-case
+                              (memory-field-recall-structural user-text :limit 3)
+                            (error () nil)))
+              (concepts (when structural
+                          (let ((acts (getf structural :activations)))
+                            (when (listp acts)
+                              (mapcar (lambda (a) (getf a :concept)) acts))))))
+         ;; Update frame state.
+         (setf (context-frame-basin frame) basin)
+         (setf (context-frame-domain frame)
+               (when basin-info (getf basin-info :domain)))
+         (setf (context-frame-concepts-active frame) concepts)
+         (setf (context-frame-injected-layer frame) :l0)
+         (let ((prompt (format nil ";;agent:~A~%;;basin:~A~%;;concepts:~{~A~^ ~}~%;;output: s-expression | natural-language~%;;query:~%~A"
+                               (%agent-name) (or basin "unknown")
+                               (or concepts '("none")) user-text)))
+           (incf (context-frame-tokens-used frame) (%token-estimate prompt))
+           prompt)))
+
+      ;; Round 2: Focused recall with content, basin-filtered.
+      ((= round 2)
+       (let* ((recalled (handler-case
+                            (memory-recall user-text :limit 5)
+                          (error () nil)))
+              (recalled-text
+                (when recalled
+                  (with-output-to-string (out)
+                    (dolist (e recalled)
+                      (let ((text (%entry-text e)))
+                        (when (and (stringp text) (> (length text) 10))
+                          (let ((preview (subseq text 0 (min (truncate (* budget 4)
+                                                                       (max 1 (length recalled)))
+                                                             (length text)))))
+                            (write-string preview out)
+                            (terpri out)))))))))
+         (setf (context-frame-injected-layer frame) :l1)
+         (let ((prompt (format nil ";;agent:~A~%;;context:~%~A~%;;query:~%~A"
+                               (%agent-name) (or recalled-text "") user-text)))
+           (incf (context-frame-tokens-used frame) (%token-estimate prompt))
+           prompt)))
+
+      ;; Round 3+: Deep search. Use existing path.
+      (t
+       (let* ((recalled (handler-case
+                            (memory-semantic-recall-block user-text :limit 3 :max-chars (min 800 (* budget 4)))
+                          (error () nil))))
+         (setf (context-frame-injected-layer frame) :l3)
+         (let ((prompt (format nil ";;agent:~A~%;;deep-context:~%~A~%;;query:~%~A"
+                               (%agent-name) (or recalled "") user-text)))
+           (incf (context-frame-tokens-used frame) (%token-estimate prompt))
+           prompt))))))
+
+;;; ═══════════════════════════════════════════════════════════════════════
 ;;; THE HARMONIC REPL — the orchestration core
 ;;; ═══════════════════════════════════════════════════════════════════════
 
@@ -181,27 +290,10 @@ No score branching, no model selection, no bootstrap modes. ONE path."
   (let* ((user-text (if (harmonia-signal-p prompt)
                         (harmonia-signal-payload prompt)
                         (if (stringp prompt) prompt (princ-to-string prompt))))
-         ;; Recall from memory field — s-expression context.
-         (recalled (handler-case
-     (let ((entries (memory-recall user-text :limit 5)
-   (error () nil)))
-                       (when entries
-                         (with-output-to-string (out)
-                           (dolist (e entries)
-                             (let ((text (%entry-text e)))
-                               (when (and (stringp text) (> (length text) 10))
-                                 (write-string (subseq text 0 (min 200 (length text))) out)
-                                 (terpri out)))))))))
-         ;; Structural frame with Lisp comments as bridge markers.
-         ;; Comments are structural in Lisp — they're part of the language.
-         ;; The LLM sees the structure AND can parse the markers.
-         (current-prompt
-           (format nil ";; agent: ~A~%;; output: s-expression → eval | natural-language → user~%;; (respond \"text\") to answer. (recall q) (read-file p) (grep p) (exec c) (status) (list-files d)~%~A~%~%;; query:~%~A"
-                   (%agent-name)
-                   (if (and recalled (> (length recalled) 0))
-                       (format nil "~%;; context:~%~A" recalled)
-                       "")
-                   user-text))
+         ;; Progressive context injection via context-frame.
+         (frame (make-context-frame
+                  :token-budget (or (dna-constraint :repl-token-budget) 4000)))
+         (current-prompt (%build-round-prompt user-text frame))
          (round 0)
          (last-eval-result nil))
 
@@ -216,10 +308,16 @@ No score branching, no model selection, no bootstrap modes. ONE path."
         (let ((round-prompt
                 (if (= round 1)
                     current-prompt
-                    (format nil ";; agent: ~A~%;; result:~%~A~%~%;; query:~%~A"
-                            (%agent-name)
-                            (or last-eval-result "")
-                            user-text)))
+                    (progn
+                      (setf (context-frame-round frame) round)
+                      (if last-eval-result
+                          ;; Have eval results: feed them back
+                          (format nil ";;agent:~A~%;;result:~%~A~%;;query:~%~A"
+                                  (%agent-name)
+                                  (or last-eval-result "")
+                                  user-text)
+                          ;; No results yet: progressive injection for this round
+                          (%build-round-prompt user-text frame)))))
               (used-model (or (handler-case (%select-model user-text) (error () nil)) ""))
               (call-start (get-internal-real-time)))
 
@@ -255,7 +353,8 @@ No score branching, no model selection, no bootstrap modes. ONE path."
             (cond
               ((null llm-output)
                (%log :info "sexp-eval" "REPL ~D: all models unavailable" round)
-               (%record-repl-perf used-model :unavailable :latency-ms latency-ms)
+               (%record-repl-perf used-model :unavailable :latency-ms latency-ms
+                                  :tokens (+ (%token-estimate round-prompt) (%token-estimate (or llm-output ""))))
                ;; Feed error context to REPL — LLM understands what happened.
                (when last-eval-result
                  (return-from %orchestrate-repl
@@ -275,17 +374,20 @@ No score branching, no model selection, no bootstrap modes. ONE path."
                           (not (search "parse-error" eval-result)))
                      (progn
                        (setf last-eval-result eval-result)
-                       (%record-repl-perf used-model :code-ok :latency-ms latency-ms))
+                       (%record-repl-perf used-model :code-ok :latency-ms latency-ms
+                                          :tokens (+ (%token-estimate round-prompt) (%token-estimate llm-output))))
                      ;; Eval failed — strip code markers and return as natural language.
                      (progn
-                       (%record-repl-perf used-model :code-error :latency-ms latency-ms)
+                       (%record-repl-perf used-model :code-error :latency-ms latency-ms
+                                          :tokens (+ (%token-estimate round-prompt) (%token-estimate llm-output)))
                        (let ((cleaned (string-trim '(#\( #\) #\Space #\Newline) llm-output)))
                          (when (> (length cleaned) 10)
                            (return-from %orchestrate-repl cleaned)))))))
 
               ;; RECALL: keyword → the simple model wants more context.
               ((search "RECALL:" llm-output)
-               (%record-repl-perf used-model :recall :latency-ms latency-ms)
+               (%record-repl-perf used-model :recall :latency-ms latency-ms
+                                  :tokens (+ (%token-estimate round-prompt) (%token-estimate llm-output)))
                (let* ((pos (search "RECALL:" llm-output))
                       (query (string-trim '(#\Space #\Newline #\Return)
                                           (subseq llm-output (+ pos 7))))
@@ -298,7 +400,8 @@ No score branching, no model selection, no bootstrap modes. ONE path."
 
               ;; Natural language → return to user. Meditate on success.
               (t
-               (%record-repl-perf used-model :natural :latency-ms latency-ms)
+               (%record-repl-perf used-model :natural :latency-ms latency-ms
+                                  :tokens (+ (%token-estimate round-prompt) (%token-estimate llm-output)))
                (%log :info "sexp-eval" "REPL ~D: response (~D chars)" round (length llm-output))
                (return-from %orchestrate-repl llm-output))))))
 

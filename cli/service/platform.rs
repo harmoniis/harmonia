@@ -1,21 +1,20 @@
 use console::style;
-use std::path::PathBuf;
 
-pub fn install() -> Result<(), Box<dyn std::error::Error>> {
-    let home = dirs::home_dir().ok_or("cannot determine home directory")?;
-    let harmonia_bin = resolve_bin_path()?;
-
+pub fn install(
+    home: &std::path::Path,
+    harmonia_bin: &std::path::Path,
+) -> Result<(), Box<dyn std::error::Error>> {
     #[cfg(target_os = "macos")]
-    install_launchd(&home, &harmonia_bin)?;
+    install_launchd(home, harmonia_bin)?;
 
     #[cfg(target_os = "linux")]
-    install_systemd(&home, &harmonia_bin)?;
+    install_systemd(home, harmonia_bin)?;
 
     #[cfg(target_os = "freebsd")]
-    install_freebsd(&home, &harmonia_bin)?;
+    install_freebsd(home, harmonia_bin)?;
 
     #[cfg(target_os = "windows")]
-    install_windows(&home, &harmonia_bin)?;
+    install_windows(home, harmonia_bin)?;
 
     Ok(())
 }
@@ -38,13 +37,6 @@ pub fn uninstall() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
-fn resolve_bin_path() -> Result<PathBuf, Box<dyn std::error::Error>> {
-    let exe = std::env::current_exe()?;
-    // Resolve symlinks
-    let canonical = std::fs::canonicalize(&exe).unwrap_or(exe);
-    Ok(canonical)
-}
-
 #[cfg(target_os = "macos")]
 fn install_launchd(
     home: &std::path::Path,
@@ -54,7 +46,7 @@ fn install_launchd(
     std::fs::create_dir_all(&plist_dir)?;
     let plist_path = plist_dir.join("com.harmoniis.harmonia.plist");
 
-    let template = include_str!("../service/com.harmoniis.harmonia.plist");
+    let template = include_str!("../../service/com.harmoniis.harmonia.plist");
     let home_str = home.to_string_lossy();
     let content = template
         .replace("__HARMONIA_BIN__", &harmonia_bin.to_string_lossy())
@@ -68,7 +60,6 @@ fn install_launchd(
         plist_path.display()
     );
 
-    // Load the service
     let status = std::process::Command::new("launchctl")
         .args(["load", "-w"])
         .arg(&plist_path)
@@ -120,7 +111,7 @@ fn install_systemd(
     std::fs::create_dir_all(&user_service_dir)?;
     let service_path = user_service_dir.join("harmonia.service");
 
-    let template = include_str!("../service/harmonia.service");
+    let template = include_str!("../../service/harmonia.service");
     let home_str = home.to_string_lossy();
     let content = template
         .replace("__HARMONIA_BIN__", &harmonia_bin.to_string_lossy())
@@ -187,10 +178,10 @@ fn install_freebsd(
     home: &std::path::Path,
     harmonia_bin: &std::path::Path,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let template = include_str!("../service/harmonia-freebsd.sh");
+    let template = include_str!("../../service/harmonia-freebsd.sh");
     let user = std::env::var("USER").unwrap_or_else(|_| "root".to_string());
     let home_str = home.to_string_lossy();
-    let content = template
+    let _content = template
         .replace("__HARMONIA_BIN__", &harmonia_bin.to_string_lossy())
         .replace("__HOME__", &home_str)
         .replace("__USER__", &user);
@@ -217,7 +208,6 @@ fn install_windows(
     let state_root = home.join(".harmoniis").join("harmonia");
     let log_path = state_root.join("harmonia.log");
 
-    // Create a scheduled task that runs at logon
     let xml = format!(
         r#"<?xml version="1.0" encoding="UTF-16"?>
 <Task version="1.2" xmlns="http://schemas.microsoft.com/windows/2004/02/mit/task">

@@ -66,6 +66,11 @@ pub(crate) fn dispatch(
             let query = extract_sexp_string(sexp, ":query").unwrap_or_default();
             dispatch_op!("codebook", harmonia_mempalace::codebook_lookup(palace, &query))
         }
+        "codebook-register" => {
+            let concepts_str = extract_sexp_string(sexp, ":concepts").unwrap_or_default();
+            let concepts: Vec<String> = concepts_str.split_whitespace().map(|s| s.to_string()).collect();
+            dispatch_op!("codebook-register", harmonia_mempalace::codebook_register(palace, &concepts))
+        }
         "context-l0" => dispatch_op!("context-l0", harmonia_mempalace::context_l0(palace)),
         "context-l1" => dispatch_op!("context-l1", harmonia_mempalace::context_l1(palace)),
         "context-l2" => {

@@ -16,6 +16,10 @@ pub struct MemoryFieldState {
     obs: Option<ActorRef<ObsMsg>>,
     field: harmonia_memory_field::FieldState,
     last_basin: String,
+    // ── Automated dreaming (Phase 4A) ──
+    idle_ticks: u64,
+    last_dream_cycle: u64,
+    total_ticks: u64,
 }
 
 impl Actor for MemoryFieldActor {
@@ -35,6 +39,9 @@ impl Actor for MemoryFieldActor {
             obs,
             field,
             last_basin: "thomas-0".into(),
+            idle_ticks: 0,
+            last_dream_cycle: 0,
+            total_ticks: 0,
         })
     }
 
@@ -46,6 +53,9 @@ impl Actor for MemoryFieldActor {
     ) -> Result<(), ActorProcessingErr> {
         match message {
             ComponentMsg::Tick => {
+                state.total_ticks += 1;
+                state.idle_ticks += 1;
+
                 // Attractors are stepped by harmonic machine via IPC (:attractor-sync phase).
                 // Tick monitors basin transitions and emits StateChanged through bridge.
                 if let Ok(status_sexp) = harmonia_memory_field::basin_status(&state.field) {
@@ -81,8 +91,41 @@ impl Actor for MemoryFieldActor {
                         }
                     }
                 }
+
+                // ── Automated dreaming (Phase 4A) ──
+                // When idle long enough and enough ticks since last dream, trigger a dream cycle.
+                let dream_idle_threshold = harmonia_config_store::get_own("memory-field", "dream-idle-ticks")
+                    .ok().flatten().and_then(|s| s.parse::<u64>().ok()).unwrap_or(5);
+                let dream_cycle_interval = harmonia_config_store::get_own("memory-field", "dream-cycle-interval")
+                    .ok().flatten().and_then(|s| s.parse::<u64>().ok()).unwrap_or(30);
+
+                if state.idle_ticks >= dream_idle_threshold
+                    && state.total_ticks - state.last_dream_cycle >= dream_cycle_interval
+                {
+                    if let Ok(report) = harmonia_memory_field::field_dream(&mut state.field) {
+                        let report_sexp = harmonia_memory_field::dream_report_to_sexp(&report);
+                        // Send dream report to Lisp via bridge for merge application.
+                        let msg = HarmoniaMessage {
+                            id: 0,
+                            source: 0,
+                            target: 0,
+                            kind: ActorKind::MemoryField,
+                            timestamp: now_unix(),
+                            payload: MessagePayload::InboundSignal {
+                                envelope_sexp: format!(
+                                    "(:component \"memory-field\" :event \"dream-complete\" :report {})",
+                                    report_sexp
+                                ),
+                            },
+                        };
+                        let _ = state.bridge.cast(BridgeMsg::Enqueue { msg });
+                    }
+                    state.last_dream_cycle = state.total_ticks;
+                    state.idle_ticks = 0;
+                }
             }
             ComponentMsg::Dispatch(sexp, reply) => {
+                state.idle_ticks = 0; // Activity resets idle counter.
                 let result =
                     crate::dispatch::dispatch_memory_field(&sexp, &mut state.field);
                 let _ = reply.send(result);

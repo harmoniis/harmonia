@@ -151,6 +151,89 @@ macro_rules! define_sexp_enum {
     };
 }
 
+// ── SexpBuilder: declarative sexp construction ──
+
+/// Builder for constructing sexp strings declaratively.
+/// Replaces error-prone `format!` patterns with typed construction.
+///
+/// ```
+/// use harmonia_actor_protocol::SexpBuilder;
+/// let s = SexpBuilder::ok().key("n").uint(5).key("edges").uint(10).build();
+/// assert_eq!(s, "(:ok :n 5 :edges 10)");
+/// ```
+pub struct SexpBuilder {
+    buf: String,
+}
+
+impl SexpBuilder {
+    /// Start an `:ok` sexp.
+    pub fn ok() -> Self {
+        Self { buf: "(:ok".into() }
+    }
+
+    /// Start an `:error` sexp.
+    pub fn error() -> Self {
+        Self { buf: "(:error".into() }
+    }
+
+    /// Append a keyword (`:key`).
+    pub fn key(mut self, k: &str) -> Self {
+        self.buf.push_str(" :");
+        self.buf.push_str(k);
+        self
+    }
+
+    /// Append a signed integer value.
+    pub fn int(mut self, v: i64) -> Self {
+        self.buf.push(' ');
+        self.buf.push_str(&v.to_string());
+        self
+    }
+
+    /// Append an unsigned integer value.
+    pub fn uint(mut self, v: u64) -> Self {
+        self.buf.push(' ');
+        self.buf.push_str(&v.to_string());
+        self
+    }
+
+    /// Append a float value with specified decimal places.
+    pub fn float(mut self, v: f64, decimals: usize) -> Self {
+        self.buf.push(' ');
+        self.buf.push_str(&format!("{:.prec$}", v, prec = decimals));
+        self
+    }
+
+    /// Append an escaped, quoted string value.
+    pub fn str(mut self, v: &str) -> Self {
+        self.buf.push_str(" \"");
+        self.buf.push_str(&escape(v));
+        self.buf.push('"');
+        self
+    }
+
+    /// Append a raw (unquoted) value. Use for pre-formatted sexp fragments.
+    pub fn raw(mut self, v: &str) -> Self {
+        self.buf.push(' ');
+        self.buf.push_str(v);
+        self
+    }
+
+    /// Append a parenthesized list of pre-formatted items.
+    pub fn list(mut self, items: &[String]) -> Self {
+        self.buf.push_str(" (");
+        self.buf.push_str(&items.join(" "));
+        self.buf.push(')');
+        self
+    }
+
+    /// Finalize and return the sexp string.
+    pub fn build(mut self) -> String {
+        self.buf.push(')');
+        self.buf
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -202,5 +285,42 @@ mod tests {
     fn extract_bool_works() {
         assert_eq!(extract_bool("(:success t)", ":success"), Some(true));
         assert_eq!(extract_bool("(:success nil)", ":success"), Some(false));
+    }
+
+    #[test]
+    fn sexp_builder_ok_with_key_values() {
+        let s = SexpBuilder::ok().key("n").uint(5).key("edges").uint(10).build();
+        assert_eq!(s, "(:ok :n 5 :edges 10)");
+    }
+
+    #[test]
+    fn sexp_builder_error_with_string() {
+        let s = SexpBuilder::error().str("something failed").build();
+        assert_eq!(s, r#"(:error "something failed")"#);
+    }
+
+    #[test]
+    fn sexp_builder_float_precision() {
+        let s = SexpBuilder::ok().key("score").float(0.123456, 3).build();
+        assert_eq!(s, "(:ok :score 0.123)");
+    }
+
+    #[test]
+    fn sexp_builder_list() {
+        let items = vec!["0.1234".to_string(), "0.5678".to_string()];
+        let s = SexpBuilder::ok().key("eigenvalues").list(&items).build();
+        assert_eq!(s, "(:ok :eigenvalues (0.1234 0.5678))");
+    }
+
+    #[test]
+    fn sexp_builder_escapes_strings() {
+        let s = SexpBuilder::ok().key("label").str(r#"hello "world""#).build();
+        assert_eq!(s, r#"(:ok :label "hello \"world\"")"#);
+    }
+
+    #[test]
+    fn sexp_builder_raw_fragment() {
+        let s = SexpBuilder::ok().key("basin").raw(":thomas-0").build();
+        assert_eq!(s, "(:ok :basin :thomas-0)");
     }
 }

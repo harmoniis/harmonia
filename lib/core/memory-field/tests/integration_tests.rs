@@ -120,7 +120,7 @@ fn recall(s: &mut FieldState, concepts: &[&str], limit: usize) -> Vec<(String, f
     let query: Vec<String> = concepts.iter().map(|c| c.to_string()).collect();
     let access: Vec<(String, f64, f64)> = Vec::new();
     match field_recall(s, query, access, limit) {
-        Ok(result) => parse_activations(&result),
+        Ok(result) => parse_activations(&result.to_sexp()),
         Err(_) => Vec::new(),
     }
 }
@@ -336,7 +336,7 @@ fn test_17_multiple_source_nodes() {
 fn test_18_entry_ids_in_results() {
     let mut s = setup();
     let query = vec!["memory".to_string()];
-    let result = field_recall(&mut s, query, vec![], 10).unwrap();
+    let result = field_recall(&mut s, query, vec![], 10).unwrap().to_sexp();
     let has_entries = result.contains("SKILL-") || result.contains("DAILY-") || result.contains("SOUL-");
     assert!(has_entries,
         "Recall result should carry entry IDs: {}", &result[..result.len().min(500)]);
@@ -346,7 +346,7 @@ fn test_18_entry_ids_in_results() {
 fn test_19_soul_entry_in_harmony() {
     let mut s = setup();
     let query = vec!["harmony".to_string()];
-    let result = field_recall(&mut s, query, vec![], 5).unwrap();
+    let result = field_recall(&mut s, query, vec![], 5).unwrap().to_sexp();
     assert!(result.contains("SOUL-1"),
         "Harmony concept should carry SOUL-1 entry");
 }
@@ -444,8 +444,8 @@ fn test_27_access_count_boosts_score() {
     let access_high = vec![("rust".to_string(), 0.9, now)];
     let access_low = vec![("rust".to_string(), 0.1, now)];
 
-    let result_high = field_recall(&mut s, query.clone(), access_high, 5).unwrap();
-    let result_low = field_recall(&mut s, query, access_low, 5).unwrap();
+    let result_high = field_recall(&mut s, query.clone(), access_high, 5).unwrap().to_sexp();
+    let result_low = field_recall(&mut s, query, access_low, 5).unwrap().to_sexp();
 
     let score_high = parse_activations(&result_high)
         .iter().find(|(c, _)| c == "rust").map(|(_, s)| *s).unwrap_or(0.0);

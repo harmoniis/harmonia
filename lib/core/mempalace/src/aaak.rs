@@ -52,6 +52,20 @@ pub fn compress_aaak(
     Ok(entry.to_sexp())
 }
 
+pub fn codebook_register(
+    s: &mut crate::PalaceState,
+    concepts: &[String],
+) -> Result<String, MemoryError> {
+    let mut registered = 0;
+    for concept in concepts {
+        if !concept.is_empty() && concept.len() > 2 {
+            s.codebook.code_for(concept);
+            registered += 1;
+        }
+    }
+    Ok(format!("(:ok :registered {} :total {})", registered, s.codebook.len()))
+}
+
 pub fn codebook_lookup(
     s: &crate::PalaceState,
     code_or_entity: &str,

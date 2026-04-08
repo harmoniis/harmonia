@@ -54,6 +54,28 @@ Returns a plist (:activations (...) :basin (...) :thomas (...)) or nil."
                     :limit ,limit)))))
     (%parse-port-reply reply)))
 
+(defun memory-field-recall-structural (query &key (limit 5))
+  "Structural-only recall: concept names + scores + basins, no entry content.
+For progressive injection round 1 — minimal tokens (~10 per concept)."
+  (when (not (memory-field-port-ready-p))
+    (return-from memory-field-recall-structural nil))
+  (let* ((concepts (%split-words (or query "")))
+         (concepts-sexp (%list-to-sexp-strings concepts))
+         (reply (ipc-call
+                 (%sexp-to-ipc-string
+                  `(:component "memory-field" :op "field-recall-structural"
+                    :query-concepts ,concepts-sexp
+                    :limit ,limit)))))
+    (%parse-port-reply reply)))
+
+(defun memory-field-current-basin ()
+  "Return current attractor basin — lightweight, no field solve."
+  (when (not (memory-field-port-ready-p))
+    (return-from memory-field-current-basin nil))
+  (%parse-port-reply
+   (ipc-call (%sexp-to-ipc-string
+               '(:component "memory-field" :op "current-basin")))))
+
 ;;; --- Basin and attractor queries ---
 
 (defun memory-field-basin-status ()
@@ -72,6 +94,16 @@ Returns a plist (:activations (...) :basin (...) :thomas (...)) or nil."
               `(:component "memory-field" :op "step-attractors"
                 :signal ,signal :noise ,noise))))
 
+;;; --- Cross-node memory digest (Phase 7) ---
+
+(defun memory-field-digest ()
+  "Compute compact memory digest for cross-node gossip."
+  (when (not (memory-field-port-ready-p))
+    (return-from memory-field-digest nil))
+  (%parse-port-reply
+   (ipc-call (%sexp-to-ipc-string
+               '(:component "memory-field" :op "digest")))))
+
 ;;; --- Dreaming — field self-maintenance ---
 
 (defun memory-field-dream ()
@@ -81,6 +113,92 @@ Returns a plist (:activations (...) :basin (...) :thomas (...)) or nil."
   (%parse-port-reply
    (ipc-call (%sexp-to-ipc-string
                '(:component "memory-field" :op "dream")))))
+
+;;; ═══════════════════════════════════════════════════════════════════════
+;;; DREAM COMPRESSION LADDER — 4 depth levels
+;;; ═══════════════════════════════════════════════════════════════════════
+
+(defun %compress-to-structure (texts tags)
+  "Depth 0→1: Extract structure from verbatim entries.
+If plist: keep keys, truncate string values to 30 chars.
+If text: first sentence + keyword list."
+  (let ((combined (format nil "~{~A~^ ~}" texts)))
+    (handler-case
+        (let ((form (read-from-string combined nil nil)))
+          (if (and (listp form) (keywordp (car form)))
+              ;; It's a plist — keep structure, truncate values.
+              (with-output-to-string (out)
+                (write-string "(" out)
+                (loop for (k v . rest) on form by #'cddr
+                      do (format out "~A ~A"
+                                 k (if (and (stringp v) (> (length v) 30))
+                                       (format nil "\"~A...\"" (subseq v 0 30))
+                                       v))
+                      when rest do (write-char #\Space out))
+                (write-string ")" out))
+              ;; Not a plist — extract first sentence + keywords.
+              (%compress-text-to-summary combined tags)))
+      (error ()
+        (%compress-text-to-summary combined tags)))))
+
+(defun %compress-text-to-summary (text tags)
+  "Extract first sentence and keyword list from text."
+  (let* ((period-pos (position #\. text))
+         (first-sentence (if (and period-pos (< period-pos 200))
+                             (subseq text 0 (1+ period-pos))
+                             (subseq text 0 (min 100 (length text)))))
+         (keywords (remove-duplicates
+                    (append (mapcar #'princ-to-string (or tags '()))
+                            (remove-if (lambda (w) (< (length w) 4))
+                                       (uiop:split-string
+                                        (subseq text 0 (min 200 (length text)))
+                                        :separator '(#\Space #\Newline #\Tab))))
+                    :test #'string-equal)))
+    (format nil "(:summary \"~A\" :keywords ~A)"
+            first-sentence
+            (format nil "(~{\"~A\"~^ ~})" (subseq keywords 0 (min 10 (length keywords)))))))
+
+(defun %compress-to-keywords (texts tags)
+  "Depth 1→2: Multiple summaries merge into keyword list with counts."
+  (let* ((all-words (reduce #'append
+                            (mapcar (lambda (text)
+                                      (remove-if (lambda (w) (< (length w) 3))
+                                                 (uiop:split-string
+                                                  (string-downcase text)
+                                                  :separator '(#\Space #\Newline #\Tab #\( #\) #\" #\:))))
+                                    texts)))
+         (word-counts (make-hash-table :test 'equal))
+         (tag-strs (mapcar #'princ-to-string (or tags '()))))
+    (dolist (w all-words) (incf (gethash w word-counts 0)))
+    (let* ((sorted (sort (loop for k being the hash-keys of word-counts
+                               using (hash-value v)
+                               when (>= v 2) collect (list k v))
+                         #'> :key #'second))
+           (top (subseq sorted 0 (min 15 (length sorted)))))
+      (format nil "(:keywords (~{\"~A\"~^ ~}) :tags (~{\"~A\"~^ ~}) :count ~D :sample \"~A\")"
+              (mapcar #'first top)
+              tag-strs
+              (length texts)
+              (subseq (first texts) 0 (min 50 (length (first texts))))))))
+
+(defun %compress-to-topology (texts tags)
+  "Depth 2→3: Keyword entries merge into topology — pure graph edges.
+This is the maximally compressed form: ~10 tokens per entry."
+  (let* ((all-concepts (remove-duplicates
+                        (append (mapcar #'princ-to-string (or tags '()))
+                                (loop for text in texts
+                                      append (remove-if (lambda (w) (< (length w) 4))
+                                                        (uiop:split-string
+                                                         (string-downcase text)
+                                                         :separator '(#\Space #\Newline #\Tab #\( #\) #\" #\:)))))
+                        :test #'string-equal))
+         (top-concepts (subseq all-concepts 0 (min 5 (length all-concepts)))))
+    ;; Generate pairwise edges between top concepts.
+    (format nil "(:topology ~{~A~^ ~})"
+            (loop for (a . rest) on top-concepts
+                  append (loop for b in rest
+                               collect (format nil "(:from \"~A\" :to \"~A\" :weight ~D)"
+                                               a b (length texts)))))))
 
 (defun %apply-dream-results (dream-report)
   "Apply dream results: merge entries (compress), prune only truly redundant,
@@ -114,9 +232,14 @@ Returns a plist (:activations (...) :basin (...) :thomas (...)) or nil."
                     (remhash entry-id *memory-store*)))))
             ;; Create compressed entry at depth+1 (crystallized by compression).
             (when texts
-              (let ((compressed (format nil "~{~A~^ | ~}"
-                                        (mapcar (lambda (txt) (subseq txt 0 (min 100 (length txt))))
-                                                (nreverse texts)))))
+              (let ((compressed
+                      (cond
+                        ;; Depth 0→1: verbatim to structure
+                        ((<= max-depth 0) (%compress-to-structure (nreverse texts) all-tags))
+                        ;; Depth 1→2: structure to keywords
+                        ((= max-depth 1) (%compress-to-keywords (nreverse texts) all-tags))
+                        ;; Depth 2→3: keywords to topology
+                        (t (%compress-to-topology (nreverse texts) all-tags)))))
                 (memory-put :system compressed
                             :depth (min 3 (1+ max-depth))
                             :tags (adjoin :compressed (adjoin :dream-merged all-tags) :test #'eq))
