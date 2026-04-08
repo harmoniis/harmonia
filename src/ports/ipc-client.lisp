@@ -116,7 +116,7 @@ On macOS/FreeBSD: /tmp/{name} filesystem socket."
                          :input t :output t :buffering :full)))
             ;; Send nonce token before any sexp frames
             (unless (%ipc-send-token stream)
-              (handler-case (close stream) (error () nil))
+              (ignore-errors (close stream))
               (return-from %ipc-connect nil))
             stream))
       (error (e)
@@ -177,9 +177,9 @@ Returns reply string or nil. Retries once on failure. Thread-safe."
                                (%ipc-write-frame stream sexp-string)
                                (%ipc-read-frame stream))
                            ;; Always close — never reuse.
-                           (handler-case (close stream) (error () nil)))
+                           (ignore-errors (close stream)))
                        (error (e)
-                         (handler-case (close stream) (error () nil))
+                         (ignore-errors (close stream))
                          (if retried
                              (progn
                                (%log :warn "ipc" "Failed after retry: ~A" e)
@@ -199,7 +199,7 @@ Returns reply string or nil. Retries once on failure. Thread-safe."
         (when stream
           (unwind-protect
               (%ipc-write-frame stream sexp-string)
-            (handler-case (close stream) (error () nil)))))
+            (ignore-errors (close stream)))))
     (error () nil)))
 
 ;;; ─── Convenience ──────────────────────────────────────────────────────

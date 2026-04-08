@@ -35,16 +35,16 @@
 
 (defun signalograd-checkpoint (path)
   (let ((reply (ipc-call
-                (%sexp-to-ipc-string
-                 `(:component "signalograd" :op "checkpoint" :path ,path)))))
+                (format nil "(:component \"signalograd\" :op \"checkpoint\" :path \"~A\")"
+                        (sexp-escape-lisp path)))))
     (when (ipc-reply-error-p reply)
       (error "signalograd checkpoint failed: ~A" reply))
     t))
 
 (defun signalograd-restore (path)
   (let ((reply (ipc-call
-                (%sexp-to-ipc-string
-                 `(:component "signalograd" :op "restore" :path ,path)))))
+                (format nil "(:component \"signalograd\" :op \"restore\" :path \"~A\")"
+                        (sexp-escape-lisp path)))))
     (when (ipc-reply-error-p reply)
       (error "signalograd restore failed: ~A" reply))
     t))
@@ -53,13 +53,13 @@
   (let ((text (ipc-signalograd-status)))
     (when text
       (let ((*read-eval* nil))
-        (handler-case (read-from-string text) (error () nil))))))
+        (ignore-errors (read-from-string text))))))
 
 (defun signalograd-snapshot ()
   (let ((text (ipc-signalograd-snapshot)))
     (when text
       (let ((*read-eval* nil))
-        (handler-case (read-from-string text) (error () nil))))))
+        (ignore-errors (read-from-string text))))))
 
 (defun signalograd-reset ()
   (let ((reply (ipc-signalograd-reset)))

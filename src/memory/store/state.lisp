@@ -1,4 +1,4 @@
-;;; state.lisp — Memory entry struct, store state, and persistence.
+;;; state.lisp — Memory state, lifecycle, and recall.
 
 (in-package :harmonia)
 
@@ -119,6 +119,306 @@
                 (nreverse words))
      :test #'string=)))
 
+(defun %memory-should-store-p (class content depth)
+  "Write filter: reject entries that add no information to the field.
+   No class checks — the field topology decides importance, not labels.
+   Returns NIL to reject, T to store."
+  (declare (ignore class))
+  ;; Entries with depth > 0 are crystallized/compressed — always store.
+  (when (> depth 0) (return-from %memory-should-store-p t))
+  (let ((text (if (stringp content) content (prin1-to-string content))))
+    ;; Reject entries too short to carry semantic meaning.
+    (when (< (length text) 20)
+      (return-from %memory-should-store-p nil))
+    ;; Reject near-duplicate: >80% word overlap with existing recent entry.
+    (let ((words (%split-words text)))
+      (when (and words (> (length words) 0))
+        (block dedup-check
+          (let ((count 0))
+            (maphash (lambda (_ entry)
+                       (declare (ignore _))
+                       (when (> count 20) (return-from dedup-check)) ; limit scan
+                       (incf count)
+                       (let* ((existing (%entry-text entry))
+                              (existing-words (%split-words existing))
+                              (common (length (intersection words existing-words :test #'string=)))
+                              (max-len (max (length words) (length existing-words) 1))
+                              (overlap (/ (float common) max-len)))
+                         (when (> overlap 0.8)
+                           (return-from %memory-should-store-p nil))))
+                     *memory-store*)))))
+    t))
+
+(defun memory-put (class content &key (depth 0) (tags '()) (source-ids '()))
+  "Store a memory entry. Write filter rejects duplicates and noise.
+Thread-safe: RAM mutations under lock, Chronicle persist outside lock."
+  ;; Write filter: reject entries that add no information.
+  (unless (%memory-should-store-p class content depth)
+    (return-from memory-put nil))
+  (let (id now all-tags)
+    ;; Lock scope: RAM mutations only. No IPC under lock.
+    (with-memory-lock ()
+      (incf *memory-seq*)
+      (setf now (get-universal-time))
+      (setf id (format nil "~A-~A-~A" class now *memory-seq*))
+      (setf all-tags (adjoin class (or tags '()) :test #'eq))
+      (let ((entry (make-memory-entry :id id
+                                       :time now
+                                       :class class
+                                       :depth depth
+                                       :content content
+                                       :tags all-tags
+                                       :source-ids source-ids
+                                       :access-count 0
+                                       :last-access nil)))
+        (setf (gethash id *memory-store*) entry)
+        (%push-class-id class id)
+        (%index-entry-concepts id class depth content :tags all-tags)))
+    ;; Persist to Chronicle OUTSIDE the lock — IPC can take 90s, must not block other memory ops.
+    (handler-case (%persist-entry-to-chronicle id now content all-tags source-ids)
+      (error (e) (%log :warn "memory" "Persist failed for ~A: ~A" id e)))
+    id))
+
+;; memory-seed-soul-from-dna is defined in dna.lisp — the DNA is the source of seeds.
+
+(defun %memory-by-depth (limit min-depth)
+  "Return entries with depth >= MIN-DEPTH, sorted by time. No class filter."
+  (let ((values '()))
+    (maphash
+     (lambda (_ entry)
+       (declare (ignore _))
+       (when (>= (memory-entry-depth entry) min-depth)
+         (push entry values)))
+     *memory-store*)
+    (let ((sorted (sort values #'> :key #'memory-entry-time)))
+      (subseq sorted 0 (min limit (length sorted))))))
+
+(defun memory-recent (&key (limit 5) class (max-depth nil))
+  (let ((values '()))
+    (maphash
+     (lambda (_ entry)
+       (declare (ignore _))
+       (when (and (or (null class) (eq class (memory-entry-class entry)))
+                  (or (null max-depth) (<= (memory-entry-depth entry) max-depth)))
+         (push entry values)))
+             *memory-store*)
+    (subseq (sort values #'> :key #'memory-entry-time)
+            0
+            (min limit (length values)))))
+
+(defun memory-record-tool-usage (tool-name &key latency-ms success)
+  (memory-put :tool
+              (list :tool tool-name
+                    :latency-ms latency-ms
+                    :success success)
+              :depth 0
+              :tags (list :tool-metric)))
+
+(defun memory-record-orchestration (prompt response tool score latency-ms &key harmony)
+  (let ((daily-id
+          (memory-put :daily
+                      (list :prompt prompt
+                            :response response
+                            :score score
+                            :tool tool
+                            :latency-ms latency-ms
+                            :harmony harmony
+                            :channel :human)
+                      :depth 0
+                      :tags (list :interaction :orchestration))))
+    (%upsert-concept-edge (string-downcase tool) "memory" :tool-memory)
+    daily-id))
+
+(defun memory-recall (query &key (limit 10))
+  "ONE recall function. Field first, recent entries as fallback. No class filter.
+The field topology decides relevance. If field unavailable, return recent entries.
+Thread-safe: field IPC outside lock, hash-table reads/writes under lock."
+  (or (handler-case
+          (when (and (fboundp 'memory-field-port-ready-p)
+                     (funcall 'memory-field-port-ready-p))
+            ;; Field IPC call OUTSIDE lock — can take up to 90s.
+            (let* ((field-result (funcall 'memory-field-recall query :limit (* limit 3)))
+                   (activations (and (listp field-result) (getf field-result :activations)))
+                   (all '()))
+              ;; Hash-table reads/writes UNDER lock.
+              (with-memory-lock ()
+                (dolist (act activations)
+                  (when (listp act)
+                    (dolist (entry-id (getf act :entries))
+                      (when (stringp entry-id)
+                        (let ((entry (gethash entry-id *memory-store*)))
+                          (when entry
+                            (incf (memory-entry-access-count entry))
+                            (setf (memory-entry-last-access entry) (get-universal-time))
+                            (push (cons (or (getf act :score) 0.0) entry) all))))))))
+              (when all
+                (mapcar #'cdr
+                  (subseq (sort (remove-duplicates all
+                                  :key (lambda (p) (memory-entry-id (cdr p)))
+                                  :test #'string=)
+                                #'> :key #'car)
+                          0 (min limit (length all)))))))
+        (error () nil))
+      ;; Fallback: high-depth entries first (crystallized = structural/identity), then any recent.
+      ;; No class filter — depth is the field's way of saying "this matters".
+      (%memory-by-depth limit 1)
+      (memory-recent :limit limit)))
+
+;; Legacy compat — old callers use memory-layered-recall
+(defun memory-layered-recall (query &key (limit 10) (dive nil))
+  (declare (ignore dive))
+  (memory-recall query :limit limit))
+
+(defun %current-day-number (&optional ut)
+  (floor (or ut (get-universal-time)) 86400))
+
+(defun %yesterday-dailies ()
+  "Return daily entries from the previous calendar day."
+  (let* ((now (get-universal-time))
+         (today-day (%current-day-number now))
+         (yesterday-day (1- today-day))
+         (results '()))
+    (dolist (id (gethash :daily *memory-by-class*))
+      (let ((entry (gethash id *memory-store*)))
+        (when (and entry
+                   (= (%current-day-number (memory-entry-time entry)) yesterday-day))
+          (push entry results))))
+    (sort results #'> :key #'memory-entry-time)))
+
+(defun memory-bootstrap-skills (query &key (limit 3) (max-chars 1200))
+  "Return string block of top-N skills matching QUERY."
+  (let* ((needle (string-downcase (or query "")))
+         (scored '()))
+    (dolist (id (gethash :skill *memory-by-class*))
+      (let* ((entry (gethash id *memory-store*))
+             (text (%entry-text entry))
+             (score (+ (* 10 (memory-entry-depth entry))
+                       (memory-entry-access-count entry)
+                       (if (search needle (string-downcase text) :test #'char-equal) 20 0))))
+        (when entry
+          (push (cons score entry) scored))))
+    (let* ((sorted (subseq (sort scored #'> :key #'car) 0 (min limit (length scored))))
+           (out (make-string-output-stream))
+           (total 0))
+      (dolist (pair sorted)
+        (let* ((entry (cdr pair))
+               (text (%entry-text entry))
+               (clipped (subseq text 0 (min 300 (length text)))))
+          (when (< total max-chars)
+            (write-string "- " out)
+            (write-string clipped out)
+            (terpri out)
+            (incf total (+ 2 (length clipped) 1)))))
+      (get-output-stream-string out))))
+
+(defun memory-bootstrap-recent (&key (limit 5) (max-chars 800))
+  "Return string block of last K daily prompts."
+  (let* ((recents (memory-recent :limit limit :class :daily :max-depth 0))
+         (out (make-string-output-stream))
+         (total 0))
+    (dolist (entry recents)
+      (let* ((payload (memory-entry-content entry))
+             (prompt (if (and (listp payload) (getf payload :prompt))
+                         (getf payload :prompt)
+                         ""))
+             (clipped (subseq prompt 0 (min 120 (length prompt)))))
+        (when (and (> (length clipped) 0) (< total max-chars))
+          (write-string "- " out)
+          (write-string clipped out)
+          (terpri out)
+          (incf total (+ 2 (length clipped) 1)))))
+    (get-output-stream-string out)))
+
+(defun memory-bootstrap-context (query &key (mode :orchestrate))
+  "Assemble full bootstrap block. Returns empty string for :planner mode."
+  (when (eq mode :planner)
+    (return-from memory-bootstrap-context ""))
+  (let* ((skill-limit (signalograd-memory-bootstrap-skill-limit *runtime*))
+         (skill-chars (truncate (if (fboundp 'harmony-policy-number)
+                                    (harmony-policy-number "memory/bootstrap-skill-chars" 1200)
+                                    1200)))
+         (recent-limit (truncate (if (fboundp 'harmony-policy-number)
+                                     (harmony-policy-number "memory/bootstrap-recent-limit" 5)
+                                     5)))
+         (recent-chars (truncate (if (fboundp 'harmony-policy-number)
+                                     (harmony-policy-number "memory/bootstrap-recent-chars" 800)
+                                     800)))
+         (skills (memory-bootstrap-skills (or query "") :limit skill-limit :max-chars skill-chars))
+         (recent (memory-bootstrap-recent :limit recent-limit :max-chars recent-chars))
+         (has-skills (> (length skills) 0))
+         (has-recent (> (length recent) 0)))
+    (if (or has-skills has-recent)
+        (with-output-to-string (out)
+          (terpri out)
+          (terpri out)
+          (when has-skills
+            (write-string "RELEVANT_SKILLS:" out)
+            (terpri out)
+            (write-string skills out))
+          (when has-recent
+            (write-string "RECENT_CONTEXT:" out)
+            (terpri out)
+            (write-string recent out)))
+        "")))
+
+(defun memory-semantic-recall-block (query &key (limit 5) (max-chars 1500))
+  "Recall from memory field. If query produces no concepts after stopwords,
+fall back to high-depth entries — crystallized = structural = identity."
+  (let* ((results (or (memory-layered-recall query :limit limit)
+                      ;; Fallback: high-depth entries (crystallized by dreaming or seeded by DNA).
+                      (%memory-by-depth limit 1)
+                      (memory-recent :limit limit)))
+         (out (make-string-output-stream))
+         (total 0))
+    (when results
+      (terpri out)
+      (terpri out)
+      (write-string "MEMORY_RECALL:" out)
+      (terpri out)
+      (dolist (entry results)
+        (let* ((text (%entry-text entry))
+               (depth (memory-entry-depth entry))
+               (prefix (format nil "[d~D] " depth))
+               (clipped (subseq text 0 (min 300 (length text)))))
+          (when (< total max-chars)
+            (write-string "- " out)
+            (write-string prefix out)
+            (write-string clipped out)
+            (terpri out)
+            (incf total (+ 2 (length prefix) (length clipped) 1))))))
+    (get-output-stream-string out)))
+
+(defun memory-maybe-journal-yesterday ()
+  "On first interaction of a new day, create a skill summarizing yesterday's dailies."
+  (let ((today (%current-day-number)))
+    (when (= *memory-last-journal-day* today)
+      (return-from memory-maybe-journal-yesterday nil))
+    (setf *memory-last-journal-day* today)
+    (let ((yesterdays (%yesterday-dailies)))
+      (when (and yesterdays (> (length yesterdays) 0))
+        (let* ((count (length yesterdays))
+               (scores (remove nil
+                         (mapcar (lambda (e)
+                                   (let ((p (memory-entry-content e)))
+                                     (when (and (listp p) (numberp (getf p :score)))
+                                       (getf p :score))))
+                                 yesterdays)))
+               (avg-score (if scores (/ (reduce #'+ scores) (float (length scores))) 0.0))
+               (topics (remove-duplicates
+                         (mapcan (lambda (e)
+                                   (let* ((p (memory-entry-content e))
+                                          (prompt (if (and (listp p) (stringp (getf p :prompt)))
+                                                      (getf p :prompt) ""))
+                                          (words (%split-words prompt)))
+                                     (subseq words 0 (min 3 (length words)))))
+                                 yesterdays)
+                         :test #'string=)))
+          (memory-put :skill
+                      (format nil "Daily journal: ~D interactions, avg score ~,2F, topics: ~{~A~^, ~}"
+                              count avg-score topics)
+                      :depth 1
+                      :tags (list :journal :daily-summary :temporal)))))))
+
 (defun memory-reset ()
   "Wipe all in-memory state and re-seed from DNA. Thread-safe."
   (with-memory-lock ()
@@ -156,10 +456,11 @@
            (tags-str (format nil "~{~A~^ ~}" (or tags '())))
            (source-str (format nil "~{~A~^ ~}" (or source-ids '()))))
       (funcall 'ipc-call
-               (%sexp-to-ipc-string
-                `(:component "chronicle" :op "persist-entry"
-                  :id ,id :ts ,ts :content ,content-str
-                  :tags ,tags-str :source-ids ,source-str))))))
+               (format nil "(:component \"chronicle\" :op \"persist-entry\" :id \"~A\" :ts ~D :content \"~A\" :tags \"~A\" :source-ids \"~A\")"
+                       (sexp-escape-lisp id) ts
+                       (sexp-escape-lisp content-str)
+                       (sexp-escape-lisp tags-str)
+                       (sexp-escape-lisp source-str))))))
 
 (defun %load-memories-from-chronicle ()
   "Load all persistent memory entries from Chronicle into RAM.
@@ -170,7 +471,7 @@ Called once at boot, before memory-field initialization."
   (let ((reply (funcall 'ipc-call "(:component \"chronicle\" :op \"load-all-entries\")")))
     (when (and reply (funcall 'ipc-reply-ok-p reply))
       (let* ((*read-eval* nil)
-             (parsed (handler-case (read-from-string reply) (error () nil)))
+             (parsed (ignore-errors (read-from-string reply)))
              ;; Strip :ok marker if present.
              (plist (if (and (listp parsed) (eq (car parsed) :ok))
                         (cdr parsed)
@@ -210,11 +511,8 @@ Called once at boot, before memory-field initialization."
                   (%push-class-id class id)
                   (incf *memory-seq*)
                   ;; Index concepts into graph.
-                  (handler-case
-
-                      (%index-entry-concepts id class 0 content)
-
-                    (error () nil)))))))
+                  (ignore-errors
+                    (%index-entry-concepts id class 0 content)))))))
         (%log :info "memory" "Loaded ~D memories, ~D concept nodes."
               count (hash-table-count *memory-concept-nodes*))
         count))))

@@ -81,7 +81,8 @@
   (let ((name (%path-last-dir-name path)))
     (when (and (> (length name) 1)
                (char-equal (char name 0) #\v))
-      (handler-case (parse-integer (subseq name 1) (error () nil))))))
+      (ignore-errors
+        (parse-integer (subseq name 1))))))
 
 (defun evolution-list-versions ()
   (let* ((raw (append (directory (merge-pathnames "v*/" *evolution-versions-dir*))
@@ -189,7 +190,7 @@
                                        (digit-char-p (char line end)))
                            do (incf end))
                      (when (> end start)
-                       (let ((parsed (handler-case (parse-integer line :start start :end end) (error () nil))))
+                       (let ((parsed (ignore-errors (parse-integer line :start start :end end))))
                          (when (and parsed (> parsed max-v))
                            (setf max-v parsed)))))))))))
     max-v))
