@@ -221,13 +221,15 @@ No score branching, no model selection, no bootstrap modes. ONE path."
                 (handler-case (memory-put :tool error-sexp :depth 0
                                 :tags '(:provider-error :system-health))
                   (error () nil))
-                ;; Ouroboros: crash ledger tracks provider failures for evolution.
+                ;; Ouroboros + Chronicle: structured error recording for pattern analysis.
                 (handler-case
-                    (when (fboundp 'ouroboros-record-crash)
-                      (dolist (fm failed-models)
-                        (funcall 'ouroboros-record-crash
-                                 (format nil "provider/~A" (first fm))
-                                 (or (second fm) "unknown error"))))
+                    (dolist (fm failed-models)
+                      (let ((model (first fm)) (err (or (second fm) "unknown")))
+                        (when (fboundp 'ouroboros-record-crash)
+                          (funcall 'ouroboros-record-crash (format nil "provider/~A" model) err))
+                        (when (fboundp 'chronicle-record-error)
+                          (funcall 'chronicle-record-error "provider" :connection-failed
+                                   :model model :detail err))))
                   (error () nil))))
             (cond
               ((null llm-output)

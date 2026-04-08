@@ -2,7 +2,7 @@
 
 use harmonia_actor_protocol::{extract_sexp_bool, extract_sexp_string, sexp_escape};
 
-use super::{dispatch_op, param, param_f64};
+use super::{dispatch_op, param, param_f64, param_u64};
 
 pub(crate) fn dispatch(sexp: &str) -> String {
     let op = harmonia_actor_protocol::extract_sexp_string(sexp, ":op").unwrap_or_default();
@@ -238,6 +238,18 @@ pub(crate) fn dispatch(sexp: &str) -> String {
                 detail.as_deref(),
                 patch_size,
                 success,
+            ).map(|_| "(:ok)".to_string())
+        }),
+        "record-error" => dispatch_op!("record-error", {
+            let source = param!(sexp, ":source");
+            let kind = param!(sexp, ":kind");
+            let model = extract_sexp_string(sexp, ":model");
+            let detail = extract_sexp_string(sexp, ":detail");
+            let latency_ms = param_u64!(sexp, ":latency-ms", 0) as i64;
+            let cascaded_to = extract_sexp_string(sexp, ":cascaded-to");
+            harmonia_chronicle::error::record(
+                &source, &kind, model.as_deref(), detail.as_deref(),
+                latency_ms, cascaded_to.as_deref(),
             ).map(|_| "(:ok)".to_string())
         }),
         _ => format!("(:error \"unknown chronicle op: {}\")", op),

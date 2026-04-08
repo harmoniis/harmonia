@@ -198,6 +198,23 @@
           :success ,(if success 1 0))))
     (error (e) (%log :warn "chronicle" "record-ouroboros-event failed: ~A" e))))
 
+(defun chronicle-record-error (source kind &key model detail latency-ms cascaded-to)
+  "Record a structured error event — provider failures, component errors, timeouts.
+   Chronicle stores errors as queryable SQL for pattern analysis by harmonic machine.
+   SOURCE: where the error came from (provider, component, repl).
+   KIND: error type (:connection-failed :server-error :timeout :rate-limited :model-error)."
+  (handler-case
+      (ipc-call
+       (%sexp-to-ipc-string
+        `(:component "chronicle" :op "record-error"
+          :source ,(or source "unknown")
+          :kind ,(if (keywordp kind) (string-downcase (symbol-name kind)) (or kind "unknown"))
+          :model ,(or model "")
+          :detail ,(or detail "")
+          :latency-ms ,(or latency-ms 0)
+          :cascaded-to ,(or cascaded-to ""))))
+    (error (e) (%log :warn "chronicle" "record-error failed: ~A" e))))
+
 ;;; --- Query API ---
 
 (defun %chronicle-ipc-query-sexp (op &optional extra-plist)

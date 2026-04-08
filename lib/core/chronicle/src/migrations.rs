@@ -146,3 +146,26 @@ pub(crate) fn migrate_v6(conn: &Connection) -> Result<(), String> {
     .map_err(|e| e.to_string())?;
     Ok(())
 }
+
+pub(crate) fn migrate_v7(conn: &Connection) -> Result<(), String> {
+    conn.execute_batch(
+        "
+        CREATE TABLE IF NOT EXISTS error_events (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            ts INTEGER NOT NULL DEFAULT (CAST(strftime('%s','now') AS INTEGER) * 1000),
+            source TEXT NOT NULL,
+            kind TEXT NOT NULL,
+            model TEXT DEFAULT '',
+            detail TEXT DEFAULT '',
+            latency_ms INTEGER DEFAULT 0,
+            cascaded_to TEXT DEFAULT ''
+        );
+        CREATE INDEX IF NOT EXISTS idx_ee_ts ON error_events(ts);
+        CREATE INDEX IF NOT EXISTS idx_ee_source ON error_events(source);
+        CREATE INDEX IF NOT EXISTS idx_ee_kind ON error_events(kind);
+        CREATE INDEX IF NOT EXISTS idx_ee_model ON error_events(model);
+        ",
+    )
+    .map_err(|e| e.to_string())?;
+    Ok(())
+}

@@ -15,6 +15,7 @@ pub use query::{
     harmony_summary, harmony_trajectory, memory_history, ouroboros_history, phoenix_history,
 };
 pub use tables::delegation;
+pub use tables::error;
 pub use tables::graph;
 pub use tables::harmonic::{self, HarmonicSnapshot};
 pub use tables::memory;

@@ -1,7 +1,7 @@
 use rusqlite::{params, Connection};
 
 // ─── Schema version for migrations ────────────────────────────────────
-pub(crate) const SCHEMA_VERSION: i32 = 6;
+pub(crate) const SCHEMA_VERSION: i32 = 7;
 
 pub(crate) fn run_migrations(conn: &Connection) -> Result<(), String> {
     conn.execute_batch(
@@ -38,6 +38,9 @@ pub(crate) fn run_migrations(conn: &Connection) -> Result<(), String> {
     }
     if current_version < 6 {
         super::migrations::migrate_v6(conn)?;
+    }
+    if current_version < 7 {
+        super::migrations::migrate_v7(conn)?;
     }
 
     conn.execute(
