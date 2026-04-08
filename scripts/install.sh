@@ -308,6 +308,13 @@ install_from_artifact_root() {
     rc="$(shell_rc)"
     ext="$(shared_lib_ext)"
 
+    # Stop any running Harmonia processes before overwriting binaries.
+    info "Stopping running Harmonia processes..."
+    pkill -9 -f harmonia-runtime 2>/dev/null || true
+    pkill -9 -f harmonia-phoenix 2>/dev/null || true
+    pkill -f "harmonia node-service" 2>/dev/null || true
+    sleep 1
+
     info "Installing Harmonia v${version}"
     info "  profile:   ${INSTALL_PROFILE}"
     info "  user data: ${datadir}"

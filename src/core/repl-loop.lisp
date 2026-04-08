@@ -225,6 +225,7 @@ Round 3+: deep search from mempalace."
         (budget (%allocate-round-budget frame)))
     (cond
       ;; Round 1: Orientation — structure only, no content.
+      ;; Falls back to standard memory-recall if structural ops not available.
       ((= round 1)
        (let* ((basin-info (handler-case (memory-field-current-basin) (error () nil)))
               (basin (when basin-info (getf basin-info :basin)))
@@ -234,16 +235,33 @@ Round 3+: deep search from mempalace."
               (concepts (when structural
                           (let ((acts (getf structural :activations)))
                             (when (listp acts)
-                              (mapcar (lambda (a) (getf a :concept)) acts))))))
+                              (mapcar (lambda (a) (getf a :concept)) acts)))))
+              ;; Fallback: if structural recall unavailable, use standard recall.
+              (fallback-context
+                (when (and (null concepts) (null structural))
+                  (handler-case
+                      (let ((entries (memory-recall user-text :limit 5)))
+                        (when entries
+                          (with-output-to-string (out)
+                            (dolist (e entries)
+                              (let ((text (%entry-text e)))
+                                (when (and (stringp text) (> (length text) 10))
+                                  (write-string (subseq text 0 (min 200 (length text))) out)
+                                  (terpri out)))))))
+                    (error () nil)))))
          ;; Update frame state.
          (setf (context-frame-basin frame) basin)
          (setf (context-frame-domain frame)
                (when basin-info (getf basin-info :domain)))
          (setf (context-frame-concepts-active frame) concepts)
-         (setf (context-frame-injected-layer frame) :l0)
-         (let ((prompt (format nil ";;agent:~A~%;;basin:~A~%;;concepts:~{~A~^ ~}~%;;output: s-expression | natural-language~%;;query:~%~A"
-                               (%agent-name) (or basin "unknown")
-                               (or concepts '("none")) user-text)))
+         (setf (context-frame-injected-layer frame) (if fallback-context :l1 :l0))
+         (let ((prompt (format nil ";;agent:~A~%;;output: s-expression → eval | natural-language → user~%;; (respond \"text\") to answer. (recall q) (read-file p) (grep p) (exec c) (status) (list-files d)~%~A~%;;query:~%~A"
+                               (%agent-name)
+                               (cond
+                                 (fallback-context (format nil ";;context:~%~A" fallback-context))
+                                 (concepts (format nil ";;basin:~A~%;;concepts:~{~A~^ ~}" (or basin "unknown") concepts))
+                                 (t ""))
+                               user-text)))
            (incf (context-frame-tokens-used frame) (%token-estimate prompt))
            prompt)))
 
@@ -264,7 +282,7 @@ Round 3+: deep search from mempalace."
                             (write-string preview out)
                             (terpri out)))))))))
          (setf (context-frame-injected-layer frame) :l1)
-         (let ((prompt (format nil ";;agent:~A~%;;context:~%~A~%;;query:~%~A"
+         (let ((prompt (format nil ";;agent:~A~%;;output: s-expression → eval | natural-language → user~%;; (respond \"text\") to answer. (recall q) (read-file p) (grep p) (exec c) (status) (list-files d)~%;;context:~%~A~%;;query:~%~A"
                                (%agent-name) (or recalled-text "") user-text)))
            (incf (context-frame-tokens-used frame) (%token-estimate prompt))
            prompt)))
@@ -275,7 +293,7 @@ Round 3+: deep search from mempalace."
                             (memory-semantic-recall-block user-text :limit 3 :max-chars (min 800 (* budget 4)))
                           (error () nil))))
          (setf (context-frame-injected-layer frame) :l3)
-         (let ((prompt (format nil ";;agent:~A~%;;deep-context:~%~A~%;;query:~%~A"
+         (let ((prompt (format nil ";;agent:~A~%;;output: s-expression → eval | natural-language → user~%;; (respond \"text\") to answer. (recall q) (read-file p) (grep p) (exec c) (status) (list-files d)~%;;deep-context:~%~A~%;;query:~%~A"
                                (%agent-name) (or recalled "") user-text)))
            (incf (context-frame-tokens-used frame) (%token-estimate prompt))
            prompt))))))

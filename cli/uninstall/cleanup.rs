@@ -183,9 +183,15 @@ pub fn run_uninstall() -> Result<(), Box<dyn std::error::Error>> {
     println!();
 
     // -- Stop daemon --
+    // First: kill ALL harmonia processes (not just the PID file one).
+    // Multiple runtime/phoenix processes can accumulate from crashes/restarts.
+    println!("  {} Stopping all Harmonia processes...", style("->").cyan().bold());
+    let _ = std::process::Command::new("pkill").args(["-9", "-f", "harmonia-runtime"]).status();
+    let _ = std::process::Command::new("pkill").args(["-9", "-f", "harmonia-phoenix"]).status();
+    let _ = std::process::Command::new("pkill").args(["-f", "harmonia node-service"]).status();
+    // Then: standard PID-file stop for clean shutdown logging.
     if let Ok(pid_path) = crate::paths::pid_path() {
         if pid_path.exists() {
-            println!("  {} Stopping daemon...", style("->").cyan().bold());
             let _ = crate::stop::run();
         }
     }

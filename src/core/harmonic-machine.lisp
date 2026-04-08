@@ -287,15 +287,15 @@
                   `(("vitruvian/beauty-ratio-weight" 0.50 ,(getf projection :ratio))
                     ("vitruvian/beauty-inter-weight" 0.25 ,(getf local :interdisciplinary-ratio))
                     ("vitruvian/beauty-simplicity-weight" 0.25 ,(getf global :simplicity)))))
-         (signal (%policy-weighted-sum
-                  `(("vitruvian/signal-strength-weight" 0.34 ,strength)
-                    ("vitruvian/signal-utility-weight" 0.33 ,utility)
-                    ("vitruvian/signal-beauty-weight" 0.33 ,beauty))))
-                         0.0 1.0))
-         (noise (- 1.0 signal)))
+         (vit-signal (%policy-weighted-sum
+                      `(("vitruvian/signal-strength-weight" 0.34 ,strength)
+                        ("vitruvian/signal-utility-weight" 0.33 ,utility)
+                        ("vitruvian/signal-beauty-weight" 0.33 ,beauty))))
+         (vit-noise (- 1.0 vit-signal)))
     (signalograd-adjust-vitruvian
-     (list :strength strength :utility utility :beauty beauty :signal signal :noise noise)
-     *runtime*)))
+     (list :strength strength :utility utility :beauty beauty :signal vit-signal :noise vit-noise)
+     *runtime*)
+    (list :strength strength :utility utility :beauty beauty :signal vit-signal :noise vit-noise)))
 
 ;;; --- Phase handlers ---
 ;;; Each takes (runtime ctx) and returns (values new-ctx next-phase).
