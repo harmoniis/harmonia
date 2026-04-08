@@ -75,6 +75,21 @@ impl ComponentDescriptor for OuroborosComponent {
     }
 }
 
+// ── Session (actor-owned state, dispatched via ComponentDescriptor) ──
+
+pub struct SessionComponent;
+impl ComponentDescriptor for SessionComponent {
+    const NAME: &'static str = "sessions";
+    type State = harmonia_gateway::sessions::SessionState;
+    fn init() -> Self::State { harmonia_gateway::sessions::SessionState::new() }
+    fn dispatch(state: &mut Self::State, sexp: &str) -> String {
+        harmonia_gateway::sessions::dispatch(state, sexp)
+    }
+    fn capabilities() -> &'static [&'static str] {
+        &["session-management", "event-logging"]
+    }
+}
+
 // ── Capability Declarations (for DynamicRegistry topic routing) ─────────
 // These are NOT ComponentDescriptor impls — they're just capability data.
 // Stateless/hand-written components define capabilities here for registry.
@@ -97,6 +112,7 @@ pub fn capabilities_for(name: &str) -> &'static [&'static str] {
         "router" => &["model-selection", "tier-routing"],
         "mempalace" => MemPalaceComponent::capabilities(),
         "terraphon" => TerraphonComponent::capabilities(),
+        "sessions" => SessionComponent::capabilities(),
         _ => &[],
     }
 }

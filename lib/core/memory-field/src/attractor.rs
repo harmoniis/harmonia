@@ -64,7 +64,8 @@ pub(crate) fn step_thomas(state: &ThomasState, b: f64, dt: f64) -> ThomasState {
     }
 }
 
-/// Mutable wrapper for backward compat with attractor_api.
+/// Mutable wrapper — used by tests. Production code uses step_thomas directly.
+#[cfg(test)]
 pub(crate) fn update_thomas(thomas: &mut ThomasState, b: f64, dt: f64) {
     *thomas = step_thomas(thomas, b, dt);
 }
@@ -145,7 +146,8 @@ pub(crate) fn step_aizawa(state: &AizawaState, dt: f64) -> AizawaState {
     }
 }
 
-/// Mutable wrapper for backward compat.
+/// Mutable wrapper — used by tests. Production code uses step_aizawa directly.
+#[cfg(test)]
 pub(crate) fn update_aizawa(aizawa: &mut AizawaState, dt: f64) {
     *aizawa = step_aizawa(aizawa, dt);
 }
@@ -203,7 +205,8 @@ pub(crate) fn step_halvorsen(state: &HalvorsenState, dt: f64) -> HalvorsenState 
     }
 }
 
-/// Mutable wrapper for backward compat.
+/// Mutable wrapper — used by tests. Production code uses step_halvorsen directly.
+#[cfg(test)]
 pub(crate) fn update_halvorsen(halvorsen: &mut HalvorsenState, dt: f64) {
     *halvorsen = step_halvorsen(halvorsen, dt);
 }

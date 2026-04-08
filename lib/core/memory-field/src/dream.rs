@@ -185,11 +185,11 @@ pub fn dream_report_to_sexp(report: &DreamReport) -> String {
     )
 }
 
-// ── Public API ──
+// ── Pure computation ──
 
-/// Field dreaming: classify → collect → report.
-/// Returns structured DreamReport; caller serializes at dispatch boundary.
-pub fn field_dream(s: &mut FieldState) -> Result<DreamReport, MemoryError> {
+/// Pure dream computation — takes &FieldState (immutable), returns DreamReport.
+/// Entropy bookkeeping update is handled by FieldDelta::DreamCompleted in the Service pattern.
+pub(crate) fn compute_dream_pure(s: &FieldState) -> Result<DreamReport, MemoryError> {
     let n = s.graph.n;
     if n == 0 {
         return Ok(DreamReport {
@@ -243,12 +243,21 @@ pub fn field_dream(s: &mut FieldState) -> Result<DreamReport, MemoryError> {
     // 4. Collect classifications into dream report — functional fold.
     let report = collect_dream_report(classifications, &s.graph, n);
 
-    // 5. Update entropy bookkeeping (Phase 4D).
-    s.cumulative_entropy_delta += report.entropy_delta;
-    s.dream_count += 1;
-    s.total_pruned += report.pruned_entries.len() as u64;
-    s.total_merged += report.merge_groups.len() as u64;
-    s.total_crystallized += report.crystallized_entries.len() as u64;
-
     Ok(report)
+}
+
+// ── Public API ──
+
+/// Field dreaming: classify -> collect -> report.
+/// Backward-compat wrapper: delegates through the Service pattern.
+pub fn field_dream(s: &mut FieldState) -> Result<DreamReport, MemoryError> {
+    use harmonia_actor_protocol::Service;
+    use crate::command::{FieldCommand, FieldResult};
+    let cmd = FieldCommand::Dream;
+    let (delta, result) = s.handle(cmd)?;
+    s.apply(delta);
+    match result {
+        FieldResult::Dreamed(r) => Ok(r),
+        _ => unreachable!(),
+    }
 }

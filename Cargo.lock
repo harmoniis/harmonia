@@ -2169,6 +2169,7 @@ dependencies = [
  "ctrlc",
  "dialoguer",
  "dirs",
+ "harmonia-actor-protocol",
  "harmonia-config-store",
  "harmonia-gateway",
  "harmonia-node-rpc",
@@ -2328,6 +2329,7 @@ dependencies = [
 name = "harmonia-gateway"
 version = "0.1.9"
 dependencies = [
+ "harmonia-actor-protocol",
  "harmonia-baseband-channel-protocol",
  "harmonia-complexity-encoder",
  "harmonia-config-store",

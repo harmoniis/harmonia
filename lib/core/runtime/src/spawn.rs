@@ -30,6 +30,7 @@ pub struct SpawnedActors {
     pub mempalace_ref: ractor::ActorRef<ComponentMsg>,
     pub terraphon_ref: ractor::ActorRef<ComponentMsg>,
     pub ouroboros_ref: ractor::ActorRef<ComponentMsg>,
+    pub session_ref: ractor::ActorRef<ComponentMsg>,
     pub dynamic_registry: crate::dynamic_registry::SharedDynamicRegistry,
     pub topic_bus: crate::topic_bus::SharedTopicBus,
 }
@@ -82,6 +83,7 @@ pub async fn spawn_all(module_registry: HashMap<String, crate::registry::ModuleE
     let mempalace_ref = spawn_linked("mempalace", actors::MemPalaceActor, (), &supervisor_ref).await;
     let terraphon_ref = spawn_linked("terraphon", actors::TerraphonActor, (), &supervisor_ref).await;
     let ouroboros_ref = spawn_linked("ouroboros", actors::OuroborosActor, (), &supervisor_ref).await;
+    let session_ref = spawn_linked("sessions", actors::SessionActor, (), &supervisor_ref).await;
 
     // 5. Register component actors with supervisor for restart tracking
     register_component(&supervisor_ref, "chronicle", &chronicle_ref);
@@ -97,6 +99,7 @@ pub async fn spawn_all(module_registry: HashMap<String, crate::registry::ModuleE
     register_component(&supervisor_ref, "mempalace", &mempalace_ref);
     register_component(&supervisor_ref, "terraphon", &terraphon_ref);
     register_component(&supervisor_ref, "ouroboros", &ouroboros_ref);
+    register_component(&supervisor_ref, "sessions", &session_ref);
     let _ = supervisor_ref.cast(msg::RuntimeMsg::RegisterMatrixActor(harmonic_matrix_ref.clone()));
 
     // 6. Build dynamic registry (pluggable, HashMap-based) + topic bus
@@ -111,6 +114,7 @@ pub async fn spawn_all(module_registry: HashMap<String, crate::registry::ModuleE
         ("workspace", &workspace_ref), ("mempalace", &mempalace_ref),
         ("terraphon", &terraphon_ref),
         ("ouroboros", &ouroboros_ref),
+        ("sessions", &session_ref),
     ];
     for &(name, actor_ref) in all_actors {
         let caps = crate::components::capabilities_for(name);
@@ -143,6 +147,7 @@ pub async fn spawn_all(module_registry: HashMap<String, crate::registry::ModuleE
         mempalace_ref,
         terraphon_ref,
         ouroboros_ref,
+        session_ref,
         dynamic_registry: dyn_reg,
         topic_bus,
     }

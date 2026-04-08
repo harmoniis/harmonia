@@ -1,4 +1,3 @@
-pub use protocol::*;
 
 use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine as _};
 use serde::{Deserialize, Serialize};
@@ -204,5 +203,7 @@ pub fn ensure_compatible_stack(
 
 
 mod protocol;
+#[cfg(test)]
+pub(crate) use protocol::*;
 #[cfg(test)]
 pub use protocol::*;

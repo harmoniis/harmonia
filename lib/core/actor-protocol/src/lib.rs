@@ -5,11 +5,13 @@
 
 pub mod actor;
 pub mod component;
+pub mod frontend;
 pub mod graph_trait;
 pub mod memory_error;
 pub mod message;
 pub mod payload;
 pub mod registration;
+pub mod service;
 pub mod sexp;
 
 // Re-export all message types at crate root for backward compat.
@@ -34,3 +36,5 @@ pub use sexp::extract_u64_or as extract_sexp_u64_or;
 pub use sexp::truncate_safe;
 pub use sexp::clamp_f64;
 pub use sexp::SexpBuilder;
+pub use service::Service;
+pub use frontend::FrontendChannel;

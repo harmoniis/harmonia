@@ -1,14 +1,14 @@
 // ── Session flows: resume, rewind, replay, help, log, session info ────
 //
-// CLI-specific interactive flows. Session data operations delegate to the
-// gateway session service (harmonia_gateway::sessions). The TUI library
-// handles all terminal rendering; these functions orchestrate the CLI-side
-// data and user interaction.
+// CLI-specific interactive flows. Session data operations go through
+// IPC to the session actor, falling back to direct filesystem calls if
+// the daemon is unavailable. The TUI library handles terminal rendering.
 
 use std::path::Path;
 
 use console::Term;
 use harmonia_gateway::sessions as gsess;
+use crate::session_ipc;
 
 const DIM: &str = "\x1b[2m";
 const CYAN: &str = "\x1b[36m";
@@ -28,7 +28,9 @@ pub(crate) fn run_resume(
     node_label: &str,
     data_dir: &Path,
 ) -> Result<bool, Box<dyn std::error::Error>> {
-    let sessions = gsess::list(node_label, data_dir)
+    // IPC to session actor; fall back to direct filesystem.
+    let sessions = session_ipc::list(node_label)
+        .or_else(|_| gsess::list(node_label, data_dir))
         .map_err(|e| format!("list sessions: {e}"))?;
     if sessions.is_empty() {
         eprintln!("\n  {DIM}No past sessions found.{RESET}\n");
@@ -47,7 +49,8 @@ pub(crate) fn run_resume(
 
     match crate::menus::interactive_select(stdout, "Resume Session", &items)? {
         crate::menus::MenuAction::Command(id) => {
-            let resumed = gsess::resume(node_label, data_dir, &id)
+            let resumed = session_ipc::resume(&id)
+                .or_else(|_| gsess::resume(node_label, data_dir, &id))
                 .map_err(|e| format!("resume: {e}"))?;
             eprintln!();
             replay_session_history(&resumed, node_label);
@@ -64,7 +67,9 @@ pub(crate) fn run_rewind(
     session: &gsess::Session,
     term: &Term,
 ) -> Result<bool, Box<dyn std::error::Error>> {
-    let events = gsess::read_events(session).map_err(|e| format!("read events: {e}"))?;
+    let events = session_ipc::read_events(&session.id)
+        .or_else(|_| gsess::read_events(session))
+        .map_err(|e| format!("read events: {e}"))?;
     if events.is_empty() {
         eprintln!("\n  {DIM}No conversation to rewind.{RESET}\n");
         return Ok(false);
@@ -169,7 +174,9 @@ fn collect_assistant_lines(events: &[String], start: usize) -> (Vec<String>, usi
 // ── Replay session history ───────────────────────────────────────────
 
 fn replay_session_history(session: &gsess::Session, node_label: &str) {
-    let events = match gsess::read_events(session) {
+    let events = match session_ipc::read_events(&session.id)
+        .or_else(|_| gsess::read_events(session))
+    {
         Ok(e) if !e.is_empty() => e,
         _ => return,
     };

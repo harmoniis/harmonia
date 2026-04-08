@@ -1,10 +1,10 @@
 // ── Session: thin CLI wrapper around harmonia_tui ─────────────────────
 //
 // ALL TUI logic lives in the harmonia-tui library crate.
-// Session creation, storage, and events are managed by the gateway session
-// service (harmonia_gateway::sessions). This file implements SessionHost
-// to bridge CLI-specific operations (paths, daemon management, frontend
-// pairing) to the TUI library.
+// Session creation, storage, and events are managed by the session actor
+// in the runtime. This file implements SessionHost to bridge CLI-specific
+// operations (paths, daemon management, frontend pairing) to the TUI
+// library. All session access goes through IPC to the session actor.
 
 use std::path::PathBuf;
 use std::sync::atomic::AtomicBool;
@@ -20,16 +20,21 @@ use harmonia_tui::session::SessionHost;
 use harmonia_tui::InputCallbacks;
 
 use crate::session_flows;
+use crate::session_ipc;
 
 // ── Public entry point ───────────────────────────────────────────────
 
 pub fn run() -> Result<(), Box<dyn std::error::Error>> {
     let node_identity = crate::paths::current_node_identity()?;
     let data_dir = crate::paths::data_dir()?;
-    let session = Arc::new(
-        gsess::create(&node_identity.label, &data_dir)
-            .map_err(|e| format!("session create: {e}"))?,
-    );
+    // Try IPC first; fall back to direct filesystem if daemon not ready yet.
+    let session = match session_ipc::create(&node_identity.label) {
+        Ok(s) => Arc::new(s),
+        Err(_) => Arc::new(
+            gsess::create(&node_identity.label, &data_dir)
+                .map_err(|e| format!("session create: {e}"))?,
+        ),
+    };
     harmonia_tui::run(&CliSessionHost {
         node_identity,
         data_dir,
@@ -71,7 +76,10 @@ impl SessionHost for CliSessionHost {
     }
 
     fn append_session_event(&self, actor: &str, kind: &str, text: &str) {
-        let _ = gsess::append_event(&self.session, actor, kind, text);
+        // IPC to session actor; fall back to direct filesystem if unavailable.
+        if session_ipc::append_event(actor, kind, text).is_err() {
+            let _ = gsess::append_event(&self.session, actor, kind, text);
+        }
     }
 
     fn create_input_callbacks(&self) -> Box<dyn InputCallbacks> {
@@ -96,7 +104,10 @@ impl SessionHost for CliSessionHost {
                 return;
             }
         };
-        match gsess::create(&node.label, &self.data_dir) {
+        // Create via IPC; fall back to direct filesystem.
+        let result = session_ipc::create(&node.label)
+            .or_else(|_| gsess::create(&node.label, &self.data_dir));
+        match result {
             Ok(s) => {
                 let _ = term.clear_screen();
                 harmonia_tui::render::print_banner(term, &s.node_label, &s.id);

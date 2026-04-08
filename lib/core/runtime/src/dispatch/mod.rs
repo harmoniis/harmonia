@@ -156,7 +156,7 @@ pub fn dispatch(component: &str, sexp: &str) -> String {
         "parallel" => parallel::dispatch(sexp),
         "workspace" => workspace::dispatch(sexp),
         "observability" => observability::dispatch(sexp),
-        "signalograd" | "memory-field" | "mempalace" | "terraphon" => {
+        "signalograd" | "memory-field" | "mempalace" | "terraphon" | "sessions" => {
             format!(
                 "(:error \"component '{}' requires actor-owned state\")",
                 harmonia_actor_protocol::sexp_escape(component)

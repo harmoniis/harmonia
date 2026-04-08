@@ -2,62 +2,86 @@
 
 use harmonia_actor_protocol::MemoryError;
 
-use crate::attractor::{update_aizawa, update_halvorsen, update_thomas};
+// Pure step functions used by compute_step_pure; update_* wrappers no longer needed here.
 use crate::basin::{assign_node_basins, classify_primary_basin, update_hysteresis};
 use crate::config::cfg_f64;
 use crate::error::clamp;
 use crate::graph::Domain;
 use crate::FieldState;
 
-/// Step all three attractors by one timestep and update hysteresis.
-pub fn step_attractors(s: &mut FieldState, signal: f64, noise: f64) -> Result<String, MemoryError> {
+/// Pure attractor step computation — takes &FieldState (immutable), returns all new values.
+/// State mutation is handled by FieldDelta::AttractorStepped in the Service pattern.
+pub(crate) fn compute_step_pure(
+    s: &FieldState,
+    signal: f64,
+    noise: f64,
+) -> (
+    crate::attractor::ThomasState,
+    f64,
+    crate::attractor::AizawaState,
+    crate::attractor::HalvorsenState,
+    crate::basin::HysteresisTracker,
+    Vec<crate::basin::Basin>,
+) {
+    use crate::attractor::{step_thomas, step_aizawa, step_halvorsen};
+
     // Thomas b parameter modulated by signal quality (all from config).
     let b_base = cfg_f64("thomas-b-base", 0.208);
     let b_scale = cfg_f64("thomas-b-modulation-scale", 0.02);
     let b_min = cfg_f64("thomas-b-min", 0.18);
     let b_max = cfg_f64("thomas-b-max", 0.24);
     let b_eff = clamp(b_base + b_scale * (signal - noise), b_min, b_max);
-    s.thomas_b = b_eff;
 
     let thomas_dt = cfg_f64("thomas-dt", 0.05);
     let aizawa_dt = cfg_f64("aizawa-dt", 0.01);
     let halvorsen_dt = cfg_f64("halvorsen-dt", 0.01);
-    update_thomas(&mut s.thomas, b_eff, thomas_dt);
-    update_aizawa(&mut s.aizawa, aizawa_dt);
-    update_halvorsen(&mut s.halvorsen, halvorsen_dt);
+    let new_thomas = step_thomas(&s.thomas, b_eff, thomas_dt);
+    let new_aizawa = step_aizawa(&s.aizawa, aizawa_dt);
+    let new_halvorsen = step_halvorsen(&s.halvorsen, halvorsen_dt);
 
-    // Update basin assignment and hysteresis.
-    let proposed = classify_primary_basin(&s.thomas);
+    // Update basin assignment and hysteresis (on a clone).
+    let proposed = classify_primary_basin(&new_thomas);
     let drive_energy = (signal - noise).abs() * 0.1;
-    let _switched = update_hysteresis(&mut s.hysteresis, proposed, drive_energy);
+    let mut new_hysteresis = s.hysteresis.clone();
+    let _switched = update_hysteresis(&mut new_hysteresis, proposed, drive_energy);
 
     // Re-assign node basins if we have a graph.
-    if s.graph.n > 0 {
+    let new_node_basins = if s.graph.n > 0 {
         let domains: Vec<Domain> = s.graph.nodes.iter().map(|n| n.domain).collect();
-        s.node_basins = assign_node_basins(&domains, &s.thomas, &s.aizawa, &s.halvorsen);
-    }
+        assign_node_basins(&domains, &new_thomas, &new_aizawa, &new_halvorsen)
+    } else {
+        s.node_basins.clone()
+    };
 
-    Ok(format!(
-        "(:ok :thomas (:x {:.3} :y {:.3} :z {:.3} :b {:.3}) :aizawa (:x {:.3} :y {:.3} :z {:.3}) :halvorsen (:x {:.3} :y {:.3} :z {:.3}) :basin {})",
-        s.thomas.x, s.thomas.y, s.thomas.z, s.thomas_b,
-        s.aizawa.x, s.aizawa.y, s.aizawa.z,
-        s.halvorsen.x, s.halvorsen.y, s.halvorsen.z,
-        s.hysteresis.current_basin.to_sexp(),
-    ))
+    (new_thomas, b_eff, new_aizawa, new_halvorsen, new_hysteresis, new_node_basins)
+}
+
+/// Step all three attractors by one timestep and update hysteresis.
+/// Backward-compat wrapper: delegates through the Service pattern.
+pub fn step_attractors(s: &mut FieldState, signal: f64, noise: f64) -> Result<String, MemoryError> {
+    use harmonia_actor_protocol::Service;
+    use crate::command::{FieldCommand, FieldResult};
+    let cmd = FieldCommand::StepAttractors { signal, noise };
+    let (delta, result) = s.handle(cmd)?;
+    s.apply(delta);
+    match result {
+        FieldResult::Stepped(r) => Ok(r.to_sexp()),
+        _ => unreachable!(),
+    }
 }
 
 /// Return current basin status as sexp.
+/// Backward-compat wrapper: delegates through the Service pattern.
 pub fn basin_status(s: &FieldState) -> Result<String, MemoryError> {
-    Ok(format!(
-        "(:ok :current {} :dwell-ticks {} :coercive-energy {:.3} :threshold {:.3})",
-        s.hysteresis.current_basin.to_sexp(),
-        s.hysteresis.dwell_ticks,
-        s.hysteresis.coercive_energy,
-        s.hysteresis.threshold,
-    ))
+    use harmonia_actor_protocol::Service;
+    use crate::command::FieldCommand;
+    let cmd = FieldCommand::BasinStatus;
+    let (_delta, result) = s.handle(cmd)?;
+    Ok(result.to_sexp())
 }
 
 /// Restore basin state from Chronicle for warm-start.
+/// Backward-compat wrapper: delegates through the Service pattern.
 pub fn restore_basin(
     s: &mut FieldState,
     basin_str: &str,
@@ -65,18 +89,15 @@ pub fn restore_basin(
     dwell_ticks: u64,
     threshold: f64,
 ) -> Result<String, MemoryError> {
-    let basin = crate::basin::Basin::from_sexp(basin_str);
-    s.hysteresis = crate::basin::HysteresisTracker::restored(
-        basin,
+    use harmonia_actor_protocol::Service;
+    use crate::command::FieldCommand;
+    let cmd = FieldCommand::RestoreBasin {
+        basin_str: basin_str.to_string(),
         coercive_energy,
         dwell_ticks,
         threshold,
-    );
-    Ok(format!(
-        "(:ok :restored {} :energy {:.3} :dwell {} :threshold {:.3})",
-        s.hysteresis.current_basin.to_sexp(),
-        coercive_energy,
-        dwell_ticks,
-        threshold,
-    ))
+    };
+    let (delta, result) = s.handle(cmd)?;
+    s.apply(delta);
+    Ok(result.to_sexp())
 }

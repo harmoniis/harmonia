@@ -21,6 +21,7 @@ harmonia-signal-integrity = { version = "0.1.9", path = "../signal-integrity" }
 harmonia-tool-channel-protocol = { version = "0.1.9", path = "../tool-channel-protocol" }
 harmonia-vault = { version = "0.1.9", path = "../vault" }
 harmonia-config-store = { version = "0.1.9", path = "../config-store" }
+harmonia-actor-protocol = { version = "0.1.9", path = "../actor-protocol" }
 harmonia-complexity-encoder = { version = "0.1.0", path = "../complexity-encoder" }
 harmonia-node-rpc = { version = "0.1.9", path = "../node-rpc" }
 serde = { version = "1", features = ["derive"] }

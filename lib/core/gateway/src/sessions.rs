@@ -291,6 +291,31 @@ pub fn resolve_node_label() -> Result<String, String> {
         .ok_or_else(|| "node label not set in config-store".to_string())
 }
 
+// ── SessionState (actor-owned) ──────────────────────────────────────
+
+/// Actor-owned session state. Holds the cached current session per node.
+/// All session access goes through `dispatch()` via the session actor.
+#[derive(Debug)]
+pub struct SessionState {
+    current: Option<Session>,
+}
+
+impl SessionState {
+    pub fn new() -> Self { Self { current: None } }
+    pub fn set_current(&mut self, session: Session) { self.current = Some(session); }
+    pub fn current_ref(&self) -> Option<&Session> { self.current.as_ref() }
+}
+
+impl Default for SessionState {
+    fn default() -> Self { Self::new() }
+}
+
+/// Dispatch a session command (sexp in, sexp out). Pure functional dispatch.
+/// Delegates to `session_dispatch` module.
+pub fn dispatch(state: &mut SessionState, sexp: &str) -> String {
+    crate::session_dispatch::dispatch(state, sexp)
+}
+
 // ── Tests ───────────────────────────────────────────────────────────
 
 #[cfg(test)]

@@ -23,6 +23,8 @@ mod remote;
 mod session;
 #[cfg(unix)]
 mod session_flows;
+#[cfg(unix)]
+mod session_ipc;
 #[cfg(not(unix))]
 mod session {
     pub fn run() -> Result<(), Box<dyn std::error::Error>> {

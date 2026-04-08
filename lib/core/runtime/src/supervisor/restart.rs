@@ -196,6 +196,7 @@ async fn try_restart_component(
         "mempalace" => Actor::spawn_linked(Some(name.clone()), crate::actors::MemPalaceActor, (), myself.get_cell()).await.map(|(r, _)| r),
         "terraphon" => Actor::spawn_linked(Some(name.clone()), crate::actors::TerraphonActor, (), myself.get_cell()).await.map(|(r, _)| r),
         "ouroboros" => Actor::spawn_linked(Some(name.clone()), crate::actors::OuroborosActor, (), myself.get_cell()).await.map(|(r, _)| r),
+        "sessions" => Actor::spawn_linked(Some(name.clone()), crate::actors::SessionActor, (), myself.get_cell()).await.map(|(r, _)| r),
         // Note: "harmonic-matrix" uses MatrixMsg, handled separately
         _ => {
             eprintln!("[WARN] [runtime] Unknown component actor '{name}', cannot respawn");

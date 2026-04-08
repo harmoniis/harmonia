@@ -1,46 +1,23 @@
-//! Memory-field component dispatch — requires actor-owned FieldState.
+//! Memory-field component dispatch — routes sexp commands through the Service pattern.
+//!
+//! Parse sexp -> FieldCommand -> handle(&self) -> (Delta, Result) -> apply(&mut self) -> to_sexp()
+//! Mutation is confined to apply(). Serialization happens at the boundary.
 
 use harmonia_actor_protocol::sexp_escape;
 
-use super::{dispatch_op, param, param_f64, param_u64};
+use super::{param, param_f64, param_u64};
 
 pub(crate) fn dispatch(
     sexp: &str,
     field: &mut harmonia_memory_field::FieldState,
 ) -> String {
     let op = harmonia_actor_protocol::extract_sexp_string(sexp, ":op").unwrap_or_default();
+
+    // Special cases that don't go through Service (init, last-field-basin).
     match op.as_str() {
-        "init" => "(:ok)".to_string(),
-        "load-graph" => {
-            let nodes = parse_memory_field_nodes(sexp);
-            let edges = parse_memory_field_edges(sexp);
-            dispatch_op!("load-graph", harmonia_memory_field::load_graph(field, nodes, edges))
-        }
-        "field-recall" => {
-            let concepts = parse_string_list(sexp, ":query-concepts");
-            let access = parse_memory_field_access_counts(sexp);
-            let limit = param_u64!(sexp, ":limit", 0) as usize;
-            let limit = if limit == 0 { 10 } else { limit };
-            dispatch_op!("field-recall", harmonia_memory_field::field_recall(field, concepts, access, limit).map(|r| r.to_sexp()))
-        }
-        "step-attractors" => {
-            let signal = param_f64!(sexp, ":signal", 0.0);
-            let noise = param_f64!(sexp, ":noise", 0.0);
-            dispatch_op!("step-attractors", harmonia_memory_field::step_attractors(field, signal, noise))
-        }
-        "basin-status" => dispatch_op!("basin-status", harmonia_memory_field::basin_status(field)),
-        "eigenmode-status" => dispatch_op!("eigenmode-status", harmonia_memory_field::eigenmode_status(field)),
-        "status" => dispatch_op!("status", harmonia_memory_field::status(field)),
-        "restore-basin" => {
-            let basin = param!(sexp, ":basin", "thomas-0");
-            let energy = param_f64!(sexp, ":coercive-energy", 0.0);
-            let dwell = param_u64!(sexp, ":dwell-ticks", 0);
-            let threshold = param_f64!(sexp, ":threshold", 0.0);
-            let threshold = if threshold < 0.01 { 0.35 } else { threshold };
-            dispatch_op!("restore-basin", harmonia_memory_field::restore_basin(field, &basin, energy, dwell, threshold))
-        }
+        "init" => return "(:ok)".to_string(),
         "last-field-basin" => {
-            match harmonia_chronicle::tables::harmonic::last_field_basin() {
+            return match harmonia_chronicle::tables::harmonic::last_field_basin() {
                 Ok((basin, energy, dwell, threshold)) => {
                     format!(
                         "(:ok :basin \"{}\" :coercive-energy {:.3} :dwell-ticks {} :threshold {:.3})",
@@ -48,28 +25,92 @@ pub(crate) fn dispatch(
                     )
                 }
                 Err(e) => format!("(:error \"last-field-basin: {e}\")"),
-            }
+            };
+        }
+        _ => {}
+    }
+
+    // Parse command from sexp.
+    let cmd = match parse_command(sexp, &op) {
+        Some(cmd) => cmd,
+        None => return format!("(:error \"unknown memory-field op: {}\")", op),
+    };
+
+    // Handle + apply + serialize (the Service pattern).
+    use harmonia_actor_protocol::Service;
+    match field.handle(cmd) {
+        Ok((delta, result)) => {
+            field.apply(delta);
+            result.to_sexp()
+        }
+        Err(e) => {
+            let msg = e.to_string();
+            format!("(:error \"{}: {}\")", op, sexp_escape(&msg))
+        }
+    }
+}
+
+/// Parse sexp into a typed FieldCommand. Returns None for unknown ops.
+fn parse_command(sexp: &str, op: &str) -> Option<harmonia_memory_field::FieldCommand> {
+    use harmonia_memory_field::FieldCommand;
+    match op {
+        "load-graph" => Some(FieldCommand::LoadGraph {
+            nodes: parse_memory_field_nodes(sexp),
+            edges: parse_memory_field_edges(sexp),
+        }),
+        "field-recall" => {
+            let concepts = parse_string_list(sexp, ":query-concepts");
+            let access = parse_memory_field_access_counts(sexp);
+            let limit = param_u64!(sexp, ":limit", 0) as usize;
+            Some(FieldCommand::Recall {
+                query_concepts: concepts,
+                access_counts: access,
+                limit: if limit == 0 { 10 } else { limit },
+            })
         }
         "field-recall-structural" => {
             let concepts = parse_string_list(sexp, ":query-concepts");
             let limit = param_u64!(sexp, ":limit", 0) as usize;
-            let limit = if limit == 0 { 5 } else { limit };
-            dispatch_op!("field-recall-structural", harmonia_memory_field::field_recall_structural(field, concepts, limit).map(|r| r.to_sexp_structural()))
+            Some(FieldCommand::RecallStructural {
+                query_concepts: concepts,
+                limit: if limit == 0 { 5 } else { limit },
+            })
         }
-        "current-basin" => dispatch_op!("current-basin", harmonia_memory_field::current_basin(field)),
-        "dream" => dispatch_op!("dream", harmonia_memory_field::field_dream(field).map(|r| harmonia_memory_field::dream_report_to_sexp(&r))),
-        "dream-stats" => dispatch_op!("dream-stats", harmonia_memory_field::dream_stats(field)),
-        "edge-currents" => dispatch_op!("edge-currents", harmonia_memory_field::edge_current_status(field)),
-        "reset" => dispatch_op!("reset", harmonia_memory_field::reset(field)),
-        "digest" => dispatch_op!("digest", harmonia_memory_field::compute_digest(field).map(|d| d.to_sexp())),
+        "step-attractors" => Some(FieldCommand::StepAttractors {
+            signal: param_f64!(sexp, ":signal", 0.0),
+            noise: param_f64!(sexp, ":noise", 0.0),
+        }),
+        "basin-status" => Some(FieldCommand::BasinStatus),
+        "eigenmode-status" => Some(FieldCommand::EigenmodeStatus),
+        "status" => Some(FieldCommand::Status),
+        "restore-basin" => {
+            let basin = param!(sexp, ":basin", "thomas-0");
+            let energy = param_f64!(sexp, ":coercive-energy", 0.0);
+            let dwell = param_u64!(sexp, ":dwell-ticks", 0);
+            let threshold = param_f64!(sexp, ":threshold", 0.0);
+            Some(FieldCommand::RestoreBasin {
+                basin_str: basin,
+                coercive_energy: energy,
+                dwell_ticks: dwell,
+                threshold: if threshold < 0.01 { 0.35 } else { threshold },
+            })
+        }
+        "current-basin" => Some(FieldCommand::CurrentBasin),
+        "dream" => Some(FieldCommand::Dream),
+        "dream-stats" => Some(FieldCommand::DreamStats),
+        "edge-currents" => Some(FieldCommand::EdgeCurrents),
+        "digest" => Some(FieldCommand::Digest),
         "load-genesis" => {
             let concepts = parse_genesis_concepts(sexp);
             let edges = parse_genesis_edges(sexp);
             let entry = harmonia_memory_field::GenesisEntry { concepts, edges };
-            dispatch_op!("load-genesis", harmonia_memory_field::load_genesis(field, vec![entry]))
+            Some(FieldCommand::LoadGenesis {
+                entries: vec![entry],
+            })
         }
-        "bootstrap" => dispatch_op!("bootstrap", harmonia_memory_field::bootstrap(field)),
-        _ => format!("(:error \"unknown memory-field op: {}\")", op),
+        "bootstrap" => Some(FieldCommand::Bootstrap),
+        "reset" => Some(FieldCommand::Reset),
+        _ => None,
     }
 }
 

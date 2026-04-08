@@ -7,14 +7,17 @@ mod api;
 mod attractor;
 mod attractor_api;
 pub mod basin;
+pub mod command;
 pub(crate) mod config;
 mod dream;
 mod error;
 pub mod field;
 pub mod graph;
+mod interpret;
 mod model;
 mod recall;
 pub mod scoring;
+mod serialize;
 pub mod spectral;
 
 use attractor::{AizawaState, HalvorsenState, ThomasState};
@@ -37,6 +40,8 @@ pub use api::{compute_digest, MemoryDigest};
 pub use api::{bootstrap, load_genesis, GenesisEntry};
 pub use basin::Basin;
 pub use graph::Domain;
+// Free Monad types: command, result, delta.
+pub use command::{FieldCommand, FieldDelta, FieldResult};
 
 /// Re-export sexp escape from the shared protocol crate.
 pub(crate) use harmonia_actor_protocol::sexp_escape as graph_sexp_escape;

@@ -99,6 +99,7 @@ async fn main() {
         spawned.mempalace_ref,
         spawned.terraphon_ref,
         spawned.ouroboros_ref,
+        spawned.session_ref,
     ];
     let shutdown_sup = spawned.supervisor_ref.clone();
     let shutdown_obs = spawned.obs_ref;

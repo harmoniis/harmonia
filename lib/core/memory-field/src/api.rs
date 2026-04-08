@@ -6,7 +6,7 @@
 /// Heavy operations (recall, dream, attractor stepping) live in their own modules.
 /// This module provides graph loading, status queries, and reset.
 
-use harmonia_actor_protocol::{MemoryError, SexpBuilder};
+use harmonia_actor_protocol::MemoryError;
 
 use crate::basin::assign_node_basins;
 use crate::config::cfg_i64;
@@ -19,95 +19,112 @@ pub use crate::attractor_api::{basin_status, restore_basin, step_attractors};
 pub use crate::dream::{field_dream, dream_report_to_sexp, DreamReport};
 pub use crate::recall::{current_basin, field_recall, field_recall_structural, ConceptActivation, RecallResult};
 
+/// Pure graph load computation — builds graph, spectral decomposition, and basin assignment.
+/// Returns (graph, eigenvalues, eigenvectors, node_basins).
+pub(crate) fn compute_load_graph(
+    nodes: &[(String, String, i32, Vec<String>)],
+    edges: &[(String, String, f64, bool)],
+    thomas: &crate::attractor::ThomasState,
+    aizawa: &crate::attractor::AizawaState,
+    halvorsen: &crate::attractor::HalvorsenState,
+) -> (crate::graph::SparseGraph, Vec<f64>, Vec<Vec<f64>>, Vec<crate::basin::Basin>) {
+    let graph = build_graph(nodes, edges);
+
+    // Recompute spectral decomposition (k from config).
+    let k = (cfg_i64("spectral-k", 8) as usize).min(graph.n.saturating_sub(1));
+    let (eigenvalues, eigenvectors) = if k > 0 {
+        spectral_decompose(&graph, k, 200, 1e-6)
+    } else {
+        (Vec::new(), Vec::new())
+    };
+
+    // Assign node basins based on current attractor states.
+    let domains: Vec<Domain> = graph.nodes.iter().map(|n| n.domain).collect();
+    let node_basins = assign_node_basins(&domains, thomas, aizawa, halvorsen);
+
+    (graph, eigenvalues, eigenvectors, node_basins)
+}
+
 /// Load a concept graph from parsed node and edge lists.
-///
-/// Rebuilds the sparse graph and triggers spectral recomputation.
+/// Backward-compat wrapper: delegates through the Service pattern.
 pub fn load_graph(
     s: &mut FieldState,
     nodes: Vec<(String, String, i32, Vec<String>)>,
     edges: Vec<(String, String, f64, bool)>,
 ) -> Result<String, MemoryError> {
-    s.graph = build_graph(&nodes, &edges);
-    s.graph_version += 1;
-
-    // Recompute spectral decomposition (k from config).
-    let k = (cfg_i64("spectral-k", 8) as usize).min(s.graph.n.saturating_sub(1));
-    if k > 0 {
-        let (eigenvalues, eigenvectors) = spectral_decompose(&s.graph, k, 200, 1e-6);
-        s.eigenvalues = eigenvalues;
-        s.eigenvectors = eigenvectors;
-    } else {
-        s.eigenvalues.clear();
-        s.eigenvectors.clear();
-    }
-    s.spectral_version = s.graph_version;
-
-    // Assign node basins based on current attractor states.
-    let domains: Vec<Domain> = s.graph.nodes.iter().map(|n| n.domain).collect();
-    s.node_basins = assign_node_basins(&domains, &s.thomas, &s.aizawa, &s.halvorsen);
-
-    Ok(SexpBuilder::ok()
-        .key("n").uint(s.graph.n as u64)
-        .key("edges").uint((s.graph.col_idx.len() / 2) as u64) // Each undirected edge stored twice in CSR.
-        .key("spectral-k").uint(s.eigenvalues.len() as u64)
-        .key("graph-version").uint(s.graph_version)
-        .build())
+    use harmonia_actor_protocol::Service;
+    use crate::command::FieldCommand;
+    let cmd = FieldCommand::LoadGraph { nodes, edges };
+    let (delta, result) = s.handle(cmd)?;
+    s.apply(delta);
+    Ok(result.to_sexp())
 }
 
 /// Return eigenmode status as sexp.
+/// Backward-compat wrapper: delegates through the Service pattern.
 pub fn eigenmode_status(s: &FieldState) -> Result<String, MemoryError> {
-    let eigenvalues_sexp: Vec<String> = s.eigenvalues.iter().map(|v| format!("{v:.4}")).collect();
-    Ok(SexpBuilder::ok()
-        .key("eigenvalues").list(&eigenvalues_sexp)
-        .key("spectral-version").uint(s.spectral_version)
-        .key("graph-version").uint(s.graph_version)
-        .build())
+    use harmonia_actor_protocol::Service;
+    use crate::command::FieldCommand;
+    let cmd = FieldCommand::EigenmodeStatus;
+    let (_delta, result) = s.handle(cmd)?;
+    Ok(result.to_sexp())
 }
 
 /// Return summary status as sexp.
+/// Backward-compat wrapper: delegates through the Service pattern.
 pub fn status(s: &FieldState) -> Result<String, MemoryError> {
-    Ok(SexpBuilder::ok()
-        .key("cycle").int(s.cycle)
-        .key("graph-n").uint(s.graph.n as u64)
-        .key("graph-version").uint(s.graph_version)
-        .key("spectral-k").uint(s.eigenvalues.len() as u64)
-        .key("basin").raw(&s.hysteresis.current_basin.to_sexp())
-        .key("thomas-b").float(s.thomas_b, 3)
-        .build())
+    use harmonia_actor_protocol::Service;
+    use crate::command::FieldCommand;
+    let cmd = FieldCommand::Status;
+    let (_delta, result) = s.handle(cmd)?;
+    Ok(result.to_sexp())
 }
 
-/// Compute edge current flow from the last solved field.
-/// Returns top-K edges by current magnitude as sexp.
-pub fn edge_current_status(s: &FieldState) -> Result<String, MemoryError> {
-    if s.graph.n == 0 { return Ok("(:ok :currents ())".into()); }
+/// Pure edge current computation — returns top-K edges as (concept_a, concept_b, current).
+pub(crate) fn compute_edge_currents_pure(s: &FieldState) -> Vec<(String, String, f64)> {
+    if s.graph.n == 0 { return Vec::new(); }
     let uniform: Vec<f64> = vec![1.0 / s.graph.n as f64; s.graph.n];
     let phi = crate::field::solve_field(&s.graph, &uniform, 50, 0.001, 0.01);
     let mut currents = crate::field::edge_currents(&s.graph, &phi);
     currents.sort_by(|a, b| b.2.partial_cmp(&a.2).unwrap_or(std::cmp::Ordering::Equal));
     currents.truncate(10);
-    let items: Vec<String> = currents.iter().map(|(a, b, c)| {
-        let na = if *a < s.graph.nodes.len() { &s.graph.nodes[*a].concept } else { "?" };
-        let nb = if *b < s.graph.nodes.len() { &s.graph.nodes[*b].concept } else { "?" };
-        format!("(:a \"{}\" :b \"{}\" :current {:.4})", na, nb, c)
-    }).collect();
-    Ok(format!("(:ok :currents ({}))", items.join(" ")))
+    currents.iter().map(|(a, b, c)| {
+        let na = if *a < s.graph.nodes.len() { s.graph.nodes[*a].concept.clone() } else { "?".into() };
+        let nb = if *b < s.graph.nodes.len() { s.graph.nodes[*b].concept.clone() } else { "?".into() };
+        (na, nb, *c)
+    }).collect()
+}
+
+/// Compute edge current flow from the last solved field.
+/// Backward-compat wrapper: delegates through the Service pattern.
+pub fn edge_current_status(s: &FieldState) -> Result<String, MemoryError> {
+    use harmonia_actor_protocol::Service;
+    use crate::command::FieldCommand;
+    let cmd = FieldCommand::EdgeCurrents;
+    let (_delta, result) = s.handle(cmd)?;
+    // delta is FieldDelta::None, no need to apply.
+    Ok(result.to_sexp())
 }
 
 /// Return entropy bookkeeping stats as sexp (Phase 4D).
+/// Backward-compat wrapper: delegates through the Service pattern.
 pub fn dream_stats(s: &FieldState) -> Result<String, MemoryError> {
-    Ok(SexpBuilder::ok()
-        .key("dreams").uint(s.dream_count)
-        .key("pruned").uint(s.total_pruned)
-        .key("merged").uint(s.total_merged)
-        .key("crystallized").uint(s.total_crystallized)
-        .key("entropy-delta").float(s.cumulative_entropy_delta, 3)
-        .build())
+    use harmonia_actor_protocol::Service;
+    use crate::command::FieldCommand;
+    let cmd = FieldCommand::DreamStats;
+    let (_delta, result) = s.handle(cmd)?;
+    Ok(result.to_sexp())
 }
 
 /// Reset field state to initial values.
+/// Backward-compat wrapper: delegates through the Service pattern.
 pub fn reset(s: &mut FieldState) -> Result<String, MemoryError> {
-    *s = FieldState::new();
-    Ok("(:ok)".into())
+    use harmonia_actor_protocol::Service;
+    use crate::command::FieldCommand;
+    let cmd = FieldCommand::Reset;
+    let (delta, result) = s.handle(cmd)?;
+    s.apply(delta);
+    Ok(result.to_sexp())
 }
 
 // ── Phase 7: Cross-Node Memory Digest ──────────────────────────────────
@@ -142,9 +159,8 @@ impl MemoryDigest {
     }
 }
 
-/// Compute a compact memory digest for cross-node gossip.
-/// Returns structured MemoryDigest; caller serializes at dispatch boundary.
-pub fn compute_digest(s: &FieldState) -> Result<MemoryDigest, MemoryError> {
+/// Pure digest computation — returns MemoryDigest without mutation.
+pub(crate) fn compute_digest_pure(s: &FieldState) -> MemoryDigest {
     let n = s.graph.n;
 
     // Domain distribution: fraction of nodes per domain.
@@ -170,16 +186,27 @@ pub fn compute_digest(s: &FieldState) -> Result<MemoryDigest, MemoryError> {
     concept_scores.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
     concept_scores.truncate(20);
 
-    let digest = MemoryDigest {
+    MemoryDigest {
         graph_version: s.graph_version,
         concept_count: n,
         top_concepts: concept_scores,
         domain_distribution,
         entropy_estimate: s.cumulative_entropy_delta,
         last_dream_cycle: s.dream_count,
-    };
+    }
+}
 
-    Ok(digest)
+/// Compute a compact memory digest for cross-node gossip.
+/// Backward-compat wrapper: delegates through the Service pattern.
+pub fn compute_digest(s: &FieldState) -> Result<MemoryDigest, MemoryError> {
+    use harmonia_actor_protocol::Service;
+    use crate::command::{FieldCommand, FieldResult};
+    let cmd = FieldCommand::Digest;
+    let (_delta, result) = s.handle(cmd)?;
+    match result {
+        FieldResult::Digest(d) => Ok(d),
+        _ => unreachable!(),
+    }
 }
 
 // ── Phase 8: Genesis Improvement ───────────────────────────────────────
@@ -191,18 +218,15 @@ pub struct GenesisEntry {
     pub edges: Vec<(String, String, f64)>,  // (from, to, weight)
 }
 
-/// Load genesis entries directly into the field graph.
-/// Bypasses text-parse-extract pipeline — ~400 bytes instead of ~1500.
-pub fn load_genesis(
-    s: &mut FieldState,
-    entries: Vec<GenesisEntry>,
-) -> Result<String, MemoryError> {
+/// Pure genesis flattening — converts genesis entries to node/edge lists.
+pub(crate) fn flatten_genesis_entries(
+    entries: &[GenesisEntry],
+) -> (Vec<(String, String, i32, Vec<String>)>, Vec<(String, String, f64, bool)>) {
     let mut all_nodes: Vec<(String, String, i32, Vec<String>)> = Vec::new();
     let mut all_edges: Vec<(String, String, f64, bool)> = Vec::new();
 
-    for entry in &entries {
+    for entry in entries {
         for (concept, domain) in &entry.concepts {
-            // Check if concept already exists.
             if !all_nodes.iter().any(|(c, _, _, _)| c == concept) {
                 all_nodes.push((concept.clone(), domain.clone(), 1, vec!["genesis".into()]));
             }
@@ -217,28 +241,30 @@ pub fn load_genesis(
         }
     }
 
-    // Load into graph (reuses existing load_graph path).
-    load_graph(s, all_nodes, all_edges)
+    (all_nodes, all_edges)
+}
+
+/// Load genesis entries directly into the field graph.
+/// Backward-compat wrapper: delegates through the Service pattern.
+pub fn load_genesis(
+    s: &mut FieldState,
+    entries: Vec<GenesisEntry>,
+) -> Result<String, MemoryError> {
+    use harmonia_actor_protocol::Service;
+    use crate::command::FieldCommand;
+    let cmd = FieldCommand::LoadGenesis { entries };
+    let (delta, result) = s.handle(cmd)?;
+    s.apply(delta);
+    Ok(result.to_sexp())
 }
 
 /// Bootstrap sequence: after genesis load, initialize basins and run one dream.
-/// Ensures the very first user interaction has correct domain routing.
+/// Backward-compat wrapper: delegates through the Service pattern.
 pub fn bootstrap(s: &mut FieldState) -> Result<String, MemoryError> {
-    if s.graph.n == 0 {
-        return Err(MemoryError::GraphEmpty);
-    }
-
-    // 1. Step attractors once to initialize basin state.
-    step_attractors(s, 0.5, 0.1)?;
-
-    // 2. Run one dream cycle to classify foundation nodes.
-    let dream_report = field_dream(s)?;
-
-    // 3. Return combined status.
-    Ok(format!(
-        "(:ok :bootstrapped t :nodes {} :basin {} :dream {})",
-        s.graph.n,
-        s.hysteresis.current_basin.to_sexp(),
-        dream_report_to_sexp(&dream_report),
-    ))
+    use harmonia_actor_protocol::Service;
+    use crate::command::FieldCommand;
+    let cmd = FieldCommand::Bootstrap;
+    let (delta, result) = s.handle(cmd)?;
+    s.apply(delta);
+    Ok(result.to_sexp())
 }

@@ -10,6 +10,7 @@ crate::macros::declare_component!(components::MemPalaceComponent, MemPalaceActor
 crate::macros::declare_component!(components::TerraphonComponent, TerraphonActor, TerraphonActorState);
 crate::macros::declare_component!(components::ChronicleComponent, ChronicleComponentActor, ChronicleComponentState);
 crate::macros::declare_component!(components::OuroborosComponent, OuroborosActor, OuroborosActorState);
+crate::macros::declare_component!(components::SessionComponent, SessionActor, SessionActorState);
 
 // Stateless actors dispatching through the hardcoded match.
 crate::macros::declare_stateless_component!(ConfigActor, "config");

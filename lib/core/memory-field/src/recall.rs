@@ -76,10 +76,10 @@ fn domain_to_sexp(d: Domain) -> &'static str {
 
 // ── Core recall computation ──
 
-/// Compute field recall — returns structured result.
-/// The caller chooses how to serialize (full sexp, structural-only, etc.).
-fn compute_recall(
-    s: &mut FieldState,
+/// Pure recall computation — takes &FieldState (immutable), returns structured result.
+/// The cycle increment is handled by FieldDelta::CycleIncremented in the Service pattern.
+pub(crate) fn compute_recall_pure(
+    s: &FieldState,
     query_concepts: &[String],
     access_counts: &[(String, f64, f64)],
     limit: usize,
@@ -120,9 +120,6 @@ fn compute_recall(
         cfg_f64("activation-threshold", 0.1),
         s.cycle,
     );
-
-    // Update cycle.
-    s.cycle += 1;
 
     // Map internal activations to structured results.
     let concept_activations: Vec<ConceptActivation> = activations.iter()
@@ -179,31 +176,48 @@ fn build_access_vector(
 // ── Public API ──
 
 /// Full field recall — returns structured RecallResult.
-/// Caller serializes at the dispatch boundary via `.to_sexp()`.
+/// Backward-compat wrapper: delegates through the Service pattern.
 pub fn field_recall(
     s: &mut FieldState,
     query_concepts: Vec<String>,
     access_counts: Vec<(String, f64, f64)>,
     limit: usize,
 ) -> Result<RecallResult, MemoryError> {
-    Ok(compute_recall(s, &query_concepts, &access_counts, limit))
+    use harmonia_actor_protocol::Service;
+    use crate::command::{FieldCommand, FieldResult};
+    let cmd = FieldCommand::Recall { query_concepts, access_counts, limit };
+    let (delta, result) = s.handle(cmd)?;
+    s.apply(delta);
+    match result {
+        FieldResult::Recalled(r) => Ok(r),
+        _ => unreachable!(),
+    }
 }
 
 /// Structural-only recall — concept names + scores + basins, no entry content.
-/// Caller serializes at the dispatch boundary via `.to_sexp_structural()`.
+/// Backward-compat wrapper: delegates through the Service pattern.
 pub fn field_recall_structural(
     s: &mut FieldState,
     query_concepts: Vec<String>,
     limit: usize,
 ) -> Result<RecallResult, MemoryError> {
-    Ok(compute_recall(s, &query_concepts, &[], limit))
+    use harmonia_actor_protocol::Service;
+    use crate::command::{FieldCommand, FieldResult};
+    let cmd = FieldCommand::RecallStructural { query_concepts, limit };
+    let (delta, result) = s.handle(cmd)?;
+    s.apply(delta);
+    match result {
+        FieldResult::Recalled(r) => Ok(r),
+        _ => unreachable!(),
+    }
 }
 
 /// Current basin status — lightweight, no field solve.
+/// Backward-compat wrapper: delegates through the Service pattern.
 pub fn current_basin(s: &FieldState) -> Result<String, MemoryError> {
-    Ok(format!(
-        "(:ok :basin {} :cycle {})",
-        s.hysteresis.current_basin.to_sexp(),
-        s.cycle,
-    ))
+    use harmonia_actor_protocol::Service;
+    use crate::command::FieldCommand;
+    let cmd = FieldCommand::CurrentBasin;
+    let (_delta, result) = s.handle(cmd)?;
+    Ok(result.to_sexp())
 }
