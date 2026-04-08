@@ -62,7 +62,7 @@ fn send_local_payload(
 
 fn run_client_mode(
     node: crate::paths::NodeIdentity,
-    session: crate::paths::SessionIdentity,
+    session: harmonia_gateway::sessions::Session,
     pairing: crate::pairing::PairingRecord,
     socket_path: PathBuf,
     running: Arc<AtomicBool>,
@@ -231,10 +231,12 @@ pub fn run_foreground() -> Result<(), Box<dyn std::error::Error>> {
     match node.role {
         crate::paths::NodeRole::TuiClient => {
             let pairing = crate::pairing::ensure_pairing(&node)?;
-            let session = crate::paths::resume_or_create_session(&node)?;
+            let data_dir = crate::paths::data_dir()?;
+            let session = harmonia_gateway::sessions::create(&node.label, &data_dir)
+                .map_err(|e| format!("session create: {e}"))?;
             run_client_mode(
                 node,
-                session.identity,
+                session,
                 pairing,
                 crate::paths::socket_path()?,
                 running,

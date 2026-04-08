@@ -115,6 +115,44 @@ impl KnowledgeGraph {
     }
 }
 
+// ── ConceptGraph trait implementation ──
+
+impl harmonia_actor_protocol::ConceptGraph for KnowledgeGraph {
+    fn node_count(&self) -> usize { self.nodes.len() }
+
+    fn concept_index(&self, concept: &str) -> Option<usize> {
+        self.find_node(concept)
+    }
+
+    fn neighbor_indices(&self, node: usize) -> &[usize] {
+        if node + 1 < self.offsets.len() {
+            &self.targets[self.offsets[node]..self.offsets[node + 1]]
+        } else {
+            &[]
+        }
+    }
+
+    fn degree(&self, node: usize) -> f64 {
+        if node + 1 < self.offsets.len() {
+            self.weights[self.offsets[node]..self.offsets[node + 1]].iter().sum()
+        } else {
+            0.0
+        }
+    }
+
+    fn edge_weight(&self, from: usize, to: usize) -> f64 {
+        if from + 1 >= self.offsets.len() { return 0.0; }
+        let start = self.offsets[from];
+        let end = self.offsets[from + 1];
+        for idx in start..end {
+            if self.targets[idx] == to {
+                return self.weights[idx];
+            }
+        }
+        0.0
+    }
+}
+
 // ── Public API ──
 
 pub fn add_node(

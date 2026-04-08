@@ -17,7 +17,7 @@ use crate::FieldState;
 // Re-export sub-module API functions so callers only need `use api::*`.
 pub use crate::attractor_api::{basin_status, restore_basin, step_attractors};
 pub use crate::dream::field_dream;
-pub use crate::recall::field_recall;
+pub use crate::recall::{current_basin, field_recall, field_recall_structural, ConceptActivation, RecallResult};
 
 /// Load a concept graph from parsed node and edge lists.
 ///

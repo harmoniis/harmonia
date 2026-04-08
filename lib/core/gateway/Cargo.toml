@@ -23,4 +23,8 @@ harmonia-vault = { version = "0.1.9", path = "../vault" }
 harmonia-config-store = { version = "0.1.9", path = "../config-store" }
 harmonia-complexity-encoder = { version = "0.1.0", path = "../complexity-encoder" }
 harmonia-node-rpc = { version = "0.1.9", path = "../node-rpc" }
+serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"

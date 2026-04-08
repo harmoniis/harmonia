@@ -72,6 +72,37 @@ pub(crate) static ALL_COMMANDS: &[CommandMeta] = &[
         min_security: Some(is_read_allowed),
         tui_only: false,
     },
+    // ── Session commands ──────────────────────────────────────────────
+    CommandMeta {
+        name: "/session-create",
+        kind: CommandKind::Native(super::native::execute_session_create),
+        min_security: Some(is_read_allowed),
+        tui_only: false,
+    },
+    CommandMeta {
+        name: "/session-list",
+        kind: CommandKind::Native(super::native::execute_session_list),
+        min_security: Some(is_read_allowed),
+        tui_only: false,
+    },
+    CommandMeta {
+        name: "/session-current",
+        kind: CommandKind::Native(super::native::execute_session_current),
+        min_security: Some(is_read_allowed),
+        tui_only: false,
+    },
+    CommandMeta {
+        name: "/session-events",
+        kind: CommandKind::Native(super::native::execute_session_events),
+        min_security: Some(is_read_allowed),
+        tui_only: false,
+    },
+    CommandMeta {
+        name: "/session-append",
+        kind: CommandKind::Native(super::native::execute_session_append),
+        min_security: Some(is_read_allowed),
+        tui_only: false,
+    },
     // ── Special commands ─────────────────────────────────────────────
     CommandMeta {
         name: "/exit",

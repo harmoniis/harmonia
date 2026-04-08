@@ -2170,6 +2170,7 @@ dependencies = [
  "dialoguer",
  "dirs",
  "harmonia-config-store",
+ "harmonia-gateway",
  "harmonia-node-rpc",
  "harmonia-qr-terminal",
  "harmonia-signal",
@@ -2335,8 +2336,10 @@ dependencies = [
  "harmonia-signal-integrity",
  "harmonia-tool-channel-protocol",
  "harmonia-vault",
+ "libc",
  "log",
  "parking_lot",
+ "serde",
  "serde_json",
 ]
 

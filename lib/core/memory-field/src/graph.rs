@@ -276,6 +276,10 @@ impl harmonia_actor_protocol::ConceptGraph for SparseGraph {
 ///
 /// This is O(|E|) per call — the core operation for conjugate gradient.
 pub(crate) fn laplacian_mul(graph: &SparseGraph, x: &[f64], out: &mut [f64]) {
+    laplacian_mul_impl(graph, x, out);
+}
+
+fn laplacian_mul_impl(graph: &SparseGraph, x: &[f64], out: &mut [f64]) {
     for i in 0..graph.n {
         let mut sum = graph.degree[i] * x[i];
         let start = graph.row_ptr[i];

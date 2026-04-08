@@ -9,9 +9,9 @@ pub struct DraftStore {
 }
 
 impl DraftStore {
-    pub fn new(session: &crate::paths::SessionPaths) -> Self {
+    pub fn new(session_dir: &std::path::Path) -> Self {
         Self {
-            path: session.dir.join("draft.txt"),
+            path: session_dir.join("draft.txt"),
         }
     }
 

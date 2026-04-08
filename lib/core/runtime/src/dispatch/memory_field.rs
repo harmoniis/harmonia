@@ -50,6 +50,13 @@ pub(crate) fn dispatch(
                 Err(e) => format!("(:error \"last-field-basin: {e}\")"),
             }
         }
+        "field-recall-structural" => {
+            let concepts = parse_string_list(sexp, ":query-concepts");
+            let limit = param_u64!(sexp, ":limit", 0) as usize;
+            let limit = if limit == 0 { 5 } else { limit };
+            dispatch_op!("field-recall-structural", harmonia_memory_field::field_recall_structural(field, concepts, limit))
+        }
+        "current-basin" => dispatch_op!("current-basin", harmonia_memory_field::current_basin(field)),
         "dream" => dispatch_op!("dream", harmonia_memory_field::field_dream(field)),
         "edge-currents" => dispatch_op!("edge-currents", harmonia_memory_field::edge_current_status(field)),
         "reset" => dispatch_op!("reset", harmonia_memory_field::reset(field)),

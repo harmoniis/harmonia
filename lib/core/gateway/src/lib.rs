@@ -8,6 +8,7 @@ mod polling;
 mod registry;
 mod sender_policy;
 mod sending;
+pub mod sessions;
 mod state;
 mod tool_baseband;
 mod tool_registry;

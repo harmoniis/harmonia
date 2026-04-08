@@ -1,10 +1,14 @@
 // ── Session flows: resume, rewind, replay, help, log, session info ────
 //
-// CLI-specific interactive flows that depend on crate::paths and crate::menus.
-// The TUI library handles all terminal rendering; these functions orchestrate
-// the CLI-side data and user interaction.
+// CLI-specific interactive flows. Session data operations delegate to the
+// gateway session service (harmonia_gateway::sessions). The TUI library
+// handles all terminal rendering; these functions orchestrate the CLI-side
+// data and user interaction.
+
+use std::path::Path;
 
 use console::Term;
+use harmonia_gateway::sessions as gsess;
 
 const DIM: &str = "\x1b[2m";
 const CYAN: &str = "\x1b[36m";
@@ -20,19 +24,21 @@ const RESET: &str = "\x1b[0m";
 
 pub(crate) fn run_resume(
     stdout: &mut std::io::Stdout,
-    session: &crate::paths::SessionPaths,
-    node: &crate::paths::NodeIdentity,
+    current_session: &gsess::Session,
+    node_label: &str,
+    data_dir: &Path,
 ) -> Result<bool, Box<dyn std::error::Error>> {
-    let sessions = crate::paths::list_sessions(&node.label)?;
+    let sessions = gsess::list(node_label, data_dir)
+        .map_err(|e| format!("list sessions: {e}"))?;
     if sessions.is_empty() {
         eprintln!("\n  {DIM}No past sessions found.{RESET}\n");
         return Ok(false);
     }
 
     let items: Vec<crate::menus::MenuItem> = sessions.iter().map(|s| {
-        let ts = crate::paths::format_timestamp_ms(s.updated_at_ms);
-        let created = crate::paths::format_timestamp_ms(s.created_at_ms);
-        let tag = if s.id == session.identity.id { " (current)" } else { "" };
+        let ts = gsess::format_timestamp_ms(s.updated_at_ms);
+        let created = gsess::format_timestamp_ms(s.created_at_ms);
+        let tag = if s.id == current_session.id { " (current)" } else { "" };
         crate::menus::MenuItem::new(
             &format!("{}{}", ts, tag), &s.id,
             &format!("{} events, created {}", s.event_count, created),
@@ -41,9 +47,10 @@ pub(crate) fn run_resume(
 
     match crate::menus::interactive_select(stdout, "Resume Session", &items)? {
         crate::menus::MenuAction::Command(id) => {
-            let resumed = crate::paths::resume_session(node, &id)?;
+            let resumed = gsess::resume(node_label, data_dir, &id)
+                .map_err(|e| format!("resume: {e}"))?;
             eprintln!();
-            replay_session_history(&resumed, &node.label);
+            replay_session_history(&resumed, node_label);
             Ok(true)
         }
         _ => Ok(false),
@@ -54,17 +61,22 @@ pub(crate) fn run_resume(
 
 pub(crate) fn run_rewind(
     stdout: &mut std::io::Stdout,
-    session: &crate::paths::SessionPaths,
+    session: &gsess::Session,
     term: &Term,
 ) -> Result<bool, Box<dyn std::error::Error>> {
-    let content = std::fs::read_to_string(&session.events_path)?;
-    let events: Vec<&str> = content.lines().filter(|l| !l.trim().is_empty()).collect();
+    let events = gsess::read_events(session).map_err(|e| format!("read events: {e}"))?;
     if events.is_empty() {
         eprintln!("\n  {DIM}No conversation to rewind.{RESET}\n");
         return Ok(false);
     }
 
-    let turns = parse_turns(&events);
+    let raw_lines: Vec<String> = std::fs::read_to_string(&session.events_path)?
+        .lines()
+        .filter(|l| !l.trim().is_empty())
+        .map(|l| l.to_string())
+        .collect();
+
+    let turns = parse_turns(&raw_lines);
     if turns.is_empty() {
         eprintln!("\n  {DIM}No conversation turns to rewind to.{RESET}\n");
         return Ok(false);
@@ -87,12 +99,15 @@ pub(crate) fn run_rewind(
                 Some(t) => t,
                 None => { eprintln!("\n  {DIM}Turn not found.{RESET}\n"); return Ok(false); }
             };
-            let kept: Vec<&str> = events[..turn.event_end].to_vec();
+            let kept: Vec<&str> = raw_lines[..turn.event_end]
+                .iter()
+                .map(|s| s.as_str())
+                .collect();
             std::fs::write(&session.events_path, kept.join("\n") + "\n")?;
 
             let _ = term.clear_screen();
-            let label = &session.identity.node_label;
-            harmonia_tui::render::print_banner(term, label, &session.identity.id);
+            let label = &session.node_label;
+            harmonia_tui::render::print_banner(term, label, &session.id);
             replay_session_history(session, label);
 
             let removed = turns.len() - turn_num;
@@ -109,11 +124,11 @@ pub(crate) fn run_rewind(
 
 struct Turn { index: usize, user_text: String, assistant_preview: String, event_end: usize }
 
-fn parse_turns(events: &[&str]) -> Vec<Turn> {
+fn parse_turns(events: &[String]) -> Vec<Turn> {
     let mut turns: Vec<Turn> = Vec::new();
     let mut i = 0;
     while i < events.len() {
-        if let Ok(ev) = serde_json::from_str::<serde_json::Value>(events[i]) {
+        if let Ok(ev) = serde_json::from_str::<serde_json::Value>(&events[i]) {
             let actor = ev.get("actor").and_then(|v| v.as_str()).unwrap_or("");
             let kind = ev.get("kind").and_then(|v| v.as_str()).unwrap_or("");
             let text = ev.get("text").and_then(|v| v.as_str()).unwrap_or("");
@@ -136,11 +151,11 @@ fn parse_turns(events: &[&str]) -> Vec<Turn> {
     turns
 }
 
-fn collect_assistant_lines(events: &[&str], start: usize) -> (Vec<String>, usize) {
+fn collect_assistant_lines(events: &[String], start: usize) -> (Vec<String>, usize) {
     let mut lines = Vec::new();
     let mut j = start;
     while j < events.len() {
-        if let Ok(rev) = serde_json::from_str::<serde_json::Value>(events[j]) {
+        if let Ok(rev) = serde_json::from_str::<serde_json::Value>(&events[j]) {
             let ra = rev.get("actor").and_then(|v| v.as_str()).unwrap_or("");
             let rk = rev.get("kind").and_then(|v| v.as_str()).unwrap_or("");
             let rt = rev.get("text").and_then(|v| v.as_str()).unwrap_or("");
@@ -153,19 +168,14 @@ fn collect_assistant_lines(events: &[&str], start: usize) -> (Vec<String>, usize
 
 // ── Replay session history ───────────────────────────────────────────
 
-fn replay_session_history(session: &crate::paths::SessionPaths, node_label: &str) {
-    let content = match std::fs::read_to_string(&session.events_path) {
-        Ok(c) if !c.is_empty() => c,
+fn replay_session_history(session: &gsess::Session, node_label: &str) {
+    let events = match gsess::read_events(session) {
+        Ok(e) if !e.is_empty() => e,
         _ => return,
     };
-    let events: Vec<serde_json::Value> = content.lines()
-        .filter(|l| !l.trim().is_empty())
-        .filter_map(|l| serde_json::from_str(l).ok())
-        .collect();
-    if events.is_empty() { return; }
 
     let start = events.iter()
-        .rposition(|e| e.get("kind").and_then(|v| v.as_str()) == Some("session-open"))
+        .rposition(|e| e.kind == "session-open")
         .map(|i| i + 1).unwrap_or(0);
     let replay = &events[start..];
     if replay.is_empty() { return; }
@@ -177,30 +187,25 @@ fn replay_session_history(session: &crate::paths::SessionPaths, node_label: &str
     eprintln!();
 }
 
-fn render_event_blocks(events: &[serde_json::Value], node_label: &str) {
+fn render_event_blocks(events: &[gsess::SessionEvent], node_label: &str) {
     let mut i = 0;
     while i < events.len() {
         let ev = &events[i];
-        let actor = ev.get("actor").and_then(|v| v.as_str()).unwrap_or("");
-        let kind = ev.get("kind").and_then(|v| v.as_str()).unwrap_or("");
-        let text = ev.get("text").and_then(|v| v.as_str()).unwrap_or("");
-
-        match (actor, kind) {
+        match (ev.actor.as_str(), ev.kind.as_str()) {
             ("you", "user") => {
                 eprintln!("  {BOLD_GREEN}\u{256d}\u{2500}{RESET} {DIM}you@{node_label}{RESET}");
-                eprintln!("  {GREEN}\u{2502}{RESET} {}", text);
+                eprintln!("  {GREEN}\u{2502}{RESET} {}", ev.text);
                 eprintln!("  {BOLD_GREEN}\u{2570}\u{2500}{RESET}");
                 eprintln!();
             }
             ("harmonia", "assistant") => {
                 eprintln!("  {BOLD_CYAN}\u{256d}\u{2500}{RESET} {DIM}harmonia@{node_label}{RESET}");
                 let mut j = i;
-                while j < events.len() {
-                    let e = &events[j];
-                    if e.get("actor").and_then(|v| v.as_str()) != Some("harmonia")
-                        || e.get("kind").and_then(|v| v.as_str()) != Some("assistant") { break; }
-                    let l = e.get("text").and_then(|v| v.as_str()).unwrap_or("");
-                    eprintln!("  {CYAN}\u{2502}{RESET} {}", l);
+                while j < events.len()
+                    && events[j].actor == "harmonia"
+                    && events[j].kind == "assistant"
+                {
+                    eprintln!("  {CYAN}\u{2502}{RESET} {}", events[j].text);
                     j += 1;
                 }
                 eprintln!("  {BOLD_CYAN}\u{2570}\u{2500}{RESET}");
@@ -213,18 +218,21 @@ fn render_event_blocks(events: &[serde_json::Value], node_label: &str) {
     }
 }
 
-// ── Print helpers ─────────────────────────────────────────��──────────
+// ── Print helpers ────────────────────────────────────────────────────
 
-pub(crate) fn print_session_info(session: &crate::paths::SessionPaths) {
+pub(crate) fn print_session_info(
+    session: &gsess::Session,
+    node: &crate::paths::NodeIdentity,
+) {
     let bar = "\u{2500}".repeat(38);
     eprintln!();
     eprintln!("  {BOLD_CYAN}\u{25c6}{RESET} {BOLD}Session{RESET}");
     eprintln!("  {DIM}{bar}{RESET}");
-    eprintln!("  {CYAN}id{RESET}          {}", session.identity.id);
-    eprintln!("  {CYAN}node{RESET}        {}", session.identity.node_label);
-    eprintln!("  {CYAN}role{RESET}        {}", session.identity.node_role.as_str());
-    eprintln!("  {CYAN}profile{RESET}     {}", session.identity.install_profile.as_str());
-    eprintln!("  {CYAN}path{RESET}        {}", session.dir.display());
+    eprintln!("  {CYAN}id{RESET}          {}", session.id);
+    eprintln!("  {CYAN}node{RESET}        {}", session.node_label);
+    eprintln!("  {CYAN}role{RESET}        {}", node.role.as_str());
+    eprintln!("  {CYAN}profile{RESET}     {}", node.install_profile.as_str());
+    eprintln!("  {CYAN}path{RESET}        {}", session.events_dir.display());
     eprintln!("  {CYAN}events{RESET}      {}", session.events_path.display());
     eprintln!();
 }

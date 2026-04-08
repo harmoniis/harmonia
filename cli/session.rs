@@ -1,9 +1,10 @@
 // ── Session: thin CLI wrapper around harmonia_tui ─────────────────────
 //
 // ALL TUI logic lives in the harmonia-tui library crate.
-// This file implements SessionHost to bridge CLI-specific operations
-// (paths, daemon management, frontend pairing) to the TUI library.
-// Interactive flows (resume, rewind, replay) live in session_flows.rs.
+// Session creation, storage, and events are managed by the gateway session
+// service (harmonia_gateway::sessions). This file implements SessionHost
+// to bridge CLI-specific operations (paths, daemon management, frontend
+// pairing) to the TUI library.
 
 use std::path::PathBuf;
 use std::sync::atomic::AtomicBool;
@@ -14,6 +15,7 @@ use console::{style, Term};
 #[cfg(unix)]
 use std::os::unix::net::UnixStream;
 
+use harmonia_gateway::sessions as gsess;
 use harmonia_tui::session::SessionHost;
 use harmonia_tui::InputCallbacks;
 
@@ -23,15 +25,24 @@ use crate::session_flows;
 
 pub fn run() -> Result<(), Box<dyn std::error::Error>> {
     let node_identity = crate::paths::current_node_identity()?;
-    let session = Arc::new(crate::paths::create_session(&node_identity)?);
-    harmonia_tui::run(&CliSessionHost { node_identity, session })
+    let data_dir = crate::paths::data_dir()?;
+    let session = Arc::new(
+        gsess::create(&node_identity.label, &data_dir)
+            .map_err(|e| format!("session create: {e}"))?,
+    );
+    harmonia_tui::run(&CliSessionHost {
+        node_identity,
+        data_dir,
+        session,
+    })
 }
 
 // ── CLI-specific SessionHost ─────────────────────────────────────────
 
 struct CliSessionHost {
     node_identity: crate::paths::NodeIdentity,
-    session: Arc<crate::paths::SessionPaths>,
+    data_dir: PathBuf,
+    session: Arc<gsess::Session>,
 }
 
 impl SessionHost for CliSessionHost {
@@ -44,7 +55,7 @@ impl SessionHost for CliSessionHost {
     }
 
     fn node_label(&self) -> &str { &self.node_identity.label }
-    fn session_id(&self) -> &str { &self.session.identity.id }
+    fn session_id(&self) -> &str { &self.session.id }
 
     fn ensure_daemon(&self) -> Result<(), Box<dyn std::error::Error>> {
         if self.node_identity.install_profile == crate::paths::InstallProfile::TuiClient {
@@ -60,15 +71,17 @@ impl SessionHost for CliSessionHost {
     }
 
     fn append_session_event(&self, actor: &str, kind: &str, text: &str) {
-        let _ = crate::paths::append_session_event(self.session.as_ref(), actor, kind, text);
+        let _ = gsess::append_event(&self.session, actor, kind, text);
     }
 
     fn create_input_callbacks(&self) -> Box<dyn InputCallbacks> {
-        Box::new(CliInputCallbacks::new(&self.session))
+        Box::new(CliInputCallbacks::new(&self.session, &self.node_identity.label))
     }
 
     fn print_help(&self) { session_flows::print_help_text(); }
-    fn print_session_summary(&self) { session_flows::print_session_info(self.session.as_ref()); }
+    fn print_session_summary(&self) {
+        session_flows::print_session_info(&self.session, &self.node_identity);
+    }
     fn print_status(&self) { eprintln!("\n  Use 'harmonia status' for full system status.\n"); }
     fn print_providers(&self) {}
     fn print_recent_log(&self) { session_flows::print_log(); }
@@ -79,37 +92,35 @@ impl SessionHost for CliSessionHost {
             Err(_) => {
                 let _ = term.clear_screen();
                 harmonia_tui::render::print_banner(
-                    term, &self.session.identity.node_label, &self.session.identity.id);
+                    term, &self.session.node_label, &self.session.id);
                 return;
             }
         };
-        match crate::paths::create_session(&node) {
+        match gsess::create(&node.label, &self.data_dir) {
             Ok(s) => {
                 let _ = term.clear_screen();
-                harmonia_tui::render::print_banner(term, &s.identity.node_label, &s.identity.id);
+                harmonia_tui::render::print_banner(term, &s.node_label, &s.id);
                 eprintln!("  \x1b[2mNew session started.\x1b[0m");
                 eprintln!();
             }
             Err(_) => {
                 let _ = term.clear_screen();
                 harmonia_tui::render::print_banner(
-                    term, &self.session.identity.node_label, &self.session.identity.id);
+                    term, &self.session.node_label, &self.session.id);
             }
         }
     }
 
     fn run_rewind_flow(&self, stdout: &mut std::io::Stdout, term: &Term) {
-        if let Err(e) = session_flows::run_rewind(stdout, self.session.as_ref(), term) {
+        if let Err(e) = session_flows::run_rewind(stdout, &self.session, term) {
             eprintln!("\n  \x1b[31mRewind error: {}\x1b[0m", e);
         }
     }
 
     fn run_resume_flow(&self, stdout: &mut std::io::Stdout) {
-        let node = match crate::paths::current_node_identity() {
-            Ok(n) => n,
-            Err(e) => { eprintln!("\n  \x1b[31mError: {}\x1b[0m", e); return; }
-        };
-        if let Err(e) = session_flows::run_resume(stdout, self.session.as_ref(), &node) {
+        if let Err(e) = session_flows::run_resume(
+            stdout, &self.session, &self.node_identity.label, &self.data_dir,
+        ) {
             eprintln!("\n  \x1b[31mResume error: {}\x1b[0m", e);
         }
     }
@@ -148,11 +159,11 @@ struct CliInputCallbacks {
 }
 
 impl CliInputCallbacks {
-    fn new(session: &crate::paths::SessionPaths) -> Self {
+    fn new(session: &gsess::Session, node_label: &str) -> Self {
         Self {
             buf: crate::edit_buffer::EditBuffer::new(),
-            history: crate::input_history::InputHistory::load(&session.identity.node_label),
-            draft: crate::draft_store::DraftStore::new(session),
+            history: crate::input_history::InputHistory::load(node_label),
+            draft: crate::draft_store::DraftStore::new(&session.events_dir),
             workspace: std::env::current_dir().ok()
                 .or_else(|| crate::paths::user_workspace().ok()),
         }

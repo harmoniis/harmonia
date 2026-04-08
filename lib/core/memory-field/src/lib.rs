@@ -24,8 +24,9 @@ use graph::SparseGraph;
 // ── Typed API: actor-owned state, no singletons ──────────────────────
 pub use api::edge_current_status;
 pub use api::{
-    basin_status, eigenmode_status, field_dream, field_recall, load_graph, reset, restore_basin,
-    status, step_attractors,
+    basin_status, current_basin, eigenmode_status, field_dream, field_recall,
+    field_recall_structural, load_graph, reset, restore_basin, status, step_attractors,
+    ConceptActivation, RecallResult,
 };
 
 /// Re-export sexp escape from the shared protocol crate.
