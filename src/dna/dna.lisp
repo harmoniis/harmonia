@@ -41,8 +41,7 @@
                   :dream-cycle-interval  30      ; ticks between dreams
                   :datamine-max-latency-ms   5000    ; hard cap on datamining time
                   :datamine-max-fanout       3       ; max parallel cross-node datamines
-                  :datamine-result-max-chars 2000    ; max output before compression
-                  :repl-token-budget      4000)   ; total token budget across all REPL rounds
+                  :datamine-result-max-chars 2000)   ; max output before compression
 
     ;; BOUNDS — ranges within which epigenetics can tune.
     ;; Config-store / signalograd set values WITHIN these bounds.
@@ -54,8 +53,7 @@
              :solver-epsilon       (0.001 . 0.1)
              :basin-weight         (0.0 . 0.40)
              :datamine-prefer-local    (0.0 . 1.0)
-             :datamine-compress-threshold (0.5 . 0.95)
-             :repl-token-budget      (2000 . 8000))
+             :datamine-compress-threshold (0.5 . 0.95))
 
     ;; FOUNDATION — concept names only. No descriptions.
     ;; Descriptions live in memory field seeds (genesis entries with depth >= 1).
@@ -131,39 +129,24 @@
     ;; (env) returns all primitives — the agent discovers its tools functionally.
     (%seed "(env)"
            2 '(:env :primitives :tools :discover :capabilities :help :repl))
-    ;; ── Foundation: structured graph seeds (replaces dense sexp blobs) ──
-    ;; Uses load-genesis IPC to pass explicit concepts and edges directly
-    ;; into the memory-field graph, bypassing the text-parse-extract pipeline.
-    (when (memory-field-port-ready-p)
-      (ipc-call (%sexp-to-ipc-string
-        `(:component "memory-field" :op "load-genesis"
-          :concepts ("vitruvian" "math" "kolmogorov" "math" "solomonoff" "math"
-                     "compression" "engineering" "occam" "math"
-                     "laplacian" "math" "chladni" "math" "eigenmodes" "math"
-                     "field" "engineering" "thomas" "math" "aizawa" "math"
-                     "halvorsen" "math" "hopfield" "engineering" "lorenz" "math"
-                     "signalograd" "engineering" "lambdoma" "music"
-                     "harmony" "music" "mempalace" "engineering"
-                     "terraphon" "engineering" "datamining" "engineering")
-          :edges ((:a "vitruvian" :b "lambdoma" :weight 1.0 :interdisciplinary t)
-                  (:a "kolmogorov" :b "solomonoff" :weight 1.0 :interdisciplinary nil)
-                  (:a "kolmogorov" :b "compression" :weight 1.0 :interdisciplinary nil)
-                  (:a "laplacian" :b "chladni" :weight 1.0 :interdisciplinary nil)
-                  (:a "laplacian" :b "eigenmodes" :weight 1.0 :interdisciplinary nil)
-                  (:a "field" :b "laplacian" :weight 1.0 :interdisciplinary nil)
-                  (:a "thomas" :b "aizawa" :weight 0.8 :interdisciplinary nil)
-                  (:a "thomas" :b "halvorsen" :weight 0.8 :interdisciplinary nil)
-                  (:a "signalograd" :b "lorenz" :weight 1.0 :interdisciplinary nil)
-                  (:a "signalograd" :b "hopfield" :weight 1.0 :interdisciplinary nil)
-                  (:a "lambdoma" :b "harmony" :weight 1.0 :interdisciplinary nil)
-                  (:a "mempalace" :b "compression" :weight 0.8 :interdisciplinary t)
-                  (:a "terraphon" :b "datamining" :weight 1.0 :interdisciplinary nil))))))
-    ;; ── Bootstrap: initialize basins and run first dream ──────────
-    (handler-case
-        (when (memory-field-port-ready-p)
-          (ipc-call (%sexp-to-ipc-string
-                      '(:component "memory-field" :op "bootstrap"))))
-      (error () nil))))
+    ;; ── Foundation knowledge (depth 1 — structural topology) ────
+    ;; These create the concept graph edges that make recall work.
+    (%seed "(:foundation :vitruvian (:strength :utility :beauty :lambdoma 0.72) :kolmogorov (:solomonoff :compression :occam) :field (:laplacian :chladni :eigenmodes) :attractors (:thomas :aizawa :halvorsen :hopfield :lorenz) :lambdoma (:harmony :ratio :infinity))"
+           1 '(:foundation :vitruvian :kolmogorov :chladni :attractors :lambdoma))
+    (%seed "(:field :resonant :laplacian L=D-A :solver conjugate-gradient :spectral eigenmodes :persistence chronicle :reconstruction deterministic)"
+           1 '(:memory :field :chladni :laplacian :spectral))
+    (%seed "(:signalograd :dimensions 32 :reservoir lorenz :memory hopfield :slots 32 :heads 5 :learning (:hebbian :oja) :phase golden-ratio)"
+           1 '(:signalograd :lorenz :hopfield))
+    (%seed "(:harmonic-cycle (observe evaluate-global evaluate-local logistic-balance lambdoma-project attractor-sync rewrite-plan security-audit stabilize) :edge-of-chaos 3.57)"
+           1 '(:harmonic-machine :phases :logistic :vitruvian))
+    (%seed "(:compression :solomonoff exp(-size/40) :occam ratio<=1.1 :growth-without-function degradation :shrink-preserving evolution)"
+           1 '(:compression :solomonoff :occam :kolmogorov :evolution))
+    ;; ── MemPalace knowledge (depth 1 — structural) ────────────
+    (%seed "(:mempalace :graph (:nodes :edges :typed :temporal-validity) :drawers :verbatim :aaak (:compression :codebook :30x) :tiers (:l0-identity :l1-essential :l2-filtered :l3-deep))"
+           1 '(:mempalace :graph :aaak :compression :knowledge))
+    ;; ── Terraphon knowledge (depth 1 — structural) ────────────
+    (%seed "(:terraphon :datamining (:lodes :platform-specific :system-tools :user-tools) :cross-node (:fan-out :cascade :nearest) :policy-gated :ephemeral-results)"
+           1 '(:terraphon :datamining :tools :platform :cross-node))))
 
 ;; Legacy alias — boot.lisp calls this name.
 (defun memory-seed-soul-from-dna () (memory-seed-from-dna))

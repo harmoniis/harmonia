@@ -82,7 +82,12 @@ pub(crate) fn show_thinking_spinner_with_input(
     let mut input_buf = String::new();
     let mut cursor_pos: usize = 0;
     let started = std::time::Instant::now();
-    const SPINNER_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(120);
+    // No fixed timeout. The spinner reads repl-status.txt for live error state.
+    // Only give up if the status explicitly says "error" or "unavailable",
+    // or if the daemon hasn't written ANY status for a long time (truly dead).
+    const STALE_THRESHOLD: std::time::Duration = std::time::Duration::from_secs(300);
+    let mut last_status_change = std::time::Instant::now();
+    let mut prev_status = String::new();
 
     let _ = terminal::enable_raw_mode();
 
@@ -141,21 +146,53 @@ pub(crate) fn show_thinking_spinner_with_input(
                 };
             }
         }
-        // Break if we've been waiting too long
-        if started.elapsed() > SPINNER_TIMEOUT {
-            clear_spinner_and_box(spinner_row, box_row, box_height);
-            let _ = terminal::disable_raw_mode();
-            waiting.store(false, Ordering::Release);
-            eprintln!(
-                "\n  {YELLOW}!{RESET} Response timeout ({}s) — daemon may be unresponsive.",
-                SPINNER_TIMEOUT.as_secs()
-            );
-            eprintln!();
-            return if !input_buf.trim().is_empty() {
-                Some(input_buf)
-            } else {
-                None
-            };
+        // Dynamic error detection: check repl-status for unrecoverable errors.
+        {
+            let current_status = read_repl_status();
+            if current_status != prev_status {
+                last_status_change = std::time::Instant::now();
+                prev_status = current_status.clone();
+            }
+            let status_lower = current_status.to_lowercase();
+            // Detect specific unrecoverable errors in repl-status.
+            let is_fatal = status_lower.contains("dispatch timeout")
+                || status_lower.contains("ipc failed")
+                || status_lower.contains("lock poisoned")
+                || status_lower.contains("panic")
+                || status_lower.contains("unrecoverable");
+            if is_fatal {
+                clear_spinner_and_box(spinner_row, box_row, box_height);
+                let _ = terminal::disable_raw_mode();
+                waiting.store(false, Ordering::Release);
+                eprintln!(
+                    "\n  {RED}!{RESET} {current_status}",
+                );
+                eprintln!();
+                return if !input_buf.trim().is_empty() {
+                    Some(input_buf)
+                } else {
+                    None
+                };
+            }
+            // Stale detection: if repl-status hasn't changed for a long time,
+            // the daemon is truly unresponsive (not just slow LLM).
+            if last_status_change.elapsed() > STALE_THRESHOLD {
+                clear_spinner_and_box(spinner_row, box_row, box_height);
+                let _ = terminal::disable_raw_mode();
+                waiting.store(false, Ordering::Release);
+                let elapsed = started.elapsed().as_secs();
+                eprintln!(
+                    "\n  {YELLOW}!{RESET} No status update for {}s — daemon may be unresponsive. Last: {}",
+                    STALE_THRESHOLD.as_secs(),
+                    if current_status.is_empty() { "(none)" } else { current_status.trim() },
+                );
+                eprintln!();
+                return if !input_buf.trim().is_empty() {
+                    Some(input_buf)
+                } else {
+                    None
+                };
+            }
         }
 
         // Animate spinner

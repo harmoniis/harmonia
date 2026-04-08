@@ -366,11 +366,6 @@
     (error (e) (%log :warn "boot" "init-memory-field-port failed: ~A" e) nil))
   (handler-case (memory-field-warm-start-from-chronicle)
     (error (e) (%log :warn "boot" "memory-field-warm-start failed: ~A" e) nil))
-  ;; Now that memory-field port is ready, seed genesis graph structure + bootstrap.
-  ;; (memory-seed-from-dna was already called above for identity/env seeds via memory-put,
-  ;;  but load-genesis and bootstrap IPC calls require the port to be initialized.)
-  (handler-case (memory-seed-from-dna)
-    (error (e) (%log :warn "boot" "post-port genesis seed failed: ~A" e) nil))
   ;; MemPalace: graph-structured knowledge palace.
   (handler-case (init-mempalace-port)
     (error (e) (%log :warn "boot" "init-mempalace-port failed: ~A" e) nil))

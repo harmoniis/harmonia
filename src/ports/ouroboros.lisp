@@ -5,9 +5,9 @@
 
 (defun init-ouroboros-port ()
   (let ((reply (handler-case
-                   (ipc-call (%sexp-to-ipc-string
-                              '(:component "ouroboros" :op "healthcheck")))
-                 (error () nil))))
+     (ipc-call (%sexp-to-ipc-string
+                            '(:component "ouroboros" :op "healthcheck")
+   (error () nil))))))
     (if (and reply (ipc-reply-ok-p reply))
         (progn (%log :info "ouroboros" "Ouroboros actor ready") t)
         (progn (%log :warn "ouroboros" "Ouroboros actor not available") nil))))

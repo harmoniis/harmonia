@@ -2,9 +2,6 @@
 
 (in-package :harmonia)
 
-;; Forward declarations for variables defined in model-routing.lisp (loaded later).
-(declaim (special *routing-tier* *last-task-kind* *routing-rules-sexp*))
-
 (defparameter *model-policy-config-path*
   (merge-pathnames "../../config/model-policy.sexp" *boot-file*))
 (defparameter *model-policy-state-path* nil)

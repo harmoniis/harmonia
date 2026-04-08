@@ -20,13 +20,14 @@
           (list :failures (1+ (or (getf h :failures) 0))
                 :last-failure (get-universal-time)))
     ;; Evolutionary: record failure in memory field so patterns accumulate in basins.
-    (ignore-errors
-      (when (fboundp 'memory-put)
-        (funcall 'memory-put :system
+    (handler-case
+        (when (fboundp 'memory-put)
+          (funcall 'memory-put :system
                  (format nil "Component failure: ~A (failures: ~D)"
                          comp (1+ (or (getf h :failures) 0)))
                  :depth 0
-                 :tags (list :failure (intern (string-upcase comp) :keyword)))))))
+                 :tags (list :failure (intern (string-upcase comp) :keyword))))
+      (error () nil))))
 
 (defun %health-failures (comp)
   (or (getf (gethash comp *component-health*) :failures) 0))
@@ -40,8 +41,7 @@
   (%log :info "recovery" "Restarting: ~A" comp)
   (handler-case
       (let ((reply (ipc-call
-                    (format nil "(:component \"~A\" :op \"reset\")"
-                            (sexp-escape-lisp comp)))))
+                    (%sexp-to-ipc-string `(:component ,comp :op "reset")))))
         (and reply (ipc-reply-ok-p reply)))
     (error () nil)))
 
@@ -60,14 +60,15 @@
 ;;; HEARTBEAT — periodic health check + maintenance
 ;;; ═══════════════════════════════════════════════════════════════════════
 
-(defparameter *last-dream-cycle* 0)
+(defparameter *last-heartbeat-cycle* 0)
 
 (defun %tick-recovery-heartbeat ()
-  "Lightweight health check every 10 cycles. Restarts sick components.
-   Every 30 cycles: trigger dreaming if system is idle and stable."
+  "Heartbeat: health check + wake the agent via REPL.
+   The agent decides what to do — dream, meditate, or nothing.
+   No hardcoded logic. The field tells the LLM what's needed."
   (when (and (boundp '*runtime*) *runtime*)
     (let ((cycle (runtime-state-cycle *runtime*)))
-      ;; Health check: every 10 cycles.
+      ;; Health check: every 10 cycles. This IS hardcoded — it's infrastructure, not intelligence.
       (when (zerop (mod cycle 10))
         (maphash (lambda (comp health)
                    (let ((failures (or (getf health :failures) 0)))
@@ -76,29 +77,20 @@
                        (when (%restart-component comp)
                          (%health-record-success comp)))))
                  *component-health*))
-      ;; Dreaming: interval and idle threshold from DNA constraints.
-      (let ((interval (or (ignore-errors (dna-constraint :dream-cycle-interval)) 30))
-            (idle-min (or (ignore-errors (dna-constraint :dream-idle-ticks)) 5)))
+      ;; Wake the agent: every N cycles (DNA constraint), via REPL.
+      ;; The LLM receives field context and decides: dream? meditate? nothing?
+      (let ((interval (or (handler-case (dna-constraint :dream-cycle-interval) (error () nil)) 30)))
         (when (and (zerop (mod cycle interval))
-                   (> (- cycle *last-dream-cycle*) (- interval idle-min))
-                   (fboundp 'memory-field-port-ready-p)
-                   (funcall 'memory-field-port-ready-p))
-          (%tick-dream cycle))))))
+                   (> (- cycle *last-heartbeat-cycle*) (- interval 5))
+                   (fboundp '%orchestrate-repl))
+          (%tick-heartbeat-wake cycle))))))
 
-(defun %tick-dream (cycle)
-  "Field self-maintenance — the agent dreams. Prunes stale entries, crystallizes structural ones."
+(defun %tick-heartbeat-wake (cycle)
+  "Wake the agent via the ONE path: REPL. One word. Field provides the rest."
   (handler-case
-      (let ((dream-report (funcall 'memory-field-dream)))
-        (when dream-report
-          (let ((results (funcall '%apply-dream-results dream-report)))
-            (setf *last-dream-cycle* cycle)
-            (%log :info "dream" "Dreaming complete: ~A" results)
-            ;; Record dream event for Chronicle.
-            (ignore-errors
-              (when (fboundp 'ouroboros-record-crash)
-                (funcall 'ouroboros-record-crash "dreaming"
-                         (format nil "pruned=~D crystallized=~D"
-                                 (or (getf results :pruned) 0)
-                                 (or (getf results :crystallized) 0))))))))
+      (progn
+        (setf *last-heartbeat-cycle* cycle)
+        (%log :info "heartbeat" "Wake cycle ~D" cycle)
+        (funcall '%orchestrate-repl "HEARTBEAT"))
     (error (e)
-      (%log :warn "dream" "Dreaming failed: ~A" e))))
+      (%log :warn "heartbeat" "Wake failed: ~A" e))))
