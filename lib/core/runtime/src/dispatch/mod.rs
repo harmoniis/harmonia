@@ -21,11 +21,15 @@ pub(crate) mod terraphon;
 pub(crate) mod vault;
 
 /// Dispatch a single operation: call function, wrap errors in sexp.
+/// Works with any error type implementing Display (String, MemoryError, etc.).
 macro_rules! dispatch_op {
     ($op_name:expr, $body:expr) => {
         match $body {
             Ok(r) => r,
-            Err(e) => format!("(:error \"{}: {}\")", $op_name, harmonia_actor_protocol::sexp_escape(&e)),
+            Err(e) => {
+                let msg = e.to_string();
+                format!("(:error \"{}: {}\")", $op_name, harmonia_actor_protocol::sexp_escape(&msg))
+            }
         }
     };
 }

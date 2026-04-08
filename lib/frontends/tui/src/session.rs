@@ -77,40 +77,22 @@ pub fn run(host: &dyn SessionHost) -> Result<(), Box<dyn std::error::Error>> {
 
     if !socket_path.exists() {
         host.ensure_daemon()?;
-        wait_for_socket(
-            &socket_path,
-            "Waiting for daemon...",
-            &format!(
-                "daemon started but socket not ready — check logs\n\
-                 \x20 expected socket: {}",
-                socket_path.display(),
-            ),
-        )?;
+        let msg = format!("daemon started but socket not ready \u{2014} check logs\n\
+            \x20 expected socket: {}", socket_path.display());
+        wait_for_socket(&socket_path, "Waiting for daemon...", &msg)?;
     }
 
-    // Initialize repl-status path
-    if let Ok(data_dir) = host.data_dir() {
-        init_repl_status_path(&data_dir.to_string_lossy());
-    }
+    if let Ok(dd) = host.data_dir() { init_repl_status_path(&dd.to_string_lossy()); }
 
     let stream = UnixStream::connect(&socket_path)
-        .map_err(|e| format!("cannot connect to session service — is it running? ({})", e))?;
-
+        .map_err(|e| format!("cannot connect to session service \u{2014} is it running? ({e})"))?;
     let reader_stream = stream.try_clone()?;
     reader_stream.set_read_timeout(Some(std::time::Duration::from_millis(300)))?;
     let mut writer_stream = stream;
 
-    // Print banner
     print_banner(&term, host.node_label(), host.session_id());
-    host.append_session_event(
-        "system",
-        "session-open",
-        &format!(
-            "node={} socket={}",
-            host.node_label(),
-            socket_path.display()
-        ),
-    );
+    host.append_session_event("system", "session-open",
+        &format!("node={} socket={}", host.node_label(), socket_path.display()));
 
     // Shared state
     let waiting = Arc::new(AtomicBool::new(false));
@@ -196,30 +178,7 @@ pub fn run(host: &dyn SessionHost) -> Result<(), Box<dyn std::error::Error>> {
     let _ = std::io::stderr().execute(SetCursorStyle::DefaultUserShape);
     let _ = std::io::stderr().execute(Show);
 
-    match &exit_reason {
-        ExitReason::UserQuit => {
-            eprintln!();
-            eprintln!("  {BOLD_CYAN}◆{RESET} Goodbye.");
-            eprintln!();
-        }
-        ExitReason::CtrlC => {
-            eprintln!();
-            eprintln!("  {BOLD_CYAN}◆{RESET} Goodbye.");
-            eprintln!();
-        }
-        ExitReason::ConnectionLost => {
-            eprintln!();
-            eprintln!("  {RED}✗{RESET} Connection lost — daemon may have stopped.");
-            eprintln!("  Run {CYAN}harmonia status{RESET} to check.");
-            eprintln!();
-        }
-        ExitReason::Error(e) => {
-            eprintln!();
-            eprintln!("  {RED}✗{RESET} Session error: {e}");
-            eprintln!();
-        }
-    }
-
+    print_exit_message(&exit_reason);
     match exit_reason {
         ExitReason::Error(e) => Err(e.into()),
         _ => Ok(()),
@@ -242,87 +201,67 @@ fn run_input_loop(
     let mut input_cb = host.create_input_callbacks();
     let mut first_input = true;
 
+    let mut send = |text: &str, out: &mut std::io::Stdout| -> Result<(), Box<dyn std::error::Error>> {
+        dispatch_input(text, writer, waiting, running, reader_alive, response_buf,
+            assistant_label, term, out, host)
+    };
+
     loop {
         if !running.load(Ordering::Relaxed) {
-            return if !reader_alive.load(Ordering::Relaxed) {
-                ExitReason::ConnectionLost
-            } else {
-                ExitReason::CtrlC
-            };
+            return if reader_alive.load(Ordering::Relaxed) { ExitReason::CtrlC }
+                else { ExitReason::ConnectionLost };
         }
-
-        // If waiting for a response, show spinner
         if waiting.load(Ordering::Acquire) {
             let input = show_thinking_spinner_with_input(waiting, running, reader_alive);
             render_buffered_response(response_buf, assistant_label);
-            if !running.load(Ordering::Relaxed) {
-                continue;
-            }
+            if !running.load(Ordering::Relaxed) { continue; }
             if let Some(text) = input {
-                let trimmed = text.trim().to_string();
-                if !trimmed.is_empty() {
-                    queued_input = Some(trimmed);
-                }
+                let t = text.trim().to_string();
+                if !t.is_empty() { queued_input = Some(t); }
             }
         }
-
         render_buffered_response(response_buf, assistant_label);
 
-        // Drain queued input
         if let Some(pending) = queued_input.take() {
-            if let Err(e) = dispatch_input(
-                &pending,
-                writer,
-                waiting,
-                running,
-                reader_alive,
-                response_buf,
-                assistant_label,
-                term,
-                &mut stdout,
-                host,
-            ) {
+            if let Err(e) = send(&pending, &mut stdout) {
                 return ExitReason::Error(e.to_string());
             }
             continue;
         }
 
-        // Read input
         let restore_draft = first_input;
         first_input = false;
         let input = match read_input_line(running, input_cb.as_mut(), restore_draft) {
             Ok(s) => s,
             Err(e) => return ExitReason::Error(e.to_string()),
         };
-
-        if !running.load(Ordering::Relaxed) {
-            continue;
-        }
-
+        if !running.load(Ordering::Relaxed) { continue; }
         let trimmed = input.trim();
-        if trimmed.is_empty() {
-            continue;
-        }
+        if trimmed.is_empty() { continue; }
 
-        // Handle /exit here for clean ExitReason
-        if trimmed == "/exit" || trimmed == "/quit" || trimmed == "/q" {
+        if matches!(trimmed, "/exit" | "/quit" | "/q") {
             host.append_session_event("you", "user", trimmed);
             return ExitReason::UserQuit;
         }
-
-        if let Err(e) = dispatch_input(
-            trimmed,
-            writer,
-            waiting,
-            running,
-            reader_alive,
-            response_buf,
-            assistant_label,
-            term,
-            &mut stdout,
-            host,
-        ) {
+        if let Err(e) = send(trimmed, &mut stdout) {
             return ExitReason::Error(e.to_string());
         }
     }
+}
+
+fn print_exit_message(reason: &ExitReason) {
+    eprintln!();
+    match reason {
+        ExitReason::UserQuit | ExitReason::CtrlC => {
+            eprintln!("  {BOLD_CYAN}\u{25c6}{RESET} Goodbye.");
+        }
+        ExitReason::ConnectionLost => {
+            eprintln!("  {RED}\u{2717}{RESET} Connection lost \u{2014} daemon may have stopped.");
+            eprintln!("  Run {CYAN}harmonia status{RESET} to check.");
+        }
+        ExitReason::Error(e) => {
+            eprintln!("  {RED}\u{2717}{RESET} Session error: {e}");
+        }
+    }
+    eprintln!();
 }

@@ -6,8 +6,10 @@
 /// Heavy operations (recall, dream, attractor stepping) live in their own modules.
 /// This module provides graph loading, status queries, and reset.
 
+use harmonia_actor_protocol::MemoryError;
+
 use crate::basin::assign_node_basins;
-use crate::config::{cfg_i64};
+use crate::config::cfg_i64;
 use crate::graph::{build_graph, Domain};
 use crate::spectral::spectral_decompose;
 use crate::FieldState;
@@ -24,7 +26,7 @@ pub fn load_graph(
     s: &mut FieldState,
     nodes: Vec<(String, String, i32, Vec<String>)>,
     edges: Vec<(String, String, f64, bool)>,
-) -> Result<String, String> {
+) -> Result<String, MemoryError> {
     s.graph = build_graph(&nodes, &edges);
     s.graph_version += 1;
 
@@ -54,7 +56,7 @@ pub fn load_graph(
 }
 
 /// Return eigenmode status as sexp.
-pub fn eigenmode_status(s: &FieldState) -> Result<String, String> {
+pub fn eigenmode_status(s: &FieldState) -> Result<String, MemoryError> {
     let eigenvalues_sexp: Vec<String> = s.eigenvalues.iter().map(|v| format!("{v:.4}")).collect();
     Ok(format!(
         "(:ok :eigenvalues ({}) :spectral-version {} :graph-version {})",
@@ -65,7 +67,7 @@ pub fn eigenmode_status(s: &FieldState) -> Result<String, String> {
 }
 
 /// Return summary status as sexp.
-pub fn status(s: &FieldState) -> Result<String, String> {
+pub fn status(s: &FieldState) -> Result<String, MemoryError> {
     Ok(format!(
         "(:ok :cycle {} :graph-n {} :graph-version {} :spectral-k {} :basin {} :thomas-b {:.3})",
         s.cycle,
@@ -79,7 +81,7 @@ pub fn status(s: &FieldState) -> Result<String, String> {
 
 /// Compute edge current flow from the last solved field.
 /// Returns top-K edges by current magnitude as sexp.
-pub fn edge_current_status(s: &FieldState) -> Result<String, String> {
+pub fn edge_current_status(s: &FieldState) -> Result<String, MemoryError> {
     if s.graph.n == 0 { return Ok("(:ok :currents ())".into()); }
     let uniform: Vec<f64> = vec![1.0 / s.graph.n as f64; s.graph.n];
     let phi = crate::field::solve_field(&s.graph, &uniform, 50, 0.001, 0.01);
@@ -95,7 +97,7 @@ pub fn edge_current_status(s: &FieldState) -> Result<String, String> {
 }
 
 /// Reset field state to initial values.
-pub fn reset(s: &mut FieldState) -> Result<String, String> {
+pub fn reset(s: &mut FieldState) -> Result<String, MemoryError> {
     *s = FieldState::new();
     Ok("(:ok)".into())
 }

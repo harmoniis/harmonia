@@ -1,3 +1,5 @@
+use harmonia_actor_protocol::MemoryError;
+
 use crate::{sexp_escape, current_epoch_ms};
 
 #[derive(Clone, Debug)]
@@ -76,12 +78,12 @@ pub fn file_drawer(
     room_id: u32,
     source: DrawerSource,
     tags: &[&str],
-) -> Result<String, String> {
+) -> Result<String, MemoryError> {
     if content.len() < 10 {
-        return Err("(:error \"content too short: min 10 chars\")".into());
+        return Err(MemoryError::InvalidContent("min 10 chars".into()));
     }
     if s.graph.find_node_by_id(room_id).is_none() {
-        return Err(format!("(:error \"room {} not found\")", room_id));
+        return Err(MemoryError::RoomNotFound(room_id));
     }
     let id = s.next_drawer_id;
     s.next_drawer_id += 1;
@@ -98,7 +100,7 @@ pub fn search_drawers(
     query: &str,
     room_filter: Option<u32>,
     limit: usize,
-) -> Result<String, String> {
+) -> Result<String, MemoryError> {
     let limit = limit.min(50).max(1);
     let results = s.drawers.search(query, room_filter, limit);
     let items: Vec<String> = results.iter()
@@ -118,7 +120,7 @@ pub fn search_drawers(
     Ok(format!("(:ok :count {} :results ({}))", results.len(), items.join(" ")))
 }
 
-pub fn get_drawer(s: &crate::PalaceState, id: u64) -> Result<String, String> {
+pub fn get_drawer(s: &crate::PalaceState, id: u64) -> Result<String, MemoryError> {
     match s.drawers.get(id) {
         Some(d) => Ok(format!(
             "(:ok :id {} :room {} :content \"{}\" :source {} :tags ({}) :created {})",
@@ -126,6 +128,6 @@ pub fn get_drawer(s: &crate::PalaceState, id: u64) -> Result<String, String> {
             d.tags.iter().map(|t| format!("\"{}\"", sexp_escape(t))).collect::<Vec<_>>().join(" "),
             d.created_at,
         )),
-        None => Err(format!("(:error \"drawer {} not found\")", id)),
+        None => Err(MemoryError::DrawerNotFound(id)),
     }
 }

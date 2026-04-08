@@ -20,6 +20,8 @@ mod pairing;
 mod remote;
 #[cfg(unix)]
 mod session;
+#[cfg(unix)]
+mod session_flows;
 #[cfg(not(unix))]
 mod session {
     pub fn run() -> Result<(), Box<dyn std::error::Error>> {

@@ -13,6 +13,7 @@ categories = ["science"]
 [lib]
 
 [dependencies]
+harmonia-actor-protocol = { version = "0.1.9", path = "../actor-protocol" }
 harmonia-config-store = { version = "0.1.9", path = "../config-store" }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"

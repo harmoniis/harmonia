@@ -28,10 +28,8 @@ pub use api::{
     status, step_attractors,
 };
 
-/// Escape double quotes and backslashes for sexp string embedding.
-pub(crate) fn graph_sexp_escape(s: &str) -> String {
-    s.replace('\\', "\\\\").replace('"', "\\\"")
-}
+/// Re-export sexp escape from the shared protocol crate.
+pub(crate) use harmonia_actor_protocol::sexp_escape as graph_sexp_escape;
 
 /// Complete field state -- all field computation lives here.
 /// Reconstructed from concept graph on each boot (stateless persistence).

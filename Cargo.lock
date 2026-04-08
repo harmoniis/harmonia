@@ -2452,6 +2452,7 @@ version = "0.1.9"
 name = "harmonia-memory-field"
 version = "0.1.9"
 dependencies = [
+ "harmonia-actor-protocol",
  "harmonia-config-store",
  "serde",
  "serde_json",
@@ -2461,6 +2462,7 @@ dependencies = [
 name = "harmonia-mempalace"
 version = "0.1.9"
 dependencies = [
+ "harmonia-actor-protocol",
  "harmonia-config-store",
  "serde",
  "serde_json",

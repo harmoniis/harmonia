@@ -1,3 +1,5 @@
+use harmonia_actor_protocol::MemoryError;
+
 use crate::sexp_escape;
 
 #[derive(Clone, Debug)]
@@ -26,13 +28,13 @@ impl AaakEntry {
 pub fn compress_aaak(
     s: &mut crate::PalaceState,
     drawer_ids: &[u64],
-) -> Result<String, String> {
+) -> Result<String, MemoryError> {
     if drawer_ids.is_empty() {
-        return Err("(:error \"no drawer ids provided\")".into());
+        return Err(MemoryError::InvalidContent("no drawer ids provided".into()));
     }
     let drawers = s.drawers.get_by_ids(drawer_ids);
     if drawers.is_empty() {
-        return Err("(:error \"no drawers found for given ids\")".into());
+        return Err(MemoryError::DrawerNotFound(drawer_ids[0]));
     }
     let combined = combine_content(&drawers);
     let word_counts = count_words(&combined);
@@ -53,13 +55,13 @@ pub fn compress_aaak(
 pub fn codebook_lookup(
     s: &crate::PalaceState,
     code_or_entity: &str,
-) -> Result<String, String> {
+) -> Result<String, MemoryError> {
     match s.codebook.lookup(code_or_entity) {
         Some(result) => Ok(format!(
             "(:ok :input \"{}\" :result \"{}\")",
             sexp_escape(code_or_entity), sexp_escape(&result)
         )),
-        None => Err(format!("(:error \"not found: {}\")", sexp_escape(code_or_entity))),
+        None => Err(MemoryError::NodeNotFound(code_or_entity.into())),
     }
 }
 

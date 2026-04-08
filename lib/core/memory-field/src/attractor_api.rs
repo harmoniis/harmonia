@@ -1,5 +1,7 @@
 /// Attractor stepping and basin management API.
 
+use harmonia_actor_protocol::MemoryError;
+
 use crate::attractor::{update_aizawa, update_halvorsen, update_thomas};
 use crate::basin::{assign_node_basins, classify_primary_basin, update_hysteresis};
 use crate::config::cfg_f64;
@@ -8,7 +10,7 @@ use crate::graph::Domain;
 use crate::FieldState;
 
 /// Step all three attractors by one timestep and update hysteresis.
-pub fn step_attractors(s: &mut FieldState, signal: f64, noise: f64) -> Result<String, String> {
+pub fn step_attractors(s: &mut FieldState, signal: f64, noise: f64) -> Result<String, MemoryError> {
     // Thomas b parameter modulated by signal quality (all from config).
     let b_base = cfg_f64("thomas-b-base", 0.208);
     let b_scale = cfg_f64("thomas-b-modulation-scale", 0.02);
@@ -45,7 +47,7 @@ pub fn step_attractors(s: &mut FieldState, signal: f64, noise: f64) -> Result<St
 }
 
 /// Return current basin status as sexp.
-pub fn basin_status(s: &FieldState) -> Result<String, String> {
+pub fn basin_status(s: &FieldState) -> Result<String, MemoryError> {
     Ok(format!(
         "(:ok :current {} :dwell-ticks {} :coercive-energy {:.3} :threshold {:.3})",
         s.hysteresis.current_basin.to_sexp(),
@@ -62,7 +64,7 @@ pub fn restore_basin(
     coercive_energy: f64,
     dwell_ticks: u64,
     threshold: f64,
-) -> Result<String, String> {
+) -> Result<String, MemoryError> {
     let basin = crate::basin::Basin::from_sexp(basin_str);
     s.hysteresis = crate::basin::HysteresisTracker::restored(
         basin,

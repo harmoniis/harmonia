@@ -22,6 +22,7 @@ pub mod bridge;
 pub mod render;
 pub mod spinner;
 pub mod input;
+pub mod input_loop;
 pub mod autocomplete;
 pub mod prompt;
 pub mod commands;

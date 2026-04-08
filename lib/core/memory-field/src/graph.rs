@@ -231,6 +231,45 @@ fn concept_index_in(sorted: &[(String, usize)], concept: &str) -> Option<usize> 
         .map(|pos| sorted[pos].1)
 }
 
+// ── ConceptGraph trait implementation ──
+
+impl harmonia_actor_protocol::ConceptGraph for SparseGraph {
+    fn node_count(&self) -> usize { self.n }
+
+    fn concept_index(&self, concept: &str) -> Option<usize> {
+        concept_index_in(&self.concept_to_index, concept)
+    }
+
+    fn neighbor_indices(&self, node: usize) -> &[usize] {
+        if node + 1 < self.row_ptr.len() {
+            &self.col_idx[self.row_ptr[node]..self.row_ptr[node + 1]]
+        } else {
+            &[]
+        }
+    }
+
+    fn degree(&self, node: usize) -> f64 {
+        if node < self.degree.len() { self.degree[node] } else { 0.0 }
+    }
+
+    fn edge_weight(&self, from: usize, to: usize) -> f64 {
+        if from + 1 >= self.row_ptr.len() { return 0.0; }
+        let start = self.row_ptr[from];
+        let end = self.row_ptr[from + 1];
+        for idx in start..end {
+            if self.col_idx[idx] == to {
+                return self.values[idx];
+            }
+        }
+        0.0
+    }
+
+    fn laplacian_mul(&self, x: &[f64], out: &mut [f64]) {
+        // Use the optimized CSR-specific implementation.
+        laplacian_mul_impl(self, x, out);
+    }
+}
+
 /// Compute L*x where L = D - A (graph Laplacian times vector).
 ///
 /// (Lx)_i = degree[i]*x[i] - Σ_{j ∈ N(i)} w_ij * x[j]

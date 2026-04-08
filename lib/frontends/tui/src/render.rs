@@ -136,7 +136,7 @@ pub(crate) fn print_wrapped(text: &str, first_prefix: &str, cont_prefix: &str, c
     }
 }
 
-pub(crate) fn print_banner(term: &Term, node_label: &str, session_id: &str) {
+pub fn print_banner(term: &Term, node_label: &str, session_id: &str) {
     let width = term.size().1 as usize;
     let bar_width = width.min(56);
     let bar = "─".repeat(bar_width);

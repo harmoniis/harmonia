@@ -38,14 +38,21 @@ impl Default for ThomasState {
     }
 }
 
-/// Step the Thomas attractor by dt.
+/// Step the Thomas attractor by dt. Pure transition — returns new state.
+pub(crate) fn step_thomas(state: &ThomasState, b: f64, dt: f64) -> ThomasState {
+    let dx = state.y.sin() - b * state.x;
+    let dy = state.z.sin() - b * state.y;
+    let dz = state.x.sin() - b * state.z;
+    ThomasState {
+        x: clamp(state.x + dt * dx, -3.0, 3.0),
+        y: clamp(state.y + dt * dy, -3.0, 3.0),
+        z: clamp(state.z + dt * dz, -3.0, 3.0),
+    }
+}
+
+/// Mutable wrapper for backward compat with attractor_api.
 pub(crate) fn update_thomas(thomas: &mut ThomasState, b: f64, dt: f64) {
-    let dx = thomas.y.sin() - b * thomas.x;
-    let dy = thomas.z.sin() - b * thomas.y;
-    let dz = thomas.x.sin() - b * thomas.z;
-    thomas.x = clamp(thomas.x + dt * dx, -3.0, 3.0);
-    thomas.y = clamp(thomas.y + dt * dy, -3.0, 3.0);
-    thomas.z = clamp(thomas.z + dt * dz, -3.0, 3.0);
+    *thomas = step_thomas(thomas, b, dt);
 }
 
 /// Classify which of 6 Thomas basins the state is in.
@@ -104,21 +111,23 @@ const AIZAWA_D: f64 = 3.5;
 const AIZAWA_E: f64 = 0.25;
 const AIZAWA_F: f64 = 0.1;
 
-/// Step the Aizawa attractor by dt.
+/// Step the Aizawa attractor by dt. Pure transition — returns new state.
+pub(crate) fn step_aizawa(state: &AizawaState, dt: f64) -> AizawaState {
+    let r2 = state.x * state.x + state.y * state.y;
+    let dx = (state.z - AIZAWA_B) * state.x - AIZAWA_D * state.y;
+    let dy = AIZAWA_D * state.x + (state.z - AIZAWA_B) * state.y;
+    let dz = AIZAWA_C + AIZAWA_A * state.z - state.z * state.z * state.z / 3.0
+        - r2 * (1.0 + AIZAWA_E * state.z) + AIZAWA_F * state.z * state.x * state.x * state.x;
+    AizawaState {
+        x: clamp(state.x + dt * dx, -3.0, 3.0),
+        y: clamp(state.y + dt * dy, -3.0, 3.0),
+        z: clamp(state.z + dt * dz, -3.0, 3.0),
+    }
+}
+
+/// Mutable wrapper for backward compat.
 pub(crate) fn update_aizawa(aizawa: &mut AizawaState, dt: f64) {
-    let x = aizawa.x;
-    let y = aizawa.y;
-    let z = aizawa.z;
-    let r2 = x * x + y * y;
-
-    let dx = (z - AIZAWA_B) * x - AIZAWA_D * y;
-    let dy = AIZAWA_D * x + (z - AIZAWA_B) * y;
-    let dz = AIZAWA_C + AIZAWA_A * z - z * z * z / 3.0 - r2 * (1.0 + AIZAWA_E * z)
-        + AIZAWA_F * z * x * x * x;
-
-    aizawa.x = clamp(x + dt * dx, -3.0, 3.0);
-    aizawa.y = clamp(y + dt * dy, -3.0, 3.0);
-    aizawa.z = clamp(z + dt * dz, -3.0, 3.0);
+    *aizawa = step_aizawa(aizawa, dt);
 }
 
 /// Classify Aizawa depth: tube (|z| > threshold) vs surface.
@@ -155,19 +164,21 @@ impl Default for HalvorsenState {
 
 const HALVORSEN_A: f64 = 1.89;
 
-/// Step the Halvorsen attractor by dt.
+/// Step the Halvorsen attractor by dt. Pure transition — returns new state.
+pub(crate) fn step_halvorsen(state: &HalvorsenState, dt: f64) -> HalvorsenState {
+    let dx = -HALVORSEN_A * state.x - 4.0 * state.y - 4.0 * state.z - state.y * state.y;
+    let dy = -HALVORSEN_A * state.y - 4.0 * state.z - 4.0 * state.x - state.z * state.z;
+    let dz = -HALVORSEN_A * state.z - 4.0 * state.x - 4.0 * state.y - state.x * state.x;
+    HalvorsenState {
+        x: clamp(state.x + dt * dx, -15.0, 15.0),
+        y: clamp(state.y + dt * dy, -15.0, 15.0),
+        z: clamp(state.z + dt * dz, -15.0, 15.0),
+    }
+}
+
+/// Mutable wrapper for backward compat.
 pub(crate) fn update_halvorsen(halvorsen: &mut HalvorsenState, dt: f64) {
-    let x = halvorsen.x;
-    let y = halvorsen.y;
-    let z = halvorsen.z;
-
-    let dx = -HALVORSEN_A * x - 4.0 * y - 4.0 * z - y * y;
-    let dy = -HALVORSEN_A * y - 4.0 * z - 4.0 * x - z * z;
-    let dz = -HALVORSEN_A * z - 4.0 * x - 4.0 * y - x * x;
-
-    halvorsen.x = clamp(x + dt * dx, -15.0, 15.0);
-    halvorsen.y = clamp(y + dt * dy, -15.0, 15.0);
-    halvorsen.z = clamp(z + dt * dz, -15.0, 15.0);
+    *halvorsen = step_halvorsen(halvorsen, dt);
 }
 
 /// Classify which of 3 Halvorsen lobes the state is in.

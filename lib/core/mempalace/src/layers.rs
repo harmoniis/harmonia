@@ -1,3 +1,5 @@
+use harmonia_actor_protocol::MemoryError;
+
 use crate::{sexp_escape, cfg_usize};
 
 fn preview(content: &str, max_len: usize) -> String {
@@ -8,7 +10,7 @@ fn preview(content: &str, max_len: usize) -> String {
     }
 }
 
-pub fn context_l0(s: &crate::PalaceState) -> Result<String, String> {
+pub fn context_l0(s: &crate::PalaceState) -> Result<String, MemoryError> {
     let wings: Vec<String> = s.graph.nodes.iter()
         .filter(|n| n.kind == crate::graph::NodeKind::Wing)
         .map(|n| format!("\"{}\"", sexp_escape(&n.label)))
@@ -16,7 +18,7 @@ pub fn context_l0(s: &crate::PalaceState) -> Result<String, String> {
     Ok(format!("(:ok :tier :l0 :wings ({}))", wings.join(" ")))
 }
 
-pub fn context_l1(s: &crate::PalaceState) -> Result<String, String> {
+pub fn context_l1(s: &crate::PalaceState) -> Result<String, MemoryError> {
     let max_entries = cfg_usize("l1-max-entries", 15);
     let mut all_drawers: Vec<&crate::drawer::Drawer> = s.drawers.search("", None, max_entries * 3);
     all_drawers.sort_by(|a, b| b.created_at.cmp(&a.created_at));
@@ -27,7 +29,7 @@ pub fn context_l1(s: &crate::PalaceState) -> Result<String, String> {
     Ok(format!("(:ok :tier :l1 :count {} :entries ({}))", items.len(), items.join(" ")))
 }
 
-pub fn context_l2(s: &mut crate::PalaceState, domain_filter: &str) -> Result<String, String> {
+pub fn context_l2(s: &mut crate::PalaceState, domain_filter: &str) -> Result<String, MemoryError> {
     let domain = crate::graph::Domain::from_str(domain_filter);
     let max_entries = cfg_usize("l2-max-entries", 20);
     let room_ids: Vec<u32> = s.graph.nodes.iter()
@@ -45,7 +47,7 @@ pub fn context_l2(s: &mut crate::PalaceState, domain_filter: &str) -> Result<Str
     Ok(format!("(:ok :tier :l2 :domain {} :count {} :entries ({}))", domain.to_sexp(), results.len(), results.join(" ")))
 }
 
-pub fn context_l3(s: &mut crate::PalaceState, query: &str) -> Result<String, String> {
+pub fn context_l3(s: &mut crate::PalaceState, query: &str) -> Result<String, MemoryError> {
     let max_entries = cfg_usize("l3-max-entries", 30);
     let results = s.drawers.search(query, None, max_entries);
     let items: Vec<String> = results.iter().map(|d| {

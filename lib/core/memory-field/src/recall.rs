@@ -1,5 +1,7 @@
 /// Field-based recall — solve the Laplacian field for query concepts.
 
+use harmonia_actor_protocol::MemoryError;
+
 use crate::config::{cfg_f64, cfg_i64};
 use crate::field::{build_source_vector, solve_field};
 use crate::scoring::compute_activation;
@@ -14,7 +16,7 @@ pub fn field_recall(
     query_concepts: Vec<String>,
     access_counts: Vec<(String, f64, f64)>,
     limit: usize,
-) -> Result<String, String> {
+) -> Result<String, MemoryError> {
     let n = s.graph.n;
     if n == 0 {
         return Ok("(:ok :activations ())".into());

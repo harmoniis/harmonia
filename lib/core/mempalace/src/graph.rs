@@ -1,3 +1,5 @@
+use harmonia_actor_protocol::MemoryError;
+
 use crate::{sexp_escape, current_epoch_ms, cfg_usize};
 
 // ── Types ──
@@ -120,13 +122,13 @@ pub fn add_node(
     kind: NodeKind,
     label: &str,
     domain: Domain,
-) -> Result<String, String> {
+) -> Result<String, MemoryError> {
     let max_nodes = cfg_usize("max-nodes", 1024);
     if s.graph.nodes.len() >= max_nodes {
-        return Err(format!("(:error \"max nodes reached: {}\")", max_nodes));
+        return Err(MemoryError::CapacityExceeded { kind: "nodes", limit: max_nodes });
     }
     if s.graph.find_node(label).is_some() {
-        return Err(format!("(:error \"node already exists: {}\")", sexp_escape(label)));
+        return Err(MemoryError::DuplicateNode(label.into()));
     }
     let id = s.graph.nodes.len() as u32;
     let node = GraphNode {
@@ -143,10 +145,10 @@ pub fn add_edge(
     target: u32,
     kind: EdgeKind,
     weight: f64,
-) -> Result<String, String> {
+) -> Result<String, MemoryError> {
     let n = s.graph.nodes.len();
     if source as usize >= n || target as usize >= n {
-        return Err("(:error \"node id out of range\")".into());
+        return Err(MemoryError::NodeNotFound(format!("id {source} or {target}")));
     }
     let edge = GraphEdge {
         source, target, kind, weight: weight.clamp(0.0, 1.0),
@@ -157,7 +159,7 @@ pub fn add_edge(
     Ok(format!("(:ok :source {} :target {} :kind {} :weight {:.3})", source, target, kind.to_sexp(), weight))
 }
 
-pub fn find_tunnels(s: &mut crate::PalaceState) -> Result<String, String> {
+pub fn find_tunnels(s: &mut crate::PalaceState) -> Result<String, MemoryError> {
     // Tunnel: a Room with Contains edges from 2+ different Wings
     let mut room_wings: std::collections::HashMap<u32, Vec<u32>> = std::collections::HashMap::new();
     for e in &s.graph.edges {
@@ -189,7 +191,7 @@ pub fn find_tunnels(s: &mut crate::PalaceState) -> Result<String, String> {
     Ok(format!("(:ok :tunnels ({}))", tunnels.join(" ")))
 }
 
-pub fn graph_stats(s: &crate::PalaceState) -> Result<String, String> {
+pub fn graph_stats(s: &crate::PalaceState) -> Result<String, MemoryError> {
     let now = current_epoch_ms();
     let valid_edges = s.graph.edges.iter().filter(|e| e.is_valid_at(now)).count();
     let counts = s.graph.nodes.iter().fold([0usize; 5], |mut c, n| {

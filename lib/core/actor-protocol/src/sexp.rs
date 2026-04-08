@@ -116,6 +116,41 @@ pub fn extract_bool(sexp: &str, key: &str) -> Option<bool> {
     }
 }
 
+/// Truncate a string to at most `max_bytes` bytes at a valid UTF-8 boundary.
+pub fn truncate_safe(s: &str, max_bytes: usize) -> &str {
+    if s.len() <= max_bytes { return s; }
+    let mut end = max_bytes;
+    while end > 0 && !s.is_char_boundary(end) { end -= 1; }
+    &s[..end]
+}
+
+/// Clamp a float to the range [lo, hi].
+pub fn clamp_f64(x: f64, lo: f64, hi: f64) -> f64 {
+    x.max(lo).min(hi)
+}
+
+/// Declarative macro for sexp-serializable enums.
+/// Generates enum + to_sexp/try_from_sexp/from_str methods.
+#[macro_export]
+macro_rules! define_sexp_enum {
+    ($name:ident, $default:ident { $($variant:ident => $kw:literal),* $(,)? }) => {
+        #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+        pub enum $name { $($variant),* }
+        impl $name {
+            pub fn to_sexp(&self) -> &'static str {
+                match self { $(Self::$variant => concat!(":", $kw)),* }
+            }
+            pub fn try_from_sexp(s: &str) -> Option<Self> {
+                let s = s.strip_prefix(':').unwrap_or(s);
+                match s { $($kw => Some(Self::$variant),)* _ => None, }
+            }
+            pub fn from_str(s: &str) -> Self {
+                Self::try_from_sexp(s).unwrap_or(Self::$default)
+            }
+        }
+    };
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

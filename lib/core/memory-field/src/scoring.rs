@@ -1,7 +1,7 @@
 /// Activation scoring — combines field potential, eigenmode projection,
 /// basin membership, and access count into a single recall activation score.
 ///
-/// activation[i] = 0.40 × field + 0.30 × eigenmode + 0.20 × basin + 0.10 × access
+/// activation[i] = field_w × field + eigen_w × eigenmode + basin_w × basin + 0.10 × access
 
 use crate::basin::Basin;
 use crate::error::clamp;
@@ -29,10 +29,53 @@ pub(crate) struct Activation {
     pub(crate) score: f64,
 }
 
+/// Pre-computed scoring weights — immutable for the entire scoring pass.
+struct ScoringWeights {
+    field: f64,
+    eigen: f64,
+    basin: f64,
+}
+
+impl ScoringWeights {
+    fn from_config(cycle: i64) -> Self {
+        let warm_up_cycles = cfg_i64("warm-up-cycles", 10);
+        let basin_weight_initial = cfg_f64("basin-weight-initial", 0.05);
+        let basin_weight_final = cfg_f64("basin-weight-final", 0.20);
+        let basin = if cycle < warm_up_cycles {
+            let t = cycle as f64 / warm_up_cycles as f64;
+            basin_weight_initial + t * (basin_weight_final - basin_weight_initial)
+        } else {
+            basin_weight_final
+        };
+        let surplus = basin_weight_final - basin;
+        Self {
+            field: 0.40 + surplus * 0.5,
+            eigen: 0.30 + surplus * 0.5,
+            basin,
+        }
+    }
+}
+
+/// Score a single node. Pure function — no state access.
+fn score_node(
+    phi_norm: f64,
+    eigen_norm: f64,
+    in_basin: bool,
+    access: f64,
+    weights: &ScoringWeights,
+) -> f64 {
+    let basin_factor = if in_basin { 1.0 } else { 0.15 };
+    clamp(
+        weights.field * phi_norm + weights.eigen * eigen_norm + weights.basin * basin_factor + 0.10 * access,
+        0.0,
+        1.0,
+    )
+}
+
 /// Compute final activation scores for all nodes.
 ///
 /// Returns scored nodes sorted by activation (descending), filtered to those
-/// above the activation threshold.
+/// above the activation threshold. Functional: map → filter → sort → collect.
 pub(crate) fn compute_activation(
     phi: &[f64],
     eigenmode_activation: &[f64],
@@ -47,60 +90,22 @@ pub(crate) fn compute_activation(
         return Vec::new();
     }
 
-    // Warm-up phase: ramp basin weight from initial to final over N cycles.
-    // All parameters from config-store for harmonic tuning.
-    let warm_up_cycles = cfg_i64("warm-up-cycles", 10);
-    let basin_weight_initial = cfg_f64("basin-weight-initial", 0.05);
-    let basin_weight_final = cfg_f64("basin-weight-final", 0.20);
-    let basin_weight = if cycle < warm_up_cycles {
-        let t = cycle as f64 / warm_up_cycles as f64;
-        basin_weight_initial + t * (basin_weight_final - basin_weight_initial)
-    } else {
-        basin_weight_final
-    };
-    // Redistribute weight from basin to field + eigenmode during warm-up.
-    let surplus = basin_weight_final - basin_weight;
-    let field_weight = 0.40 + surplus * 0.5;
-    let eigen_weight = 0.30 + surplus * 0.5;
-
-    // Normalize field potentials to [0, 1].
+    let weights = ScoringWeights::from_config(cycle);
     let phi_norm = normalize_to_unit(phi, n);
-    // Normalize eigenmode activations to [0, 1] (use absolute value — anti-nodes are peaks).
-    let eigen_abs: Vec<f64> = eigenmode_activation
-        .iter()
-        .take(n)
-        .map(|v| v.abs())
-        .collect();
+    let eigen_abs: Vec<f64> = eigenmode_activation.iter().take(n).map(|v| v.abs()).collect();
     let eigen_norm = normalize_to_unit(&eigen_abs, n);
 
-    let mut activations = Vec::with_capacity(n);
-
-    for i in 0..n {
-        let basin_factor = if i < node_basins.len() && node_basins[i] == current_basin {
-            1.0
-        } else {
-            0.15
-        };
-
-        let access = if i < access_counts.len() {
-            clamp(access_counts[i], 0.0, 1.0)
-        } else {
-            0.0
-        };
-
-        let score = clamp(
-            field_weight * phi_norm[i] + eigen_weight * eigen_norm[i] + basin_weight * basin_factor + 0.10 * access,
-            0.0,
-            1.0,
-        );
-
-        if score >= threshold {
-            activations.push(Activation {
+    let mut activations: Vec<Activation> = (0..n)
+        .map(|i| {
+            let in_basin = i < node_basins.len() && node_basins[i] == current_basin;
+            let access = if i < access_counts.len() { clamp(access_counts[i], 0.0, 1.0) } else { 0.0 };
+            Activation {
                 node_index: i,
-                score,
-            });
-        }
-    }
+                score: score_node(phi_norm[i], eigen_norm[i], in_basin, access, &weights),
+            }
+        })
+        .filter(|a| a.score >= threshold)
+        .collect();
 
     activations.sort_by(|a, b| b.score.partial_cmp(&a.score).unwrap_or(std::cmp::Ordering::Equal));
     activations
@@ -117,7 +122,7 @@ fn normalize_to_unit(v: &[f64], n: usize) -> Vec<f64> {
     let range = max - min;
 
     if range < 1e-30 {
-        return vec![0.5; n]; // All equal — assign neutral activation.
+        return vec![0.5; n];
     }
 
     (0..n)

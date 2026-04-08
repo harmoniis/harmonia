@@ -1,3 +1,5 @@
+use harmonia_actor_protocol::MemoryError;
+
 use crate::sexp_escape;
 use std::collections::VecDeque;
 
@@ -64,9 +66,9 @@ pub fn query_graph(
     from: u32,
     traversal: Traversal,
     max_depth: u32,
-) -> Result<String, String> {
+) -> Result<String, MemoryError> {
     let start_idx = s.graph.find_node_by_id(from)
-        .ok_or_else(|| format!("(:error \"node {} not found\")", from))?;
+        .ok_or_else(|| MemoryError::NodeNotFound(format!("id {from}")))?;
     let results = traverse(&s.graph, start_idx, max_depth, traversal);
     let items: Vec<String> = results.iter()
         .map(|&(idx, depth)| {
