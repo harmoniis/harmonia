@@ -19,6 +19,44 @@ impl DrawerSource {
             Self::Manual => "(:manual)".into(),
         }
     }
+
+    /// Serialize to a compact string for Chronicle persistence.
+    /// Format: "conversation:<session_id>", "file:<path>:<hash>",
+    ///         "datamining:<lode_id>:<node_label>", "manual"
+    pub fn to_persist_str(&self) -> String {
+        match self {
+            Self::Conversation { session_id } => format!("conversation:{}", session_id),
+            Self::File { path, hash } => format!("file:{}:{}", path, hash),
+            Self::Datamining { lode_id, node_label } => format!("datamining:{}:{}", lode_id, node_label),
+            Self::Manual => "manual".into(),
+        }
+    }
+
+    /// Deserialize from the compact persist string.
+    pub fn from_persist_str(s: &str) -> Self {
+        if let Some(rest) = s.strip_prefix("conversation:") {
+            Self::Conversation { session_id: rest.to_string() }
+        } else if let Some(rest) = s.strip_prefix("file:") {
+            // Split on last ':' to separate path from hash
+            if let Some(colon_pos) = rest.rfind(':') {
+                let path = &rest[..colon_pos];
+                let hash = rest[colon_pos + 1..].parse::<u64>().unwrap_or(0);
+                Self::File { path: path.to_string(), hash }
+            } else {
+                Self::File { path: rest.to_string(), hash: 0 }
+            }
+        } else if let Some(rest) = s.strip_prefix("datamining:") {
+            if let Some(colon_pos) = rest.find(':') {
+                let lode_id = &rest[..colon_pos];
+                let node_label = &rest[colon_pos + 1..];
+                Self::Datamining { lode_id: lode_id.to_string(), node_label: node_label.to_string() }
+            } else {
+                Self::Datamining { lode_id: rest.to_string(), node_label: String::new() }
+            }
+        } else {
+            Self::Manual
+        }
+    }
 }
 
 #[derive(Clone, Debug)]
@@ -40,6 +78,25 @@ impl DrawerStore {
     pub fn new() -> Self { Self { drawers: Vec::new() } }
     pub fn len(&self) -> usize { self.drawers.len() }
     pub fn push(&mut self, drawer: Drawer) { self.drawers.push(drawer); }
+
+    /// Restore a drawer from persisted Chronicle data (warm-start).
+    pub fn restore(
+        &mut self,
+        id: u64,
+        content: String,
+        source: DrawerSource,
+        room_id: u32,
+        chunk_index: u16,
+        created_at: u64,
+        tags: Vec<String>,
+    ) {
+        self.drawers.push(Drawer { id, content, source, room_id, chunk_index, created_at, tags });
+    }
+
+    /// Get all drawers (for persistence).
+    pub fn all(&self) -> &[Drawer] {
+        &self.drawers
+    }
 
     pub fn get(&self, id: u64) -> Option<&Drawer> {
         self.drawers.iter().find(|d| d.id == id)
@@ -91,7 +148,16 @@ pub fn file_drawer(
         id, content: content.to_string(), source, room_id, chunk_index: 0,
         created_at: current_epoch_ms(), tags: tags.iter().map(|t| t.to_string()).collect(),
     };
-    s.drawers.push(drawer);
+    s.drawers.push(drawer.clone());
+
+    // Write to disk IMMEDIATELY -- verbatim must never be lost
+    if let Some(root) = crate::disk::memory_root() {
+        let (wing, room) = s.resolve_wing_room(room_id);
+        let path = crate::disk::drawer_md_path(&root, &wing, &room, id);
+        let md = crate::disk::drawer_to_md(&drawer);
+        let _ = crate::disk::write_drawer_md(&path, &md);
+    }
+
     Ok(format!("(:ok :id {} :room {} :size {})", id, room_id, content.len()))
 }
 

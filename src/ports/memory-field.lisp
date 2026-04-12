@@ -186,16 +186,25 @@ Returns a plist (:activations (...) :basin (...) :thomas (...)) or nil."
     (format nil "(~{~A~^ ~})" items)))
 
 (defun %serialize-field-edges ()
-  "Serialize *memory-concept-edges* as sexp for the field engine."
+  "Serialize *memory-concept-edges* as sexp for the field engine.
+   Includes directed weights for A-B topological flux computation."
   (let ((items '()))
     (maphash (lambda (_ edge)
                (declare (ignore _))
-               (push (%sexp-to-ipc-string
-                      `(:a ,(getf edge :a)
-                        :b ,(getf edge :b)
-                        :weight ,(getf edge :weight)
-                        :interdisciplinary ,(if (getf edge :interdisciplinary) t nil)))
-                     items))
+               (let* ((a (getf edge :a))
+                      (b (getf edge :b))
+                      (fwd-key (format nil "~A>~A" a b))
+                      (rev-key (format nil "~A>~A" b a))
+                      (fwd (or (gethash fwd-key *memory-concept-directed-counts*) 0))
+                      (rev (or (gethash rev-key *memory-concept-directed-counts*) 0)))
+                 (push (%sexp-to-ipc-string
+                        `(:a ,a
+                          :b ,b
+                          :weight ,(getf edge :weight)
+                          :interdisciplinary ,(if (getf edge :interdisciplinary) t nil)
+                          :forward-weight ,(max 1 fwd)
+                          :reverse-weight ,(max 1 rev)))
+                       items)))
              *memory-concept-edges*)
     (format nil "(~{~A~^ ~})" items)))
 

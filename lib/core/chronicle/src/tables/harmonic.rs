@@ -64,6 +64,20 @@ pub fn record(snap: &HarmonicSnapshot) -> Result<(), String> {
     Ok(())
 }
 
+/// Update the field_checkpoint column of the most recent harmonic snapshot.
+/// Called from :stabilize after memory-field IPC checkpoint returns the full sexp.
+pub fn update_field_checkpoint(checkpoint: &str) -> Result<(), String> {
+    let db = db::conn()?;
+    let lock = db.lock().map_err(|e| e.to_string())?;
+    lock.execute(
+        "UPDATE harmonic_snapshots SET field_checkpoint = ?1
+         WHERE id = (SELECT MAX(id) FROM harmonic_snapshots)",
+        params![checkpoint],
+    )
+    .map_err(|e| e.to_string())?;
+    Ok(())
+}
+
 /// Query the last recorded field basin state for warm-start.
 pub fn last_field_basin() -> Result<(String, f64, i64, f64), String> {
     let db = db::conn()?;

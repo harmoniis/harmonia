@@ -33,6 +33,7 @@ fn default_extra_read_scopes(component: &str) -> &'static [&'static str] {
         "phoenix-core" | "ouroboros-core" | "recovery" => &["evolution"],
         "evolution" => &["s3-storage"],
         "tailnet-core" => &["node"],
+        "mempalace" | "memory-field" => &["node"],
         "gateway" => &["sender-policy"],
         "observability" => &["global"],
         _ => &[],

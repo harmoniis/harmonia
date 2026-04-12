@@ -1,6 +1,7 @@
 use serde::Deserialize;
 
 use crate::error::seeded_weight;
+use crate::weights;
 
 pub const LATENT_DIM: usize = 32;
 pub const INPUT_DIM: usize = 31;
@@ -121,6 +122,16 @@ pub struct KernelState {
     pub memory_slots: Vec<Vec<f64>>,
     pub memory_strengths: Vec<f64>,
     pub memory_usage: Vec<f64>,
+    /// Dynamically learned weights for Lorenz modulation, head targets, and projections.
+    /// These start from initial conditions (weights.rs) and evolve through Hebbian
+    /// learning based on feedback from actual problem-solving.
+    ///
+    /// Layout: [lorenz(14), lorenz_aux(4), hopfield(4), learning(4), latent(3),
+    ///          confidence(6), head_targets(27), proj_scales(16), proj_alphas(11),
+    ///          routing_reasoning(4), routing_vitruvian(2), memory_recall_limit(3),
+    ///          presentation_mix(18), init_scales(3)]
+    /// Total: 119 learnable parameters
+    pub dynamic_weights: Vec<f64>,
     pub last_projection: Projection,
     pub last_feedback: Feedback,
     pub last_observation: Observation,
@@ -167,23 +178,30 @@ pub struct LegacyProjection {
 
 impl KernelState {
     pub fn new() -> Self {
+        let dynamic_weights = weights::initial_dynamic_weights();
+        let input_scale = dynamic_weights[weights::DW_INIT_SCALE_START];
+        let recurrent_scale = dynamic_weights[weights::DW_INIT_SCALE_START + 1];
+        let readout_scale = dynamic_weights[weights::DW_INIT_SCALE_START + 2];
+
         let mut input_matrix = vec![0.0; LATENT_DIM * INPUT_DIM];
         let mut recurrent_matrix = vec![0.0; LATENT_DIM * LATENT_DIM];
         let mut readout_weights = vec![vec![0.0; LATENT_DIM]; HEAD_COUNT];
 
         for row in 0..LATENT_DIM {
             for col in 0..INPUT_DIM {
-                input_matrix[row * INPUT_DIM + col] = seeded_weight(row, col, 0.19);
+                input_matrix[row * INPUT_DIM + col] =
+                    seeded_weight(row, col, input_scale);
             }
             for col in 0..LATENT_DIM {
                 recurrent_matrix[row * LATENT_DIM + col] = if (row + col * 2) % 7 == 0 {
-                    seeded_weight(row + 13, col + 17, 0.11)
+                    seeded_weight(row + 13, col + 17, recurrent_scale)
                 } else {
                     0.0
                 };
             }
             for head in 0..HEAD_COUNT {
-                readout_weights[head][row] = seeded_weight(head + 31, row + 37, 0.08);
+                readout_weights[head][row] =
+                    seeded_weight(head + 31, row + 37, readout_scale);
             }
         }
 
@@ -201,6 +219,7 @@ impl KernelState {
             memory_slots: vec![vec![0.0; LATENT_DIM]; MEMORY_SLOTS],
             memory_strengths: vec![0.0; MEMORY_SLOTS],
             memory_usage: vec![0.0; MEMORY_SLOTS],
+            dynamic_weights,
             last_projection: Projection::default(),
             last_feedback: Feedback::default(),
             last_observation: Observation::default(),
@@ -210,9 +229,10 @@ impl KernelState {
     }
 
     pub fn used_memory_slots(&self) -> usize {
+        let threshold = self.dynamic_weights[weights::DW_HOPFIELD_START]; // hopfield_strength_threshold
         self.memory_strengths
             .iter()
-            .filter(|strength| **strength > 0.001)
+            .filter(|strength| **strength > threshold)
             .count()
     }
 }

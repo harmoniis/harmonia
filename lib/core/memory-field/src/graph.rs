@@ -62,6 +62,10 @@ pub(crate) struct SparseGraph {
     pub(crate) values: Vec<f64>,
     pub(crate) degree: Vec<f64>,
     pub(crate) concept_to_index: Vec<(String, usize)>,
+    /// Directed edge weights for A-B topological flux computation.
+    /// Key: (from_node_idx, to_node_idx), Value: forward weight.
+    /// Populated from temporal co-occurrence counts sent by Lisp.
+    pub(crate) directed_weights: std::collections::HashMap<(usize, usize), f64>,
 }
 
 impl SparseGraph {
@@ -74,6 +78,7 @@ impl SparseGraph {
             values: Vec::new(),
             degree: Vec::new(),
             concept_to_index: Vec::new(),
+            directed_weights: std::collections::HashMap::new(),
         }
     }
 }
@@ -149,6 +154,21 @@ pub(crate) fn build_graph(
         values,
         degree,
         concept_to_index,
+        directed_weights: std::collections::HashMap::new(),
+    }
+}
+
+/// Set directed edge weights from parsed IPC data.
+/// Called after build_graph when directed weights are available.
+pub(crate) fn set_directed_weights(
+    graph: &mut SparseGraph,
+    directed: &[(String, String, f64, f64)],  // (a, b, forward, reverse)
+) {
+    for (a_concept, b_concept, forward, reverse) in directed {
+        if let (Some(a_idx), Some(b_idx)) = (concept_index(graph, a_concept), concept_index(graph, b_concept)) {
+            graph.directed_weights.insert((a_idx, b_idx), *forward);
+            graph.directed_weights.insert((b_idx, a_idx), *reverse);
+        }
     }
 }
 

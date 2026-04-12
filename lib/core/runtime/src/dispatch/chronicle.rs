@@ -79,6 +79,11 @@ pub(crate) fn dispatch(sexp: &str) -> String {
             };
             harmonia_chronicle::harmonic::record(&snap).map(|_| "(:ok)".to_string())
         }),
+        "update-field-checkpoint" => dispatch_op!("update-field-checkpoint", {
+            let checkpoint = param!(sexp, ":checkpoint");
+            harmonia_chronicle::harmonic::update_field_checkpoint(&checkpoint)
+                .map(|_| "(:ok)".to_string())
+        }),
         "record-memory-event" => dispatch_op!("record-memory-event", {
             let event_type = param!(sexp, ":event-type");
             let entries_created: i32 = extract_sexp_string(sexp, ":entries-created")

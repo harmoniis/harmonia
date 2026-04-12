@@ -113,6 +113,34 @@ impl KnowledgeGraph {
     pub fn find_node_by_id(&self, id: u32) -> Option<usize> {
         self.nodes.iter().position(|n| n.id == id)
     }
+
+    /// Restore a node from persisted Chronicle data (warm-start).
+    pub fn restore_node(&mut self, id: u32, kind: &str, label: &str, domain: &str, created_at: u64) {
+        let node = GraphNode {
+            id,
+            kind: NodeKind::from_str(kind),
+            label: label.to_string(),
+            domain: Domain::from_str(domain),
+            created_at,
+            properties: Vec::new(),
+        };
+        self.nodes.push(node);
+        self.offsets.push(*self.offsets.last().unwrap_or(&0));
+    }
+
+    /// Restore an edge from persisted Chronicle data (warm-start).
+    pub fn restore_edge(&mut self, source: u32, target: u32, kind: &str, weight: f64, confidence: f64) {
+        let edge = GraphEdge {
+            source,
+            target,
+            kind: EdgeKind::from_str(kind),
+            weight,
+            valid_from: 0,
+            valid_to: None,
+            confidence,
+        };
+        self.edges.push(edge);
+    }
 }
 
 // ── ConceptGraph trait implementation ──

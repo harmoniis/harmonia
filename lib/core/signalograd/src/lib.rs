@@ -7,6 +7,7 @@ pub mod kernel;
 pub mod model;
 pub mod observation;
 mod sexp;
+pub mod weights;
 
 // ── Typed API: actor-owned state, no singletons ──────────────────────
 // The runtime's SignalogradActor owns KernelState and calls these directly.

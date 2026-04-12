@@ -128,6 +128,35 @@ pub(crate) fn eigenmode_activate(
     activation
 }
 
+/// Heat kernel activation: K(t) * source = sum_k exp(-t*lambda_k) * <source, v_k> * v_k
+///
+/// This replaces the separate field solve + eigenmode projection with a unified
+/// propagation that naturally sums over ALL paths through the graph with
+/// exponential frequency weighting. The parameter t controls the diffusion scale:
+/// - Small t: local, precise recall (only nearby nodes activate)
+/// - Large t: global, associative recall (distant nodes also activate)
+///
+/// This is the classical analog of the quantum propagator exp(-itL).
+/// The exponential weighting subsumes the k-mode truncation — all modes contribute
+/// but high-frequency modes are naturally suppressed.
+pub(crate) fn heat_kernel_activate(
+    source: &[f64],
+    eigenvalues: &[f64],
+    eigenvectors: &[Vec<f64>],
+    t: f64,
+    n: usize,
+) -> Vec<f64> {
+    let mut activation = vec![0.0; n];
+    for (lambda, v) in eigenvalues.iter().zip(eigenvectors.iter()) {
+        let projection = dot(source, v);
+        let weight = (-t * lambda).exp(); // exponential frequency weighting
+        for i in 0..n.min(v.len()) {
+            activation[i] += projection * weight * v[i];
+        }
+    }
+    activation
+}
+
 // ─── Internal helpers ───────────────────────────────────────────────────────
 
 fn initial_vector(n: usize, seed: usize) -> Vec<f64> {
@@ -226,5 +255,25 @@ mod tests {
 
         // Activation should be non-trivial.
         assert!(activation.iter().any(|a| a.abs() > 0.01));
+    }
+
+    #[test]
+    fn test_heat_kernel_limits() {
+        // At t=0, heat kernel should be identity (only self-activation)
+        let v1 = vec![1.0, 0.0, -1.0];
+        let v2 = vec![0.5, -1.0, 0.5];
+        let eigenvectors = vec![v1, v2];
+        let eigenvalues = vec![1.0, 3.0];
+        let source = vec![1.0, 0.0, 0.0];
+
+        // Very small t: should approximate source
+        let act_local = heat_kernel_activate(&source, &eigenvalues, &eigenvectors, 0.001, 3);
+        // Very large t: all modes suppressed, should approach zero
+        let act_global = heat_kernel_activate(&source, &eigenvalues, &eigenvectors, 100.0, 3);
+
+        // Local activation should have larger magnitude than global
+        let mag_local: f64 = act_local.iter().map(|x| x * x).sum();
+        let mag_global: f64 = act_global.iter().map(|x| x * x).sum();
+        assert!(mag_local > mag_global, "Local activation should be stronger than global");
     }
 }

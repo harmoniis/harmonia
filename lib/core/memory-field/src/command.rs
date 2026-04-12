@@ -6,17 +6,20 @@
 
 use crate::basin::Basin;
 use crate::graph::SparseGraph;
-use crate::attractor::{ThomasState, AizawaState, HalvorsenState};
+use crate::attractor::{ThomasState, AizawaState, HalvorsenState, InvariantMeasure};
 use crate::basin::HysteresisTracker;
 use crate::recall::RecallResult;
 use crate::dream::DreamReport;
 use crate::api::MemoryDigest;
+use crate::topology::TopologyState;
 
 /// Commands — pure data describing what to do (Free Monad).
 pub enum FieldCommand {
     LoadGraph {
         nodes: Vec<(String, String, i32, Vec<String>)>,
         edges: Vec<(String, String, f64, bool)>,
+        /// Directed weights for A-B topological flux: (a, b, forward_weight, reverse_weight).
+        directed_weights: Vec<(String, String, f64, f64)>,
     },
     Recall {
         query_concepts: Vec<String>,
@@ -50,6 +53,22 @@ pub enum FieldCommand {
         entries: Vec<crate::api::GenesisEntry>,
     },
     Reset,
+    /// Checkpoint — serialize field state for persistence.
+    Checkpoint,
+    /// Restore full field state from persisted checkpoint.
+    RestoreState {
+        thomas: (f64, f64, f64),
+        aizawa: (f64, f64, f64),
+        halvorsen: (f64, f64, f64),
+        signal: f64,
+        noise: f64,
+        soft_basins: [f64; 6],
+        thomas_b: f64,
+    },
+    /// Save field state to disk (.sexp file under memory-root/field/).
+    SaveToDisk,
+    /// Load field state from disk (.sexp file under memory-root/field/).
+    LoadFromDisk,
 }
 
 /// Results — structured data, serialized only at the dispatch boundary.
@@ -69,6 +88,14 @@ pub enum FieldResult {
     BasinRestored(BasinRestoredResult),
     GenesisLoaded { n: usize, edges: usize, spectral_k: usize, graph_version: u64 },
     Reset,
+    /// Checkpoint result — serialized state.
+    Checkpointed { sexp: String },
+    /// State restored from checkpoint.
+    StateRestored,
+    /// Disk save result.
+    DiskSaved { sexp: String },
+    /// Disk load result.
+    DiskLoaded { restored: bool },
 }
 
 // Sub-result structs (keep them small and focused)
@@ -141,6 +168,7 @@ pub enum FieldDelta {
         graph_version: u64,
         spectral_version: u64,
         node_basins: Vec<Basin>,
+        topology: TopologyState,
     },
     /// Attractor step.
     AttractorStepped {
@@ -150,6 +178,10 @@ pub enum FieldDelta {
         halvorsen: HalvorsenState,
         hysteresis: HysteresisTracker,
         node_basins: Vec<Basin>,
+        thomas_measure: InvariantMeasure,
+        thomas_soft_basins: [f64; 6],
+        last_signal: f64,
+        last_noise: f64,
     },
     /// Dream completed.
     DreamCompleted {
@@ -162,6 +194,16 @@ pub enum FieldDelta {
     CycleIncremented { new_cycle: i64 },
     /// Basin restored from Chronicle.
     BasinRestored { hysteresis: HysteresisTracker },
+    /// Full state restoration from checkpoint.
+    StateRestored {
+        thomas: crate::attractor::ThomasState,
+        aizawa: crate::attractor::AizawaState,
+        halvorsen: crate::attractor::HalvorsenState,
+        signal: f64,
+        noise: f64,
+        soft_basins: [f64; 6],
+        thomas_b: f64,
+    },
     /// Full reset.
     Reset,
 }

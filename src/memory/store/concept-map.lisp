@@ -65,10 +65,20 @@ E.g. tag :identity connects to content words, so 'who are you' finds identity en
          (concepts (remove-duplicates (append content-concepts tag-concepts) :test #'string=)))
     (dolist (c concepts)
       (%upsert-concept-node c class depth entry-id))
+    ;; Symmetric edges (existing behavior — unchanged)
     (loop for left in concepts do
       (loop for right in concepts do
         (when (string< left right)
           (%upsert-concept-edge left right reason))))
+    ;; Directed temporal ordering — concepts is in appearance order.
+    ;; A before B in text -> increment forward(A,B) count.
+    ;; This breaks the graph symmetry needed for A-B topological flux.
+    (let ((cvec (coerce concepts 'vector)))
+      (loop for i from 0 below (length cvec) do
+        (loop for j from (1+ i) below (length cvec) do
+          (let ((key (format nil "~A>~A" (aref cvec i) (aref cvec j))))
+            (setf (gethash key *memory-concept-directed-counts*)
+                  (1+ (or (gethash key *memory-concept-directed-counts*) 0)))))))
     concepts))
 
 (defun memory-map-sexp (&key (entry-limit 80) (edge-limit 120))

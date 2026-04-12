@@ -23,6 +23,9 @@
 (defparameter *memory-compressed-source-ids* (make-hash-table :test 'equal))
 (defparameter *memory-concept-nodes* (make-hash-table :test 'equal)) ;; concept -> plist
 (defparameter *memory-concept-edges* (make-hash-table :test 'equal)) ;; key -> plist
+(defparameter *memory-concept-directed-counts* (make-hash-table :test 'equal)
+  "Directed co-occurrence counts. Key: 'A>B' (ordered as A appeared before B).
+   Value: integer count. Tracks temporal ordering for A-B topological flux.")
 
 ;;; ─── Thread safety ──────────────────────────────────────────────────
 ;;; All mutations to memory state go through this mutex.
@@ -130,7 +133,8 @@
     (setf *memory-last-journal-day* 0)
     (setf *memory-compressed-source-ids* (make-hash-table :test 'equal))
     (setf *memory-concept-nodes* (make-hash-table :test 'equal))
-    (setf *memory-concept-edges* (make-hash-table :test 'equal)))
+    (setf *memory-concept-edges* (make-hash-table :test 'equal))
+    (setf *memory-concept-directed-counts* (make-hash-table :test 'equal)))
   ;; Re-seed outside lock (calls memory-put which takes its own lock).
   (memory-seed-soul-from-dna)
   t)

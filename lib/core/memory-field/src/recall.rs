@@ -4,11 +4,13 @@ use harmonia_actor_protocol::MemoryError;
 
 use crate::basin::Basin;
 use crate::config::{cfg_f64, cfg_i64};
+use crate::error::clamp;
 use crate::field::{build_source_vector, solve_field};
 use crate::graph::Domain;
 use crate::scoring::compute_activation;
 use crate::spectral::{eigenmode_activate, eigenmode_project};
 use crate::FieldState;
+use crate::basin::compute_basin_affinity;
 
 // ── Structured result types ──
 
@@ -74,6 +76,21 @@ fn domain_to_sexp(d: Domain) -> &'static str {
     }
 }
 
+/// Compute heat kernel diffusion time from signal-noise ratio.
+///
+/// High signal → small t → precise local recall
+/// Low signal → large t → broad associative recall
+///
+/// This is the uncertainty principle analog: precision in concept space
+/// trades off with breadth of association.
+fn compute_diffusion_time(signal: f64, noise: f64) -> f64 {
+    let t_min = cfg_f64("heat-kernel-t-min", 0.1);
+    let t_max = cfg_f64("heat-kernel-t-max", 5.0);
+    let snr = clamp(signal - noise, 0.0, 1.0);
+    // High SNR → small t (local), low SNR → large t (global)
+    t_max - snr * (t_max - t_min)
+}
+
 // ── Core recall computation ──
 
 /// Pure recall computation — takes &FieldState (immutable), returns structured result.
@@ -106,15 +123,43 @@ pub(crate) fn compute_recall_pure(
         vec![0.0; n]
     };
 
+    // Heat kernel: enabled by default — the holographic propagator.
+    // Uses signal/noise from the most recent attractor step (signalograd coupling).
+    let heat_kernel_act = if !s.eigenvectors.is_empty() && !s.eigenvalues.is_empty() {
+        let t = compute_diffusion_time(s.last_signal, s.last_noise);
+        Some(crate::spectral::heat_kernel_activate(
+            &sources, &s.eigenvalues, &s.eigenvectors, t, n,
+        ))
+    } else {
+        None
+    };
+
+    // Topological flux — the A-B invariant: non-local information from graph cycles.
+    let topo_flux = if !s.topology.node_flux.is_empty() {
+        Some(s.topology.node_flux.as_slice())
+    } else {
+        None
+    };
+
+    // Compute continuous basin affinity (holographic projection from soft classification).
+    // Replaces the binary in-basin/out-of-basin gate with soft Boltzmann probability.
+    let basin_affinity = compute_basin_affinity(
+        &s.graph.nodes.iter().map(|n| n.domain).collect::<Vec<_>>(),
+        &s.thomas_soft_basins,
+        &s.aizawa,
+        &s.halvorsen,
+    );
+
     // Build access count vector with depth-aware temporal decay.
     let access_vec = build_access_vector(n, access_counts, &s.graph);
 
-    // Score all nodes.
+    // Score all nodes — holographic fusion of all boundary and bulk signals.
     let activations = compute_activation(
         &phi,
         &eigenmode_activation,
-        s.hysteresis.current_basin,
-        &s.node_basins,
+        heat_kernel_act.as_deref(),
+        topo_flux,
+        &basin_affinity,
         &access_vec,
         n,
         cfg_f64("activation-threshold", 0.1),

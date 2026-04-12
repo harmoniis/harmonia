@@ -81,6 +81,9 @@ pub fn run(env: &str, foreground: bool) -> Result<(), Box<dyn std::error::Error>
         ("global", "wallet-root", wallet_root.to_string_lossy().to_string()),
         ("global", "wallet-db", wallet_db_path.to_string_lossy().to_string()),
         ("global", "system-dir", system_dir.to_string_lossy().to_string()),
+        // Ensure state-root is always set so signalograd (and other components)
+        // checkpoint to the data directory, not the source tree.
+        ("global", "state-root", system_dir.to_string_lossy().to_string()),
     ] {
         let _ = harmonia_config_store::set_config("harmonia-cli", scope, key, &val);
     }

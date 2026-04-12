@@ -17,12 +17,10 @@
     ;; Register chronicle as actor through the unified registry
     (when *runtime*
       (handler-case
-
-          (let ((actor-id (actor-register "chronicle")
-
+          (let ((actor-id (actor-register "chronicle")))
+            (setf (runtime-state-chronicle-actor-id *runtime*) actor-id)
+            (setf (gethash actor-id (runtime-state-actor-kinds *runtime*)) "chronicle"))
         (error () nil)))
-          (setf (runtime-state-chronicle-actor-id *runtime*) actor-id)
-          (setf (gethash actor-id (runtime-state-actor-kinds *runtime*)) "chronicle"))))
     (runtime-log *runtime* :chronicle-init
                  (list :status (if (ipc-reply-ok-p reply) :ok :failed)))
     (ipc-reply-ok-p reply)))
@@ -30,19 +28,18 @@
 ;;; --- Recording API ---
 
 (defun chronicle-record-harmonic (ctx)
-  "Record a full harmonic snapshot from the harmonic context plist."
+  "Record a full harmonic snapshot from the harmonic context plist.
+   Includes memory-field basin state for warm-start persistence."
   (handler-case
-
-      (let* ((plan (getf ctx :plan)
-
-    (error () nil))
+      (let* ((plan (getf ctx :plan))
            (vitruvian (getf plan :vitruvian))
            (logistic (getf ctx :logistic))
            (lorenz (getf ctx :lorenz))
            (projection (getf ctx :projection))
            (global (getf ctx :global))
            (local (getf ctx :local))
-           (security (getf ctx :security)))
+           (security (getf ctx :security))
+           (field-basin (getf ctx :field-basin)))
       (ipc-call
        (%sexp-to-ipc-string
         `(:component "chronicle" :op "record-harmonic"
@@ -69,7 +66,32 @@
           :rewrite-ready ,(if (and plan (getf plan :ready)) 1 0)
           :rewrite-count ,(or (getf plan :rewrite-count) 0)
           :security-posture ,(string-downcase (symbol-name (or (getf security :posture) :nominal)))
-          :security-events ,(or (getf security :events) 0)))))))
+          :security-events ,(or (getf security :events) 0)
+          ;; Memory-field basin state for warm-start across restarts
+          :field-basin ,(or (and (listp field-basin) (getf field-basin :basin))
+                            (and (stringp field-basin) field-basin)
+                            "thomas-0")
+          :field-coercive-energy ,(coerce (or (and (listp field-basin)
+                                                   (getf field-basin :coercive-energy))
+                                              0.0)
+                                          'double-float)
+          :field-dwell-ticks ,(or (and (listp field-basin) (getf field-basin :dwell-ticks)) 0)
+          :field-threshold ,(coerce (or (and (listp field-basin)
+                                             (getf field-basin :threshold))
+                                        0.35)
+                                    'double-float)))))
+    (error () nil)))
+
+(defun chronicle-record-field-checkpoint (checkpoint-sexp)
+  "Persist a full memory-field checkpoint sexp to the latest harmonic snapshot.
+   Updates the field_checkpoint column of the most recent row. Non-fatal."
+  (handler-case
+      (when (and checkpoint-sexp (> (length checkpoint-sexp) 0))
+        (ipc-call
+         (%sexp-to-ipc-string
+          `(:component "chronicle" :op "update-field-checkpoint"
+            :checkpoint ,checkpoint-sexp))))
+    (error () nil)))
 
 (defun chronicle-record-memory-event (event-type &key
                                        (entries-created 0) (entries-source 0)

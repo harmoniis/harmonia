@@ -56,9 +56,26 @@
        :checkpoint-digest checkpoint-digest :detail (%signalograd-detail-string detail))
       (error () nil))))
 
+(defun %signalograd-data-dir-checkpoint-path ()
+  "Resolve signalograd checkpoint path in the persistent data directory.
+   Primary location: ~/.harmoniis/harmonia/signalograd.sexp (via config-store state-root).
+   This path survives source-dir deletion (binary-only installs)."
+  (let ((state-root (and (fboundp 'config-get-for)
+                         (handler-case
+                             (funcall 'config-get-for "conductor" "state-root" "global")
+                           (error () nil)))))
+    (when (and state-root (> (length state-root) 0))
+      (let ((base (if (char= (char state-root (1- (length state-root))) #\/)
+                      state-root
+                      (concatenate 'string state-root "/"))))
+        (pathname (concatenate 'string base "signalograd.sexp"))))))
+
 (defun %signalograd-latest-checkpoint-path ()
-  (when (and (boundp '*evolution-latest-dir*) *evolution-latest-dir*)
-    (merge-pathnames "signalograd.sexp" *evolution-latest-dir*)))
+  "Resolve signalograd checkpoint path, preferring the data directory.
+   Falls back to evolution/latest/ if the data-dir path is not available."
+  (or (%signalograd-data-dir-checkpoint-path)
+      (when (and (boundp '*evolution-latest-dir*) *evolution-latest-dir*)
+        (merge-pathnames "signalograd.sexp" *evolution-latest-dir*))))
 
 (defun %signalograd-version-checkpoint-path (&optional (version (and (fboundp 'evolution-current-version)
                                                                      (evolution-current-version))))
@@ -384,14 +401,30 @@
   (when (and (fboundp 'signalograd-port-ready-p) (signalograd-port-ready-p))
     (let* ((version (and (fboundp 'evolution-current-version) (evolution-current-version)))
            (version-path (%signalograd-version-checkpoint-path version))
-           (latest-path (%signalograd-latest-checkpoint-path))
+           (data-path (%signalograd-data-dir-checkpoint-path))
+           (evolution-path (when (and (boundp '*evolution-latest-dir*) *evolution-latest-dir*)
+                             (merge-pathnames "signalograd.sexp" *evolution-latest-dir*)))
            (selected (cond ((and version-path (probe-file version-path)) version-path)
-                           ((and latest-path (probe-file latest-path)) latest-path)
+                           ((and data-path (probe-file data-path)) data-path)
+                           ((and evolution-path (probe-file evolution-path)) evolution-path)
                            (t nil))))
       (when selected
+        ;; Migrate: if we restored from evolution-dir but data-dir exists,
+        ;; copy to data-dir so future restores find it in the safe location.
+        (when (and (equal selected evolution-path)
+                   data-path
+                   (not (equal (namestring data-path) (namestring evolution-path))))
+          (ignore-errors
+            (ensure-directories-exist data-path)
+            (with-open-file (in evolution-path :direction :input)
+              (with-open-file (out data-path :direction :output :if-exists :supersede)
+                (loop for line = (read-line in nil nil)
+                      while line do (write-line line out))))))
         (%signalograd-checkpoint-or-restore :restore (lambda () selected)
                                             :runtime runtime :version version
-                                            :source (if (equal selected version-path) :version :latest))))))
+                                            :source (cond ((equal selected version-path) :version)
+                                                          ((equal selected data-path) :data-dir)
+                                                          (t :latest)))))))
 
 (defun signalograd-adjust-vitruvian (vitruvian &optional (runtime *runtime*))
   (let* ((harmony (%signalograd-section :harmony runtime))

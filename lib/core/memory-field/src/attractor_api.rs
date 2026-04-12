@@ -22,8 +22,10 @@ pub(crate) fn compute_step_pure(
     crate::attractor::HalvorsenState,
     crate::basin::HysteresisTracker,
     Vec<crate::basin::Basin>,
+    crate::attractor::InvariantMeasure,
+    [f64; 6],
 ) {
-    use crate::attractor::{step_thomas, step_aizawa, step_halvorsen};
+    use crate::attractor::{step_thomas, step_aizawa, step_halvorsen, classify_thomas_basin_soft};
 
     // Thomas b parameter modulated by signal quality (all from config).
     let b_base = cfg_f64("thomas-b-base", 0.208);
@@ -43,7 +45,19 @@ pub(crate) fn compute_step_pure(
     let proposed = classify_primary_basin(&new_thomas);
     let drive_energy = (signal - noise).abs() * 0.1;
     let mut new_hysteresis = s.hysteresis.clone();
-    let _switched = update_hysteresis(&mut new_hysteresis, proposed, drive_energy);
+    // Compute topological flux between current and proposed basins (A-B invariant).
+    let topo_flux = if !s.topology.cycles.is_empty() {
+        crate::topology::flux_between_basins(
+            &s.topology.cycles,
+            &s.topology.circulations,
+            &s.node_basins,
+            s.hysteresis.current_basin,
+            proposed,
+        )
+    } else {
+        0.0
+    };
+    let _switched = update_hysteresis(&mut new_hysteresis, proposed, drive_energy, topo_flux);
 
     // Re-assign node basins if we have a graph.
     let new_node_basins = if s.graph.n > 0 {
@@ -53,7 +67,16 @@ pub(crate) fn compute_step_pure(
         s.node_basins.clone()
     };
 
-    (new_thomas, b_eff, new_aizawa, new_halvorsen, new_hysteresis, new_node_basins)
+    // Update invariant measure: record new Thomas position and compute soft basins.
+    let mut new_measure = s.thomas_measure.clone();
+    new_measure.record(new_thomas.x, new_thomas.y, new_thomas.z, 3.0);
+    // Decay measure every 100 ticks to implement sliding window.
+    if (s.cycle + 1) % 100 == 0 {
+        new_measure.decay(0.9);
+    }
+    let new_soft_basins = classify_thomas_basin_soft(&new_thomas, b_eff);
+
+    (new_thomas, b_eff, new_aizawa, new_halvorsen, new_hysteresis, new_node_basins, new_measure, new_soft_basins)
 }
 
 /// Step all three attractors by one timestep and update hysteresis.

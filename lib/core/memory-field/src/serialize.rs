@@ -42,6 +42,18 @@ impl FieldResult {
                     .key("spectral-k").uint(*spectral_k as u64)
                     .key("graph-version").uint(*graph_version)
                     .build(),
+            Self::Checkpointed { sexp } =>
+                SexpBuilder::ok()
+                    .key("checkpoint").raw(sexp)
+                    .build(),
+            Self::StateRestored => "(:ok :restored t)".to_string(),
+            Self::DiskSaved { sexp } => sexp.clone(),
+            Self::DiskLoaded { restored } =>
+                if *restored {
+                    "(:ok :disk-loaded t)".to_string()
+                } else {
+                    "(:ok :disk-loaded nil)".to_string()
+                },
             Self::Reset => "(:ok)".to_string(),
         }
     }

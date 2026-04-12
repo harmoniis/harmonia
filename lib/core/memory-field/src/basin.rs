@@ -100,6 +100,37 @@ pub(crate) fn classify_primary_basin(thomas: &ThomasState) -> Basin {
     Basin::ThomasLobe(thomas.classify_basin())
 }
 
+/// Compute per-node basin affinity using soft classification.
+///
+/// Instead of binary in-basin/out-of-basin, returns a continuous weight [0, 1]
+/// for each node based on how well its domain maps to the soft basin probabilities.
+pub(crate) fn compute_basin_affinity(
+    domains: &[Domain],
+    soft_basins: &[f64; 6],
+    aizawa: &AizawaState,
+    _halvorsen: &HalvorsenState,
+) -> Vec<f64> {
+    let is_deep = classify_aizawa_depth(aizawa);
+    domains
+        .iter()
+        .map(|domain| {
+            if is_deep {
+                // When in deep mode, all nodes get uniform affinity
+                // (crystallized memories don't need basin filtering)
+                0.8
+            } else {
+                let basin_idx = domain_to_thomas_basin(*domain) as usize;
+                if basin_idx < 6 {
+                    // The soft probability of being in this node's natural basin
+                    soft_basins[basin_idx]
+                } else {
+                    0.15 // fallback
+                }
+            }
+        })
+        .collect()
+}
+
 /// Assign each concept node a basin based on its domain and attractor state.
 pub(crate) fn assign_node_basins(
     domains: &[Domain],
@@ -140,6 +171,7 @@ pub(crate) fn update_hysteresis(
     tracker: &mut HysteresisTracker,
     proposed_basin: Basin,
     drive_energy: f64,
+    topological_flux: f64,  // Non-decaying A-B invariant
 ) -> bool {
     let threshold_base = cfg_f64("hysteresis-threshold-base", 0.35);
     let threshold_scale = cfg_f64("hysteresis-threshold-scale", 0.15);
@@ -159,7 +191,11 @@ pub(crate) fn update_hysteresis(
     // Decay coercive energy each tick (relaxation).
     tracker.coercive_energy = clamp(tracker.coercive_energy * decay, 0.0, 5.0);
 
-    if tracker.coercive_energy > tracker.threshold {
+    // Non-decaying topological component (A-B invariant)
+    let topo_weight = cfg_f64("hysteresis-topo-weight", 0.15);
+    let effective_energy = tracker.coercive_energy + topo_weight * topological_flux;
+
+    if effective_energy > tracker.threshold {
         tracker.current_basin = proposed_basin;
         tracker.coercive_energy = 0.0;
         tracker.dwell_ticks = 0;
@@ -178,7 +214,7 @@ mod tests {
         let mut tracker = HysteresisTracker::default();
         // Apply weak drive energy — should not switch.
         for _ in 0..5 {
-            let switched = update_hysteresis(&mut tracker, Basin::ThomasLobe(3), 0.01);
+            let switched = update_hysteresis(&mut tracker, Basin::ThomasLobe(3), 0.01, 0.0);
             assert!(!switched, "Weak signal should not cause basin switch");
         }
         assert_eq!(tracker.current_basin, Basin::ThomasLobe(0));
@@ -190,7 +226,7 @@ mod tests {
         let mut switched = false;
         // Apply strong drive energy repeatedly.
         for _ in 0..50 {
-            if update_hysteresis(&mut tracker, Basin::ThomasLobe(3), 0.5) {
+            if update_hysteresis(&mut tracker, Basin::ThomasLobe(3), 0.5, 0.0) {
                 switched = true;
                 break;
             }
@@ -203,9 +239,31 @@ mod tests {
     fn test_same_basin_no_accumulation() {
         let mut tracker = HysteresisTracker::default();
         // Proposing the same basin should not accumulate energy.
-        update_hysteresis(&mut tracker, Basin::ThomasLobe(0), 1.0);
+        update_hysteresis(&mut tracker, Basin::ThomasLobe(0), 1.0, 0.0);
         // Energy only added when proposed differs from current,
         // but decay still applies.
         assert!(tracker.coercive_energy < 1.0);
+    }
+
+    #[test]
+    fn test_topological_flux_aids_switching() {
+        let mut tracker = HysteresisTracker::default();
+        // With weak drive that wouldn't normally switch...
+        // (steady-state energy = 0.02 / 0.08 = 0.25, below threshold ~0.35+)
+        for _ in 0..10 {
+            let switched = update_hysteresis(&mut tracker, Basin::ThomasLobe(3), 0.02, 0.0);
+            assert!(!switched, "Moderate drive alone should not switch");
+        }
+
+        // ...but with topological flux, it should switch faster
+        let mut tracker2 = HysteresisTracker::default();
+        let mut switched = false;
+        for _ in 0..10 {
+            if update_hysteresis(&mut tracker2, Basin::ThomasLobe(3), 0.02, 2.0) {
+                switched = true;
+                break;
+            }
+        }
+        assert!(switched, "Topological flux should aid basin switching");
     }
 }

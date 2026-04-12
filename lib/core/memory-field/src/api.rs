@@ -54,7 +54,7 @@ pub fn load_graph(
 ) -> Result<String, MemoryError> {
     use harmonia_actor_protocol::Service;
     use crate::command::FieldCommand;
-    let cmd = FieldCommand::LoadGraph { nodes, edges };
+    let cmd = FieldCommand::LoadGraph { nodes, edges, directed_weights: Vec::new() };
     let (delta, result) = s.handle(cmd)?;
     s.apply(delta);
     Ok(result.to_sexp())

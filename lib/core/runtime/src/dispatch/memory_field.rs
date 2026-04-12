@@ -57,6 +57,7 @@ fn parse_command(sexp: &str, op: &str) -> Option<harmonia_memory_field::FieldCom
         "load-graph" => Some(FieldCommand::LoadGraph {
             nodes: parse_memory_field_nodes(sexp),
             edges: parse_memory_field_edges(sexp),
+            directed_weights: parse_memory_field_directed_weights(sexp),
         }),
         "field-recall" => {
             let concepts = parse_string_list(sexp, ":query-concepts");
@@ -110,6 +111,38 @@ fn parse_command(sexp: &str, op: &str) -> Option<harmonia_memory_field::FieldCom
         }
         "bootstrap" => Some(FieldCommand::Bootstrap),
         "reset" => Some(FieldCommand::Reset),
+        "checkpoint" => Some(FieldCommand::Checkpoint),
+        "save-to-disk" => Some(FieldCommand::SaveToDisk),
+        "load-from-disk" => Some(FieldCommand::LoadFromDisk),
+        "restore-state" => {
+            let tx = param_f64!(sexp, ":thomas-x", 0.1);
+            let ty = param_f64!(sexp, ":thomas-y", 0.0);
+            let tz = param_f64!(sexp, ":thomas-z", 0.0);
+            let ax = param_f64!(sexp, ":aizawa-x", 0.1);
+            let ay = param_f64!(sexp, ":aizawa-y", 0.0);
+            let az = param_f64!(sexp, ":aizawa-z", 0.0);
+            let hx = param_f64!(sexp, ":halvorsen-x", 0.1);
+            let hy = param_f64!(sexp, ":halvorsen-y", 0.0);
+            let hz = param_f64!(sexp, ":halvorsen-z", 0.0);
+            let signal = param_f64!(sexp, ":last-signal", 0.5);
+            let noise = param_f64!(sexp, ":last-noise", 0.2);
+            let thomas_b = param_f64!(sexp, ":thomas-b", 0.208);
+            let sb0 = param_f64!(sexp, ":sb0", 1.0 / 6.0);
+            let sb1 = param_f64!(sexp, ":sb1", 1.0 / 6.0);
+            let sb2 = param_f64!(sexp, ":sb2", 1.0 / 6.0);
+            let sb3 = param_f64!(sexp, ":sb3", 1.0 / 6.0);
+            let sb4 = param_f64!(sexp, ":sb4", 1.0 / 6.0);
+            let sb5 = param_f64!(sexp, ":sb5", 1.0 / 6.0);
+            Some(FieldCommand::RestoreState {
+                thomas: (tx, ty, tz),
+                aizawa: (ax, ay, az),
+                halvorsen: (hx, hy, hz),
+                signal,
+                noise,
+                soft_basins: [sb0, sb1, sb2, sb3, sb4, sb5],
+                thomas_b,
+            })
+        }
         _ => None,
     }
 }
@@ -152,6 +185,32 @@ fn parse_memory_field_edges(sexp: &str) -> Vec<(String, String, f64, bool)> {
                 .map(|s| s == "t")
                 .unwrap_or(false);
             Some((a, b, weight, inter))
+        })
+        .collect()
+}
+
+/// Parse directed weights (forward-weight, reverse-weight) from edge sexp.
+/// Returns (a, b, forward_weight, reverse_weight) for edges that have directed data.
+fn parse_memory_field_directed_weights(sexp: &str) -> Vec<(String, String, f64, f64)> {
+    sexp.find(":edges")
+        .and_then(|start| sexp[start + 6..].find('(').map(|lp| &sexp[start + 6 + lp..]))
+        .into_iter()
+        .flat_map(|inner| inner.split(":a ").skip(1))
+        .filter_map(|chunk| {
+            let a = extract_first_quoted(chunk).filter(|s| !s.is_empty())?;
+            let b = extract_after_keyword(chunk, ":b").filter(|s| !s.is_empty())?;
+            let fwd = extract_after_keyword(chunk, ":forward-weight")
+                .and_then(|s| s.parse::<f64>().ok())
+                .unwrap_or(0.0);
+            let rev = extract_after_keyword(chunk, ":reverse-weight")
+                .and_then(|s| s.parse::<f64>().ok())
+                .unwrap_or(0.0);
+            // Only include if at least one directed weight is present
+            if fwd > 0.0 || rev > 0.0 {
+                Some((a, b, fwd.max(1.0), rev.max(1.0)))
+            } else {
+                None
+            }
         })
         .collect()
 }

@@ -169,3 +169,53 @@ pub(crate) fn migrate_v7(conn: &Connection) -> Result<(), String> {
     .map_err(|e| e.to_string())?;
     Ok(())
 }
+
+pub(crate) fn migrate_v8(conn: &Connection) -> Result<(), String> {
+    conn.execute_batch(
+        "
+        CREATE TABLE IF NOT EXISTS palace_drawers (
+            id INTEGER PRIMARY KEY,
+            content TEXT NOT NULL,
+            source TEXT NOT NULL DEFAULT 'conversation',
+            room_id INTEGER NOT NULL DEFAULT 0,
+            chunk_index INTEGER NOT NULL DEFAULT 0,
+            created_at INTEGER NOT NULL,
+            tags TEXT DEFAULT ''
+        );
+        CREATE INDEX IF NOT EXISTS idx_pd_room ON palace_drawers(room_id);
+        CREATE INDEX IF NOT EXISTS idx_pd_source ON palace_drawers(source);
+
+        CREATE TABLE IF NOT EXISTS palace_nodes (
+            id INTEGER PRIMARY KEY,
+            kind TEXT NOT NULL DEFAULT 'concept',
+            label TEXT NOT NULL,
+            domain TEXT NOT NULL DEFAULT 'generic',
+            created_at INTEGER NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_pn_label ON palace_nodes(label);
+        CREATE INDEX IF NOT EXISTS idx_pn_domain ON palace_nodes(domain);
+
+        CREATE TABLE IF NOT EXISTS palace_edges (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            source_id INTEGER NOT NULL,
+            target_id INTEGER NOT NULL,
+            kind TEXT NOT NULL DEFAULT 'relates_to',
+            weight REAL NOT NULL DEFAULT 1.0,
+            confidence REAL NOT NULL DEFAULT 1.0
+        );
+        CREATE INDEX IF NOT EXISTS idx_pe2_src ON palace_edges(source_id);
+        CREATE INDEX IF NOT EXISTS idx_pe2_tgt ON palace_edges(target_id);
+        ",
+    )
+    .map_err(|e| e.to_string())?;
+    Ok(())
+}
+
+pub(crate) fn migrate_v9(conn: &Connection) -> Result<(), String> {
+    // Full memory-field checkpoint sexp stored per harmonic cycle for warm-start.
+    // ALTER is separate so already-existing column doesn't block.
+    let _ = conn.execute_batch(
+        "ALTER TABLE harmonic_snapshots ADD COLUMN field_checkpoint TEXT NOT NULL DEFAULT ''",
+    );
+    Ok(())
+}

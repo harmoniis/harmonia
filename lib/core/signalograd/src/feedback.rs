@@ -121,8 +121,9 @@ pub fn apply_feedback(state: &mut KernelState, feedback: &Feedback) {
         0.02,
         0.09,
     );
+    let dw = state.dynamic_weights.clone();
     for (index, head) in state.readout_weights.iter_mut().enumerate() {
-        let _ = update_local_weights(head, &state.latent, targets[index], eta);
+        let _ = update_local_weights(head, &state.latent, targets[index], eta, &dw);
     }
 
     if feedback.accepted

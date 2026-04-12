@@ -10,6 +10,7 @@ use crate::model::{
     KernelState, LegacyKernelState, LorenzState, Projection, COMPONENT, HEAD_COUNT, INPUT_DIM,
     LATENT_DIM, MEMORY_SLOTS,
 };
+use crate::weights;
 use crate::observation::{parse_feedback_sexp, parse_observation_sexp, parse_projection_sexp};
 use crate::sexp::{
     parse_fixed_array, parse_sexp, parse_vector_exact, plist_f64, plist_i64, plist_string,
@@ -130,7 +131,7 @@ pub fn state_to_sexp(state: &KernelState) -> String {
     format!(
         "(:signalograd-state :cycle {} :lorenz (:x {} :y {} :z {}) :latent {} \
          :input-matrix {} :recurrent-matrix {} :readout-matrix {} :memory-slots {} \
-         :memory-strengths {} :memory-usage {} :last-feedback {} :last-observation {} \
+         :memory-strengths {} :memory-usage {} :dynamic-weights {} :last-feedback {} :last-observation {} \
          :last-projection ({}) :last-recall-strength {} :checkpoint-digest \"{}\")",
         state.cycle,
         format_f64(state.lorenz.x),
@@ -143,6 +144,7 @@ pub fn state_to_sexp(state: &KernelState) -> String {
         vector_to_sexp(&flat_slots),
         vector_to_sexp(&state.memory_strengths),
         vector_to_sexp(&state.memory_usage),
+        vector_to_sexp(&state.dynamic_weights),
         feedback_to_sexp(&state.last_feedback),
         observation_to_sexp(&state.last_observation),
         projection_body_sexp(&state.last_projection),
@@ -203,6 +205,15 @@ pub fn parse_state_sexp(raw: &str) -> Result<KernelState, String> {
         MEMORY_SLOTS,
         "memory-usage",
     )?;
+    // Parse dynamic weights with fallback to initial conditions for old checkpoints.
+    if let Some(dw_sexp) = plist_value(items, "dynamic-weights") {
+        state.dynamic_weights = parse_vector_exact(
+            Some(dw_sexp),
+            weights::DYNAMIC_WEIGHT_COUNT,
+            "dynamic-weights",
+        )?;
+    }
+    // else: keep the initialized defaults from KernelState::new()
     if let Some(value) = plist_value(items, "last-feedback") {
         state.last_feedback = parse_feedback_sexp(value)?;
     }
