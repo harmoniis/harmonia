@@ -42,19 +42,17 @@
   "Extract plain text from an A2UI component payload for text-only frontends.
    Best-effort: looks for text/body/label fields in the payload string."
   (or (handler-case
-     (let ((text-start (search "\"text\":\"" payload)
-   (error () nil)))
-          (when text-start
-            (let* ((from (+ text-start 8))
-                   (to (position #\" payload :start from)))
-              (when to (subseq payload from to))))))
+          (let ((text-start (search "\"text\":\"" payload)))
+            (when text-start
+              (let* ((from (+ text-start 8))
+                     (to (position #\" payload :start from)))
+                (when to (subseq payload from to)))))
+        (error () nil))
       (handler-case
-
-          (let ((body-start (search "\"body\":\"" payload)
-
-        (error () nil)))
-          (when body-start
-            (let* ((from (+ body-start 8))
-                   (to (position #\" payload :start from)))
-              (when to (subseq payload from to))))))
+          (let ((body-start (search "\"body\":\"" payload)))
+            (when body-start
+              (let* ((from (+ body-start 8))
+                     (to (position #\" payload :start from)))
+                (when to (subseq payload from to)))))
+        (error () nil))
       payload))

@@ -3,14 +3,12 @@
 use ractor::ActorRef;
 use serde_json::json;
 
-use harmonia_actor_protocol::{extract_sexp_bool, extract_sexp_f64, extract_sexp_string, sexp_escape};
+use harmonia_actor_protocol::{extract_sexp_bool, extract_sexp_f64, extract_sexp_string};
 use harmonia_observability::{ObsMsg, Traceable};
 
 use crate::actors::MatrixMsg;
 
-fn esc(s: &str) -> String {
-    sexp_escape(s)
-}
+use super::esc;
 
 /// Route matrix commands through the HarmonicMatrixActor for serialized access.
 /// Observability traces matrix operations via the obs actor (no statics, no mutex).
@@ -22,7 +20,11 @@ pub async fn dispatch_matrix_via_actor(
     let op = extract_sexp_string(sexp, ":op").unwrap_or_default();
     match op.as_str() {
         "register-node" => {
-            let id = extract_sexp_string(sexp, ":id").unwrap_or_default();
+            // Accept both :node (Lisp convention) and :id (legacy).
+            let id = extract_sexp_string(sexp, ":node")
+                .or_else(|| extract_sexp_string(sexp, ":node-id"))
+                .or_else(|| extract_sexp_string(sexp, ":id"))
+                .unwrap_or_default();
             let kind = extract_sexp_string(sexp, ":kind").unwrap_or_default();
             if harmonia_observability::harmonia_observability_is_verbose() {
                 obs.trace_event(
@@ -148,6 +150,9 @@ pub async fn dispatch_matrix_via_actor(
 }
 
 /// Synchronous matrix dispatch (fallback for ops not routed through the actor).
+/// Operations that exist in the async actor path (register-node, register-edge,
+/// observe-route, log-event, set-tool-enabled, route-allowed) are NOT duplicated
+/// here — the supervisor always routes through dispatch_matrix_via_actor.
 pub(crate) fn dispatch(sexp: &str) -> String {
     let op = extract_sexp_string(sexp, ":op").unwrap_or_default();
     match op.as_str() {
@@ -160,47 +165,6 @@ pub(crate) fn dispatch(sexp: &str) -> String {
             let path = extract_sexp_string(sexp, ":path");
             match harmonia_harmonic_matrix::runtime::store::set_store(&kind, path.as_deref()) {
                 Ok(_) => "(:ok)".to_string(),
-                Err(e) => format!("(:error \"{}\")", esc(&e)),
-            }
-        }
-        "register-node" => {
-            let node_id = extract_sexp_string(sexp, ":node-id").unwrap_or_default();
-            let kind = extract_sexp_string(sexp, ":kind").unwrap_or_default();
-            match harmonia_harmonic_matrix::runtime::ops::register_node(&node_id, &kind) {
-                Ok(_) => "(:ok)".to_string(),
-                Err(e) => format!("(:error \"{}\")", esc(&e)),
-            }
-        }
-        "set-tool-enabled" => {
-            let tool_id = extract_sexp_string(sexp, ":tool-id").unwrap_or_default();
-            let enabled = extract_sexp_bool(sexp, ":enabled").unwrap_or(false);
-            match harmonia_harmonic_matrix::runtime::ops::set_tool_enabled(&tool_id, enabled) {
-                Ok(_) => "(:ok)".to_string(),
-                Err(e) => format!("(:error \"{}\")", esc(&e)),
-            }
-        }
-        "register-edge" => {
-            let from = extract_sexp_string(sexp, ":from").unwrap_or_default();
-            let to = extract_sexp_string(sexp, ":to").unwrap_or_default();
-            let weight = extract_sexp_f64(sexp, ":weight").unwrap_or(0.0);
-            let min_harmony = extract_sexp_f64(sexp, ":min-harmony").unwrap_or(0.0);
-            match harmonia_harmonic_matrix::runtime::ops::register_edge(
-                &from,
-                &to,
-                weight,
-                min_harmony,
-            ) {
-                Ok(_) => "(:ok)".to_string(),
-                Err(e) => format!("(:error \"{}\")", esc(&e)),
-            }
-        }
-        "route-allowed" => {
-            let from = extract_sexp_string(sexp, ":from").unwrap_or_default();
-            let to = extract_sexp_string(sexp, ":to").unwrap_or_default();
-            let signal = extract_sexp_f64(sexp, ":signal").unwrap_or(0.0);
-            let noise = extract_sexp_f64(sexp, ":noise").unwrap_or(0.0);
-            match harmonia_harmonic_matrix::runtime::ops::route_allowed(&from, &to, signal, noise) {
-                Ok(allowed) => format!("(:ok :allowed {})", if allowed { "t" } else { "nil" }),
                 Err(e) => format!("(:error \"{}\")", esc(&e)),
             }
         }
@@ -227,35 +191,6 @@ pub(crate) fn dispatch(sexp: &str) -> String {
                     }
                     format!("(:ok :allowed {})", if allowed { "t" } else { "nil" })
                 }
-                Err(e) => format!("(:error \"{}\")", esc(&e)),
-            }
-        }
-        "observe-route" => {
-            let from = extract_sexp_string(sexp, ":from").unwrap_or_default();
-            let to = extract_sexp_string(sexp, ":to").unwrap_or_default();
-            let success = extract_sexp_bool(sexp, ":success").unwrap_or(false);
-            let latency_ms: u64 = extract_sexp_string(sexp, ":latency-ms")
-                .and_then(|s| s.parse().ok())
-                .unwrap_or(0);
-            let cost_usd = extract_sexp_f64(sexp, ":cost-usd").unwrap_or(0.0);
-            match harmonia_harmonic_matrix::runtime::ops::observe_route(
-                &from, &to, success, latency_ms, cost_usd,
-            ) {
-                Ok(_) => "(:ok)".to_string(),
-                Err(e) => format!("(:error \"{}\")", esc(&e)),
-            }
-        }
-        "log-event" => {
-            let component = extract_sexp_string(sexp, ":component").unwrap_or_default();
-            let direction = extract_sexp_string(sexp, ":direction").unwrap_or_default();
-            let channel = extract_sexp_string(sexp, ":channel").unwrap_or_default();
-            let payload = extract_sexp_string(sexp, ":payload").unwrap_or_default();
-            let success = extract_sexp_bool(sexp, ":success").unwrap_or(false);
-            let error = extract_sexp_string(sexp, ":error").unwrap_or_default();
-            match harmonia_harmonic_matrix::runtime::ops::log_event(
-                &component, &direction, &channel, &payload, success, &error,
-            ) {
-                Ok(_) => "(:ok)".to_string(),
                 Err(e) => format!("(:error \"{}\")", esc(&e)),
             }
         }

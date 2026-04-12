@@ -126,7 +126,7 @@ impl FieldState {
              :cycle {} :graph-version {} :spectral-version {} \
              :topology-cycles {} \
              :entropy-delta {:.6} :dream-count {} \
-             :measure-visits {})",
+             :measure-visits {} :dominant-octant ({} {} {}))",
             self.thomas.x, self.thomas.y, self.thomas.z,
             self.thomas_b,
             self.aizawa.x, self.aizawa.y, self.aizawa.z,
@@ -143,6 +143,9 @@ impl FieldState {
             self.topology.cycles.len(),
             self.cumulative_entropy_delta, self.dream_count,
             self.thomas_measure.total_visits,
+            { let (xp, _, _) = self.thomas_measure.dominant_octant(); if xp { "+" } else { "-" } },
+            { let (_, yp, _) = self.thomas_measure.dominant_octant(); if yp { "+" } else { "-" } },
+            { let (_, _, zp) = self.thomas_measure.dominant_octant(); if zp { "+" } else { "-" } },
         )
     }
 

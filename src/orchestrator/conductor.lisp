@@ -190,8 +190,13 @@ CONTEXT END")
 (defun %select-model (prompt)
   "Select model by REPL performance first, fall back to choose-model."
   (let ((repl-pick (handler-case (%select-model-by-repl-perf prompt) (error () nil))))
-    (if (and repl-pick (stringp repl-pick) (> (length repl-pick) 0))
-        repl-pick (choose-model prompt))))
+    (let ((chosen (if (and repl-pick (stringp repl-pick) (> (length repl-pick) 0))
+                      repl-pick (choose-model prompt))))
+      (%trace-model-selection chosen *routing-tier*
+        (length (handler-case (%tier-model-pool *routing-tier*) (error () '())))
+        (if repl-pick "repl-perf" "choose-model")
+        prompt)
+      chosen)))
 
 (defun %boundary-wrap (text source)
   "Wrap external data with security boundary markers."
@@ -389,6 +394,7 @@ CONTEXT END")
                                                        :reason "internal-question")))
                         (setf used-tool "orchestrator-direct" mode :direct llm-calls 1
                               model (model-policy-orchestrator-model))
+                        (%trace-conductor-decision :direct model prompt "internal-question/owner")
                         (return-from %orchestrate-execute-dispatch
                           (%orchestrator-answer-directly prompt)))
                       (let ((orch-chain nil) (orch-max-subagents nil))

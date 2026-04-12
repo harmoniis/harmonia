@@ -81,7 +81,8 @@
   (let ((name (%path-last-dir-name path)))
     (when (and (> (length name) 1)
                (char-equal (char name 0) #\v))
-      (handler-case (parse-integer (subseq name 1) (error () nil))))))
+      (handler-case (parse-integer (subseq name 1))
+        (error () nil)))))
 
 (defun evolution-list-versions ()
   (let* ((raw (append (directory (merge-pathnames "v*/" *evolution-versions-dir*))

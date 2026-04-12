@@ -244,20 +244,7 @@ Rejects false matches like (:ok-evil or (:okay."
                       (or (char= next #\Space) (char= next #\")
                           (char= next #\) )))))))))
 
-(defun ipc-extract-value (reply)
-  "Extract the :result value from an IPC reply string."
-  (when (and reply (stringp reply))
-    (let ((pos (search ":result " reply)))
-      (when pos
-        (let ((start (+ pos 8)))
-          (if (and (< start (length reply))
-                   (char= (char reply start) #\"))
-              (let ((end (position #\" reply :start (1+ start))))
-                (when end
-                  (subseq reply (1+ start) end)))
-              (let ((end (position #\) reply :start start)))
-                (when end
-                  (string-trim '(#\Space) (subseq reply start end))))))))))
+;; ipc-extract-value is defined in ipc-ports.lisp (more robust: handles nil, trims, bare tokens).
 
 ;;; ─── Cache invalidation ───────────────────────────────────────────────
 

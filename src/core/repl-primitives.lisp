@@ -2,6 +2,10 @@
 
 (in-package :harmonia)
 
+;;; Forward declarations for variables defined in repl-loop.lisp (loaded after us)
+(defvar *repl-model-perf* nil)
+(defvar *routing-tier* :auto)
+
 ;;; ═══════════════════════════════════════════════════════════════════════
 ;;; PRIMITIVES — system interface
 ;;; ═══════════════════════════════════════════════════════════════════════
@@ -15,19 +19,19 @@
     (cond
       (verbatim
        (or (handler-case
-     (when (fboundp 'memory-recall-verbatim)
-               (let ((entries (funcall 'memory-recall-verbatim q)
-   (error () nil)))
-                 (if entries
-                     (format nil "~{~A~%~}"
-                             (mapcar (lambda (e) (%entry-text e)) entries))
-                     "(no verbatim match)"))))
+               (when (fboundp 'memory-recall-verbatim)
+                 (let ((entries (funcall 'memory-recall-verbatim q)))
+                   (if entries
+                       (format nil "~{~A~%~}"
+                               (mapcar (lambda (e) (%entry-text e)) entries))
+                       "(no verbatim match)")))
+             (error () nil))
            "(verbatim unavailable)"))
       (t
        (or (handler-case
-     (let ((r (memory-semantic-recall-block q :limit limit :max-chars max-chars)
-   (error () nil)))
-               (if (and r (> (length r) 0)) r "(no memories found)")))
+               (let ((r (memory-semantic-recall-block q :limit limit :max-chars max-chars)))
+                 (if (and r (> (length r) 0)) r "(no memories found)"))
+             (error () nil))
            "(recall unavailable)")))))
 
 ;; ── ipc: generic system query ───────────────────────────────────────
@@ -49,9 +53,9 @@ The REPL has full Lisp power; Rust is the boundary."
 
 (defun %prim-introspect ()
   (or (handler-case
-     (when (fboundp '%runtime-identity)
-          (funcall '%runtime-identity)
-   (error () nil)))
+          (when (fboundp '%runtime-identity)
+            (funcall '%runtime-identity))
+        (error () nil))
       "(introspect unavailable)"))
 
 (defun %prim-status ()
@@ -79,25 +83,25 @@ The REPL has full Lisp power; Rust is the boundary."
 
 (defun %prim-chaos-risk ()
   (or (handler-case
-     (let ((ctx (runtime-state-harmonic-context *runtime*)
-   (error () nil)))
-          (when ctx
-            (let ((logistic (getf ctx :logistic)))
-              (when logistic (getf logistic :chaos-risk))))))
+          (let ((ctx (runtime-state-harmonic-context *runtime*)))
+            (when ctx
+              (let ((logistic (getf ctx :logistic)))
+                (when logistic (getf logistic :chaos-risk)))))
+        (error () nil))
       0.5))
 
 (defun %prim-basin ()
   (or (handler-case
-     (when (and (fboundp 'memory-field-port-ready-p)
-                   (funcall 'memory-field-port-ready-p)
-   (error () nil))
-          (let* ((reply (ipc-call "(:component \"memory-field\" :op \"basin-status\")")))
-            (if (and reply (stringp reply))
-                (let* ((*read-eval* nil)
-                       (parsed (handler-case (read-from-string reply) (error () nil)))
-                       (basin (when (listp parsed) (getf (cdr parsed) :current))))
-                  (format nil "Basin: ~A" (or basin "unknown")))
-                "(basin unavailable)"))))
+          (when (and (fboundp 'memory-field-port-ready-p)
+                     (funcall 'memory-field-port-ready-p))
+            (let* ((reply (ipc-call "(:component \"memory-field\" :op \"basin-status\")")))
+              (if (and reply (stringp reply))
+                  (let* ((*read-eval* nil)
+                         (parsed (handler-case (read-from-string reply) (error () nil)))
+                         (basin (when (listp parsed) (getf (cdr parsed) :current))))
+                    (format nil "Basin: ~A" (or basin "unknown")))
+                  "(basin unavailable)")))
+        (error () nil))
       "(basin unavailable)"))
 
 ;; ── Workspace primitives (Rust actors — the agent's hands) ──────
@@ -156,8 +160,8 @@ The REPL has full Lisp power; Rust is the boundary."
         (cmd-args (rest args)))
     (if (and cmd (stringp cmd))
         (or (handler-case
-     (workspace-exec cmd (mapcar #'princ-to-string cmd-args)
-   (error () nil)))
+                (workspace-exec cmd (mapcar #'princ-to-string cmd-args))
+              (error () nil))
             "(exec: error)")
         "(exec: command required)")))
 
@@ -165,14 +169,14 @@ The REPL has full Lisp power; Rust is the boundary."
 
 (defun %prim-dream ()
   (or (handler-case
-     (when (and (fboundp 'memory-field-port-ready-p)
-                   (funcall 'memory-field-port-ready-p)
-   (error () nil))
-          (let* ((report (memory-field-dream))
-                 (results (when report (%apply-dream-results report))))
-            (format nil "Dream: pruned=~D crystallized=~D"
-                    (or (getf results :pruned) 0)
-                    (or (getf results :crystallized) 0)))))
+          (when (and (fboundp 'memory-field-port-ready-p)
+                     (funcall 'memory-field-port-ready-p))
+            (let* ((report (memory-field-dream))
+                   (results (when report (%apply-dream-results report))))
+              (format nil "Dream: pruned=~D crystallized=~D"
+                      (or (getf results :pruned) 0)
+                      (or (getf results :crystallized) 0))))
+        (error () nil))
       "(dream unavailable)"))
 
 (defun %prim-meditate ()
@@ -207,10 +211,10 @@ The REPL has full Lisp power; Rust is the boundary."
 
 (defun %prim-route-check (from to)
   (or (handler-case
-     (ipc-call (%sexp-to-ipc-string
-                   `(:component "harmonic-matrix" :op "route-allowed"
-                     :from ,from :to ,to :signal 0.7 :noise 0.3)
-   (error () nil))))
+          (ipc-call (%sexp-to-ipc-string
+                     `(:component "harmonic-matrix" :op "route-allowed"
+                       :from ,from :to ,to :signal 0.7 :noise 0.3)))
+        (error () nil))
       "(route check unavailable)"))
 
 ;; ── Action primitives ───────────────────────────────────────────────
@@ -228,12 +232,12 @@ The REPL has full Lisp power; Rust is the boundary."
         (t-text (or task ""))
         (wd (or workdir "")))
     (or (handler-case
-     (when (fboundp 'tmux-spawn)
-            (let ((actor-id (funcall 'tmux-spawn m wd t-text)
-   (error () nil)))
-              (if (and actor-id (>= actor-id 0))
-                  (format nil "(:spawned :actor-id ~D :model \"~A\")" actor-id m)
-                  "(:error \"spawn failed\")"))))
+            (when (fboundp 'tmux-spawn)
+              (let ((actor-id (funcall 'tmux-spawn m wd t-text)))
+                (if (and actor-id (>= actor-id 0))
+                    (format nil "(:spawned :actor-id ~D :model \"~A\")" actor-id m)
+                    "(:error \"spawn failed\")")))
+          (error () nil))
         "(:error \"spawn unavailable\")")))
 
 (defun %prim-tool (name &rest kwargs)
@@ -246,21 +250,19 @@ The REPL has full Lisp power; Rust is the boundary."
                                             (string-downcase (symbol-name k))
                                             (if (stringp v) v (princ-to-string v)))))))
     (or (handler-case
-     (when (fboundp '%maybe-handle-tool-command)
-            (funcall '%maybe-handle-tool-command cmd)
-   (error () nil)))
+            (when (fboundp '%maybe-handle-tool-command)
+              (funcall '%maybe-handle-tool-command cmd))
+          (error () nil))
         (format nil "(:error \"tool ~A failed\")" tool-name))))
 
 (defun %prim-observe-route (from to &rest kwargs &key success latency-ms)
   (declare (ignore kwargs))
   (handler-case
-
       (ipc-call (%sexp-to-ipc-string
-               `(:component "harmonic-matrix" :op "observe-route"
-                 :from ,from :to ,to
-                 :success ,(if success t nil) :latency-ms ,(or latency-ms 0)
-
-    (error () nil)))))
+                 `(:component "harmonic-matrix" :op "observe-route"
+                   :from ,from :to ,to
+                   :success ,(if success t nil) :latency-ms ,(or latency-ms 0))))
+    (error () nil))
   "(:ok observed)")
 
 ;; ── Evolution (vitruvian-gated) ─────────────────────────────────────
@@ -269,18 +271,16 @@ The REPL has full Lisp power; Rust is the boundary."
   (declare (ignore kwargs))
   "Evolution request. Requires vitruvian readiness."
   (let ((ready (handler-case
-     (when (fboundp '%harmonic-plan-ready-p)
-                   (funcall '%harmonic-plan-ready-p)
-   (error () nil)))))
+                   (when (fboundp '%harmonic-plan-ready-p)
+                     (funcall '%harmonic-plan-ready-p))
+                 (error () nil))))
     (if ready
         (progn
           (handler-case
-
               (memory-put :daily
-                        (format nil "Evolution requested: reason=~A target=~A" reason target)
-                        :tags '(:evolution :request)
-
-            (error () nil)))
+                          (format nil "Evolution requested: reason=~A target=~A" reason target)
+                          :tags '(:evolution :request))
+            (error () nil))
           (format nil "(:ok :evolution-requested :reason \"~A\" :target \"~A\")" reason target))
         "(:denied \"vitruvian readiness not met — chaos too high or signal too low\")")))
 

@@ -280,10 +280,7 @@
 (defun %supervision-record-learning (record verdict evidence)
   "Store supervision outcome as memory for future learning."
   (handler-case
-
-      (let* ((grade (getf verdict :grade)
-
-    (error () nil))
+      (let* ((grade (getf verdict :grade))
            (failures (remove-if (lambda (e) (getf e :passed)) evidence))
            (successes (remove-if-not (lambda (e) (getf e :passed)) evidence))
            (summary (format nil "Task: ~A~%Grade: ~A~%Confidence: ~,2F~%Passed: ~D, Failed: ~D~%~
@@ -301,10 +298,10 @@
       (when (and (boundp '*runtime*) *runtime*)
         (push (list :type "memory" :args (list "supervision-learning"
                                                :entries-created 1 :detail summary))
-              (runtime-state-chronicle-pending *runtime*))))))
+              (runtime-state-chronicle-pending *runtime*))))
+    (error () nil)))
 
-(defun %clip-prompt (prompt max-len)
-  (if (> (length prompt) max-len) (subseq prompt 0 max-len) prompt))
+;; %clip-prompt is defined in loop.lisp (handles nil, default limit=256).
 
 (defun %tick-supervision (runtime)
   "Scan completed actors with specs but no verdict; collect evidence and compute verdicts."
@@ -346,10 +343,7 @@
 
 (defun %chronicle-flush-supervision-verdict (args)
   (handler-case
-
-      (let* ((task-id (getf args :task-id)
-
-    (error () nil))
+      (let* ((task-id (getf args :task-id))
            (verdict (getf args :verdict))
            (grade (string-downcase (symbol-name (getf verdict :grade)))))
       (chronicle-query
@@ -368,7 +362,8 @@
           (if (getf e :passed) 1 0)
           (%sql-escape (or (getf e :evidence) ""))
           (or (getf e :duration) 0)
-          (or task-id 0)))))))
+          (or task-id 0)))))
+    (error () nil)))
 
 (defun %sql-escape (str)
   (let ((s (or str ""))

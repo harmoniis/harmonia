@@ -2,6 +2,9 @@
 
 (in-package :harmonia)
 
+;;; Forward declaration for variable defined in model-routing.lisp (loaded after us)
+(defvar *last-task-kind* :general)
+
 (defun %plist-merge (base override)
   (let ((result (copy-list (or base '()))))
     (loop for (k v) on (or override '()) by #'cddr do
@@ -39,6 +42,10 @@
           (%normalize-evolution-policy
            (%plist-merge *default-model-evolution-policy*
                          (copy-tree (getf src :evolution)))))
+    ;; Load routing rules if present in config (model-bans, model-boosts).
+    (when (getf src :routing-rules)
+      (setf *routing-rules-sexp*
+            (%plist-merge *routing-rules-sexp* (copy-tree (getf src :routing-rules)))))
     (model-policy-get)))
 
 (defun %profiles-by-cost ()
@@ -481,18 +488,16 @@ User prompt: ~A")
 (defun %route-feedback-to-actor (model-id success latency-ms cost-usd)
   "Send route feedback to RouterActor via IPC for per-tier statistics."
   (handler-case
-
       (when (fboundp 'ipc-call)
-      (ipc-call (%sexp-to-ipc-string
-                 `(:component "router" :op "signal" :payload
-                   ,(%sexp-to-ipc-string
-                     `(:route-feedback :model ,model-id
-                       :task ,(symbol-name (or *last-task-kind* :general)
-
-    (error () nil))
-                       :tier ,(symbol-name (or *routing-tier* :auto))
-                       :success ,(if success t nil)
-                       :latency-ms ,(or latency-ms 0) :cost-usd ,(or cost-usd 0.0)))))))))
+        (ipc-call (%sexp-to-ipc-string
+                   `(:component "router" :op "signal" :payload
+                     ,(%sexp-to-ipc-string
+                       `(:route-feedback :model ,model-id
+                         :task ,(symbol-name (or *last-task-kind* :general))
+                         :tier ,(symbol-name (or *routing-tier* :auto))
+                         :success ,(if success t nil)
+                         :latency-ms ,(or latency-ms 0) :cost-usd ,(or cost-usd 0.0)))))))
+    (error () nil)))
 
 (defun model-policy-selection-trace (prompt chosen chain)
   (format nil "task=~A chosen=~A vitruvian=~,3f chain=~{~A~^,~}"

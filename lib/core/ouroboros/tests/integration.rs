@@ -3,7 +3,8 @@ use harmonia_ouroboros::OuroborosState;
 fn test_state() -> OuroborosState {
     let id = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH)
         .unwrap().as_nanos();
-    let dir = std::env::temp_dir().join(format!("ouroboros-test-{}", id));
+    let tid = std::thread::current().id();
+    let dir = std::env::temp_dir().join(format!("ouroboros-test-{}-{:?}", id, tid));
     let _ = std::fs::create_dir_all(&dir);
     OuroborosState::with_paths(
         dir.join("recovery.log").to_string_lossy().into(),

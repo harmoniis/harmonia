@@ -225,7 +225,8 @@ Delegates to %sexp-to-ipc-string — the homoiconic serializer."
   (%sexp-to-ipc-string pairs))
 
 (defun ipc-extract-value (reply)
-  "Extract the :result value from an IPC reply like (:ok :result \"...\")."
+  "Extract the :result value from an IPC reply like (:ok :result \"...\").
+   Handles escaped quotes inside the value (backslash-quote sequences)."
   (when (and reply (stringp reply))
     (let ((pos (search ":result" reply)))
       (when pos
@@ -234,11 +235,25 @@ Delegates to %sexp-to-ipc-string — the homoiconic serializer."
           (cond
             ;; nil value
             ((string= trimmed "nil)") nil)
-            ;; Quoted string
+            ;; Quoted string — scan for unescaped closing quote
             ((and (> (length trimmed) 0) (char= (char trimmed 0) #\"))
-             (let ((inner (subseq trimmed 1)))
-               (let ((end (position #\" inner)))
-                 (when end (subseq inner 0 end)))))
+             (let ((inner (subseq trimmed 1))
+                   (result (make-string-output-stream))
+                   (i 0))
+               (loop while (< i (length inner)) do
+                 (let ((c (char inner i)))
+                   (cond
+                     ;; Backslash escape: copy next char literally
+                     ((and (char= c #\\) (< (1+ i) (length inner)))
+                      (let ((next (char inner (1+ i))))
+                        (write-char next result)
+                        (incf i 2)))
+                     ;; Unescaped quote: end of value
+                     ((char= c #\")
+                      (return))
+                     ;; Normal char
+                     (t (write-char c result) (incf i)))))
+               (get-output-stream-string result)))
             ;; Bare value
             (t (let ((end (position #\) trimmed)))
                  (if end (subseq trimmed 0 end) trimmed)))))))))

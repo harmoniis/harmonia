@@ -63,6 +63,11 @@ macro_rules! param_f64 {
 }
 pub(crate) use param_f64;
 
+/// Escape a string for embedding in an sexp response. Shared by all dispatchers.
+pub(crate) fn esc(s: &str) -> String {
+    harmonia_actor_protocol::sexp_escape(s)
+}
+
 /// Format a list of strings as sexp: ("a" "b" "c")
 pub(crate) fn sexp_string_list(items: &[String]) -> String {
     items.iter()

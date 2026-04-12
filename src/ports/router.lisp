@@ -23,11 +23,16 @@
 
 (defun backend-complete (prompt &optional model)
   (let* ((model-str (or model ""))
+         (call-start (get-internal-real-time))
          (reply (ipc-call
                  (%sexp-to-ipc-string
                   `(:component "provider-router" :op "complete"
-                    :prompt ,prompt :model ,model-str)))))
-    (if (and reply (ipc-reply-ok-p reply))
+                    :prompt ,prompt :model ,model-str))))
+         (latency (truncate (* 1000 (/ (- (get-internal-real-time) call-start)
+                                        (float internal-time-units-per-second)))))
+         (ok (and reply (ipc-reply-ok-p reply))))
+    (%trace-llm-call "provider-router" model-str latency ok)
+    (if ok
         (or (ipc-extract-value reply) "")
         (error "LLM request failed: ~A" (or reply "IPC unreachable")))))
 

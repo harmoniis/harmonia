@@ -12,9 +12,9 @@
 (defun init-workspace-port ()
   "Initialize workspace port. Verifies the actor responds."
   (let ((reply (handler-case
-     (ipc-call (%sexp-to-ipc-string
-                             '(:component "workspace" :op "healthcheck")
-   (error () nil))))))
+                   (ipc-call (%sexp-to-ipc-string
+                               '(:component "workspace" :op "healthcheck")))
+                 (error () nil))))
     (if (and reply (ipc-reply-ok-p reply))
         (progn (%log :info "workspace" "Workspace actor ready")
                t)

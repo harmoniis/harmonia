@@ -252,22 +252,20 @@
           (let ((record (gethash actor-id registry)))
             (when (and record (eq (actor-record-state record) :running))
               (handler-case
-
-                  (let ((result (parallel-task-result actor-id)
-
-                (error () nil)))
-                  (when (and result (stringp result) (> (length result) 0)
-                             (not (search "pending" result))
-                             (not (search "running" result)))
-                    (let ((parsed (%swarm-parse-task-result result (actor-record-model record))))
-                      (when parsed
-                        (setf (actor-record-state record)
-                              (if (getf parsed :success) :completed :failed))
-                        (setf (actor-record-result record) (getf parsed :text))
-                        (setf (actor-record-duration-ms record)
-                              (or (getf parsed :latency-ms) 0))
-                        (setf (actor-record-cost-usd record)
-                              (or (getf parsed :cost-usd) 0.0))))))))))
+                  (let ((result (parallel-task-result actor-id)))
+                    (when (and result (stringp result) (> (length result) 0)
+                               (not (search "pending" result))
+                               (not (search "running" result)))
+                      (let ((parsed (%swarm-parse-task-result result (actor-record-model record))))
+                        (when parsed
+                          (setf (actor-record-state record)
+                                (if (getf parsed :success) :completed :failed))
+                          (setf (actor-record-result record) (getf parsed :text))
+                          (setf (actor-record-duration-ms record)
+                                (or (getf parsed :latency-ms) 0))
+                          (setf (actor-record-cost-usd record)
+                                (or (getf parsed :cost-usd) 0.0))))))
+                (error () nil)))))
         ;; Pass 1: partition pending actors into groups and singletons
         (dolist (actor-id (runtime-state-actor-pending runtime))
           (let ((record (gethash actor-id registry)))
@@ -401,9 +399,8 @@
          :task-hint "actor" :model model :backend "tmux-actor"
          :reason (if sv-grade
                      (format nil "non-blocking CLI actor [supervision: ~A ~,2F]"
-                             (string-downcase (symbol-name sv-grade)
-
-        (error () nil)) sv-confidence)
+                             (string-downcase (symbol-name sv-grade))
+                             sv-confidence)
                      "non-blocking CLI actor")
          :escalated nil
          :cost-usd cost :latency-ms duration :success t

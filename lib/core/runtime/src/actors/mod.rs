@@ -33,3 +33,4 @@ pub enum ComponentMsg {
     Dispatch(String, RpcReplyPort<String>),
     Shutdown,
 }
+

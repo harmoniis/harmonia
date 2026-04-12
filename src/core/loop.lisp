@@ -375,14 +375,12 @@
   (when runtime
     ;; Kill all running tmux actors before shutdown
     (handler-case
-
         (maphash (lambda (id record)
-                 (declare (ignore record)
-
+                   (declare (ignore record))
+                   (handler-case (tmux-kill id)
+                     (error (e) (%log :warn "actor-supervisor" "tmux-kill ~D failed: ~A" id e))))
+                 (runtime-state-actor-registry runtime))
       (error () nil))
-                 (handler-case (tmux-kill id)
-                           (error (e) (%log :warn "actor-supervisor" "tmux-kill ~D failed: ~A" id e))))
-               (runtime-state-actor-registry runtime)))
     ;; Flush pending chronicle records
     (handler-case (%tick-chronicle-flush runtime) (error () nil))
     (setf (runtime-state-running runtime) nil)

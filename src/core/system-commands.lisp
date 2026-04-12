@@ -65,6 +65,10 @@
           ((string= command "/security")   (%syscmd-security args-str))
           ((string= command "/feedback")   (%syscmd-feedback args-str))
           ((string= command "/route")      (%syscmd-route args-str))
+          ((string= command "/ouroboros")  (%syscmd-ouroboros args-str))
+          ((string= command "/palace")    (%syscmd-palace args-str))
+          ((string= command "/tailnet")   (%syscmd-tailnet args-str))
+          ((string= command "/config")    (%syscmd-config args-str))
           ((string= command "/exit")       ":system-exit")
           (t nil))
       (error (e) (format nil "[system] Error executing ~A: ~A" command e)))))
@@ -455,3 +459,83 @@
             (when (> total 0)
               (add (format nil "  ~A: ~,2f% (~D models tracked)"
                            (symbol-name tier-kw) (* 100.0 (/ success-sum total)) total)))))))))
+
+;;; ─── Ouroboros self-healing commands ────────────────────────────────
+
+(defun %syscmd-ouroboros (args)
+  (%syscmd-with-lines
+    (cond
+      ((string= args "history")
+       (add "Crash History") (divider)
+       (let ((hist (handler-case (ouroboros-history 20) (error () nil))))
+         (if hist (add hist) (add "  (no crash history)"))))
+      ((string= args "last")
+       (add "Last Crash") (divider)
+       (let ((last (handler-case (ouroboros-last-crash) (error () nil))))
+         (if last (add last) (add "  (no crashes recorded)"))))
+      (t
+       (add "Ouroboros Self-Healing") (divider)
+       (add "  /ouroboros history  — crash history (last 20)")
+       (add "  /ouroboros last     — most recent crash")))))
+
+;;; ─── Palace knowledge graph commands ────────────────────────────────
+
+(defun %syscmd-palace (args)
+  (%syscmd-with-lines
+    (cond
+      ((string= args "tunnels")
+       (add "Palace Bridge Nodes") (divider)
+       (let ((tunnels (handler-case (palace-find-tunnels) (error () nil))))
+         (if tunnels (add tunnels) (add "  (no tunnels found)"))))
+      (t
+       (add "Memory Palace") (divider)
+       (add "  /palace tunnels  — find bridge nodes in knowledge graph")))))
+
+;;; ─── Tailnet mesh commands ──────────────────────────────────────────
+
+(defun %syscmd-tailnet (args)
+  (%syscmd-with-lines
+    (cond
+      ((string= args "start")
+       (handler-case (ipc-tailnet-start) (error () nil))
+       (add "Tailnet listener started."))
+      ((string= args "stop")
+       (handler-case (ipc-tailnet-stop) (error () nil))
+       (add "Tailnet listener stopped."))
+      ((string= args "discover")
+       (add "Tailnet Peers") (divider)
+       (let ((peers (handler-case (ipc-tailnet-discover) (error () nil))))
+         (if peers (add peers) (add "  (no peers discovered)"))))
+      ((string= args "poll")
+       (add "Tailnet Messages") (divider)
+       (let ((msgs (handler-case (ipc-tailnet-poll) (error () nil))))
+         (if msgs (add msgs) (add "  (no pending messages)"))))
+      (t
+       (add "Tailnet Mesh") (divider)
+       (add "  /tailnet start    — start mesh listener")
+       (add "  /tailnet stop     — stop mesh listener")
+       (add "  /tailnet discover — discover peers")
+       (add "  /tailnet poll     — poll pending messages")))))
+
+;;; ─── Config management commands ─────────────────────────────────────
+
+(defun %syscmd-config (args)
+  (let ((parts (loop for start = 0 then (1+ end)
+                     for end = (position #\Space args :start start)
+                     collect (subseq args start (or end (length args)))
+                     while end)))
+    (%syscmd-with-lines
+      (cond
+        ((and (>= (length parts) 2) (string= (first parts) "dump"))
+         (add (format nil "Config Dump: ~A" (second parts))) (divider)
+         (let ((dump (handler-case (config-dump "config" (second parts)) (error () nil))))
+           (if dump (add dump) (add "  (empty scope)"))))
+        ((and (>= (length parts) 2) (string= (first parts) "delete"))
+         (handler-case
+             (progn (config-delete-for "config" (second parts) (or (third parts) "global"))
+                    (add (format nil "Deleted: ~A" (second parts))))
+           (error (e) (add (format nil "Error: ~A" e)))))
+        (t
+         (add "Config Management") (divider)
+         (add "  /config dump <scope>        — list all keys in scope")
+         (add "  /config delete <key> [scope] — delete config key"))))))

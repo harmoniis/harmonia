@@ -70,24 +70,20 @@
         ;; Load trace level from config store
         (when *observability-initialized*
           (handler-case
-
-              (let ((level (config-get-for "observability" "trace-level")
-
+              (let ((level (config-get-for "observability" "trace-level")))
+                (when level
+                  (setf *observability-trace-level*
+                        (cond
+                          ((string-equal level "minimal") :minimal)
+                          ((string-equal level "verbose") :verbose)
+                          (t :standard)))))
             (error () nil)))
-              (when level
-                (setf *observability-trace-level*
-                      (cond
-                        ((string-equal level "minimal") :minimal)
-                        ((string-equal level "verbose") :verbose)
-                        (t :standard)))))))
         ;; Register as actor through the unified registry
         (when (and *observability-initialized* *runtime*)
           (handler-case
-
-              (let ((actor-id (actor-register "observability")
-
+              (let ((actor-id (actor-register "observability")))
+                (setf (gethash actor-id (runtime-state-actor-kinds *runtime*)) "observability"))
             (error () nil)))
-              (setf (gethash actor-id (runtime-state-actor-kinds *runtime*)) "observability"))))
         (if *observability-initialized*
             (%log :info "observability"
                   "Initialized via IPC (level=~A)."
@@ -106,10 +102,7 @@
    PARENT-RUN-ID: string run-id from parent span, or nil."
   (when *observability-initialized*
     (handler-case
-
-        (let* ((run-id (%new-run-id)
-
-      (error () nil))
+        (let* ((run-id (%new-run-id))
              (parent (or parent-run-id
                          (when (> (length *current-trace-handle*) 0)
                            *current-trace-handle*)))
@@ -120,57 +113,50 @@
                     ,@(when parent (list :parent-run-id parent))
                     :metadata ,(if metadata (format nil "~S" metadata) ""))))
         (ipc-cast (%sexp-to-ipc-string cmd))
-        run-id))))
+        run-id)
+      (error () nil))))
 
 (defun trace-end (handle &key (status :success) output)
   "End a trace span. Empty string handle = no-op."
   (when (and *observability-initialized* handle (stringp handle) (> (length handle) 0))
     (handler-case
-
         (ipc-cast
-       (%sexp-to-ipc-string
-        `(:component "observability" :op "trace-end"
-          :run-id ,handle
-          :status ,(string-downcase (symbol-name (or status :success)
-
-      (error () nil)))
-          :output ,(if output (format nil "~S" output) "")))))))
+         (%sexp-to-ipc-string
+          `(:component "observability" :op "trace-end"
+            :run-id ,handle
+            :status ,(string-downcase (symbol-name (or status :success)))
+            :output ,(if output (format nil "~S" output) ""))))
+      (error () nil))))
 
 (defun trace-event (name kind &key metadata)
   "Fire-and-forget trace event. Inherits parent from *current-trace-handle*."
   (when *observability-initialized*
     (handler-case
-
         (let* ((parent (when (> (length *current-trace-handle*) 0)
-                       *current-trace-handle*)
-
-      (error () nil))
-             (cmd `(:component "observability" :op "trace-event"
-                    :name ,(or name "unknown")
-                    :kind ,(string-downcase (symbol-name (or kind :chain)))
-                    ,@(when parent (list :parent-run-id parent))
-                    :metadata ,(if metadata (format nil "~S" metadata) ""))))
-        (ipc-cast (%sexp-to-ipc-string cmd))))))
+                         *current-trace-handle*))
+               (cmd `(:component "observability" :op "trace-event"
+                      :name ,(or name "unknown")
+                      :kind ,(string-downcase (symbol-name (or kind :chain)))
+                      ,@(when parent (list :parent-run-id parent))
+                      :metadata ,(if metadata (format nil "~S" metadata) ""))))
+          (ipc-cast (%sexp-to-ipc-string cmd)))
+      (error () nil))))
 
 (defun trace-flush ()
   "Flush pending traces."
   (when *observability-initialized*
     (handler-case
-
         (ipc-call (%sexp-to-ipc-string
-                  '(:component "observability" :op "flush")
-
-      (error () nil))))))
+                    '(:component "observability" :op "flush")))
+      (error () nil))))
 
 (defun trace-shutdown ()
   "Shut down the observability subsystem."
   (when *observability-initialized*
     (handler-case
-
         (ipc-call (%sexp-to-ipc-string
-                  '(:component "observability" :op "shutdown")
-
-      (error () nil))))
+                    '(:component "observability" :op "shutdown")))
+      (error () nil))
     (setf *observability-initialized* nil)))
 
 ;;; --- with-trace macro ---

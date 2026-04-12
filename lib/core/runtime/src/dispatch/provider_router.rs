@@ -2,13 +2,9 @@
 
 use serde_json::json;
 
-use harmonia_actor_protocol::{extract_sexp_string, sexp_escape};
+use harmonia_actor_protocol::extract_sexp_string;
 
-use super::{to_cstring, FfiString};
-
-fn esc(s: &str) -> String {
-    sexp_escape(s)
-}
+use super::{esc, to_cstring, FfiString};
 
 pub(crate) fn dispatch(sexp: &str) -> String {
     let op = extract_sexp_string(sexp, ":op").unwrap_or_default();

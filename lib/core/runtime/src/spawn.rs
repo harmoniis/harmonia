@@ -46,7 +46,7 @@ pub async fn spawn_all(module_registry: HashMap<String, crate::registry::ModuleE
         (obs_sender, obs_config),
     )
     .await
-    .expect("failed to spawn ObservabilityActor");
+    .expect("observability actor is required for runtime boot");
     harmonia_observability::set_obs_actor(obs_ref.clone());
     let obs_opt: Option<ractor::ActorRef<ObsMsg>> = Some(obs_ref.clone());
 
@@ -54,7 +54,7 @@ pub async fn spawn_all(module_registry: HashMap<String, crate::registry::ModuleE
     let (bridge_ref, _bridge_handle) =
         Actor::spawn(Some("sbcl-bridge".to_string()), bridge::SbclBridgeActor, ())
             .await
-            .expect("failed to spawn SbclBridgeActor");
+            .expect("sbcl-bridge actor is required for runtime boot");
 
     // 3. Spawn supervisor, then link all components to it
     let (supervisor_ref, supervisor_handle) = Actor::spawn(
@@ -63,7 +63,7 @@ pub async fn spawn_all(module_registry: HashMap<String, crate::registry::ModuleE
         (bridge_ref.clone(), module_registry),
     )
     .await
-    .expect("failed to spawn RuntimeSupervisor");
+    .expect("runtime-supervisor actor is required for runtime boot");
 
     let _ = supervisor_ref.cast(msg::RuntimeMsg::RegisterObsActor(obs_ref.clone()));
 
@@ -154,6 +154,10 @@ pub async fn spawn_all(module_registry: HashMap<String, crate::registry::ModuleE
 }
 
 /// Spawn an actor linked to the supervisor, returning its ActorRef.
+///
+/// Component actors are critical for system integrity. If a spawn fails,
+/// the error is logged and propagated as a panic — the supervisor itself
+/// will handle restart semantics for the entire runtime.
 async fn spawn_linked<A, M, Args>(
     name: &str,
     actor: A,
@@ -165,15 +169,20 @@ where
     M: ractor::Message,
     Args: Send,
 {
-    Actor::spawn_linked(
+    match Actor::spawn_linked(
         Some(name.to_string()),
         actor,
         args,
         supervisor_ref.get_cell(),
     )
     .await
-    .unwrap_or_else(|e| panic!("failed to spawn {name}: {e}"))
-    .0
+    {
+        Ok((actor_ref, _handle)) => actor_ref,
+        Err(e) => {
+            eprintln!("[FATAL] [runtime] failed to spawn component {name}: {e}");
+            panic!("component {name} is required for runtime boot: {e}");
+        }
+    }
 }
 
 fn register_component(

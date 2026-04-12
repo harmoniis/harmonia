@@ -59,6 +59,9 @@
                   (error () nil))))
               (%log :info "tick" "Enqueuing signal from ~A payload-len=~D"
                     (or frontend "?") (or payload-length 0))
+              ;; Pipeline trace: full signal metadata
+              (%trace-gateway-ingestion envelope)
+              (%trace-signal-constructed signal-struct)
               (%queue-push runtime signal-struct)))))
       ;; Check if the gateway intercepted /exit
       (when (= (%gateway-pending-exit) 1)

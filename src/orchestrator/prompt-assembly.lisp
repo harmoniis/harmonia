@@ -71,12 +71,15 @@
 - DNA rules 9-10 mean: do not dump raw telemetry or status blocks. They do NOT mean: suppress your personality, voice, or sense of purpose.")))
 
 (defun dna-compose-llm-prompt (user-prompt &key (mode :orchestrate))
-  "Compose LLM prompt: minimal bootstrap + memory recall context + user task.
-The system prompt is <1000 chars. Memory recall provides the richness."
+  "Compose LLM prompt: minimal bootstrap + memory recall context + personality + user task.
+The system prompt is <1000 chars. Memory recall provides the richness.
+Personality anchor restores harmonic voice without raw telemetry."
   (let ((bootstrap (memory-bootstrap-context (or user-prompt "") :mode mode))
-        (presentation (%presentation-context-block (or user-prompt "") *runtime*)))
-    (format nil "~A~A~A~%~%~A"
+        (presentation (%presentation-context-block (or user-prompt "") *runtime*))
+        (personality (%personality-anchor-block)))
+    (format nil "~A~A~A~A~%~%~A"
             (dna-system-prompt :mode mode)
             bootstrap
             presentation
+            personality
             (or user-prompt ""))))

@@ -176,22 +176,29 @@ impl Actor for PhoenixSupervisor {
             eprintln!("[WARN] [phoenix] Child actor {name} terminated unexpectedly, respawning");
         }
 
-        let config = state.children.get(&name).unwrap().config.clone();
+        let Some(child) = state.children.get(&name) else {
+            eprintln!("[WARN] [phoenix] Child {name} vanished during respawn");
+            return Ok(());
+        };
+        let config = child.config.clone();
+
         match spawn_child(&myself, &config).await {
             Ok(actor_ref) => {
-                let entry = state.children.get_mut(&name).unwrap();
-                entry.actor_ref = actor_ref;
-                entry.state = SubsystemState::Starting;
-                eprintln!("[INFO] [phoenix] Respawned actor for subsystem={name}");
+                if let Some(entry) = state.children.get_mut(&name) {
+                    entry.actor_ref = actor_ref;
+                    entry.state = SubsystemState::Starting;
+                    eprintln!("[INFO] [phoenix] Respawned actor for subsystem={name}");
+                }
             }
             Err(e) => {
                 eprintln!("[ERROR] [phoenix] Failed to respawn actor for {name}: {e}");
                 trauma::append_trauma(&format!("actor-respawn-failed subsystem={name}: {e}"));
-                let entry = state.children.get_mut(&name).unwrap();
-                entry.state = SubsystemState::Failed {
-                    reason: format!("actor crash, respawn failed: {e}"),
-                    attempts: 0,
-                };
+                if let Some(entry) = state.children.get_mut(&name) {
+                    entry.state = SubsystemState::Failed {
+                        reason: format!("actor crash, respawn failed: {e}"),
+                        attempts: 0,
+                    };
+                }
             }
         }
 

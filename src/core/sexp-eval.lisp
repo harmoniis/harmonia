@@ -97,6 +97,11 @@ ENV is an alist of (symbol . value) bindings. No global mutation."
 (defun %reval-call (op args env)
   "Dispatch a primitive call. Only whitelisted functions."
   (declare (ignore env))
+  ;; Pipeline trace: every primitive call with args preview
+  (%pipeline-trace :sexp-primitive-call
+    :op op
+    :args-count (length args)
+    :args-preview (%clip-prompt (format nil "~S" args) 120))
   (%bound-result
    (case op
      ;; ── Self-discovery ────────────────────────────────────────
@@ -163,6 +168,8 @@ ENV is an alist of (symbol . value) bindings. No global mutation."
      (datamine-remote (apply #'%prim-datamine-remote args))
      (datamine-for    (apply #'%prim-datamine-for args))
      (lodes           (%prim-lodes))
+     ;; ── Respond fallback (should be caught in %reval special forms) ──
+     (respond         (throw 'repl-respond (first args)))
      ;; ── Unknown ──────────────────────────────────────────────
      (otherwise       (format nil "(:error \"unknown primitive: ~A\")" op)))))
 

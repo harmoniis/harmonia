@@ -180,7 +180,7 @@ pub(crate) fn show_thinking_spinner_with_input(
                 clear_spinner_and_box(spinner_row, box_row, box_height);
                 let _ = terminal::disable_raw_mode();
                 waiting.store(false, Ordering::Release);
-                let elapsed = started.elapsed().as_secs();
+                let _elapsed = started.elapsed().as_secs();
                 eprintln!(
                     "\n  {YELLOW}!{RESET} No status update for {}s — daemon may be unresponsive. Last: {}",
                     STALE_THRESHOLD.as_secs(),

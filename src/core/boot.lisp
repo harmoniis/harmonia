@@ -123,6 +123,54 @@
            :with-trace
            :trace-flush
            :trace-shutdown
+           ;; ── Gateway / baseband ──
+           :gateway-reload
+           ;; ── Tmux agent control ──
+           :tmux-send-input
+           :tmux-confirm-no
+           :tmux-deny
+           :tmux-interrupt
+           :tmux-capture
+           ;; ── Backend / model routing ──
+           :backend-complete-for-task
+           :backend-complete-safe
+           :backend-list-models
+           :backend-select-model
+           ;; ── Config management ──
+           :config-delete-for
+           :config-dump
+           :config-ingest-env
+           ;; ── Tailnet mesh ──
+           :ipc-tailnet-start
+           :ipc-tailnet-stop
+           :ipc-tailnet-poll
+           :ipc-tailnet-discover
+           ;; ── Memory palace graph API ──
+           :palace-add-node
+           :palace-add-edge
+           :palace-search
+           :palace-graph-query
+           :palace-graph-stats
+           :palace-file-drawer
+           :palace-compress
+           :palace-context
+           :palace-codebook-lookup
+           :palace-find-tunnels
+           :palace-get-drawer
+           ;; ── Ouroboros self-healing ──
+           :ouroboros-history
+           :ouroboros-last-crash
+           :ouroboros-record-crash
+           :ouroboros-write-patch
+           ;; ── Chronicle audit ──
+           :chronicle-batch-delegation
+           :chronicle-batch-harmonic
+           :chronicle-record-ouroboros-event
+           :chronicle-record-phoenix-event
+           ;; ── Pipeline trace ──
+           :pipeline-trace-enable
+           :pipeline-trace-disable
+           :*pipeline-trace-enabled*
            :*runtime*))
 
 (in-package :harmonia)
@@ -189,6 +237,7 @@
       (load path))))
 
 (%load-module (%core-path "state.lisp"))
+(%load-module (%core-path "pipeline-trace.lisp") "pipeline-trace")
 (%load-module (%core-path "presentation.lisp"))
 (%load-module (%core-path "tools.lisp"))
 (%load-module (%core-path "../dna/dna.lisp") "dna")
@@ -388,6 +437,13 @@
         (hash-table-count *memory-store*))
   (%log :info "boot" "Bootstrap complete (~D tools registered)."
         (hash-table-count (runtime-state-tools *runtime*)))
+  ;; Enable pipeline tracing by default for diagnostics.
+  (pipeline-trace-enable)
+  (%pipeline-trace :boot-complete
+    :tools (hash-table-count (runtime-state-tools *runtime*))
+    :memories (hash-table-count *memory-store*)
+    :environment (%environment)
+    :routing-tier *routing-tier*)
   ;; Handle SIGTERM for graceful shutdown (Phoenix sends this on stop)
   (sb-sys:enable-interrupt sb-unix:sigterm
     (lambda (signal context info)

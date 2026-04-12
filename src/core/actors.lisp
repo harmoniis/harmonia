@@ -133,12 +133,10 @@
     (setf (actor-running actor) nil)
     ;; Send a wake-up message so the mailbox receive unblocks
     (handler-case
-
         (sb-concurrency:send-message
-       (actor-mailbox actor)
-       (make-actor-message :tag :stop)
-
-      (error () nil)))
+         (actor-mailbox actor)
+         (make-actor-message :tag :stop))
+      (error () nil))
     ;; Wait for thread to finish (with timeout)
     (when (and (actor-thread actor)
                (sb-thread:thread-alive-p (actor-thread actor)))

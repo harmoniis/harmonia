@@ -173,19 +173,17 @@
     (%log :info "self-compile" "Building ~A..." crate-name)
     (multiple-value-bind (output err-output exit-code)
         (handler-case
-
             (let ((proc (sb-ext:run-program "/bin/sh" (list "-c" cmd)
-                                          :output :stream
-                                          :error :output
-                                          :wait t)
-
-          (error () nil)))
-            (let ((out (with-output-to-string (s)
-                         (let ((stream (sb-ext:process-output proc)))
-                           (loop for line = (read-line stream nil nil)
-                                 while line
-                                 do (write-line line s))))))
-              (values out nil (sb-ext:process-exit-code proc)))))
+                                            :output :stream
+                                            :error :output
+                                            :wait t)))
+              (let ((out (with-output-to-string (s)
+                           (let ((stream (sb-ext:process-output proc)))
+                             (loop for line = (read-line stream nil nil)
+                                   while line
+                                   do (write-line line s))))))
+                (values out nil (sb-ext:process-exit-code proc))))
+          (error () nil))
       (declare (ignore err-output))
       (let ((success (and exit-code (zerop exit-code))))
         (if success
@@ -303,16 +301,14 @@ a restart, or simply to answer a question about your health — use
   "Self-knowledge for :rewrite mode. Architecture, not identity — identity comes from memory."
   (let ((field-status
           (handler-case
-
               (when (and (fboundp 'memory-field-port-ready-p)
-                       (funcall 'memory-field-port-ready-p)
-
-            (error () nil))
-              (let ((bs (funcall 'memory-field-basin-status)))
-                (when bs
-                  (format nil "basin=~A dwell=~A"
-                          (or (getf bs :current) "unknown")
-                          (or (getf bs :dwell-ticks) 0))))))))
+                         (funcall 'memory-field-port-ready-p))
+                (let ((bs (funcall 'memory-field-basin-status)))
+                  (when bs
+                    (format nil "basin=~A dwell=~A"
+                            (or (getf bs :current) "unknown")
+                            (or (getf bs :dwell-ticks) 0)))))
+            (error () nil))))
     (format nil
 "Harmonia — self-healing orchestration agent.
 Creator: Harmoniq Punk (PGP: 88E016462EFF9672).

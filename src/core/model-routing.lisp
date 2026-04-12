@@ -43,24 +43,30 @@
 ;;; ===============================================================================
 
 (defun %tier-model-pool (tier)
-  "Return model IDs eligible for TIER. Pure functional -- profile attributes decide."
-  (let ((ids '()))
+  "Return model IDs eligible for TIER. Pure functional -- profile attributes decide.
+   Demoted models and banned models are excluded from all pools."
+  (let ((ids '())
+        (bans (or (getf *routing-rules-sexp* :model-bans) '())))
     (dolist (p *model-profiles* (nreverse ids))
       (let ((cost (getf p :cost 10))
             (quality (getf p :quality 1))
-            (ptier (getf p :tier)))
-        (when (case tier
-                ;; FREE: only cost=0 models. Self-hosted + free-tier.
-                (:free (= cost 0))
-                ;; ECO: free + cheap. Never premium/frontier.
-                (:eco (and (not (member ptier '(:pro :frontier) :test #'eq))
-                           (<= cost 5)))
-                ;; PREMIUM: only high-quality models. Ignore cost.
-                (:premium (or (member ptier '(:frontier :pro :fast-smart :thinking) :test #'eq)
-                              (>= quality 7)))
-                ;; AUTO: everything -- scoring decides.
-                (:auto t))
-          (push (getf p :id) ids))))))
+            (ptier (getf p :tier))
+            (mid (getf p :id)))
+        ;; Skip demoted models and banned models from ALL pools.
+        (unless (or (eq ptier :demoted)
+                    (member mid bans :test #'string=))
+          (when (case tier
+                  ;; FREE: only cost=0 models. Self-hosted + free-tier.
+                  (:free (= cost 0))
+                  ;; ECO: free + cheap. Never premium/frontier.
+                  (:eco (and (not (member ptier '(:pro :frontier) :test #'eq))
+                             (<= cost 5)))
+                  ;; PREMIUM: only high-quality models. Ignore cost.
+                  (:premium (or (member ptier '(:frontier :pro :fast-smart :thinking) :test #'eq)
+                                (>= quality 7)))
+                  ;; AUTO: everything -- scoring decides.
+                  (:auto t))
+            (push mid ids)))))))
 
 (defun %tier-weight-bias (tier)
   "Scoring bias per tier. Shifts what matters for ranking within the pool."

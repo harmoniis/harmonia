@@ -362,6 +362,12 @@
     (let ((observation-sexp (%signalograd-observation-sexp ctx runtime)))
       (handler-case
           (progn (signalograd-observe observation-sexp)
+        ;; Pipeline trace: signalograd observation with full context
+        (%trace-signalograd-step
+          (or (getf ctx :cycle) 0)
+          (or (and (listp (signalograd-current-projection)) (getf (signalograd-current-projection) :confidence)) 0.0)
+          (%signalograd-stability ctx)
+          (%signalograd-novelty ctx))
         (%signalograd-record-event "observe"
          :cycle (or (getf ctx :cycle) 0) :reward (%signalograd-reward ctx runtime)
          :stability (%signalograd-stability ctx) :novelty (%signalograd-novelty ctx)

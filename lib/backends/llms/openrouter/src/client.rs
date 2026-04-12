@@ -245,13 +245,15 @@ pub fn init_backend() -> Result<(), String> {
 pub fn complete(prompt: &str, model: &str) -> Result<String, String> {
     let _ = init_backend();
     let key = api_key()?;
+    // Ensure enough output tokens for s-expression REPL responses.
+    let max_tokens = Some(1024_u32);
     let selected = if model.trim().is_empty() {
         select_from_pool(OFFERINGS, "")
     } else {
         model.to_string()
     };
     let start = std::time::Instant::now();
-    match request_openrouter(prompt, &selected, &key, None, None) {
+    match request_openrouter(prompt, &selected, &key, None, max_tokens) {
         Ok(text) => {
             log_model_performance(
                 OFFERINGS,
@@ -302,9 +304,10 @@ pub fn complete(prompt: &str, model: &str) -> Result<String, String> {
 pub fn complete_for_task(prompt: &str, task_hint: &str) -> Result<String, String> {
     let _ = init_backend();
     let key = api_key()?;
+    let max_tokens = Some(1024_u32);
     let selected = select_from_pool(OFFERINGS, task_hint);
     let start = std::time::Instant::now();
-    match request_openrouter(prompt, &selected, &key, None, None) {
+    match request_openrouter(prompt, &selected, &key, None, max_tokens) {
         Ok(text) => {
             log_model_performance(
                 OFFERINGS,

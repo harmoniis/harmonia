@@ -19,6 +19,129 @@ pub use kernel::step_kernel;
 pub use model::{Feedback, KernelState, Observation, Projection};
 pub use observation::{parse_feedback, parse_observation};
 
+// ── Service trait: Free Monad pattern for dispatch ───────────────────
+//
+// handle(&self, cmd) → (Delta, Ok)  — PURE, no mutation
+// apply(&mut self, delta)            — single mutation point
+
+use std::path::PathBuf;
+
+/// Command enum — pure data describing what to do.
+pub enum SignalogradCmd {
+    Observe(Observation),
+    ApplyFeedback(Feedback),
+    Status,
+    Snapshot,
+    Reset,
+    Checkpoint(PathBuf),
+    Restore(PathBuf),
+    SaveToDisk,
+}
+
+/// Delta — describes how state changes. Inspectable, composable.
+pub enum SignalogradDelta {
+    Observed { projection: Projection },
+    FeedbackApplied { feedback: Feedback },
+    StateReplaced(Box<KernelState>),
+    Saved,
+    Noop,
+}
+
+/// Result — what each command produces.
+pub enum SignalogradOk {
+    Ok,
+    Status(String),
+    Snapshot(String),
+}
+
+impl SignalogradOk {
+    pub fn to_sexp(&self) -> String {
+        match self {
+            SignalogradOk::Ok => "(:ok)".to_string(),
+            SignalogradOk::Status(s) => format!(
+                "(:ok :result \"{}\")",
+                harmonia_actor_protocol::sexp_escape(s)
+            ),
+            SignalogradOk::Snapshot(s) => format!(
+                "(:ok :result \"{}\")",
+                harmonia_actor_protocol::sexp_escape(s)
+            ),
+        }
+    }
+}
+
+impl harmonia_actor_protocol::Service for KernelState {
+    type Cmd = SignalogradCmd;
+    type Ok = SignalogradOk;
+    type Delta = SignalogradDelta;
+
+    fn handle(&self, cmd: Self::Cmd) -> Result<(Self::Delta, Self::Ok), harmonia_actor_protocol::MemoryError> {
+        match cmd {
+            SignalogradCmd::Observe(observation) => {
+                // Clone state for pure computation, step kernel, return delta.
+                let mut scratch = self.clone();
+                let _projection = step_kernel(&mut scratch, &observation);
+                scratch.checkpoint_digest = simple_hash(&state_to_sexp(&scratch));
+                Ok((
+                    SignalogradDelta::StateReplaced(Box::new(scratch)),
+                    SignalogradOk::Ok,
+                ))
+            }
+            SignalogradCmd::ApplyFeedback(feedback) => {
+                let mut scratch = self.clone();
+                apply_feedback(&mut scratch, &feedback);
+                scratch.checkpoint_digest = simple_hash(&state_to_sexp(&scratch));
+                Ok((
+                    SignalogradDelta::StateReplaced(Box::new(scratch)),
+                    SignalogradOk::Ok,
+                ))
+            }
+            SignalogradCmd::Status => {
+                Ok((SignalogradDelta::Noop, SignalogradOk::Status(status_sexp(self))))
+            }
+            SignalogradCmd::Snapshot => {
+                Ok((SignalogradDelta::Noop, SignalogradOk::Snapshot(snapshot_sexp(self))))
+            }
+            SignalogradCmd::Reset => {
+                let mut fresh = KernelState::new();
+                fresh.checkpoint_digest = simple_hash(&state_to_sexp(&fresh));
+                Ok((
+                    SignalogradDelta::StateReplaced(Box::new(fresh)),
+                    SignalogradOk::Ok,
+                ))
+            }
+            SignalogradCmd::Checkpoint(path) => {
+                write_state_to_path(self, &path)
+                    .map_err(|e| harmonia_actor_protocol::MemoryError::PersistenceFailed(e))?;
+                Ok((SignalogradDelta::Saved, SignalogradOk::Ok))
+            }
+            SignalogradCmd::Restore(path) => {
+                let restored = restore_state_from_path(&path)
+                    .map_err(|e| harmonia_actor_protocol::MemoryError::PersistenceFailed(e))?;
+                Ok((
+                    SignalogradDelta::StateReplaced(Box::new(restored)),
+                    SignalogradOk::Ok,
+                ))
+            }
+            SignalogradCmd::SaveToDisk => {
+                save_state(self)
+                    .map_err(|e| harmonia_actor_protocol::MemoryError::PersistenceFailed(e))?;
+                Ok((SignalogradDelta::Saved, SignalogradOk::Ok))
+            }
+        }
+    }
+
+    fn apply(&mut self, delta: Self::Delta) {
+        match delta {
+            SignalogradDelta::StateReplaced(new_state) => *self = *new_state,
+            SignalogradDelta::Observed { .. }
+            | SignalogradDelta::FeedbackApplied { .. }
+            | SignalogradDelta::Saved
+            | SignalogradDelta::Noop => {}
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use crate::checkpoint::restore_state_from_path;

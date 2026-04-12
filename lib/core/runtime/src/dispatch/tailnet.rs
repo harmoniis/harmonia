@@ -17,7 +17,35 @@ pub(crate) fn dispatch(sexp: &str) -> String {
             )).collect::<Vec<_>>().join(" ");
             format!("(:ok :messages ({}))", items)
         }
-        "send" => "(:ok)".to_string(), // TODO: construct MeshMessage from sexp fields
+        "send" => {
+            let to = harmonia_actor_protocol::extract_sexp_string(sexp, ":to").unwrap_or_default();
+            let from = harmonia_actor_protocol::extract_sexp_string(sexp, ":from")
+                .unwrap_or_else(|| "self".to_string());
+            let payload = harmonia_actor_protocol::extract_sexp_string(sexp, ":payload").unwrap_or_default();
+            let msg_type_str = harmonia_actor_protocol::extract_sexp_string(sexp, ":type").unwrap_or_default();
+            let msg_type = match msg_type_str.as_str() {
+                "heartbeat" => harmonia_tailnet::model::MeshMessageType::Heartbeat,
+                "discovery" => harmonia_tailnet::model::MeshMessageType::Discovery,
+                "command"   => harmonia_tailnet::model::MeshMessageType::Command,
+                _           => harmonia_tailnet::model::MeshMessageType::Signal,
+            };
+            let now_ms = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_millis() as u64;
+            let message = harmonia_tailnet::model::MeshMessage {
+                from,
+                to: to.clone(),
+                payload,
+                msg_type,
+                origin: None,
+                session: None,
+                timestamp_ms: now_ms,
+                hmac: String::new(),
+            };
+            dispatch_op!("send",
+                harmonia_tailnet::transport::send_message(&to, &message).map(|_| "(:ok)".to_string()))
+        }
         "discover" => dispatch_op!("discover",
             harmonia_tailnet::discover_peers().map(|peers| {
                 let items = peers.iter().map(|p| p.id.0.clone()).collect::<Vec<_>>();

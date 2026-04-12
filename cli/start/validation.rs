@@ -129,27 +129,51 @@ pub(crate) fn resolve_lib_dir(source_dir: &Path) -> PathBuf {
 pub(crate) fn find_phoenix_binary(
     source_dir: &Path,
 ) -> Result<PathBuf, Box<dyn std::error::Error>> {
+    // Check sibling of current exe (both names)
     if let Ok(exe) = std::env::current_exe() {
-        let sibling = exe.with_file_name("harmonia-phoenix");
-        if sibling.exists() {
-            return Ok(sibling);
+        for name in ["harmonia-phoenix", "phoenix"] {
+            let sibling = exe.with_file_name(name);
+            if sibling.exists() {
+                return Ok(sibling);
+            }
         }
     }
+    // Check dev build paths (debug + release, both names)
+    for profile in ["debug", "release"] {
+        for name in ["phoenix", "harmonia-phoenix"] {
+            let dev = source_dir.join("target").join(profile).join(name);
+            if dev.exists() {
+                return Ok(dev);
+            }
+        }
+    }
+    // Check installed lib dir
+    if let Ok(lib) = crate::paths::lib_dir() {
+        let installed = lib.join("phoenix");
+        if installed.exists() {
+            return Ok(installed);
+        }
+    }
+    // Last resort: PATH (may block if binary hangs on --version)
     if check_command("harmonia-phoenix") {
         return Ok(PathBuf::from("harmonia-phoenix"));
-    }
-    let dev = source_dir.join("target").join("release").join("phoenix");
-    if dev.exists() {
-        return Ok(dev);
     }
     Err("harmonia-phoenix binary not found — run install script".into())
 }
 
 pub(crate) fn find_sibling_binary(phoenix_bin: &Path, name: &str) -> String {
+    // Check sibling of phoenix binary
     if let Some(dir) = phoenix_bin.parent() {
         let sibling = dir.join(name);
         if sibling.exists() {
             return sibling.to_string_lossy().into();
+        }
+    }
+    // Check installed lib dir
+    if let Ok(lib) = crate::paths::lib_dir() {
+        let installed = lib.join(name);
+        if installed.exists() {
+            return installed.to_string_lossy().into();
         }
     }
     name.to_string()

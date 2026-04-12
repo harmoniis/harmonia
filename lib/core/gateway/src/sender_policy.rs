@@ -106,7 +106,16 @@ where
     if needs_refresh {
         *guard = Some(load_policies());
     }
-    f(guard.as_ref().unwrap())
+    // Safety: load_policies() above guarantees Some after refresh.
+    // Defensive: fall back to empty deny-all cache if somehow still None.
+    match guard.as_ref() {
+        Some(cache) => f(cache),
+        None => f(&SenderPolicyCache {
+            allowlists: HashMap::new(),
+            allow_all: HashSet::new(),
+            last_loaded_ms: now,
+        }),
+    }
 }
 
 /// Check whether an inbound envelope should be accepted.

@@ -31,28 +31,24 @@
 (defun %security-log (action op signal reason)
   "Log a security event to the harmonic matrix."
   (handler-case
-
-      (security-note-event :frontend (and signal (harmonia-signal-frontend signal)
-
+      (security-note-event :frontend (and signal (harmonia-signal-frontend signal))
+                           :injection-count (if (and signal
+                                                     (numberp (harmonia-signal-dissonance signal))
+                                                     (> (harmonia-signal-dissonance signal) 0.0))
+                                                1
+                                                0))
     (error () nil))
-                         :injection-count (if (and signal
-                                                   (numberp (harmonia-signal-dissonance signal))
-                                                   (> (harmonia-signal-dissonance signal) 0.0))
-                                              1
-                                              0)))
   (handler-case
-
-      (harmonic-matrix-log-event "security-kernel" (string-downcase (symbol-name action)
-
-    (error () nil))
-                                op
-                                (if signal
-                                    (format nil "frontend=~A label=~A taint=~A"
-                                            (harmonia-signal-frontend signal)
-                                            (harmonia-signal-security-label signal)
-                                            (harmonia-signal-taint signal))
-                                    "internal")
-                                (eq action :allowed) reason)))
+      (harmonic-matrix-log-event "security-kernel" (string-downcase (symbol-name action))
+                                 op
+                                 (if signal
+                                     (format nil "frontend=~A label=~A taint=~A"
+                                             (harmonia-signal-frontend signal)
+                                             (harmonia-signal-security-label signal)
+                                             (harmonia-signal-taint signal))
+                                     "internal")
+                                 (eq action :allowed) reason)
+    (error () nil)))
 
 (defun %policy-gate (op originating-signal &optional prompt)
   "Deterministic gate for privileged operations. Returns T if allowed, signals error if denied.

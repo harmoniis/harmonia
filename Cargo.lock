@@ -2773,6 +2773,7 @@ version = "0.1.9"
 name = "harmonia-signalograd"
 version = "0.1.1"
 dependencies = [
+ "harmonia-actor-protocol",
  "harmonia-config-store",
  "serde",
  "serde_json",

@@ -65,7 +65,10 @@ pub fn write_state_to_path(state: &KernelState, path: &Path) -> Result<(), Strin
         fs::create_dir_all(parent).map_err(|e| e.to_string())?;
     }
     let body = state_to_sexp(state);
-    fs::write(path, &body).map_err(|e| e.to_string())?;
+    // Atomic write: temp file then rename to prevent corruption on crash.
+    let tmp = path.with_extension("sexp.tmp");
+    fs::write(&tmp, &body).map_err(|e| format!("signalograd tmp write: {e}"))?;
+    fs::rename(&tmp, path).map_err(|e| format!("signalograd atomic rename: {e}"))?;
     Ok(())
 }
 

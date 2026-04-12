@@ -28,12 +28,10 @@
     ;; Register gateway as actor through the unified registry
     (when (and (ipc-reply-ok-p reply) *runtime*)
       (handler-case
-
-          (let ((actor-id (actor-register "gateway")
-
+          (let ((actor-id (actor-register "gateway")))
+            (setf (runtime-state-gateway-actor-id *runtime*) actor-id)
+            (setf (gethash actor-id (runtime-state-actor-kinds *runtime*)) "gateway"))
         (error () nil)))
-          (setf (runtime-state-gateway-actor-id *runtime*) actor-id)
-          (setf (gethash actor-id (runtime-state-actor-kinds *runtime*)) "gateway"))))
     ;; Command and payment-policy callbacks are now handled by the Rust
     ;; gateway actor via IPC dispatch — no callback registration needed.
     (runtime-log *runtime* :gateway-init
