@@ -171,17 +171,26 @@ pub(crate) fn dispatch(sexp: &str) -> String {
                 return "(:error \"exec: :cmd required\")".to_string();
             }
             let args_str = param!(sexp, ":args");
-            let args: Vec<&str> = if args_str.is_empty() {
-                vec![]
-            } else {
-                args_str.split_whitespace().collect()
-            };
             let cwd_str = param!(sexp, ":cwd", ".");
             let cwd = root.join(&cwd_str);
-            let output = std::process::Command::new(&cmd)
-                .args(&args)
-                .current_dir(&cwd)
-                .output();
+            // When cmd contains spaces and args is empty, use sh -c for natural commands.
+            // Models write (exec "uname -a") not (exec "uname" "-a").
+            let output = if args_str.is_empty() && cmd.contains(' ') {
+                std::process::Command::new("sh")
+                    .args(["-c", &cmd])
+                    .current_dir(&cwd)
+                    .output()
+            } else {
+                let args: Vec<&str> = if args_str.is_empty() {
+                    vec![]
+                } else {
+                    args_str.split_whitespace().collect()
+                };
+                std::process::Command::new(&cmd)
+                    .args(&args)
+                    .current_dir(&cwd)
+                    .output()
+            };
             match output {
                 Ok(out) => {
                     let stdout = String::from_utf8_lossy(&out.stdout);
