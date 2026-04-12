@@ -167,6 +167,26 @@
     (list :density (if (> nodes 0) (/ edges (float (max 1 (* nodes nodes)))) 0.0)
           :interdisciplinary (if (> edges 0) (/ inter (float edges)) 0.0))))
 
+(defun %signalograd-repl-observation ()
+  "Aggregate current REPL model performance into signalograd observation metrics.
+   Feeds fluency and speed of the best model into the routing signal."
+  (if (and (boundp '*repl-model-perf*) (> (hash-table-count *repl-model-perf*) 0))
+      (let ((best-fluency 0.0) (best-speed 0.0) (total-models 0) (sexp-capable 0))
+        (maphash (lambda (model perf)
+                   (declare (ignore perf))
+                   (incf total-models)
+                   (let ((flu (%repl-fluency model))
+                         (spd (%repl-speed model)))
+                     (when (> flu best-fluency) (setf best-fluency flu))
+                     (when (> spd best-speed) (setf best-speed spd))
+                     (when (> flu 0.6) (incf sexp-capable))))
+                 *repl-model-perf*)
+        (list :repl-fluency best-fluency
+              :repl-speed best-speed
+              :sexp-capable-ratio (if (> total-models 0)
+                                      (/ (float sexp-capable) total-models) 0.0)))
+      (list :repl-fluency 0.5 :repl-speed 0.5 :sexp-capable-ratio 0.0)))
+
 (defun %signalograd-swarm-observation ()
   (let ((scores (handler-case (if (fboundp '%load-swarm-scores) (%load-swarm-scores) '()) (error () '()))))
     (if (null scores)
