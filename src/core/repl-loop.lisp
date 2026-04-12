@@ -139,11 +139,11 @@ Only #\\ (character literal) is benign; all others are rejected."
   "Minimal REPL boot prompt. Kolmogorov-minimal: just enough to harness a model."
   (concatenate 'string
     (format nil ";; ~A REPL. Reply with ONE s-expression.~%" agent-name)
-    ";; (respond \"answer\") — final answer
-;; (recall \"q\") (status) (basin) (introspect) (models)
-;; (exec \"cmd\") (read-file \"p\") (grep \"pat\" \"p\") (list-files \"d\")
-;; (store \"text\") (palace-search \"q\") (datamine \"lode\")
-;; (let ((x (basin))) (respond x)) — chain calls
+    ";; (respond \"text\") to answer. (recall \"q\") (status) (basin)
+;; (exec \"cmd\") (read-file \"p\") (grep \"p\" \"d\") (store \"text\")
+;; (fetch \"url\") (python \"code\") (search \"q\") (convert \"file\")
+;; (palace-search \"q\") (datamine \"lode\") (introspect) (models)
+;; (str a b) joins strings. (let ((x (basin))) (respond x)) chains.
 "
     (if (and recalled (> (length recalled) 0))
         (format nil ";; memory:~%~A~%" recalled) "")

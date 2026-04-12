@@ -167,6 +167,11 @@
            :chronicle-batch-harmonic
            :chronicle-record-ouroboros-event
            :chronicle-record-phoenix-event
+           ;; ── Web + Python tools ──
+           :fetch-url
+           :python-exec
+           :search-web
+           :convert-doc
            ;; ── Pipeline trace ──
            :pipeline-trace-enable
            :pipeline-trace-disable

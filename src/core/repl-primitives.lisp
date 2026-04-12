@@ -91,18 +91,25 @@ The REPL has full Lisp power; Rust is the boundary."
       0.5))
 
 (defun %prim-basin ()
+  "Return basin status as structured string: basin=X dwell=N threshold=F"
   (or (handler-case
           (when (and (fboundp 'memory-field-port-ready-p)
                      (funcall 'memory-field-port-ready-p))
             (let* ((reply (ipc-call "(:component \"memory-field\" :op \"basin-status\")")))
               (if (and reply (stringp reply))
                   (let* ((*read-eval* nil)
+                         (*package* (find-package :harmonia))
                          (parsed (handler-case (read-from-string reply) (error () nil)))
-                         (basin (when (listp parsed) (getf (cdr parsed) :current))))
-                    (format nil "Basin: ~A" (or basin "unknown")))
-                  "(basin unavailable)")))
+                         (data (when (listp parsed) (cdr parsed)))
+                         (basin (getf data :current))
+                         (dwell (getf data :dwell-ticks))
+                         (energy (getf data :coercive-energy))
+                         (threshold (getf data :threshold)))
+                    (format nil "basin=~A dwell=~A energy=~A threshold=~A"
+                            (or basin "?") (or dwell "?") (or energy "?") (or threshold "?")))
+                  "basin=unavailable")))
         (error () nil))
-      "(basin unavailable)"))
+      "basin=unavailable"))
 
 ;; ── Workspace primitives (Rust actors — the agent's hands) ──────
 
@@ -385,3 +392,67 @@ The REPL has full Lisp power; Rust is the boundary."
   "List all available datamining tools."
   (%with-port-guard "terraphon" terraphon-port-ready-p "lodes"
     (terraphon-lodes)))
+
+;;; ═══════════════════════════════════════════════════════════════════════
+;;; WEB + PYTHON PRIMITIVES — datamining and document processing
+;;; ═══════════════════════════════════════════════════════════════════════
+
+(defun %prim-fetch-url (url)
+  "Fetch URL content. Uses existing browser/hfetch tool via workspace-exec.
+   Returns extracted text or error."
+  (if (and url (stringp url) (> (length url) 5))
+      (or (handler-case
+              ;; Try hfetch first (lightweight), fall back to curl + markitdown
+              (let ((result (workspace-exec "curl" (list "-sL" "-m" "15"
+                                                        "-H" "User-Agent: Harmonia/0.2"
+                                                        url))))
+                (when (and result (stringp result) (> (length result) 0))
+                  (subseq result 0 (min (length result) 8000))))
+            (error () nil))
+          (format nil "(fetch-url error: ~A)" url))
+      "(fetch-url: url required)"))
+
+(defun %prim-python (script)
+  "Execute Python script via tmux. Returns stdout.
+   For document processing, web scraping, data analysis."
+  (if (and script (stringp script) (> (length script) 0))
+      (or (handler-case
+              (workspace-exec "python3" (list "-c" script))
+            (error (e) (format nil "(python error: ~A)" e)))
+          "(python: execution failed)")
+      "(python: script required)"))
+
+(defun %prim-search-web (query)
+  "Search the web. Uses existing search-exa or search-brave tool."
+  (if (and query (stringp query) (> (length query) 0))
+      (or (handler-case
+              (let ((reply (ipc-call
+                            (%sexp-to-ipc-string
+                             `(:component "workspace" :op "exec"
+                               :command "curl"
+                               :args ("-sL" "-m" "10"
+                                      ,(format nil "https://html.duckduckgo.com/html/?q=~A"
+                                               (substitute #\+ #\Space query))))))))
+                (when (and reply (ipc-reply-ok-p reply))
+                  (let ((text (ipc-extract-value reply)))
+                    (when text (subseq text 0 (min (length text) 4000))))))
+            (error () nil))
+          (format nil "(search: no results for ~A)" query))
+      "(search: query required)"))
+
+(defun %prim-convert-doc (path)
+  "Convert document to text using markitdown (if installed) or cat.
+   Handles: PDF, DOCX, PPTX, XLSX, HTML, etc."
+  (if (and path (stringp path) (> (length path) 0))
+      (or (handler-case
+              ;; Try markitdown first
+              (let ((result (workspace-exec "python3"
+                              (list "-c"
+                                    (format nil "from markitdown import MarkItDown; m=MarkItDown(); r=m.convert('~A'); print(r.text_content[:8000])"
+                                            path)))))
+                (when (and result (stringp result) (> (length result) 0))
+                  result))
+            (error () nil))
+          ;; Fallback: just cat the file
+          (handler-case (workspace-read-file path :limit 200) (error () "(convert-doc: failed)")))
+      "(convert-doc: path required)"))

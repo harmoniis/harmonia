@@ -115,16 +115,22 @@ ENV is an alist of (symbol . value) bindings. No global mutation."
      (basin           (%prim-basin))
      (models          (%prim-models))
      (route-check     (apply #'%prim-route-check args))
-     ;; ── Compose ──────────────────────────────────────────────
+     ;; ── Compose (common names models expect) ───────────────
      (format          (apply #'format nil args))
+     (str             (apply #'concatenate 'string (mapcar #'princ-to-string args)))
+     (cat             (apply #'concatenate 'string (mapcar #'princ-to-string args)))
+     (join            (format nil "~{~A~^ ~}" (first args)))
      (getf            (getf (first args) (second args)))
      (length          (length (first args)))
      (subseq          (apply #'subseq args))
      (concatenate     (apply #'concatenate 'string args))
      (string-downcase (string-downcase (first args)))
+     (string-upcase   (string-upcase (first args)))
+     (to-string       (princ-to-string (first args)))
      (+               (apply #'+ args))
      (-               (apply #'- args))
      (*               (apply #'* args))
+     (/               (/ (first args) (second args)))
      (>               (> (first args) (second args)))
      (<               (< (first args) (second args)))
      (=               (= (first args) (second args)))
@@ -132,9 +138,23 @@ ENV is an alist of (symbol . value) bindings. No global mutation."
      (and             (every #'identity args))
      (or              (some #'identity args))
      (list            args)
+     ;; ── List access (models always try these) ──────────────
+     (car             (car (first args)))
+     (cdr             (cdr (first args)))
+     (cadr            (cadr (first args)))
+     (caddr           (caddr (first args)))
+     (nth             (nth (first args) (second args)))
      (first           (first (first args)))
      (second          (second (first args)))
      (third           (third (first args)))
+     (fourth          (fourth (first args)))
+     (rest            (rest (first args)))
+     (last            (car (last (first args))))
+     (cons            (cons (first args) (second args)))
+     (append          (append (first args) (second args)))
+     (mapcar          (mapcar (first args) (second args)))
+     (remove-if       (remove-if (first args) (second args)))
+     (assoc           (assoc (first args) (second args)))
      (princ-to-string (princ-to-string (first args)))
      ;; ── Workspace tools (Rust actors — the agent's hands) ─────
      (read-file       (apply #'%prim-read-file args))
@@ -168,6 +188,15 @@ ENV is an alist of (symbol . value) bindings. No global mutation."
      (datamine-remote (apply #'%prim-datamine-remote args))
      (datamine-for    (apply #'%prim-datamine-for args))
      (lodes           (%prim-lodes))
+     ;; ── Web + Python (datamining and document processing) ──────
+     (fetch-url       (%prim-fetch-url (first args)))
+     (fetch           (%prim-fetch-url (first args)))
+     (python          (%prim-python (first args)))
+     (py              (%prim-python (first args)))
+     (search-web      (%prim-search-web (first args)))
+     (search          (%prim-search-web (first args)))
+     (convert-doc     (%prim-convert-doc (first args)))
+     (convert         (%prim-convert-doc (first args)))
      ;; ── Respond fallback (should be caught in %reval special forms) ──
      (respond         (throw 'repl-respond (first args)))
      ;; ── Unknown ──────────────────────────────────────────────
@@ -184,12 +213,21 @@ ENV is an alist of (symbol . value) bindings. No global mutation."
 ;;; ═══════════════════════════════════════════════════════════════════════
 
 (defparameter *repl-primitives*
-  '(env recall respond store read-file grep list-files exec write-file
+  '(;; system
+    env recall respond store read-file grep list-files exec write-file
     append-file file-exists file-info status introspect basin models
-    chaos-risk dream meditate spawn evolve ipc route-check
+    chaos-risk dream meditate spawn evolve ipc route-check tool
+    ;; palace + datamining + web + python
     palace-search palace-file palace-graph palace-compress palace-context palace-kg
     datamine datamine-remote datamine-for lodes
-    format getf length subseq concatenate string-downcase
-    + - * > < = not and or list first second third princ-to-string
+    fetch-url fetch python py search-web search convert-doc convert
+    ;; compose
+    format str cat join getf length subseq concatenate
+    string-downcase string-upcase to-string princ-to-string
+    + - * / > < = not and or
+    ;; list ops
+    list car cdr cadr caddr nth first second third fourth
+    rest last cons append mapcar remove-if assoc
+    ;; special forms
     let if when unless progn quote)
   "The primitive table — derived, not described. (env) returns this.")
