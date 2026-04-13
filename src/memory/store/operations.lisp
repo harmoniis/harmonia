@@ -32,50 +32,62 @@
                      *memory-store*)))))
     t))
 
+(defun %field-indexable-p (class)
+  "Only global context classes feed the concept graph (L1 field).
+   System logs, tool metrics, and user interactions do NOT pollute the field."
+  (member class '(:soul :skill :genesis) :test #'eq))
+
+(defun %palace-worthy-p (class depth)
+  "User knowledge and high-value entries go to palace (L3).
+   Daily interactions, skill summaries, and explicitly stored content."
+  (or (member class '(:daily :interaction) :test #'eq)
+      (and (> depth 0) (member class '(:skill) :test #'eq))))
+
 (defun memory-put (class content &key (depth 0) (tags '()) (source-ids '()))
-  "Store a memory entry. Write filter rejects duplicates and noise.
-Thread-safe: RAM mutations under lock, Chronicle persist outside lock."
-  ;; Write filter: reject entries that add no information.
+  "Store a memory entry with layer-separated routing.
+   L1 Field:    :soul, :skill, :genesis → concept graph (global context)
+   L2 Chronicle: ALL classes → persistent system log
+   L3 Palace:   :daily, :interaction, :skill(depth>0) → user knowledge drawers
+   Thread-safe: RAM mutations under lock, IPC outside lock."
   (unless (%memory-should-store-p class content depth)
     (return-from memory-put nil))
   (let (id now all-tags)
-    ;; Lock scope: RAM mutations only. No IPC under lock.
     (with-memory-lock ()
       (incf *memory-seq*)
       (setf now (get-universal-time))
       (setf id (format nil "~A-~A-~A" class now *memory-seq*))
       (setf all-tags (adjoin class (or tags '()) :test #'eq))
-      (let ((entry (make-memory-entry :id id
-                                       :time now
-                                       :class class
-                                       :depth depth
-                                       :content content
-                                       :tags all-tags
+      (let ((entry (make-memory-entry :id id :time now :class class :depth depth
+                                       :content content :tags all-tags
                                        :source-ids source-ids
-                                       :access-count 0
-                                       :last-access nil)))
+                                       :access-count 0 :last-access nil)))
         (setf (gethash id *memory-store*) entry)
         (%push-class-id class id)
-        (%index-entry-concepts id class depth content :tags all-tags)))
-    ;; Persist to Chronicle OUTSIDE the lock — IPC can take 90s, must not block other memory ops.
+        ;; L1: Only index global context into concept graph (soul/skill/genesis).
+        (when (%field-indexable-p class)
+          (%index-entry-concepts id class depth content :tags all-tags))))
+    ;; L2: ALL entries persist to Chronicle (system log).
     (handler-case (%persist-entry-to-chronicle id now content all-tags source-ids)
       (error (e) (%log :warn "memory" "Persist failed for ~A: ~A" id e)))
-    ;; Auto-file high-value entries to palace (depth > 0 = crystallized knowledge).
-    (when (and (> depth 0)
+    ;; L3: User knowledge → Palace drawers.
+    (when (and (%palace-worthy-p class depth)
                (fboundp 'mempalace-port-ready-p) (funcall 'mempalace-port-ready-p))
       (handler-case
           (funcall 'palace-file-drawer content
-                   (case class (:soul 1) (:skill 2) (:tool 3) (t 4))
+                   (case class (:soul 1) (:skill 2) (:daily 3) (:interaction 4) (t 5))
                    :tags (mapcar (lambda (tg) (string-downcase (symbol-name tg)))
                                  (remove-if-not #'keywordp all-tags)))
         (error () nil)))
-    ;; Reload field graph periodically to keep eigenstructure current.
-    (when (and (fboundp 'memory-field-port-ready-p) (funcall 'memory-field-port-ready-p)
+    ;; Reload field graph periodically (only if field-indexable content changed).
+    (when (and (%field-indexable-p class)
+               (fboundp 'memory-field-port-ready-p) (funcall 'memory-field-port-ready-p)
                (zerop (mod *memory-seq* 5)))
       (handler-case (funcall 'memory-field-load-graph) (error () nil)))
-    ;; Trace
     (%pipeline-trace :memory-put :class class :depth depth
-      :tags-count (length all-tags) :content-len (length content))
+      :store-targets (format nil "chronicle~A~A"
+                       (if (%field-indexable-p class) "+field" "")
+                       (if (%palace-worthy-p class depth) "+palace" ""))
+      :content-len (length content))
     id))
 
 ;; memory-seed-soul-from-dna is defined in dna.lisp — the DNA is the source of seeds.
@@ -141,18 +153,21 @@ Thread-safe: RAM mutations under lock, Chronicle persist outside lock."
     filed))
 
 (defun memory-record-orchestration (prompt response tool score latency-ms &key harmony)
-  (let ((daily-id
-          (memory-put :daily
-                      (list :prompt prompt
-                            :response response
-                            :score score
-                            :tool tool
-                            :latency-ms latency-ms
-                            :harmony harmony
-                            :channel :human)
-                      :depth 0
-                      :tags (list :interaction :orchestration))))
-    (%upsert-concept-edge (string-downcase tool) "memory" :tool-memory)
+  "Record interaction: L3 palace (user knowledge) + L2 chronicle (system log).
+   The palace gets readable text. The chronicle gets the full plist."
+  (let* ((text (format nil "Q: ~A~%A: ~A" (%clip-prompt prompt 300) (%clip-prompt response 500)))
+         (daily-id
+           (memory-put :daily text
+                       :depth 0
+                       :tags (list :interaction :orchestration))))
+    ;; Also log delegation metrics to chronicle as system data
+    (handler-case
+        (memory-put :tool
+                    (format nil "(DELEGATION :tool ~A :score ~,3F :latency-ms ~D)"
+                            tool (or score 0.0) (or latency-ms 0))
+                    :depth 0
+                    :tags (list :delegation :metrics))
+      (error () nil))
     daily-id))
 
 (defun memory-recall (query &key (limit 10))

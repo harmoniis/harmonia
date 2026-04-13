@@ -135,18 +135,21 @@ Only #\\ (character literal) is benign; all others are rejected."
 ;;; THE HARMONIC REPL — minimal, pure functional, drives any model
 ;;; ═══════════════════════════════════════════════════════════════════════
 
-(defun %repl-boot-prompt (agent-name recalled user-text)
-  "Minimal REPL boot prompt. Kolmogorov-minimal: just enough to harness a model."
+(defun %repl-boot-prompt (agent-name user-text)
+  "L0 boot prompt. Kolmogorov-minimal: primitives + user query.
+   No recalled memories injected — model discovers context via REPL.
+   L1 field gives global context. L2/L3/L4 via primitives."
   (concatenate 'string
     (format nil ";; ~A REPL. Reply with ONE s-expression.~%" agent-name)
-    ";; (respond \"text\") to answer. (recall \"q\") (status) (basin)
-;; (exec \"cmd\") (read-file \"p\") (grep \"p\" \"d\") (store \"text\")
+    ";; (respond \"text\") — final answer to user
+;; (recall \"q\") — search user memories (L3 palace)
+;; (status) (basin) (introspect) — system state (L2 chronicle)
+;; (exec \"cmd\") (read-file \"p\") (grep \"p\" \"d\") (list-files \"d\")
+;; (store \"text\") — store to user memory (L3 palace)
 ;; (fetch \"url\") (python \"code\") (search \"q\") (convert \"file\")
-;; (palace-search \"q\") (datamine \"lode\") (introspect) (models)
-;; (str a b) joins strings. (let ((x (basin))) (respond x)) chains.
+;; (palace-search \"q\") (datamine \"lode\") (models)
+;; (str a b) joins. (let ((x (basin))) (respond x)) chains.
 "
-    (if (and recalled (> (length recalled) 0))
-        (format nil ";; memory:~%~A~%" recalled) "")
     (format nil ";; user: ~A" user-text)))
 
 (defun %repl-continuation-prompt (round agent-name last-result user-text)
@@ -159,22 +162,13 @@ Only #\\ (character literal) is benign; all others are rejected."
     (if (<= (length s) limit) s (subseq s 0 limit))))
 
 (defun %orchestrate-repl (prompt &key (max-rounds *repl-max-rounds*))
-  "ONE path. Recall → compose → send → eval → loop. Pure functional.
-   The model drives the system through primitives. Every round is scored."
+  "ONE path. Boot prompt (L0) → send → eval → loop. Pure functional.
+   No memory injected into prompt — model discovers via REPL primitives.
+   L1 field = global context. L2 chronicle = system log. L3 palace = user data."
   (let* ((user-text (if (harmonia-signal-p prompt)
                         (harmonia-signal-payload prompt)
                         (if (stringp prompt) prompt (princ-to-string prompt))))
-         (recalled (handler-case
-                       (let ((entries (memory-recall user-text :limit 5)))
-                         (when entries
-                           (with-output-to-string (out)
-                             (dolist (e entries)
-                               (let ((text (%entry-text e)))
-                                 (when (and (stringp text) (> (length text) 10))
-                                   (write-string (subseq text 0 (min 200 (length text))) out)
-                                   (terpri out)))))))
-                     (error () nil)))
-         (current-prompt (%repl-boot-prompt (%agent-name) recalled user-text))
+         (current-prompt (%repl-boot-prompt (%agent-name) user-text))
          (round 0)
          (last-eval-result nil))
 
@@ -184,7 +178,7 @@ Only #\\ (character literal) is benign; all others are rejected."
     (%pipeline-trace :repl-enter
       :prompt-len (length current-prompt)
       :user-text-len (length user-text)
-      :memory-recalled (if recalled (length recalled) 0)
+      :memory-recalled 0
       :max-rounds max-rounds
       :routing-tier *routing-tier*)
 

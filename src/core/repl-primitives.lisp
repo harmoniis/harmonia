@@ -13,22 +13,31 @@
 ;; ── recall: smart memory search ─────────────────────────────────────
 
 (defun %prim-recall (query &rest kwargs &key (limit 5) (max-chars 1200) verbatim tags since)
-  "Smart recall: field resonance, verbatim exact match, tag/time filtering."
-  (declare (ignore kwargs))
+  "Recall from L3 palace (user knowledge). Falls back to L2 chronicle.
+   The palace stores user interactions and mined data.
+   (recall \"Thomas\") → search palace drawers for Thomas-related content."
+  (declare (ignore kwargs tags since))
   (let ((q (if (stringp query) query (princ-to-string query))))
     (cond
       (verbatim
+       ;; Verbatim: exact match in palace
        (or (handler-case
-               (when (fboundp 'memory-recall-verbatim)
-                 (let ((entries (funcall 'memory-recall-verbatim q)))
-                   (if entries
-                       (format nil "~{~A~%~}"
-                               (mapcar (lambda (e) (%entry-text e)) entries))
-                       "(no verbatim match)")))
+               (when (fboundp 'palace-search)
+                 (let ((result (funcall 'palace-search q :limit limit)))
+                   (if result (format nil "~A" result) "(no verbatim match)")))
              (error () nil))
            "(verbatim unavailable)"))
       (t
+       ;; Default: search palace (L3), fall back to memory store
        (or (handler-case
+               (when (and (fboundp 'palace-search) (fboundp 'mempalace-port-ready-p)
+                          (funcall 'mempalace-port-ready-p))
+                 (let ((result (funcall 'palace-search q :limit limit)))
+                   (when (and result (stringp result) (> (length result) 10))
+                     result)))
+             (error () nil))
+           ;; Fallback to memory-semantic-recall-block (scans *memory-store*)
+           (handler-case
                (let ((r (memory-semantic-recall-block q :limit limit :max-chars max-chars)))
                  (if (and r (> (length r) 0)) r "(no memories found)"))
              (error () nil))

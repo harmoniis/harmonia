@@ -112,8 +112,9 @@
 ;;; ═══════════════════════════════════════════════════════════════════════
 
 (defun %seed (text depth tags)
-  "Functional seed: pure data → field. The concept graph extracts topology automatically."
-  (memory-put :system text :depth depth :tags (cons :genesis tags)))
+  "Functional seed: pure data → L1 field. Genesis class is field-indexable.
+   Creates concept graph topology — the agent's global context."
+  (memory-put :genesis text :depth depth :tags (cons :genesis tags)))
 
 (defun memory-seed-from-dna ()
   "Seed the field: identity, foundation knowledge, and self-discovery.
