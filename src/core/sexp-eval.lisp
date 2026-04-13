@@ -119,6 +119,7 @@ ENV is an alist of (symbol . value) bindings. No global mutation."
      (format          (apply #'format nil args))
      (str             (apply #'concatenate 'string (mapcar #'princ-to-string args)))
      (cat             (apply #'concatenate 'string (mapcar #'princ-to-string args)))
+     (concat          (apply #'concatenate 'string (mapcar #'princ-to-string args)))
      (join            (format nil "~{~A~^ ~}" (first args)))
      (getf            (getf (first args) (second args)))
      (length          (length (first args)))
@@ -222,7 +223,7 @@ ENV is an alist of (symbol . value) bindings. No global mutation."
     datamine datamine-remote datamine-for lodes
     fetch-url fetch python py search-web search convert-doc convert
     ;; compose
-    format str cat join getf length subseq concatenate
+    format str cat concat join getf length subseq concatenate
     string-downcase string-upcase to-string princ-to-string
     + - * / > < = not and or
     ;; list ops

@@ -189,8 +189,8 @@ Only #\\ (character literal) is benign; all others are rejected."
       :routing-tier *routing-tier*)
 
     ;; The (respond ...) primitive throws 'repl-respond to exit the loop.
-    ;; After exit: auto-store the interaction for memory accumulation.
-    (let ((response
+    ;; Both paths (throw and return-from) go through %repl-auto-store-and-return.
+    (%repl-auto-store-and-return user-text
     (catch 'repl-respond
       (loop while (< round max-rounds) do
         (incf round)
@@ -268,17 +268,19 @@ Only #\\ (character literal) is benign; all others are rejected."
                (%pipeline-trace :response-delivery
                  :frontend (if (harmonia-signal-p prompt) (harmonia-signal-frontend prompt) "tui")
                  :response-len (length llm-output) :model used-model :latency-ms latency-ms)
-               (return-from %orchestrate-repl llm-output))))))))))
-      ;; Auto-store: accumulate interaction as memory if substantive
-      (when (and response (stringp response) (> (length response) 30))
-        (handler-case
-            (progn
-              ;; Store query+response as memory entry
-              (memory-put :interaction
-                          (format nil "Q: ~A~%A: ~A" user-text (%clip-prompt response 500))
-                          :tags '(:repl :interaction))
-              (%pipeline-trace :memory-auto-store
-                :query-len (length user-text)
-                :response-len (length response)))
-          (error () nil)))
-      response))
+               (return-from %orchestrate-repl
+                 (%repl-auto-store-and-return user-text llm-output)))))))))))
+
+(defun %repl-auto-store-and-return (user-text response)
+  "Store interaction as memory, then return the response."
+  (when (and response (stringp response) (> (length response) 30))
+    (handler-case
+        (progn
+          (memory-put :interaction
+                      (format nil "Q: ~A~%A: ~A" user-text (%clip-prompt response 500))
+                      :tags '(:repl :interaction))
+          (%pipeline-trace :memory-auto-store
+            :query-len (length user-text)
+            :response-len (length response)))
+      (error () nil)))
+  response)
