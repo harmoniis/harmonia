@@ -135,27 +135,31 @@ Only #\\ (character literal) is benign; all others are rejected."
 ;;; THE HARMONIC REPL — minimal, pure functional, drives any model
 ;;; ═══════════════════════════════════════════════════════════════════════
 
-(defun %repl-boot-prompt (agent-name user-text)
-  "L0 boot: teach the model HOW to think, not WHAT to know.
-   Step 1: call (field) to get global context map
-   Step 2: follow the chain — field→recall→status→respond
-   The field guides the model through memory layers automatically."
-  (concatenate 'string
-    (format nil ";; ~A REPL. Output ONE s-expression per turn.~%" agent-name)
-    ";; Start with (field) to see your global context and capabilities.
-;; Then: (recall \"q\") for user memories, (status) for system state.
-;; Tools: (exec \"cmd\") (read-file \"p\") (grep \"p\" \"d\") (fetch \"url\")
-;; (python \"code\") (search \"q\") (store \"text\") (datamine \"lode\")
-;; (respond \"answer\") when ready. (str a b) joins. (let ((x (f))) (respond x)) chains.
+(defvar *repl-frame*
+  ";; Output ONE s-expression. (respond \"answer\") to finish.
+;; (field) (recall \"q\") (status) (basin) (exec \"cmd\") (store \"text\")
+;; (read-file \"p\") (grep \"p\" \"d\") (fetch \"url\") (python \"code\")
+;; (search \"q\") (datamine \"lode\") (models) (introspect)
+;; (str a b) joins. (let ((x (basin))) (respond x)) chains.
 "
+  "The REPL instruction frame. Identical in every round — no model confusion.")
+
+(defun %repl-boot-prompt (agent-name user-text)
+  "L0 boot: REPL frame + user query. Start with (field) for context."
+  (concatenate 'string
+    (format nil ";; ~A REPL. Start with (field) for context.~%" agent-name)
+    *repl-frame*
     (format nil ";; user: ~A" user-text)))
 
 (defun %repl-continuation-prompt (round agent-name last-result user-text)
-  "Continuation: show result + remind primitives. Models forget between rounds."
-  (format nil ";; ~A R~D. Result:~%~A~%;; Available: (respond \"ans\") (recall \"q\") (exec \"cmd\") (field) (basin) (store \"t\") (python \"code\") (fetch \"url\") (str a b)~%;; user: ~A"
-          agent-name round
-          (%clip-prompt (or last-result "(nil)") 600)
-          user-text))
+  "Continuation: same REPL frame + previous eval result. No 'R3' labels.
+   Structurally identical to boot — models cannot distinguish rounds."
+  (declare (ignore round))
+  (concatenate 'string
+    (format nil ";; ~A REPL. Previous eval returned:~%" agent-name)
+    (format nil ";; ~A~%" (%clip-prompt (or last-result "") 500))
+    *repl-frame*
+    (format nil ";; user: ~A" user-text)))
 
 (defun %clip-prompt (text &optional (limit 256))
   (let ((s (or text "")))
@@ -265,16 +269,37 @@ Only #\\ (character literal) is benign; all others are rejected."
                (return-from %orchestrate-repl
                  (%repl-auto-store-and-return user-text llm-output)))))))))))
 
+(defun %sanitize-repl-response (response)
+  "Strip REPL framing that leaked into the response. Pure functional.
+   Models sometimes echo ;; prefixes, round labels, or instruction text."
+  (if (and response (stringp response))
+      (let ((cleaned response))
+        ;; Strip leading ;; comment lines (REPL framing echo)
+        (loop while (and (> (length cleaned) 3)
+                         (string= (subseq cleaned 0 2) ";;"))
+              do (let ((nl (position #\Newline cleaned)))
+                   (if nl
+                       (setf cleaned (string-trim '(#\Space #\Newline) (subseq cleaned (1+ nl))))
+                       (return))))
+        ;; Strip "harmonia R3." or similar round labels at start
+        (when (and (> (length cleaned) 10)
+                   (search "harmonia" (subseq cleaned 0 (min 20 (length cleaned)))))
+          (let ((nl (position #\Newline cleaned)))
+            (when nl (setf cleaned (string-trim '(#\Space #\Newline) (subseq cleaned (1+ nl)))))))
+        (if (> (length cleaned) 0) cleaned response))
+      response))
+
 (defun %repl-auto-store-and-return (user-text response)
-  "Store interaction as memory, then return the response."
-  (when (and response (stringp response) (> (length response) 30))
-    (handler-case
-        (progn
-          (memory-put :interaction
-                      (format nil "Q: ~A~%A: ~A" user-text (%clip-prompt response 500))
-                      :tags '(:repl :interaction))
-          (%pipeline-trace :memory-auto-store
-            :query-len (length user-text)
-            :response-len (length response)))
-      (error () nil)))
-  response)
+  "Sanitize response, store interaction, return clean response."
+  (let ((clean (%sanitize-repl-response response)))
+    (when (and clean (stringp clean) (> (length clean) 30))
+      (handler-case
+          (progn
+            (memory-put :interaction
+                        (format nil "Q: ~A~%A: ~A" user-text (%clip-prompt clean 500))
+                        :tags '(:repl :interaction))
+            (%pipeline-trace :memory-auto-store
+              :query-len (length user-text)
+              :response-len (length clean)))
+        (error () nil)))
+    clean))

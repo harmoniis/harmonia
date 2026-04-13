@@ -13,22 +13,24 @@
 (defvar *pipeline-trace-file* nil
   "Stream for the pipeline trace output file.")
 
-(defvar *pipeline-trace-path*
-  (merge-pathnames "pipeline-trace.jsonl"
-                   (make-pathname :directory
-                     (pathname-directory
-                       (or (sb-ext:posix-getenv "HARMONIA_STATE_ROOT")
-                           (merge-pathnames ".harmoniis/harmonia/"
-                             (user-homedir-pathname))))))
-  "Path to the pipeline trace JSONL file.")
+(defun %pipeline-trace-resolve-path ()
+  "Resolve trace path from state-root. Pure: reads env, computes path."
+  (let ((root (or (sb-ext:posix-getenv "HARMONIA_STATE_ROOT")
+                  (namestring (merge-pathnames ".harmoniis/harmonia/"
+                                (user-homedir-pathname))))))
+    (concatenate 'string (string-right-trim "/" root) "/pipeline-trace.jsonl")))
+
+(defvar *pipeline-trace-path* nil
+  "Resolved at enable time, not at load time.")
 
 (defvar *pipeline-trace-seq* 0
   "Monotonically increasing sequence number for trace events.")
 
 (defun pipeline-trace-enable ()
-  "Enable pipeline tracing. Opens trace file if not open."
+  "Enable pipeline tracing. Resolves path at enable time (not load time)."
   (setf *pipeline-trace-enabled* t)
   (unless *pipeline-trace-file*
+    (setf *pipeline-trace-path* (%pipeline-trace-resolve-path))
     (ensure-directories-exist *pipeline-trace-path*)
     (setf *pipeline-trace-file*
           (open *pipeline-trace-path*
