@@ -431,6 +431,12 @@
   ;; MemPalace: graph-structured knowledge palace.
   (handler-case (init-mempalace-port)
     (error (e) (%log :warn "boot" "init-mempalace-port failed: ~A" e) nil))
+  ;; Initialize palace structure (wings + rooms) BEFORE filing drawers.
+  (handler-case
+      (when (and (fboundp '%init-palace-structure) (fboundp 'mempalace-port-ready-p)
+                 (mempalace-port-ready-p))
+        (%init-palace-structure))
+    (error (e) (%log :warn "boot" "palace structure init failed: ~A" e) nil))
   ;; Populate palace from high-value memory entries.
   (handler-case
       (when (and (fboundp 'mempalace-port-ready-p) (mempalace-port-ready-p))
