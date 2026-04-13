@@ -425,19 +425,54 @@ EXPLORE: (exec cmd) (fetch url) (python code) (search q) (datamine lode) for new
 ;;; ═══════════════════════════════════════════════════════════════════════
 
 (defun %prim-fetch-url (url)
-  "Fetch URL content. Uses existing browser/hfetch tool via workspace-exec.
-   Returns extracted text or error."
+  "Fetch URL content via curl + markitdown for clean text extraction.
+   Returns readable text, not raw HTML — Kolmogorov-minimal for the model."
   (if (and url (stringp url) (> (length url) 5))
       (or (handler-case
-              ;; Try hfetch first (lightweight), fall back to curl + markitdown
-              (let ((result (workspace-exec "curl" (list "-sL" "-m" "15"
-                                                        "-H" "User-Agent: Harmonia/0.2"
-                                                        url))))
+              ;; Use markitdown for clean extraction if available
+              (let ((result (workspace-exec "python3"
+                              (list "-c"
+                                    (format nil "
+import sys
+try:
+    from markitdown import MarkItDown
+    m = MarkItDown()
+    r = m.convert_url('~A')
+    print(r.text_content[:6000])
+except Exception as e:
+    # Fallback: curl + basic text
+    import subprocess
+    html = subprocess.run(['curl', '-sL', '-m', '15', '~A'], capture_output=True, text=True).stdout
+    # Strip HTML tags naively
+    import re
+    text = re.sub('<[^>]+>', ' ', html)
+    text = re.sub('\\\\s+', ' ', text).strip()
+    print(text[:6000])
+" url url)))))
                 (when (and result (stringp result) (> (length result) 0))
-                  (subseq result 0 (min (length result) 8000))))
+                  result))
             (error () nil))
-          (format nil "(fetch-url error: ~A)" url))
-      "(fetch-url: url required)"))
+          (format nil "(fetch error: ~A)" url))
+      "(fetch: url required)"))
+
+(defun %prim-browse (url &optional (macro "text") (arg ""))
+  "Browser tool: fetch URL with extraction macro. Pure functional query interface.
+   Macros: text, links, headings, tables, markdown, smart, structured, title, meta
+   Model gets ONLY the extracted data, not the whole page. Kolmogorov-minimal."
+  (if (and url (stringp url) (> (length url) 5))
+      (or (handler-case
+              (let* ((macro-str (if (stringp macro) macro (princ-to-string macro)))
+                     (arg-str (if (stringp arg) arg (princ-to-string arg)))
+                     (cmd (format nil "tool op=browser_search url=~A macro=~A~A"
+                                  url macro-str
+                                  (if (> (length arg-str) 0) (format nil " arg=~A" arg-str) ""))))
+                (when (fboundp '%maybe-handle-tool-command)
+                  (funcall '%maybe-handle-tool-command cmd)))
+            (error (e)
+              ;; Fallback: use fetch-url
+              (%prim-fetch-url url)))
+          (format nil "(browse error: ~A)" url))
+      "(browse: url required)"))
 
 (defun %prim-python (script)
   "Execute Python script via tmux. Returns stdout.

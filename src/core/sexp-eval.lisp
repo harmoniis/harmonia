@@ -193,12 +193,14 @@ ENV is an alist of (symbol . value) bindings. No global mutation."
      ;; ── Web + Python (datamining and document processing) ──────
      (fetch-url       (%prim-fetch-url (first args)))
      (fetch           (%prim-fetch-url (first args)))
+     (browse          (apply #'%prim-browse args))
      (python          (%prim-python (first args)))
      (py              (%prim-python (first args)))
      (search-web      (%prim-search-web (first args)))
      (search          (%prim-search-web (first args)))
      (convert-doc     (%prim-convert-doc (first args)))
      (convert         (%prim-convert-doc (first args)))
+     (markitdown      (%prim-convert-doc (first args)))
      ;; ── Respond fallback (should be caught in %reval special forms) ──
      (respond         (throw 'repl-respond (first args)))
      ;; ── Unknown ──────────────────────────────────────────────
@@ -222,7 +224,7 @@ ENV is an alist of (symbol . value) bindings. No global mutation."
     ;; palace + datamining + web + python
     palace-search palace-file palace-graph palace-compress palace-context palace-kg
     datamine datamine-remote datamine-for lodes
-    fetch-url fetch python py search-web search convert-doc convert
+    fetch-url fetch browse python py search-web search convert-doc convert markitdown
     ;; compose
     format str cat concat join getf length subseq concatenate
     string-downcase string-upcase to-string princ-to-string

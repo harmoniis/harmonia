@@ -138,9 +138,9 @@ Only #\\ (character literal) is benign; all others are rejected."
 (defvar *repl-frame*
   ";; Output ONE s-expression. (respond \"answer\") to finish.
 ;; (field) (recall \"q\") (status) (basin) (exec \"cmd\") (store \"text\")
-;; (read-file \"p\") (grep \"p\" \"d\") (fetch \"url\") (python \"code\")
-;; (search \"q\") (datamine \"lode\") (models) (introspect)
-;; (str a b) joins. (let ((x (basin))) (respond x)) chains.
+;; (fetch \"url\") (browse \"url\" \"text\") (python \"code\") (search \"q\")
+;; (read-file \"p\") (grep \"p\" \"d\") (markitdown \"file\") (datamine \"lode\")
+;; (str a b) joins. (let ((x (fetch \"url\"))) (respond x)) chains.
 "
   "The REPL instruction frame. Identical in every round — no model confusion.")
 
