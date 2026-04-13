@@ -136,19 +136,17 @@ Only #\\ (character literal) is benign; all others are rejected."
 ;;; ═══════════════════════════════════════════════════════════════════════
 
 (defun %repl-boot-prompt (agent-name user-text)
-  "L0 boot prompt. Kolmogorov-minimal: primitives + user query.
-   No recalled memories injected — model discovers context via REPL.
-   L1 field gives global context. L2/L3/L4 via primitives."
+  "L0 boot: teach the model HOW to think, not WHAT to know.
+   Step 1: call (field) to get global context map
+   Step 2: follow the chain — field→recall→status→respond
+   The field guides the model through memory layers automatically."
   (concatenate 'string
-    (format nil ";; ~A REPL. Reply with ONE s-expression.~%" agent-name)
-    ";; (respond \"text\") — final answer to user
-;; (recall \"q\") — search user memories (L3 palace)
-;; (status) (basin) (introspect) — system state (L2 chronicle)
-;; (exec \"cmd\") (read-file \"p\") (grep \"p\" \"d\") (list-files \"d\")
-;; (store \"text\") — store to user memory (L3 palace)
-;; (fetch \"url\") (python \"code\") (search \"q\") (convert \"file\")
-;; (palace-search \"q\") (datamine \"lode\") (models)
-;; (str a b) joins. (let ((x (basin))) (respond x)) chains.
+    (format nil ";; ~A REPL. Output ONE s-expression per turn.~%" agent-name)
+    ";; Start with (field) to see your global context and capabilities.
+;; Then: (recall \"q\") for user memories, (status) for system state.
+;; Tools: (exec \"cmd\") (read-file \"p\") (grep \"p\" \"d\") (fetch \"url\")
+;; (python \"code\") (search \"q\") (store \"text\") (datamine \"lode\")
+;; (respond \"answer\") when ready. (str a b) joins. (let ((x (f))) (respond x)) chains.
 "
     (format nil ";; user: ~A" user-text)))
 

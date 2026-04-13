@@ -106,7 +106,8 @@ ENV is an alist of (symbol . value) bindings. No global mutation."
    (case op
      ;; ── Self-discovery ────────────────────────────────────────
      (env             (%prim-env))
-     ;; ── Read the system ──────────────────────────────────────
+     ;; ── Read the system (L1 field → L2 chronicle → L3 palace) ──
+     (field           (%prim-field))
      (recall          (apply #'%prim-recall args))
      (ipc             (apply #'%prim-ipc args))
      (introspect      (%prim-introspect))
@@ -215,7 +216,7 @@ ENV is an alist of (symbol . value) bindings. No global mutation."
 
 (defparameter *repl-primitives*
   '(;; system
-    env recall respond store read-file grep list-files exec write-file
+    env field recall respond store read-file grep list-files exec write-file
     append-file file-exists file-info status introspect basin models
     chaos-risk dream meditate spawn evolve ipc route-check tool
     ;; palace + datamining + web + python

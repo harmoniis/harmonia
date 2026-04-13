@@ -99,6 +99,24 @@ The REPL has full Lisp power; Rust is the boundary."
         (error () nil))
       0.5))
 
+(defun %prim-field ()
+  "L1 global context: the map of what the agent knows and how to navigate.
+   Returns a compact guide: capabilities, where to search, chain of thought.
+   The model reads this FIRST to understand how to proceed."
+  (let ((basin (or (handler-case (%prim-basin) (error () nil)) "?"))
+        (mem-count (hash-table-count *memory-store*))
+        (concept-count (hash-table-count *memory-concept-nodes*))
+        (palace-ok (and (fboundp 'mempalace-port-ready-p) (funcall 'mempalace-port-ready-p)))
+        (tier (if (boundp '*routing-tier*) (symbol-name *routing-tier*) "auto")))
+    (format nil "GLOBAL CONTEXT:
+basin=~A concepts=~D memories=~D palace=~A tier=~A
+CHAIN: (field)→understand → (recall q)→user-data → (status)→system → (respond answer)
+TOOLS: exec read-file grep list-files write-file fetch python search convert datamine
+MEMORY: (recall q) searches palace for user knowledge. (store text) saves to palace.
+SYSTEM: (status) (basin) (introspect) (models) for self-knowledge.
+EXPLORE: (exec cmd) (fetch url) (python code) (search q) (datamine lode) for new data."
+            basin mem-count concept-count (if palace-ok "ready" "offline") tier)))
+
 (defun %prim-basin ()
   "Return basin status as structured string: basin=X dwell=N threshold=F"
   (or (handler-case
