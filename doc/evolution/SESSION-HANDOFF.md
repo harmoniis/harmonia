@@ -2,7 +2,45 @@
 
 ## CRITICAL: Read This First
 
-This document is the COMPLETE context for the next development session on Harmonia. The previous session (2026-04-12/13) made 16 commits that fixed real bugs BUT also introduced violations of the codebase design patterns. ALL violations must be fixed before any new features are built.
+This document is the COMPLETE context for the next development session on Harmonia. The previous session (2026-04-12/13) made 17 commits that fixed real bugs BUT also introduced violations of the codebase design patterns. ALL violations must be fixed before any new features are built.
+
+## Current Runtime State (verified 2026-04-13)
+
+```
+Rust tests: 525 pass, 0 fail
+Agent: running, mode=full, uptime ~2h
+L1 Field: 126 concepts (genesis/vitruvian/kolmogorov/lorenz...), basin=THOMAS-0, dwell=1810
+L3 Palace: 12 nodes, 5 edges, 4 wings, 8 rooms, search works (6 results for "law")
+L2 Chronicle: 151 entries (54 other, 48 daily, 34 tool, 15 interaction)
+Signalograd: confidence=0.498, stability=0.652, memory-slots-used=0
+```
+
+### What Actually Works E2E (honestly verified)
+- REPL circuit: boot → (field) → model calls primitives → respond ✓
+- (basin) returns "basin=THOMAS-0 dwell=N energy=0 threshold=0.498" ✓
+- (exec "uname -a") returns Darwin info ✓
+- (exec "sw_vers") + (exec "sysctl") + (exec "which rustc python3") in ONE round ✓
+- Memory auto-store to palace + chronicle ✓
+- Palace search returns real results ✓
+- Model scoring: fluency/speed tracks per-model ✓
+- markitdown installed and working (extracts law PDF content) ✓
+
+### What Fails E2E (honestly)
+- (fetch url) returns STDERR traceback — Python embedding through IPC corrupts the script
+- (store content) loses data — model writes (store "title") not (store variable)
+- Model rotation between rounds loses context
+- Palace drawers filed but some rooms fail ("room N not found")
+- Continuation prompt shows raw REPL state to user
+- (python "code") fails when code has newlines/quotes embedded
+
+### Parent Session Context
+- The Aharonov-Bohm memory field with RK4, heat kernel, topological flux was built in a parent session
+- The 4-layer memory hierarchy was designed in the parent session
+- This session focused on making the REPL circuit work end-to-end
+- markitdown was installed: `pip install markitdown` — converts PDF/DOCX/HTML to text
+- scrapling NOT installed yet (planned for browser integration)
+- The user wants 100 different use cases to work, not just the ones tested
+- The user specifically asked to test scraping Brandenburg law publications from bravors.brandenburg.de
 
 ## Codebase Rules — ETERNAL COMMANDMENTS
 
