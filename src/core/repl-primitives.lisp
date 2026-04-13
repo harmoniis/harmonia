@@ -425,32 +425,30 @@ EXPLORE: (exec cmd) (fetch url) (python code) (search q) (datamine lode) for new
 ;;; ═══════════════════════════════════════════════════════════════════════
 
 (defun %prim-fetch-url (url)
-  "Fetch URL content via curl + markitdown for clean text extraction.
-   Returns readable text, not raw HTML — Kolmogorov-minimal for the model."
+  "Fetch URL content via markitdown. Writes Python script to temp file
+   to avoid IPC escaping issues with inline code. Pure functional."
   (if (and url (stringp url) (> (length url) 5))
       (or (handler-case
-              ;; Use markitdown for clean extraction if available
-              (let ((result (workspace-exec "python3"
-                              (list "-c"
-                                    (format nil "
+              (let ((script (format nil "
 import sys
 try:
     from markitdown import MarkItDown
     m = MarkItDown()
     r = m.convert_url('~A')
-    print(r.text_content[:6000])
+    print(r.text_content[:8000])
 except Exception as e:
-    # Fallback: curl + basic text
     import subprocess
     html = subprocess.run(['curl', '-sL', '-m', '15', '~A'], capture_output=True, text=True).stdout
-    # Strip HTML tags naively
     import re
     text = re.sub('<[^>]+>', ' ', html)
-    text = re.sub('\\\\s+', ' ', text).strip()
-    print(text[:6000])
-" url url)))))
-                (when (and result (stringp result) (> (length result) 0))
-                  result))
+    text = re.sub(r'\\s+', ' ', text).strip()
+    print(text[:8000])
+" url url)))
+                ;; Write to temp file — avoids all escaping issues
+                (workspace-write-file "/tmp/harmonia-fetch.py" script)
+                (let ((result (workspace-exec "python3" (list "/tmp/harmonia-fetch.py"))))
+                  (when (and result (stringp result) (> (length result) 0))
+                    result)))
             (error () nil))
           (format nil "(fetch error: ~A)" url))
       "(fetch: url required)"))
@@ -475,11 +473,19 @@ except Exception as e:
       "(browse: url required)"))
 
 (defun %prim-python (script)
-  "Execute Python script via tmux. Returns stdout.
-   For document processing, web scraping, data analysis."
+  "Execute Python script. Large scripts written to temp file to avoid
+   escaping issues with inline -c. Pure functional: no side effects beyond exec."
   (if (and script (stringp script) (> (length script) 0))
       (or (handler-case
-              (workspace-exec "python3" (list "-c" script))
+              (if (or (> (length script) 200)
+                      (position #\Newline script)
+                      (position #\' script))
+                  ;; Large/complex scripts: write to temp file, execute file
+                  (progn
+                    (workspace-write-file "/tmp/harmonia-py-exec.py" script)
+                    (workspace-exec "python3" (list "/tmp/harmonia-py-exec.py")))
+                  ;; Short simple scripts: inline -c
+                  (workspace-exec "python3" (list "-c" script)))
             (error (e) (format nil "(python error: ~A)" e)))
           "(python: execution failed)")
       "(python: script required)"))

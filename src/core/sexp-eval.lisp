@@ -102,8 +102,9 @@ ENV is an alist of (symbol . value) bindings. No global mutation."
     :op op
     :args-count (length args)
     :args-preview (%clip-prompt (format nil "~S" args) 120))
-  (%bound-result
-   (case op
+  ;; NO %bound-result here — raw values flow through let bindings intact.
+  ;; Truncation happens ONLY at display boundaries (eval-all-forms, respond).
+  (case op
      ;; ── Self-discovery ────────────────────────────────────────
      (env             (%prim-env))
      ;; ── Read the system (L1 field → L2 chronicle → L3 palace) ──
@@ -204,7 +205,7 @@ ENV is an alist of (symbol . value) bindings. No global mutation."
      ;; ── Respond fallback (should be caught in %reval special forms) ──
      (respond         (throw 'repl-respond (first args)))
      ;; ── Unknown ──────────────────────────────────────────────
-     (otherwise       (format nil "(:error \"unknown primitive: ~A\")" op)))))
+     (otherwise       (format nil "(:error \"unknown primitive: ~A\")" op))))
 
 (defun %bound-result (val)
   (let ((s (if (stringp val) val (princ-to-string val))))

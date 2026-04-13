@@ -195,10 +195,16 @@ pub(crate) fn dispatch(sexp: &str) -> String {
                 Ok(out) => {
                     let stdout = String::from_utf8_lossy(&out.stdout);
                     let stderr = String::from_utf8_lossy(&out.stderr);
-                    let combined = if stderr.is_empty() {
-                        stdout.to_string()
+                    // Only include stderr if the process FAILED (non-zero exit).
+                    // Successful processes with stderr warnings should return stdout only.
+                    let combined = if out.status.success() || stderr.is_empty() {
+                        if stdout.is_empty() && !stderr.is_empty() {
+                            format!("STDERR:\n{}", stderr)  // no stdout but has stderr
+                        } else {
+                            stdout.to_string()  // success: stdout only
+                        }
                     } else {
-                        format!("{}\nSTDERR:\n{}", stdout, stderr)
+                        format!("{}\nSTDERR:\n{}", stdout, stderr)  // failure: both
                     };
                     let capped = if combined.len() > 8192 { &combined[..8192] } else { &combined };
                     let exit_code = out.status.code().unwrap_or(-1);

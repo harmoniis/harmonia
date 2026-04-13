@@ -53,7 +53,8 @@ Only #\\ (character literal) is benign; all others are rejected."
                            (subseq (princ-to-string form) 0
                                    (min 60 (length (princ-to-string form))))
                            (length (princ-to-string result)))
-                     (push (princ-to-string result) results))))
+                     ;; Bound at DISPLAY time only — raw values flowed through let bindings intact.
+                     (push (%bound-result (princ-to-string result)) results))))
       (error (c)
         (push (format nil "(:parse-error \"~A\")" (princ-to-string c)) results)))
     (format nil "~{~A~%~}" (nreverse results))))
@@ -157,7 +158,7 @@ Only #\\ (character literal) is benign; all others are rejected."
   (declare (ignore round))
   (concatenate 'string
     (format nil ";; ~A REPL. Previous eval returned:~%" agent-name)
-    (format nil ";; ~A~%" (%clip-prompt (or last-result "") 500))
+    (format nil ";; ~A~%" (%clip-prompt (or last-result "") 2000))
     *repl-frame*
     (format nil ";; user: ~A" user-text)))
 
