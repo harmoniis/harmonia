@@ -65,11 +65,16 @@ E.g. tag :identity connects to content words, so 'who are you' finds identity en
          (concepts (remove-duplicates (append content-concepts tag-concepts) :test #'string=)))
     (dolist (c concepts)
       (%upsert-concept-node c class depth entry-id))
-    ;; Symmetric edges (existing behavior — unchanged)
-    (loop for left in concepts do
-      (loop for right in concepts do
+    ;; Content↔Content edges (co-occurrence within text — meaningful)
+    (loop for left in content-concepts do
+      (loop for right in content-concepts do
         (when (string< left right)
           (%upsert-concept-edge left right reason))))
+    ;; Tag↔Content edges (semantic bridges — tags connect to content, not to each other)
+    (dolist (tag tag-concepts)
+      (dolist (cc content-concepts)
+        (unless (string= tag cc)
+          (%upsert-concept-edge tag cc :tag-bridge))))
     ;; Directed temporal ordering — concepts is in appearance order.
     ;; A before B in text -> increment forward(A,B) count.
     ;; This breaks the graph symmetry needed for A-B topological flux.

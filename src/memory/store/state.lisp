@@ -200,10 +200,16 @@ Called once at boot, before memory-field initialization."
                      (tags (mapcar (lambda (s) (intern (string-upcase s) :keyword))
                                    (remove-if (lambda (s) (= (length s) 0))
                                               (%simple-split tags-str #\Space))))
+                     ;; Infer depth from class — soul is identity (deep), skill is compressed.
+                     (depth (cond
+                              ((eq class :soul) 2)
+                              ((eq class :skill) 1)
+                              ((eq class :tool) 1)
+                              (t 0)))
                      (entry (make-memory-entry :id id
                                                :time ts
                                                :class class
-                                               :depth 0
+                                               :depth depth
                                                :content content
                                                :tags tags
                                                :source-ids nil

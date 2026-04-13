@@ -60,6 +60,22 @@ Thread-safe: RAM mutations under lock, Chronicle persist outside lock."
     ;; Persist to Chronicle OUTSIDE the lock — IPC can take 90s, must not block other memory ops.
     (handler-case (%persist-entry-to-chronicle id now content all-tags source-ids)
       (error (e) (%log :warn "memory" "Persist failed for ~A: ~A" id e)))
+    ;; Auto-file high-value entries to palace (depth > 0 = crystallized knowledge).
+    (when (and (> depth 0)
+               (fboundp 'mempalace-port-ready-p) (funcall 'mempalace-port-ready-p))
+      (handler-case
+          (funcall 'palace-file-drawer content
+                   (case class (:soul 1) (:skill 2) (:tool 3) (t 4))
+                   :tags (mapcar (lambda (tg) (string-downcase (symbol-name tg)))
+                                 (remove-if-not #'keywordp all-tags)))
+        (error () nil)))
+    ;; Reload field graph periodically to keep eigenstructure current.
+    (when (and (fboundp 'memory-field-port-ready-p) (funcall 'memory-field-port-ready-p)
+               (zerop (mod *memory-seq* 5)))
+      (handler-case (funcall 'memory-field-load-graph) (error () nil)))
+    ;; Trace
+    (%pipeline-trace :memory-put :class class :depth depth
+      :tags-count (length all-tags) :content-len (length content))
     id))
 
 ;; memory-seed-soul-from-dna is defined in dna.lisp — the DNA is the source of seeds.
@@ -97,6 +113,33 @@ Thread-safe: RAM mutations under lock, Chronicle persist outside lock."
               :depth 0
               :tags (list :tool-metric)))
 
+(defun %populate-palace-from-memory ()
+  "File high-value memory entries as palace drawers. Called at boot.
+   Only entries with depth >= 1 (crystallized/identity) are filed."
+  (let ((filed 0))
+    (maphash (lambda (id entry)
+               (declare (ignore id))
+               (when (and (>= (memory-entry-depth entry) 1)
+                          (stringp (memory-entry-content entry))
+                          (> (length (memory-entry-content entry)) 30)
+                          (fboundp 'palace-file-drawer))
+                 (handler-case
+                     (let* ((class (memory-entry-class entry))
+                            (room-id (case class
+                                       (:soul 1) (:skill 2) (:tool 3) (t 4)))
+                            (tags (memory-entry-tags entry))
+                            (tag-strings (mapcar (lambda (tg)
+                                                   (string-downcase (symbol-name tg)))
+                                                 (remove-if-not #'keywordp tags))))
+                       (funcall 'palace-file-drawer
+                                (memory-entry-content entry) room-id
+                                :tags tag-strings)
+                       (incf filed))
+                   (error () nil))))
+             *memory-store*)
+    (%log :info "mempalace" "Filed ~D entries as palace drawers." filed)
+    filed))
+
 (defun memory-record-orchestration (prompt response tool score latency-ms &key harmony)
   (let ((daily-id
           (memory-put :daily
@@ -116,36 +159,49 @@ Thread-safe: RAM mutations under lock, Chronicle persist outside lock."
   "ONE recall function. Field first, recent entries as fallback. No class filter.
 The field topology decides relevance. If field unavailable, return recent entries.
 Thread-safe: field IPC outside lock, hash-table reads/writes under lock."
-  (or (handler-case
-          (when (and (fboundp 'memory-field-port-ready-p)
-                     (funcall 'memory-field-port-ready-p))
-            ;; Field IPC call OUTSIDE lock — can take up to 90s.
-            (let* ((field-result (funcall 'memory-field-recall query :limit (* limit 3)))
-                   (activations (and (listp field-result) (getf field-result :activations)))
-                   (all '()))
-              ;; Hash-table reads/writes UNDER lock.
-              (with-memory-lock ()
-                (dolist (act activations)
-                  (when (listp act)
-                    (dolist (entry-id (getf act :entries))
-                      (when (stringp entry-id)
-                        (let ((entry (gethash entry-id *memory-store*)))
-                          (when entry
-                            (incf (memory-entry-access-count entry))
-                            (setf (memory-entry-last-access entry) (get-universal-time))
-                            (push (cons (or (getf act :score) 0.0) entry) all))))))))
-              (when all
-                (mapcar #'cdr
-                  (subseq (sort (remove-duplicates all
-                                  :key (lambda (p) (memory-entry-id (cdr p)))
-                                  :test #'string=)
-                                #'> :key #'car)
-                          0 (min limit (length all)))))))
-        (error () nil))
-      ;; Fallback: high-depth entries first (crystallized = structural/identity), then any recent.
-      ;; No class filter — depth is the field's way of saying "this matters".
-      (%memory-by-depth limit 1)
-      (memory-recent :limit limit)))
+  (let ((source "none") (result-count 0))
+    (or (handler-case
+            (when (and (fboundp 'memory-field-port-ready-p)
+                       (funcall 'memory-field-port-ready-p))
+              ;; Field IPC call OUTSIDE lock — can take up to 90s.
+              (let* ((field-result (funcall 'memory-field-recall query :limit (* limit 3)))
+                     (activations (and (listp field-result) (getf field-result :activations)))
+                     (all '()))
+                ;; Hash-table reads/writes UNDER lock.
+                (with-memory-lock ()
+                  (dolist (act activations)
+                    (when (listp act)
+                      (dolist (entry-id (getf act :entries))
+                        (when (stringp entry-id)
+                          (let ((entry (gethash entry-id *memory-store*)))
+                            (when entry
+                              (incf (memory-entry-access-count entry))
+                              (setf (memory-entry-last-access entry) (get-universal-time))
+                              (push (cons (or (getf act :score) 0.0) entry) all))))))))
+                (when all
+                  (setf source "field" result-count (length all))
+                  (let ((results (mapcar #'cdr
+                                   (subseq (sort (remove-duplicates all
+                                                   :key (lambda (p) (memory-entry-id (cdr p)))
+                                                   :test #'string=)
+                                                 #'> :key #'car)
+                                           0 (min limit (length all))))))
+                    (%pipeline-trace :memory-recall
+                      :query (%clip-prompt query 60)
+                      :source source :result-count result-count)
+                    results))))
+          (error () nil))
+        ;; Fallback: high-depth entries first, then any recent.
+        (let ((deep (%memory-by-depth limit 1)))
+          (when deep (setf source "depth-fallback" result-count (length deep))
+                (%pipeline-trace :memory-recall
+                  :query (%clip-prompt query 60) :source source :result-count result-count))
+          deep)
+        (let ((recent (memory-recent :limit limit)))
+          (when recent (setf source "recent-fallback" result-count (length recent))
+                (%pipeline-trace :memory-recall
+                  :query (%clip-prompt query 60) :source source :result-count result-count))
+          recent))))
 
 ;; Legacy compat — old callers use memory-layered-recall
 (defun memory-layered-recall (query &key (limit 10) (dive nil))

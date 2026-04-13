@@ -418,11 +418,24 @@
   ;; Memory-field: initialize port, push graph, warm-start basin.
   (handler-case (init-memory-field-port)
     (error (e) (%log :warn "boot" "init-memory-field-port failed: ~A" e) nil))
+  ;; Push the concept graph to the Rust field engine (nodes + edges).
+  (handler-case
+      (when (and (fboundp 'memory-field-port-ready-p) (memory-field-port-ready-p))
+        (memory-field-load-graph)
+        (%log :info "memory-field" "Graph pushed: ~D nodes, ~D edges."
+              (hash-table-count *memory-concept-nodes*)
+              (hash-table-count *memory-concept-edges*)))
+    (error (e) (%log :warn "boot" "memory-field-load-graph failed: ~A" e) nil))
   (handler-case (memory-field-warm-start-from-chronicle)
     (error (e) (%log :warn "boot" "memory-field-warm-start failed: ~A" e) nil))
   ;; MemPalace: graph-structured knowledge palace.
   (handler-case (init-mempalace-port)
     (error (e) (%log :warn "boot" "init-mempalace-port failed: ~A" e) nil))
+  ;; Populate palace from high-value memory entries.
+  (handler-case
+      (when (and (fboundp 'mempalace-port-ready-p) (mempalace-port-ready-p))
+        (%populate-palace-from-memory))
+    (error (e) (%log :warn "boot" "palace population failed: ~A" e) nil))
   ;; Terraphon: platform datamining tools.
   (handler-case (init-terraphon-port)
     (error (e) (%log :warn "boot" "init-terraphon-port failed: ~A" e) nil))
