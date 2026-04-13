@@ -69,15 +69,16 @@
     ;; L2: ALL entries persist to Chronicle (system log).
     (handler-case (%persist-entry-to-chronicle id now content all-tags source-ids)
       (error (e) (%log :warn "memory" "Persist failed for ~A: ~A" id e)))
-    ;; L3: User knowledge → Palace drawers.
-    ;; Room IDs: 4=soul, 5=skills, 6=conversations, 7=tools, 8=documents
+    ;; L3: User knowledge → Palace drawers. Rooms created on demand.
     (when (and (%palace-worthy-p class depth)
-               (fboundp 'mempalace-port-ready-p) (funcall 'mempalace-port-ready-p))
+               (fboundp '%palace-ensure-room))
       (handler-case
-          (funcall 'palace-file-drawer content
-                   (case class (:soul 4) (:skill 5) (:daily 6) (:interaction 6) (:tool 7) (t 8))
-                   :tags (mapcar (lambda (tg) (string-downcase (symbol-name tg)))
-                                 (remove-if-not #'keywordp all-tags)))
+          (let ((room-id (funcall '%palace-ensure-room
+                                   (funcall '%palace-room-for-class class))))
+            (when room-id
+              (funcall 'palace-file-drawer content room-id
+                       :tags (mapcar (lambda (tg) (string-downcase (symbol-name tg)))
+                                     (remove-if-not #'keywordp all-tags)))))
         (error () nil)))
     ;; Reload field graph periodically (only if field-indexable content changed).
     (when (and (%field-indexable-p class)
@@ -138,9 +139,9 @@
                           (fboundp 'palace-file-drawer))
                  (handler-case
                      (let* ((class (memory-entry-class entry))
-                            ;; Room IDs: 4=soul, 5=skills, 6=conversations, 7=tools, 8=documents
-                            (room-id (case class
-                                       (:soul 4) (:skill 5) (:tool 7) (t 8)))
+                            (room-id (when (fboundp '%palace-ensure-room)
+                                       (funcall '%palace-ensure-room
+                                                (funcall '%palace-room-for-class class))))
                             (tags (memory-entry-tags entry))
                             (tag-strings (mapcar (lambda (tg)
                                                    (string-downcase (symbol-name tg)))

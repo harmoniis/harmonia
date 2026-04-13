@@ -41,33 +41,28 @@ Shared by all ports — one function, not duplicated."
     (setf *mempalace-ready* (and reply (ipc-reply-ok-p reply)))
     *mempalace-ready*))
 
-;;; ─── Structure initialization ───────────────────────────────────────
+;;; ─── Self-organizing structure ──────────────────────────────────────
 
-(defun %init-palace-structure ()
-  "Create the palace wing + room structure. Idempotent — safe to call on every boot.
-   Wings are top-level categories. Rooms are filing targets for drawers."
-  (when (mempalace-port-ready-p)
-    ;; Wings (top-level organizational nodes)
-    (palace-add-node "wing" "identity" "generic")     ;; wing 0: agent identity & DNA
-    (palace-add-node "wing" "knowledge" "generic")    ;; wing 1: learned skills & facts
-    (palace-add-node "wing" "interactions" "generic")  ;; wing 2: user conversations
-    (palace-add-node "wing" "exploration" "generic")   ;; wing 3: datamined content
-    ;; Rooms within wings (filing targets — room IDs used by palace-file-drawer)
-    (palace-add-node "room" "soul" "generic")          ;; room for :soul class (ID varies)
-    (palace-add-node "room" "skills" "generic")        ;; room for :skill class
-    (palace-add-node "room" "conversations" "generic") ;; room for :daily/:interaction
-    (palace-add-node "room" "tools" "generic")         ;; room for :tool class
-    (palace-add-node "room" "documents" "generic")     ;; room for mined documents
-    ;; Edges: wings contain rooms
-    (handler-case
-        (progn
-          (palace-add-edge 0 4 "contains" 1.0)   ;; identity contains soul
-          (palace-add-edge 1 5 "contains" 1.0)   ;; knowledge contains skills
-          (palace-add-edge 2 6 "contains" 1.0)   ;; interactions contains conversations
-          (palace-add-edge 2 7 "contains" 1.0)   ;; interactions contains tools
-          (palace-add-edge 3 8 "contains" 1.0))  ;; exploration contains documents
-      (error () nil))
-    (%log :info "mempalace" "Palace structure initialized (4 wings, 5 rooms).")))
+(defvar *palace-room-cache* (make-hash-table :test 'equal)
+  "Cache: domain-string → room-id. Rooms are created on demand.")
+
+(defun %palace-ensure-room (domain)
+  "Get or create a room for DOMAIN. Pure functional: structure emerges from data.
+   Returns room ID. Caches for performance. DuplicateNode = already exists (ok)."
+  (or (gethash domain *palace-room-cache*)
+      (when (mempalace-port-ready-p)
+        (let ((result (handler-case
+                          (palace-add-node "room" domain (or domain "generic"))
+                        (error () nil))))
+          (let ((id (when (listp result) (getf result :id))))
+            (when id
+              (setf (gethash domain *palace-room-cache*) id)
+              id))))))
+
+(defun %palace-room-for-class (class)
+  "Map memory class to a domain string. The domain becomes a room name.
+   New classes automatically create new rooms — no hardcoded mapping."
+  (string-downcase (symbol-name class)))
 
 ;;; ─── Graph operations ───────────────────────────────────────────────
 
