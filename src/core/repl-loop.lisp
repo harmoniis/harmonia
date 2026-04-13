@@ -151,9 +151,11 @@ Only #\\ (character literal) is benign; all others are rejected."
     (format nil ";; user: ~A" user-text)))
 
 (defun %repl-continuation-prompt (round agent-name last-result user-text)
-  "Continuation prompt: show eval result, ask for next step."
-  (format nil ";; ~A R~D. Previous result:~%~A~%;; Reply with (respond \"answer\") or another s-expression.~%;; user: ~A"
-          agent-name round (or last-result "(nil)") user-text))
+  "Continuation: show result + remind primitives. Models forget between rounds."
+  (format nil ";; ~A R~D. Result:~%~A~%;; Available: (respond \"ans\") (recall \"q\") (exec \"cmd\") (field) (basin) (store \"t\") (python \"code\") (fetch \"url\") (str a b)~%;; user: ~A"
+          agent-name round
+          (%clip-prompt (or last-result "(nil)") 600)
+          user-text))
 
 (defun %clip-prompt (text &optional (limit 256))
   (let ((s (or text "")))
