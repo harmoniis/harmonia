@@ -149,8 +149,10 @@ panic = "abort"
 overflow-checks = true
 # Performance: link-time optimization across all crates
 lto = "thin"
-# Performance: single codegen unit for maximum optimization
-codegen-units = 1
+# Parallel codegen units (not 1): thin LTO + `codegen-units = 1` has triggered
+# rustc SIGSEGV compiling large TLS stacks (reqwest/rustls via webylib → payment-auth)
+# on some macOS LLVM builds. Slightly less aggressive per-crate optimization, same LTO.
+codegen-units = 16
 # Strip debug info from release binaries
 strip = "symbols"
 
