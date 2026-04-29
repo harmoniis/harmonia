@@ -23,6 +23,7 @@ members = [
     "lib/core/admin-intent",
     "lib/core/chronicle",
     "lib/core/actor-protocol",
+    "lib/core/mcp",
     "lib/core/runtime",
     "lib/core/observability",
     "lib/core/node-rpc",
@@ -155,6 +156,11 @@ lto = "thin"
 codegen-units = 16
 # Strip debug info from release binaries
 strip = "symbols"
+
+# Bundled sqlite3.c at C `-O3` can fail on Apple clang (LLVM) with:
+# "cannot compile this scalar expression yet". `cc` uses this crate's opt-level.
+[profile.release.package.libsqlite3-sys]
+opt-level = 1
 
 [profile.bench]
 # Benchmarks need accurate timing — use release optimizations

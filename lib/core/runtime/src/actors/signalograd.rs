@@ -42,15 +42,17 @@ impl Actor for SignalogradActor {
     ) -> Result<(), ActorProcessingErr> {
         match message {
             ComponentMsg::Tick => {
-                let status = harmonia_signalograd::status_sexp(&state.kernel);
-                if !status.is_empty() && status != "()" {
+                let proposal = harmonia_signalograd::projection_to_sexp(
+                    &state.kernel.last_projection,
+                );
+                if !proposal.is_empty() {
                     let msg = HarmoniaMessage {
                         id: 0,
                         source: 0,
                         target: 0,
                         kind: ActorKind::Signalograd,
                         timestamp: now_unix(),
-                        payload: MessagePayload::StateChanged { to: status },
+                        payload: MessagePayload::StateChanged { to: proposal },
                     };
                     let _ = state.bridge.cast(BridgeMsg::Enqueue { msg });
                 }

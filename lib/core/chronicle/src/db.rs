@@ -2,11 +2,33 @@ use rusqlite::Connection;
 use std::env;
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::sync::{Mutex, OnceLock};
+use std::sync::Mutex;
 
 use crate::schema;
 
-static DB_CONN: OnceLock<Mutex<Connection>> = OnceLock::new();
+/// Database connection type alias for passing through function signatures.
+pub type DbConn = Mutex<Connection>;
+
+/// Actor-owned chronicle state. The Connection is behind a Mutex for
+/// thread-safe access within the actor (ractor may call from different tasks).
+pub struct ChronicleState {
+    pub conn: DbConn,
+}
+
+impl ChronicleState {
+    /// Open a new chronicle database. Called once by the actor's pre_start.
+    pub fn open() -> Result<Self, String> {
+        let connection = open_connection()?;
+        Ok(Self {
+            conn: Mutex::new(connection),
+        })
+    }
+
+    /// Get a lock on the database connection.
+    pub fn lock(&self) -> Result<std::sync::MutexGuard<'_, Connection>, String> {
+        self.conn.lock().map_err(|e| format!("chronicle lock poisoned: {e}"))
+    }
+}
 
 fn state_root() -> PathBuf {
     let default = env::temp_dir()
@@ -42,7 +64,6 @@ fn open_connection() -> Result<Connection, String> {
     ensure_parent(&path)?;
     let conn = Connection::open(&path).map_err(|e| e.to_string())?;
 
-    // Pragmas: WAL mode, normal sync, 64MB cache, 10s busy timeout
     conn.execute_batch(
         "
         PRAGMA journal_mode=WAL;
@@ -59,12 +80,19 @@ fn open_connection() -> Result<Connection, String> {
     Ok(conn)
 }
 
+// ── Process-level state for callers outside the actor runtime ────────
+// Phoenix and Ouroboros call chronicle directly (separate process or early init).
+// Same pattern as vault: one process-level state, actor takes over for dispatch.
+
+use std::sync::OnceLock;
+static PROCESS_STATE: OnceLock<ChronicleState> = OnceLock::new();
+
 pub(crate) fn conn() -> Result<&'static Mutex<Connection>, String> {
-    if let Some(c) = DB_CONN.get() {
-        return Ok(c);
+    if let Some(state) = PROCESS_STATE.get() {
+        return Ok(&state.conn);
     }
-    let connection = open_connection()?;
-    Ok(DB_CONN.get_or_init(|| Mutex::new(connection)))
+    let state = ChronicleState::open()?;
+    Ok(&PROCESS_STATE.get_or_init(|| state).conn)
 }
 
 pub fn init() -> Result<(), String> {
@@ -120,8 +148,14 @@ mod tests {
 
     #[test]
     fn init_creates_tables() {
-        // Use in-memory for testing
         std::env::set_var("HARMONIA_CHRONICLE_DB", ":memory:");
         assert!(init().is_ok());
+    }
+
+    #[test]
+    fn chronicle_state_opens() {
+        std::env::set_var("HARMONIA_CHRONICLE_DB", ":memory:");
+        let state = ChronicleState::open();
+        assert!(state.is_ok());
     }
 }

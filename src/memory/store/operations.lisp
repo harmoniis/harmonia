@@ -2,6 +2,36 @@
 
 (in-package :harmonia)
 
+;;; ═══════════════════════════════════════════════════════════════════════
+;;; ROUTING POLICY — loaded from config/memory-routing.sexp
+;;; ═══════════════════════════════════════════════════════════════════════
+
+(defparameter *memory-routing-config* nil
+  "Memory routing policy loaded from config/memory-routing.sexp.")
+
+(defun %memory-routing-config-path ()
+  (when (boundp '*boot-file*)
+    (merge-pathnames "../../config/memory-routing.sexp"
+                     (make-pathname :name nil :type nil :defaults *boot-file*))))
+
+(defun load-memory-routing-config ()
+  "Load memory-routing.sexp policy. Called at boot."
+  (let ((path (%memory-routing-config-path)))
+    (when (probe-file path)
+      (handler-case
+          (with-open-file (s path :direction :input)
+            (let ((*read-eval* nil)
+                  (*package* (find-package :harmonia)))
+              (setf *memory-routing-config* (read s))))
+        (error (e)
+          (%log :warn "memory" "Failed to load memory-routing.sexp: ~A" e))))))
+
+(defun %routing-policy (key)
+  "Get a routing policy list by key from the :routing section. Returns nil if config not loaded."
+  (when *memory-routing-config*
+    (let ((routing (getf *memory-routing-config* :routing)))
+      (when routing (getf routing key)))))
+
 (defun %memory-should-store-p (class content depth)
   "Write filter: reject entries that add no information to the field.
    No class checks — the field topology decides importance, not labels.
@@ -33,15 +63,24 @@
     t))
 
 (defun %field-indexable-p (class)
-  "Only global context classes feed the concept graph (L1 field).
-   System logs, tool metrics, and user interactions do NOT pollute the field."
-  (member class '(:soul :skill :genesis) :test #'eq))
+  "Policy-driven: check routing config for field-indexable classes.
+   Falls back to hardcoded defaults if config not loaded."
+  (let ((policy (%routing-policy :field-indexable)))
+    (if policy
+        (member class policy :test #'eq)
+        (member class '(:soul :skill :genesis) :test #'eq))))
 
 (defun %palace-worthy-p (class depth)
-  "User knowledge and high-value entries go to palace (L3).
-   Daily interactions, skill summaries, and explicitly stored content."
-  (or (member class '(:daily :interaction) :test #'eq)
-      (and (> depth 0) (member class '(:skill) :test #'eq))))
+  "Policy-driven: check routing config for palace-worthy classes.
+   Falls back to hardcoded defaults if config not loaded."
+  (let ((worthy (%routing-policy :palace-worthy))
+        (with-depth (%routing-policy :palace-worthy-with-depth)))
+    (if (or worthy with-depth)
+        (or (member class (or worthy '()) :test #'eq)
+            (and (> depth 0) (member class (or with-depth '()) :test #'eq)))
+        ;; Fallback: original behavior
+        (or (member class '(:daily :interaction) :test #'eq)
+            (and (> depth 0) (member class '(:skill) :test #'eq))))))
 
 (defun memory-put (class content &key (depth 0) (tags '()) (source-ids '()))
   "Store a memory entry with layer-separated routing.

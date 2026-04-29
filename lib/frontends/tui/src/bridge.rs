@@ -1,5 +1,6 @@
 // ─��� Bridge: socket connection and daemon communication ──────────────
 
+#[cfg(unix)]
 use std::io::Write;
 use std::path::Path;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -10,22 +11,31 @@ use std::os::unix::net::UnixStream;
 
 use crate::theme::*;
 
-pub(crate) fn wait_for_socket(
+/// Wait until a session server is accepting connections (not merely `harmonia.sock` present).
+#[cfg(unix)]
+pub(crate) fn wait_for_unix_session_connect(
     socket_path: &Path,
     status_text: &str,
     timeout_error: &str,
-) -> Result<(), Box<dyn std::error::Error>> {
+) -> Result<UnixStream, Box<dyn std::error::Error>> {
     let spinner_chars = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
     let mut i = 0;
-    for _ in 0..30 {
-        if socket_path.exists() {
-            eprint!("\r                                     \r");
-            return Ok(());
+    for attempt in 0..300 {
+        match UnixStream::connect(socket_path) {
+            Ok(s) => {
+                eprint!("\r                                     \r");
+                return Ok(s);
+            }
+            Err(_) => {
+                if attempt == 299 {
+                    break;
+                }
+                eprint!("\r  {} {}", spinner_chars[i % 10], status_text);
+                let _ = std::io::stderr().flush();
+                i += 1;
+                std::thread::sleep(std::time::Duration::from_millis(100));
+            }
         }
-        eprint!("\r  {} {}", spinner_chars[i % 10], status_text);
-        let _ = std::io::stderr().flush();
-        i += 1;
-        std::thread::sleep(std::time::Duration::from_millis(100));
     }
     eprint!("\r                                     \r");
     Err(timeout_error.into())

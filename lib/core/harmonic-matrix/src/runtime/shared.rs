@@ -4,25 +4,20 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use crate::model::{State, StoreConfig};
 
 
-static STATE: OnceLock<RwLock<State>> = OnceLock::new();
-
+static PROCESS_STATE: OnceLock<RwLock<State>> = OnceLock::new();
 static LAST_ERROR: OnceLock<RwLock<String>> = OnceLock::new();
-
-static STORE_CONFIG: OnceLock<RwLock<StoreConfig>> = OnceLock::new();
-
+static PROCESS_STORE_CONFIG: OnceLock<RwLock<StoreConfig>> = OnceLock::new();
 
 pub fn state() -> &'static RwLock<State> {
-    STATE.get_or_init(|| RwLock::new(State::default()))
+    PROCESS_STATE.get_or_init(|| RwLock::new(State::default()))
 }
-
 
 fn last_error_slot() -> &'static RwLock<String> {
     LAST_ERROR.get_or_init(|| RwLock::new(String::new()))
 }
 
-
 pub fn store_config() -> &'static RwLock<StoreConfig> {
-    STORE_CONFIG.get_or_init(|| RwLock::new(StoreConfig::default()))
+    PROCESS_STORE_CONFIG.get_or_init(|| RwLock::new(StoreConfig::default()))
 }
 
 

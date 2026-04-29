@@ -12,7 +12,7 @@ use crate::model::{
 };
 use crate::weights;
 use crate::observation::{parse_feedback_sexp, parse_observation_sexp, parse_projection_sexp};
-use crate::sexp::{
+use harmonia_actor_protocol::sexp::{
     parse_fixed_array, parse_sexp, parse_vector_exact, plist_f64, plist_i64, plist_string,
     plist_value, plist_view,
 };
@@ -97,6 +97,7 @@ pub fn import_legacy_state(text: &str) -> Result<KernelState, String> {
         rewrite_signal_delta: legacy.last_projection.rewrite_signal_delta,
         rewrite_chaos_delta: legacy.last_projection.rewrite_chaos_delta,
         evolution_aggression_bias: legacy.last_projection.evolution_aggression_bias,
+        logistic_r_delta: legacy.last_projection.logistic_r_delta,
         routing_price_delta: legacy.last_projection.routing_price_delta,
         routing_speed_delta: legacy.last_projection.routing_speed_delta,
         routing_success_delta: legacy.last_projection.routing_success_delta,

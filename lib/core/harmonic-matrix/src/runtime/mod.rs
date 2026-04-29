@@ -13,8 +13,9 @@ pub mod store;
 mod tests {
     use std::sync::{Mutex, MutexGuard, OnceLock};
 
-    use super::ops::{log_event, observe_route, register_edge, register_node, set_tool_enabled};
+    use super::ops::{advance_epoch, log_event, observe_route, register_edge, register_node, set_tool_enabled};
     use super::reports::report;
+    use super::shared::state;
     use super::store::{init, set_store, store_summary};
 
     fn test_guard() -> MutexGuard<'static, ()> {
@@ -49,6 +50,32 @@ mod tests {
         assert!(r2.contains(":store-kind \"sqlite\""));
 
         set_store("memory", None).expect("back to memory");
+    }
+
+    #[test]
+    fn advance_epoch_increments_and_ages_history() {
+        let _guard = test_guard();
+        set_store("memory", None).expect("memory store");
+        init().expect("init");
+        register_node("a2", "core").expect("node a2");
+        register_node("b2", "tool").expect("node b2");
+        register_edge("a2", "b2", 1.0, 0.1).expect("edge");
+        set_tool_enabled("b2", true).expect("tool");
+        // Seed enough samples that history capping is exercised.
+        for i in 0..2000 {
+            observe_route("a2", "b2", i % 2 == 0, 10 + i as u64, 0.001).expect("observe");
+        }
+        let starting_epoch = state().read().unwrap().epoch;
+        let summary = advance_epoch().expect("advance epoch");
+        assert_eq!(summary.epoch, starting_epoch + 1);
+        // 1/4 of the default history_limit (4096) = 1024; we recorded 2000, so
+        // post-advance retention should be at most 1024 per edge.
+        assert!(summary.samples_retained <= 1024,
+            "expected ≤1024 samples after advance, got {}", summary.samples_retained);
+        assert!(summary.edges_with_history >= 1);
+        let sexp = summary.to_sexp();
+        assert!(sexp.contains(":epoch"));
+        assert!(sexp.contains(":samples-retained"));
     }
 
     #[test]

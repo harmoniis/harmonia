@@ -3,9 +3,28 @@
 //! Parse sexp -> FieldCommand -> handle(&self) -> (Delta, Result) -> apply(&mut self) -> to_sexp()
 //! Mutation is confined to apply(). Serialization happens at the boundary.
 
-use harmonia_actor_protocol::sexp_escape;
+use super::{esc, param, param_f64, param_u64};
 
-use super::{param, param_f64, param_u64};
+// Config-driven defaults for memory-field parameters.
+// Cached after first read — these don't change at runtime.
+fn cfg_u64(key: &str, default: u64) -> u64 {
+    use std::sync::OnceLock;
+    use std::collections::HashMap;
+    static CACHE: OnceLock<HashMap<String, u64>> = OnceLock::new();
+    let cache = CACHE.get_or_init(HashMap::new);
+    if let Some(&v) = cache.get(key) { return v; }
+    harmonia_config_store::get_own("memory-field", key)
+        .ok().flatten().and_then(|v| v.parse().ok()).unwrap_or(default)
+}
+fn cfg_f64(key: &str, default: f64) -> f64 {
+    use std::sync::OnceLock;
+    use std::collections::HashMap;
+    static CACHE: OnceLock<HashMap<String, f64>> = OnceLock::new();
+    let cache = CACHE.get_or_init(HashMap::new);
+    if let Some(&v) = cache.get(key) { return v; }
+    harmonia_config_store::get_own("memory-field", key)
+        .ok().flatten().and_then(|v| v.parse().ok()).unwrap_or(default)
+}
 
 pub(crate) fn dispatch(
     sexp: &str,
@@ -21,10 +40,10 @@ pub(crate) fn dispatch(
                 Ok((basin, energy, dwell, threshold)) => {
                     format!(
                         "(:ok :basin \"{}\" :coercive-energy {:.3} :dwell-ticks {} :threshold {:.3})",
-                        sexp_escape(&basin), energy, dwell, threshold
+                        esc(&basin), energy, dwell, threshold
                     )
                 }
-                Err(e) => format!("(:error \"last-field-basin: {e}\")"),
+                Err(e) => format!("(:error \"last-field-basin: {}\")", esc(&e.to_string())),
             };
         }
         _ => {}
@@ -33,7 +52,7 @@ pub(crate) fn dispatch(
     // Parse command from sexp.
     let cmd = match parse_command(sexp, &op) {
         Some(cmd) => cmd,
-        None => return format!("(:error \"unknown memory-field op: {}\")", op),
+        None => return format!("(:error \"unknown memory-field op: {}\")", esc(&op)),
     };
 
     // Handle + apply + serialize (the Service pattern).
@@ -45,7 +64,7 @@ pub(crate) fn dispatch(
         }
         Err(e) => {
             let msg = e.to_string();
-            format!("(:error \"{}: {}\")", op, sexp_escape(&msg))
+            format!("(:error \"{}: {}\")", esc(&op), esc(&msg))
         }
     }
 }
@@ -66,7 +85,7 @@ fn parse_command(sexp: &str, op: &str) -> Option<harmonia_memory_field::FieldCom
             Some(FieldCommand::Recall {
                 query_concepts: concepts,
                 access_counts: access,
-                limit: if limit == 0 { 10 } else { limit },
+                limit: if limit == 0 { cfg_u64("recall-default-limit", 10) as usize } else { limit },
             })
         }
         "field-recall-structural" => {
@@ -74,7 +93,7 @@ fn parse_command(sexp: &str, op: &str) -> Option<harmonia_memory_field::FieldCom
             let limit = param_u64!(sexp, ":limit", 0) as usize;
             Some(FieldCommand::RecallStructural {
                 query_concepts: concepts,
-                limit: if limit == 0 { 5 } else { limit },
+                limit: if limit == 0 { cfg_u64("recall-structural-default-limit", 5) as usize } else { limit },
             })
         }
         "step-attractors" => Some(FieldCommand::StepAttractors {
@@ -93,7 +112,7 @@ fn parse_command(sexp: &str, op: &str) -> Option<harmonia_memory_field::FieldCom
                 basin_str: basin,
                 coercive_energy: energy,
                 dwell_ticks: dwell,
-                threshold: if threshold < 0.01 { 0.35 } else { threshold },
+                threshold: if threshold < 0.01 { cfg_f64("restore-basin-default-threshold", 0.35) } else { threshold },
             })
         }
         "current-basin" => Some(FieldCommand::CurrentBasin),
@@ -126,13 +145,15 @@ fn parse_command(sexp: &str, op: &str) -> Option<harmonia_memory_field::FieldCom
             let hz = param_f64!(sexp, ":halvorsen-z", 0.0);
             let signal = param_f64!(sexp, ":last-signal", 0.5);
             let noise = param_f64!(sexp, ":last-noise", 0.2);
-            let thomas_b = param_f64!(sexp, ":thomas-b", 0.208);
-            let sb0 = param_f64!(sexp, ":sb0", 1.0 / 6.0);
-            let sb1 = param_f64!(sexp, ":sb1", 1.0 / 6.0);
-            let sb2 = param_f64!(sexp, ":sb2", 1.0 / 6.0);
-            let sb3 = param_f64!(sexp, ":sb3", 1.0 / 6.0);
-            let sb4 = param_f64!(sexp, ":sb4", 1.0 / 6.0);
-            let sb5 = param_f64!(sexp, ":sb5", 1.0 / 6.0);
+            let default_b = cfg_f64("thomas-b-default", 0.208);
+            let default_sb = cfg_f64("soft-basin-default", 1.0 / 6.0);
+            let thomas_b = param_f64!(sexp, ":thomas-b", default_b);
+            let sb0 = param_f64!(sexp, ":sb0", default_sb);
+            let sb1 = param_f64!(sexp, ":sb1", default_sb);
+            let sb2 = param_f64!(sexp, ":sb2", default_sb);
+            let sb3 = param_f64!(sexp, ":sb3", default_sb);
+            let sb4 = param_f64!(sexp, ":sb4", default_sb);
+            let sb5 = param_f64!(sexp, ":sb5", default_sb);
             Some(FieldCommand::RestoreState {
                 thomas: (tx, ty, tz),
                 aizawa: (ax, ay, az),

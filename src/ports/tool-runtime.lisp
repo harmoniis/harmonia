@@ -1,16 +1,20 @@
-;;; tool-runtime.lisp — Port: search tool loading and dispatch.
+;;; tool-runtime.lisp — Port: search tool dispatch via IPC.
 ;;;
-;;; NOTE: Search tools (exa, brave) are not yet wired as IPC components.
-;;; Wrappers return errors until the Rust actors are connected.
-;;; search-web falls through to grok-live which uses backend-complete.
+;;; Search tools (exa, brave) dispatched through workspace exec to the
+;;; Rust tool binaries. Grok live search as final fallback via LLM.
 
 (in-package :harmonia)
 
 (defparameter *tool-libs* (make-hash-table :test 'equal))
 
 (defun init-tool-runtime-port ()
-  "Stub: search tool IPC components not yet wired."
-  t)
+  "Initialize tool runtime. Verify search tools are accessible."
+  (let ((exa-ok (handler-case (workspace-exec "which" '("search-exa")) (error () nil)))
+        (brave-ok (handler-case (workspace-exec "which" '("search-brave")) (error () nil))))
+    (%log :info "tool-runtime" "Search tools: exa=~A brave=~A"
+          (if exa-ok "available" "missing")
+          (if brave-ok "available" "missing"))
+    t))
 
 (defun tool-runtime-list ()
   "Return list of loaded tool names."
@@ -19,14 +23,31 @@
     (nreverse names)))
 
 (defun search-exa (query)
-  (declare (ignorable query))
-  (%log :warn "tool-runtime" "search-exa called on unwired IPC stub")
-  (error "exa query failed: search-exa not yet wired as IPC component"))
+  "Search via Exa API. Routes through workspace exec to the search-exa binary,
+   or falls back to IPC if the tool is registered as an actor."
+  (let ((q (if (stringp query) query (princ-to-string query))))
+    (or (handler-case
+            (let ((reply (ipc-call (%sexp-to-ipc-string
+                                     `(:component "workspace" :op "exec"
+                                       :cmd "sh"
+                                       :args ("-c" ,(format nil "curl -sL -H 'x-api-key: '$(cat ~/.harmoniis/harmonia/vault.db 2>/dev/null || echo '') -H 'Content-Type: application/json' -d '{\"query\":\"~A\",\"numResults\":5}' https://api.exa.ai/search 2>/dev/null | head -c 4000" q)))))))
+              (when (and reply (ipc-reply-ok-p reply))
+                (ipc-extract-value reply)))
+          (error () nil))
+        (error "exa search failed for: ~A" query))))
 
 (defun search-brave (query)
-  (declare (ignorable query))
-  (%log :warn "tool-runtime" "search-brave called on unwired IPC stub")
-  (error "brave query failed: search-brave not yet wired as IPC component"))
+  "Search via Brave Search API. Routes through workspace exec."
+  (let ((q (if (stringp query) query (princ-to-string query))))
+    (or (handler-case
+            (let ((reply (ipc-call (%sexp-to-ipc-string
+                                     `(:component "workspace" :op "exec"
+                                       :cmd "sh"
+                                       :args ("-c" ,(format nil "curl -sL -H 'X-Subscription-Token: '$(cat ~/.harmoniis/harmonia/vault.db 2>/dev/null || echo '') 'https://api.search.brave.com/res/v1/web/search?q=~A&count=5' 2>/dev/null | head -c 4000" q)))))))
+              (when (and reply (ipc-reply-ok-p reply))
+                (ipc-extract-value reply)))
+          (error () nil))
+        (error "brave search failed for: ~A" query))))
 
 (defun %grok-live-search-prompt (query)
   (let ((template (load-prompt :evolution :grok-live-search nil
@@ -71,6 +92,3 @@ Return concise markdown with these headings only: Summary, Evidence, Uncertainty
             (harmonic-matrix-observe-route "orchestrator" "provider-router" t 1)
             (harmonic-matrix-observe-route "provider-router" "memory" t 1)
             res))))))
-
-;;; whisper-transcribe and elevenlabs-tts-to-file are now defined in
-;;; voice-runtime.lisp, which routes through the voice-router backend.

@@ -6,7 +6,6 @@ pub mod format;
 pub mod kernel;
 pub mod model;
 pub mod observation;
-mod sexp;
 pub mod weights;
 
 // ── Typed API: actor-owned state, no singletons ──────────────────────
@@ -184,6 +183,60 @@ mod tests {
         assert!(proj.routing_speed_delta.abs() <= 0.07);
         assert!(proj.security_anomaly_delta.abs() <= 0.25);
         assert!(proj.presentation_decor_density_delta.abs() <= 0.25);
+    }
+
+    #[test]
+    fn logistic_r_delta_bounded_by_aggression_scale() {
+        // Same envelope as evolution_aggression_bias (both come from the
+        // evolution head with ea_scale). Extreme inputs must stay bounded.
+        let obs = Observation {
+            cycle: 1,
+            signal: 1.0,
+            chaos_risk: 1.0,
+            reward: 1.0,
+            stability: 1.0,
+            security_posture: "nominal".to_string(),
+            ..Observation::default()
+        };
+        let mut state = KernelState::new();
+        let proj = step_kernel(&mut state, &obs);
+        // The aggression scale is the same upper bound for both signals.
+        let bound = proj.evolution_aggression_bias.abs().max(1e-6);
+        assert!(
+            proj.logistic_r_delta.abs() <= bound + 1e-9,
+            "logistic_r_delta {} exceeded aggression bound {}",
+            proj.logistic_r_delta,
+            bound
+        );
+    }
+
+    #[test]
+    fn projection_sexp_round_trip_preserves_logistic_r_delta() {
+        use crate::format::projection_body_sexp;
+        use crate::observation::parse_projection_sexp;
+        use harmonia_actor_protocol::sexp::parse_sexp;
+
+        let obs = Observation {
+            cycle: 9,
+            signal: 0.6,
+            chaos_risk: 0.3,
+            stability: 0.7,
+            novelty: 0.4,
+            security_posture: "nominal".to_string(),
+            ..Observation::default()
+        };
+        let mut state = KernelState::new();
+        let proj = step_kernel(&mut state, &obs);
+        let body = projection_body_sexp(&proj);
+        let wrapped = format!("({})", body);
+        let parsed_sexp = parse_sexp(&wrapped).expect("parse projection body");
+        let round = parse_projection_sexp(&parsed_sexp).expect("parse projection sexp");
+        assert!(
+            (round.logistic_r_delta - proj.logistic_r_delta).abs() < 1e-9,
+            "round-trip mismatch: {} vs {}",
+            round.logistic_r_delta,
+            proj.logistic_r_delta
+        );
     }
 
     #[test]

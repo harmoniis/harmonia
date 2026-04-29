@@ -1,6 +1,6 @@
 //! Parallel-agents component dispatch — pure functional, declarative.
 
-use super::{dispatch_op, param, param_f64};
+use super::{dispatch_op, esc, param, param_f64};
 
 pub(crate) fn dispatch(sexp: &str) -> String {
     let op = harmonia_actor_protocol::extract_sexp_string(sexp, ":op").unwrap_or_default();
@@ -27,7 +27,7 @@ pub(crate) fn dispatch(sexp: &str) -> String {
                     let items: String = assignments.iter()
                         .map(|(tid, aid, model)| format!(
                             "(:task-id {} :actor-id {} :model \"{}\")",
-                            tid, aid, harmonia_actor_protocol::sexp_escape(model),
+                            tid, aid, esc(model),
                         ))
                         .collect::<Vec<_>>()
                         .join(" ");
@@ -39,11 +39,11 @@ pub(crate) fn dispatch(sexp: &str) -> String {
                 .and_then(|s| s.parse::<i64>().ok())
                 .unwrap_or(0);
             harmonia_parallel_agents::engine::task_result(id)
-                .map(|result| format!("(:ok :result \"{}\")", harmonia_actor_protocol::sexp_escape(&result)))
+                .map(|result| format!("(:ok :result \"{}\")", esc(&result)))
         }),
         "report" => dispatch_op!("report",
             harmonia_parallel_agents::engine::report()
-                .map(|r| format!("(:ok :result \"{}\")", harmonia_actor_protocol::sexp_escape(&r)))),
+                .map(|r| format!("(:ok :result \"{}\")", esc(&r)))),
         "set-model-price" => {
             let model = param!(sexp, ":model");
             let in_price = param_f64!(sexp, ":in-price", 0.0);
@@ -51,6 +51,6 @@ pub(crate) fn dispatch(sexp: &str) -> String {
             let _ = harmonia_parallel_agents::engine::set_model_price(&model, in_price, out_price);
             "(:ok)".to_string()
         }
-        _ => format!("(:error \"unknown parallel op: {}\")", op),
+        _ => format!("(:error \"unknown parallel op: {}\")", esc(&op)),
     }
 }

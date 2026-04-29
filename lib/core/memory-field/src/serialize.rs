@@ -90,6 +90,7 @@ impl EigenmodeResult {
             .key("eigenvalues").list(&evs)
             .key("spectral-version").uint(self.spectral_version)
             .key("graph-version").uint(self.graph_version)
+            .key("coherence").float(self.coherence, 4)
             .build()
     }
 }

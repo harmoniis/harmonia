@@ -24,7 +24,9 @@ impl Actor for TailnetActor {
         _myself: ActorRef<Self::Msg>,
         (bridge, _obs): Self::Arguments,
     ) -> Result<Self::State, ActorProcessingErr> {
-        let _ = harmonia_tailnet::transport::start_listener();
+        if let Err(e) = harmonia_tailnet::transport::start_listener() {
+            eprintln!("[WARN] [runtime] TailnetActor start_listener failed: {e}");
+        }
         eprintln!("[INFO] [runtime] TailnetActor started");
         Ok(TailnetState { bridge })
     }

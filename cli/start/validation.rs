@@ -11,94 +11,10 @@ pub(crate) fn check_command(cmd: &str) -> bool {
         .unwrap_or(false)
 }
 
-pub(crate) fn is_runtime_root(path: &Path) -> bool {
-    path.join("src").join("core").join("boot.lisp").exists()
-}
-
-pub(crate) fn is_installed_binary() -> bool {
-    let Some(home) = dirs::home_dir() else {
-        return false;
-    };
-    let installed_bin_dir = home.join(".local").join("bin");
-    std::env::current_exe()
-        .ok()
-        .map(|exe| exe.starts_with(installed_bin_dir))
-        .unwrap_or(false)
-}
-
-fn is_truthy_config(raw: &str) -> bool {
-    let value = raw.trim();
-    !value.is_empty()
-        && !matches!(
-            value.to_ascii_lowercase().as_str(),
-            "0" | "false" | "nil" | "no" | "off"
-        )
-}
-
-fn source_rewrite_enabled() -> bool {
-    harmonia_config_store::get_config("harmonia-cli", "evolution", "source-rewrite-enabled")
-        .ok()
-        .flatten()
-        .map(|raw| is_truthy_config(&raw))
-        .unwrap_or(false)
-}
-
 pub(crate) fn resolve_source_dir(
     system_dir: &Path,
 ) -> Result<PathBuf, Box<dyn std::error::Error>> {
-    if let Ok(explicit) = std::env::var("HARMONIA_SOURCE_DIR") {
-        let p = PathBuf::from(explicit);
-        if is_runtime_root(&p) {
-            return Ok(p);
-        }
-    }
-
-    let stored_source = harmonia_config_store::get_config("harmonia-cli", "global", "source-dir")
-        .ok()
-        .flatten()
-        .map(PathBuf::from)
-        .filter(|path| is_runtime_root(path));
-    let installed_share = crate::paths::share_dir()
-        .ok()
-        .filter(|path| is_runtime_root(path));
-
-    if is_installed_binary() && !source_rewrite_enabled() {
-        if let Some(share) = installed_share.clone() {
-            return Ok(share);
-        }
-    }
-
-    if let Some(stored) = stored_source {
-        return Ok(stored);
-    }
-
-    let cwd = std::env::current_dir()?;
-    if is_runtime_root(&cwd) {
-        return Ok(cwd);
-    }
-
-    if let Some(share) = installed_share {
-        return Ok(share);
-    }
-
-    if is_runtime_root(system_dir) {
-        return Ok(system_dir.to_path_buf());
-    }
-
-    let exe = std::env::current_exe()?;
-    let mut dir = exe.parent().unwrap().to_path_buf();
-    for _ in 0..10 {
-        if is_runtime_root(&dir) {
-            return Ok(dir);
-        }
-        if let Some(parent) = dir.parent() {
-            dir = parent.to_path_buf();
-        } else {
-            break;
-        }
-    }
-
-    Err("cannot find Harmonia source directory — run `harmonia setup` first".into())
+    crate::paths::resolve_runtime_root(system_dir)
 }
 
 pub(crate) fn resolve_lib_dir(source_dir: &Path) -> PathBuf {

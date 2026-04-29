@@ -29,6 +29,7 @@ pub struct SpawnedActors {
     pub router_ref: ractor::ActorRef<ComponentMsg>,
     pub mempalace_ref: ractor::ActorRef<ComponentMsg>,
     pub terraphon_ref: ractor::ActorRef<ComponentMsg>,
+    pub mcp_ref: ractor::ActorRef<ComponentMsg>,
     pub ouroboros_ref: ractor::ActorRef<ComponentMsg>,
     pub session_ref: ractor::ActorRef<ComponentMsg>,
     pub dynamic_registry: crate::dynamic_registry::SharedDynamicRegistry,
@@ -82,6 +83,7 @@ pub async fn spawn_all(module_registry: HashMap<String, crate::registry::ModuleE
     let router_ref = spawn_linked("router", actors::RouterActor, obs_opt.clone(), &supervisor_ref).await;
     let mempalace_ref = spawn_linked("mempalace", actors::MemPalaceActor, (), &supervisor_ref).await;
     let terraphon_ref = spawn_linked("terraphon", actors::TerraphonActor, (), &supervisor_ref).await;
+    let mcp_ref = spawn_linked("mcp", actors::McpActor, (), &supervisor_ref).await;
     let ouroboros_ref = spawn_linked("ouroboros", actors::OuroborosActor, (), &supervisor_ref).await;
     let session_ref = spawn_linked("sessions", actors::SessionActor, (), &supervisor_ref).await;
 
@@ -98,6 +100,7 @@ pub async fn spawn_all(module_registry: HashMap<String, crate::registry::ModuleE
     register_component(&supervisor_ref, "router", &router_ref);
     register_component(&supervisor_ref, "mempalace", &mempalace_ref);
     register_component(&supervisor_ref, "terraphon", &terraphon_ref);
+    register_component(&supervisor_ref, "mcp", &mcp_ref);
     register_component(&supervisor_ref, "ouroboros", &ouroboros_ref);
     register_component(&supervisor_ref, "sessions", &session_ref);
     let _ = supervisor_ref.cast(msg::RuntimeMsg::RegisterMatrixActor(harmonic_matrix_ref.clone()));
@@ -113,6 +116,7 @@ pub async fn spawn_all(module_registry: HashMap<String, crate::registry::ModuleE
         ("parallel", &parallel_ref), ("router", &router_ref),
         ("workspace", &workspace_ref), ("mempalace", &mempalace_ref),
         ("terraphon", &terraphon_ref),
+        ("mcp", &mcp_ref),
         ("ouroboros", &ouroboros_ref),
         ("sessions", &session_ref),
     ];
@@ -146,6 +150,7 @@ pub async fn spawn_all(module_registry: HashMap<String, crate::registry::ModuleE
         router_ref,
         mempalace_ref,
         terraphon_ref,
+        mcp_ref,
         ouroboros_ref,
         session_ref,
         dynamic_registry: dyn_reg,

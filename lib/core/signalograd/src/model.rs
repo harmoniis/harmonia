@@ -95,6 +95,9 @@ pub struct Projection {
     pub rewrite_signal_delta: f64,
     pub rewrite_chaos_delta: f64,
     pub evolution_aggression_bias: f64,
+    /// Per-cycle nudge applied to the logistic-map bifurcation parameter `r`.
+    /// Symmetric with the other harmony deltas; clamped at the consumer.
+    pub logistic_r_delta: f64,
     pub routing_price_delta: f64,
     pub routing_speed_delta: f64,
     pub routing_success_delta: f64,
@@ -160,6 +163,8 @@ pub struct LegacyProjection {
     pub rewrite_signal_delta: f64,
     pub rewrite_chaos_delta: f64,
     pub evolution_aggression_bias: f64,
+    #[serde(default)]
+    pub logistic_r_delta: f64,
     pub routing_price_delta: f64,
     pub routing_speed_delta: f64,
     pub routing_success_delta: f64,

@@ -52,7 +52,11 @@ pub(crate) fn bitcoin_receive_address() -> Result<String, String> {
     let wallet_path = wallet_db_path()?;
     let wallet = open_or_create_wallet(&wallet_path)?;
     let asp_url = configured_ark_asp_url();
-    let btc_wallet = DeterministicBitcoinWallet::from_master_wallet(&wallet, bitcoin_network())
+    let btc_wallet = DeterministicBitcoinWallet::from_master_wallet(
+        &wallet,
+        bitcoin_network(),
+        Some(bitcoin_db_path(&wallet_path)),
+    )
         .map_err(|e| format!("failed to derive bitcoin wallet: {e}"))?;
     let db = SqliteArkDb::open(&bitcoin_db_path(&wallet_path))
         .map_err(|e| format!("failed to open bitcoin wallet db: {e}"))?;
@@ -116,7 +120,11 @@ pub(crate) fn settle_bitcoin(
         ));
     }
     let asp_url = configured_ark_asp_url();
-    let btc_wallet = DeterministicBitcoinWallet::from_master_wallet(wallet, bitcoin_network())
+    let btc_wallet = DeterministicBitcoinWallet::from_master_wallet(
+        wallet,
+        bitcoin_network(),
+        Some(bitcoin_db_path(wallet_path)),
+    )
         .map_err(|e| format!("failed to derive bitcoin wallet: {e}"))?;
     let db = SqliteArkDb::open(&bitcoin_db_path(wallet_path))
         .map_err(|e| format!("failed to open bitcoin wallet db: {e}"))?;

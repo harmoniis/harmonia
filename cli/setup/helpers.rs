@@ -200,50 +200,8 @@ pub(crate) fn read_existing_workspace(system_dir: &Path) -> Option<String> {
 }
 
 pub(crate) fn find_source_dir() -> Result<PathBuf, Box<dyn std::error::Error>> {
-    fn is_runtime_root(path: &Path) -> bool {
-        path.join("src").join("core").join("boot.lisp").exists()
-    }
-
-    if let Ok(env_dir) = std::env::var("HARMONIA_SOURCE_DIR") {
-        let p = PathBuf::from(&env_dir);
-        if is_runtime_root(&p) {
-            return Ok(p);
-        }
-    }
-
-    let cwd = std::env::current_dir()?;
-    if is_runtime_root(&cwd) {
-        return Ok(cwd);
-    }
-
-    if let Ok(share) = crate::paths::share_dir() {
-        if is_runtime_root(&share) {
-            return Ok(share);
-        }
-    }
-
-    if let Some(home) = dirs::home_dir() {
-        let installed_root = home.join(".harmoniis").join("harmonia");
-        if is_runtime_root(&installed_root) {
-            return Ok(installed_root);
-        }
-    }
-
-    let exe = std::env::current_exe()?;
-    let mut dir = exe.parent().unwrap().to_path_buf();
-
-    for _ in 0..10 {
-        if is_runtime_root(&dir) {
-            return Ok(dir);
-        }
-        if let Some(parent) = dir.parent() {
-            dir = parent.to_path_buf();
-        } else {
-            break;
-        }
-    }
-
-    Err("cannot find Harmonia source directory — set HARMONIA_SOURCE_DIR or run from the project root".into())
+    let system_dir = crate::paths::data_dir()?;
+    crate::paths::resolve_runtime_root(&system_dir)
 }
 
 pub(crate) fn copy_dir_recursive(

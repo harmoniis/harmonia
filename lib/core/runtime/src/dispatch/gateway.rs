@@ -1,7 +1,6 @@
 //! Gateway component dispatch — poll/send across all frontends.
 
-use super::{dispatch_op, param};
-use harmonia_actor_protocol::sexp_escape;
+use super::{dispatch_op, esc, param};
 use serde_json::json;
 
 pub(crate) fn dispatch(sexp: &str) -> String {
@@ -27,7 +26,7 @@ pub(crate) fn dispatch(sexp: &str) -> String {
             dispatch_op!("send", result.map(|_| "(:ok)".to_string()))
         }
         "is-allowed" => "(:ok :allowed t)".to_string(),
-        _ => format!("(:error \"unknown gateway op: {}\")", op),
+        _ => format!("(:error \"unknown gateway op: {}\")", esc(&op)),
     }
 }
 
@@ -87,10 +86,10 @@ fn collect_frontend(
 fn make_envelope(kind: &str, address: &str, payload: &str, label: &str) -> String {
     format!(
         "(:channel (:kind \"{}\" :address \"{}\") :body (:text \"{}\") :peer (:device-id \"{}\") :security (:label :{}) :capabilities (:text t))",
-        sexp_escape(kind),
-        sexp_escape(address),
-        sexp_escape(payload),
-        sexp_escape(address),
+        esc(kind),
+        esc(address),
+        esc(payload),
+        esc(address),
         label
     )
 }

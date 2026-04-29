@@ -60,9 +60,17 @@ Shared by all ports — one function, not duplicated."
               id))))))
 
 (defun %palace-room-for-class (class)
-  "Map memory class to a domain string. The domain becomes a room name.
-   New classes automatically create new rooms — no hardcoded mapping."
-  (string-downcase (symbol-name class)))
+  "Map memory class to palace room. Policy-driven with generic fallback.
+   Reads :class-defaults from :routing section of config/memory-routing.sexp."
+  (let* ((routing (when (and (boundp '*memory-routing-config*) *memory-routing-config*)
+                    (getf *memory-routing-config* :routing)))
+         (defaults (when routing (getf routing :class-defaults))))
+    (if defaults
+        (let ((entry (getf defaults class)))
+          (if entry
+              (getf entry :palace-room)
+              (string-downcase (symbol-name class))))
+        (string-downcase (symbol-name class)))))
 
 ;;; ─── Graph operations ───────────────────────────────────────────────
 

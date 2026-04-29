@@ -222,6 +222,6 @@ pub(crate) fn dispatch(sexp: &str) -> String {
             Ok(s) => format!("(:ok :result \"{}\")", esc(&s)),
             Err(e) => format!("(:error \"{}\")", esc(&e)),
         },
-        _ => format!("(:error \"unknown harmonic-matrix op: {}\")", op),
+        _ => format!("(:error \"unknown harmonic-matrix op: {}\")", esc(&op)),
     }
 }

@@ -72,6 +72,14 @@ Returns a plist (:activations (...) :basin (...) :thomas (...)) or nil."
               `(:component "memory-field" :op "step-attractors"
                 :signal ,signal :noise ,noise))))
 
+(defun memory-field-eigenmode-status ()
+  "Return spectral state plist including last-recall :coherence in [0, 1]."
+  (when (not (memory-field-port-ready-p))
+    (return-from memory-field-eigenmode-status nil))
+  (%parse-port-reply
+   (ipc-call (%sexp-to-ipc-string
+               '(:component "memory-field" :op "eigenmode-status")))))
+
 ;;; --- Dreaming — field self-maintenance ---
 
 (defun memory-field-dream ()

@@ -15,6 +15,7 @@ use super::optional;
 use super::providers_config::configure_llm_providers;
 use super::resolve_configured_modules;
 use super::seed_policy::configure_model_seed_policy;
+use crate::paths::InstallProfile;
 
 pub fn run_seeds_only() -> Result<(), Box<dyn std::error::Error>> {
     println!("{}", style(super::BANNER).cyan().bold());
@@ -108,7 +109,11 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
     cs("node", "sessions-root", &crate::paths::node_sessions_dir(&node_identity.label)?.to_string_lossy())?;
     cs("node", "pairings-root", &crate::paths::node_pairings_dir(&node_identity.label)?.to_string_lossy())?;
     cs("node", "memory-root", &crate::paths::node_memory_dir(&node_identity.label)?.to_string_lossy())?;
-    if let Ok(source_dir) = find_source_dir() { cs("global", "source-dir", &source_dir.to_string_lossy())?; }
+    if matches!(node_identity.install_profile, InstallProfile::FullAgent) {
+        if let Ok(source_dir) = find_source_dir() {
+            cs("global", "source-dir", &source_dir.to_string_lossy())?;
+        }
+    }
 
     // Workspace
     let default_workspace = read_existing_workspace(&system_dir).unwrap_or_else(|| home.join("workspace").to_string_lossy().to_string());
@@ -148,52 +153,103 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
     }
 
     // ---- Finalize ----
-    finalize(&system_dir, &share_dir, &lib_dir, &enabled_frontends, &cs, &home, &workspace_path)
+    finalize(
+        &system_dir,
+        &share_dir,
+        &lib_dir,
+        &enabled_frontends,
+        &cs,
+        &home,
+        &workspace_path,
+        node_identity.install_profile,
+    )
 }
 
 fn finalize(
-    system_dir: &Path, share_dir: &Path, lib_dir: &Path,
+    system_dir: &Path,
+    share_dir: &Path,
+    lib_dir: &Path,
     enabled_frontends: &[&str],
     cs: &dyn Fn(&str, &str, &str) -> Result<(), Box<dyn std::error::Error>>,
-    home: &Path, workspace_path: &Path,
+    home: &Path,
+    workspace_path: &Path,
+    install_profile: InstallProfile,
 ) -> Result<(), Box<dyn std::error::Error>> {
     println!("\n  {} Finalizing...", style("->").cyan().bold());
     let gateway_config = generate_gateway_config(enabled_frontends);
     fs::write(system_dir.join("config").join("baseband.sexp"), &gateway_config)?;
     fs::write(system_dir.join("config").join("gateway-frontends.sexp"), &gateway_config)?;
 
-    if let Ok(source_dir) = find_source_dir() {
+    if matches!(install_profile, InstallProfile::FullAgent) {
+        let hint = concat!(
+            "For a full local agent install, you need the Harmonia Lisp/runtime tree:\n",
+            "    • Run this repository's ",
+            "`scripts/install.sh`, or\n",
+            "    • Clone harmonia and run `harmonia setup` from the repo root, or\n",
+            "    • Set ",
+            "`HARMONIA_SOURCE_DIR` ",
+            "to that repository root (must contain ",
+            "`src/core/boot.lisp`",
+            ").",
+        );
+
+        let source_dir = find_source_dir().map_err(|e| format!("{e}\n\n{hint}"))?;
         let genesis_src = source_dir.join("doc").join("genesis");
         let genesis_dst = share_dir.join("genesis");
         if genesis_src.exists() && genesis_src != genesis_dst {
             copy_dir_recursive(&genesis_src, &genesis_dst)?;
             println!("    {} Evolution knowledge installed", style("✓").green().bold());
         }
+
         let lisp_src = source_dir.join("src");
         if lisp_src.exists() {
             let share_src = crate::paths::source_dir()?;
-            if lisp_src != share_src { copy_dir_recursive(&lisp_src, &share_src)?; }
+            if lisp_src != share_src {
+                copy_dir_recursive(&lisp_src, &share_src)?;
+            }
             let config_src = source_dir.join("config");
             let config_dst = share_dir.join("config");
-            if config_src.exists() && config_src != config_dst { copy_dir_recursive(&config_src, &config_dst)?; }
+            if config_src.exists() && config_src != config_dst {
+                copy_dir_recursive(&config_src, &config_dst)?;
+            }
             cs("global", "source-dir", &share_dir.to_string_lossy())?;
             println!("    {} Lisp source installed to {}", style("✓").green().bold(), share_dir.display());
         }
+
+        if !crate::paths::is_runtime_root(share_dir) {
+            return Err(format!(
+                "Lisp runtime is not installed under {} (missing {}). Re-run setup from the repo or release installer.\n\n{hint}",
+                share_dir.display(),
+                share_dir.join("src/core/boot.lisp").display()
+            ).into());
+        }
+
         if source_dir.join("Cargo.toml").exists() {
             println!("    {} Building runtime artifacts...", style("->").cyan().bold());
-            let build_status = Command::new("cargo").args(["build", "--workspace", "--release"]).current_dir(&source_dir).status()?;
-            if !build_status.success() { return Err("failed to build runtime artifacts".into()); }
+            let build_status =
+                Command::new("cargo").args(["build", "--workspace", "--release"]).current_dir(&source_dir).status()?;
+            if !build_status.success() {
+                return Err("failed to build runtime artifacts".into());
+            }
             println!("    {} Runtime artifacts built", style("✓").green().bold());
             let target_release = source_dir.join("target").join("release");
             install_cdylibs(&target_release, lib_dir)?;
-            println!("    {} Libraries installed to {}", style("✓").green().bold(), lib_dir.display());
+            println!(
+                "    {} Libraries installed to {}",
+                style("✓").green().bold(),
+                lib_dir.display()
+            );
             let bin_name = if cfg!(target_os = "windows") { "harmonia.exe" } else { "harmonia" };
             let built_bin = target_release.join(bin_name);
             if built_bin.exists() {
                 let dest_bin = home.join(".local").join("bin").join(bin_name);
                 fs::create_dir_all(dest_bin.parent().unwrap())?;
                 fs::copy(&built_bin, &dest_bin)?;
-                #[cfg(unix)] { use std::os::unix::fs::PermissionsExt; let _ = fs::set_permissions(&dest_bin, fs::Permissions::from_mode(0o755)); }
+                #[cfg(unix)]
+                {
+                    use std::os::unix::fs::PermissionsExt;
+                    let _ = fs::set_permissions(&dest_bin, fs::Permissions::from_mode(0o755));
+                }
                 println!("    {} Binary installed to {}", style("✓").green().bold(), dest_bin.display());
             }
         }

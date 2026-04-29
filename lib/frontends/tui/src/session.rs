@@ -13,9 +13,13 @@ use crossterm::{
 };
 
 #[cfg(unix)]
+use std::io::ErrorKind;
+#[cfg(unix)]
+use std::fs;
+#[cfg(unix)]
 use std::os::unix::net::UnixStream;
 
-use crate::bridge::wait_for_socket;
+use crate::bridge::wait_for_unix_session_connect;
 use crate::commands::dispatch_input;
 use crate::input::{read_input_line, InputCallbacks};
 use crate::render::{print_banner, render_buffered_response};
@@ -75,17 +79,28 @@ pub fn run(host: &dyn SessionHost) -> Result<(), Box<dyn std::error::Error>> {
     let term = Term::stderr();
     let socket_path = host.socket_path()?;
 
-    if !socket_path.exists() {
-        host.ensure_daemon()?;
-        let msg = format!("daemon started but socket not ready \u{2014} check logs\n\
-            \x20 expected socket: {}", socket_path.display());
-        wait_for_socket(&socket_path, "Waiting for daemon...", &msg)?;
-    }
+    let stream = match UnixStream::connect(&socket_path) {
+        Ok(s) => s,
+        Err(e) => {
+            if socket_path.exists() && e.kind() == ErrorKind::ConnectionRefused {
+                let _ = fs::remove_file(&socket_path);
+            }
+            host.ensure_daemon()?;
+            let msg = format!(
+                "daemon started but session socket did not accept connections \u{2014} check logs\n\
+                 \x20 expected socket: {}",
+                socket_path.display()
+            );
+            wait_for_unix_session_connect(
+                socket_path.as_path(),
+                "Waiting for daemon...",
+                &msg,
+            )?
+        }
+    };
 
     if let Ok(dd) = host.data_dir() { init_repl_status_path(&dd.to_string_lossy()); }
 
-    let stream = UnixStream::connect(&socket_path)
-        .map_err(|e| format!("cannot connect to session service \u{2014} is it running? ({e})"))?;
     let reader_stream = stream.try_clone()?;
     reader_stream.set_read_timeout(Some(std::time::Duration::from_millis(300)))?;
     let mut writer_stream = stream;

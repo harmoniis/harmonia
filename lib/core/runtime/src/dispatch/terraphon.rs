@@ -12,6 +12,7 @@ pub(crate) fn dispatch(
     match op.as_str() {
         "init" => dispatch_op!("init", harmonia_terraphon::init(state)),
         "health" => dispatch_op!("health", harmonia_terraphon::health_check(state)),
+        "stats" => dispatch_op!("stats", harmonia_terraphon::stats(state)),
         "datamine" => {
             let lode_id = extract_sexp_string(sexp, ":lode-id").unwrap_or_default();
             let args_str = extract_sexp_string(sexp, ":args").unwrap_or_default();

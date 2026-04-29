@@ -52,6 +52,56 @@ pub(crate) fn truncate_safe(s: &str, max_bytes: usize) -> &str {
 pub struct TerraphonState {
     pub(crate) catalog: LodeCatalog,
     pub(crate) platform: Platform,
+    pub(crate) stats: DataMineStats,
+}
+
+/// Rolling success / latency window for recent datamining jobs.
+/// Aggregated form is exposed via the "stats" dispatch op so signalograd's
+/// observation packet carries a live picture of mining performance.
+pub struct DataMineStats {
+    successes: u64,
+    failures: u64,
+    total_elapsed_ms: u64,
+    /// Capacity-bounded ring: oldest entries decay out as new ones arrive.
+    recent: std::collections::VecDeque<(bool, u64)>,
+    capacity: usize,
+}
+
+impl DataMineStats {
+    pub fn new() -> Self {
+        Self {
+            successes: 0,
+            failures: 0,
+            total_elapsed_ms: 0,
+            recent: std::collections::VecDeque::with_capacity(64),
+            capacity: 64,
+        }
+    }
+
+    pub fn record(&mut self, success: bool, elapsed_ms: u64) {
+        if self.recent.len() == self.capacity {
+            if let Some((was_success, was_elapsed)) = self.recent.pop_front() {
+                if was_success { self.successes = self.successes.saturating_sub(1); }
+                else { self.failures = self.failures.saturating_sub(1); }
+                self.total_elapsed_ms = self.total_elapsed_ms.saturating_sub(was_elapsed);
+            }
+        }
+        self.recent.push_back((success, elapsed_ms));
+        if success { self.successes += 1; } else { self.failures += 1; }
+        self.total_elapsed_ms = self.total_elapsed_ms.saturating_add(elapsed_ms);
+    }
+
+    pub fn success_rate(&self) -> f64 {
+        let total = self.successes + self.failures;
+        if total == 0 { 0.0 } else { self.successes as f64 / total as f64 }
+    }
+
+    pub fn avg_latency_ms(&self) -> f64 {
+        let total = self.successes + self.failures;
+        if total == 0 { 0.0 } else { self.total_elapsed_ms as f64 / total as f64 }
+    }
+
+    pub fn samples(&self) -> u64 { self.successes + self.failures }
 }
 
 impl TerraphonState {
@@ -60,10 +110,14 @@ impl TerraphonState {
         let mut catalog = LodeCatalog::new();
         tools::system::register_platform_tools(&mut catalog, platform);
         tools::system::register_universal_tools(&mut catalog);
-        Self { catalog, platform }
+        Self { catalog, platform, stats: DataMineStats::new() }
     }
     pub fn lode_count(&self) -> usize { self.catalog.len() }
     pub fn platform(&self) -> Platform { self.platform }
+    pub fn stats(&self) -> &DataMineStats { &self.stats }
+    pub(crate) fn record_datamine(&mut self, success: bool, elapsed_ms: u64) {
+        self.stats.record(success, elapsed_ms);
+    }
 }
 
 pub fn init(s: &mut TerraphonState) -> Result<String, String> {
@@ -82,5 +136,15 @@ pub fn health_check(s: &TerraphonState) -> Result<String, String> {
     Ok(format!(
         "(:ok :healthy t :platform {} :lodes {} :available {})",
         s.platform.to_sexp(), s.catalog.len(), s.catalog.available_count(),
+    ))
+}
+
+/// Aggregated rolling-window stats for recent datamining jobs.
+pub fn stats(s: &TerraphonState) -> Result<String, String> {
+    Ok(format!(
+        "(:ok :samples {} :success-rate {:.4} :avg-latency-ms {:.2})",
+        s.stats.samples(),
+        s.stats.success_rate(),
+        s.stats.avg_latency_ms(),
     ))
 }

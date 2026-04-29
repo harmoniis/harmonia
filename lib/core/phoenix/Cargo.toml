@@ -17,6 +17,7 @@ path = "src/main.rs"
 [dependencies]
 harmonia-config-store = { version = "0.1.9", path = "../config-store" }
 harmonia-chronicle = { version = "0.1.9", path = "../chronicle" }
+harmonia-ouroboros = { version = "0.1.9", path = "../ouroboros" }
 ractor = "0.15"
 tokio = { version = "1.44", features = ["rt-multi-thread", "macros", "process", "signal", "time", "sync", "net"] }
 toml = "0.9"

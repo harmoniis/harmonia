@@ -6,6 +6,17 @@
 (defvar *repl-model-perf* nil)
 (defvar *routing-tier* :auto)
 
+(defun %temp-path (name)
+  "Derive a temp file path from state-root. Falls back to /tmp."
+  (let ((root (or (let ((sr (handler-case (sb-ext:posix-getenv "HARMONIA_STATE_ROOT")
+                           (error () nil))))
+                    (when (and sr (stringp sr) (> (length sr) 0))
+                      (let ((tmp (concatenate 'string sr "/tmp")))
+                        (ensure-directories-exist (concatenate 'string tmp "/"))
+                        tmp)))
+                  "/tmp")))
+    (format nil "~A/~A" root name)))
+
 ;;; ═══════════════════════════════════════════════════════════════════════
 ;;; PRIMITIVES — system interface
 ;;; ═══════════════════════════════════════════════════════════════════════
@@ -100,22 +111,30 @@ The REPL has full Lisp power; Rust is the boundary."
       0.5))
 
 (defun %prim-field ()
-  "L1 global context: the map of what the agent knows and how to navigate.
-   Returns a compact guide: capabilities, where to search, chain of thought.
+  "L1 global context: derived from live state and *primitive-dispatch*.
    The model reads this FIRST to understand how to proceed."
   (let ((basin (or (handler-case (%prim-basin) (error () nil)) "?"))
         (mem-count (hash-table-count *memory-store*))
         (concept-count (hash-table-count *memory-concept-nodes*))
         (palace-ok (and (fboundp 'mempalace-port-ready-p) (funcall 'mempalace-port-ready-p)))
         (tier (if (boundp '*routing-tier*) (symbol-name *routing-tier*) "auto")))
-    (format nil "GLOBAL CONTEXT:
+    ;; TOOLS section: derived from *primitive-dispatch*
+    (let ((tool-names '()))
+      (maphash (lambda (name prim)
+                 (declare (ignore prim))
+                 (when (member name '(exec read-file grep list-files write-file
+                                      fetch python search convert datamine browse markitdown))
+                   (push (string-downcase (symbol-name name)) tool-names)))
+               *primitive-dispatch*)
+      (format nil "GLOBAL CONTEXT:
 basin=~A concepts=~D memories=~D palace=~A tier=~A
-CHAIN: (field)→understand → (recall q)→user-data → (status)→system → (respond answer)
-TOOLS: exec read-file grep list-files write-file fetch python search convert datamine
+CHAIN: (field)->understand -> (recall q)->user-data -> (status)->system -> (respond answer)
+TOOLS: ~{~A~^ ~}
 MEMORY: (recall q) searches palace for user knowledge. (store text) saves to palace.
 SYSTEM: (status) (basin) (introspect) (models) for self-knowledge.
 EXPLORE: (exec cmd) (fetch url) (python code) (search q) (datamine lode) for new data."
-            basin mem-count concept-count (if palace-ok "ready" "offline") tier)))
+              basin mem-count concept-count (if palace-ok "ready" "offline") tier
+              (sort tool-names #'string<)))))
 
 (defun %prim-basin ()
   "Return basin status as structured string: basin=X dwell=N threshold=F"
@@ -425,11 +444,22 @@ EXPLORE: (exec cmd) (fetch url) (python code) (search q) (datamine lode) for new
 ;;; ═══════════════════════════════════════════════════════════════════════
 
 (defun %prim-fetch-url (url)
-  "Fetch URL content via markitdown. Writes Python script to temp file
-   to avoid IPC escaping issues with inline code. Pure functional."
+  "Fetch URL content. Tries Rust hfetch via IPC first, falls back to Python markitdown."
   (if (and url (stringp url) (> (length url) 5))
-      (or (handler-case
-              (let ((script (format nil "
+      (or
+       ;; Primary: route through Rust hfetch tool via IPC
+       (handler-case
+           (let ((reply (ipc-call (%sexp-to-ipc-string
+                                    `(:component "workspace" :op "exec"
+                                      :cmd "curl" :args ,(format nil "-sL -m 15 ~A" url))))))
+             (when (and reply (ipc-reply-ok-p reply))
+               (let ((text (ipc-extract-value reply)))
+                 (when (and text (stringp text) (> (length text) 0))
+                   (subseq text 0 (min (length text) 8000))))))
+         (error () nil))
+       ;; Fallback: Python markitdown via temp file
+       (handler-case
+           (let ((script (format nil "
 import sys
 try:
     from markitdown import MarkItDown
@@ -444,13 +474,12 @@ except Exception as e:
     text = re.sub(r'\\s+', ' ', text).strip()
     print(text[:8000])
 " url url)))
-                ;; Write to temp file — avoids all escaping issues
-                (workspace-write-file "/tmp/harmonia-fetch.py" script)
-                (let ((result (workspace-exec "python3" (list "/tmp/harmonia-fetch.py"))))
-                  (when (and result (stringp result) (> (length result) 0))
-                    result)))
-            (error () nil))
-          (format nil "(fetch error: ~A)" url))
+             (workspace-write-file (%temp-path "harmonia-fetch.py") script)
+             (let ((result (workspace-exec "python3" (list (%temp-path "harmonia-fetch.py")))))
+               (when (and result (stringp result) (> (length result) 0))
+                 result)))
+         (error () nil))
+       (format nil "(fetch error: ~A)" url))
       "(fetch: url required)"))
 
 (defun %prim-browse (url &optional (macro "text") (arg ""))
@@ -482,8 +511,8 @@ except Exception as e:
                       (position #\' script))
                   ;; Large/complex scripts: write to temp file, execute file
                   (progn
-                    (workspace-write-file "/tmp/harmonia-py-exec.py" script)
-                    (workspace-exec "python3" (list "/tmp/harmonia-py-exec.py")))
+                    (workspace-write-file (%temp-path "harmonia-py-exec.py") script)
+                    (workspace-exec "python3" (list (%temp-path "harmonia-py-exec.py"))))
                   ;; Short simple scripts: inline -c
                   (workspace-exec "python3" (list "-c" script)))
             (error (e) (format nil "(python error: ~A)" e)))
@@ -524,3 +553,217 @@ except Exception as e:
           ;; Fallback: just cat the file
           (handler-case (workspace-read-file path :limit 200) (error () "(convert-doc: failed)")))
       "(convert-doc: path required)"))
+
+;;; ═══════════════════════════════════════════════════════════════════════
+;;; PRIMITIVE REGISTRATION — defprimitive populates *primitive-dispatch*
+;;; ═══════════════════════════════════════════════════════════════════════
+;;;
+;;; NOTE: IPC calls within primitives are synchronous. This is correct
+;;; for the current REPL model: forms evaluate sequentially, and a form's
+;;; result may be consumed by the next form via let bindings. Async IPC
+;;; would require a promise/future evaluator — a separate evolution target.
+
+;; ── Self-discovery ────────────────────────────────────────────────────
+(defprimitive env "()" "All available primitives." (%prim-env))
+(defprimitive field "()" "L1 global context map." (%prim-field))
+(defprimitive recall "(query &key limit max-chars verbatim tags since)" "Search palace/chronicle." (apply #'%prim-recall args))
+(defprimitive ipc "(component op &rest kwargs)" "Generic IPC query." (apply #'%prim-ipc args))
+(defprimitive introspect "()" "Runtime identity." (%prim-introspect))
+(defprimitive status "()" "Runtime state." (%prim-status))
+(defprimitive chaos-risk "()" "Current chaos risk." (%prim-chaos-risk))
+(defprimitive basin "()" "Memory field basin status." (%prim-basin))
+(defprimitive models "()" "Available LLM backends." (%prim-models))
+(defprimitive route-check "(from to)" "Check harmonic matrix route." (apply #'%prim-route-check args))
+
+;; ── Composition (common names models expect) ──────────────────────────
+(defprimitive format "(fmt &rest args)" "Format a string." (apply #'format nil args))
+(defprimitive str "(&rest parts)" "Join parts into string." (apply #'concatenate 'string (mapcar #'princ-to-string args)))
+(defprimitive cat "(&rest parts)" "Alias for str." (apply #'concatenate 'string (mapcar #'princ-to-string args)))
+(defprimitive concat "(&rest parts)" "Alias for str." (apply #'concatenate 'string (mapcar #'princ-to-string args)))
+(defprimitive join "(list)" "Join list with spaces." (format nil "~{~A~^ ~}" (first args)))
+(defprimitive getf "(plist key)" "Property list access." (getf (first args) (second args)))
+(defprimitive length "(seq)" "Length of sequence." (length (first args)))
+(defprimitive subseq "(seq start &optional end)" "Subsequence." (apply #'subseq args))
+(defprimitive concatenate "(&rest strings)" "Concatenate strings." (apply #'concatenate 'string args))
+(defprimitive string-downcase "(s)" "Downcase string." (string-downcase (first args)))
+(defprimitive string-upcase "(s)" "Upcase string." (string-upcase (first args)))
+(defprimitive to-string "(x)" "Convert to string." (princ-to-string (first args)))
+(defprimitive princ-to-string "(x)" "Convert to string." (princ-to-string (first args)))
+
+;; ── Arithmetic & comparison ───────────────────────────────────────────
+(defprimitive + "(&rest nums)" "Addition." (apply #'+ args))
+(defprimitive - "(&rest nums)" "Subtraction." (apply #'- args))
+(defprimitive * "(&rest nums)" "Multiplication." (apply #'* args))
+(defprimitive / "(a b)" "Division." (/ (first args) (second args)))
+(defprimitive > "(a b)" "Greater than." (> (first args) (second args)))
+(defprimitive < "(a b)" "Less than." (< (first args) (second args)))
+(defprimitive = "(a b)" "Numeric equal." (= (first args) (second args)))
+(defprimitive not "(x)" "Logical not." (not (first args)))
+(defprimitive and "(&rest vals)" "Logical and." (every #'identity args))
+(defprimitive or "(&rest vals)" "Logical or." (some #'identity args))
+
+;; ── List operations ───────────────────────────────────────────────────
+(defprimitive list "(&rest items)" "Construct list." args)
+(defprimitive car "(list)" "First element." (car (first args)))
+(defprimitive cdr "(list)" "Rest of list." (cdr (first args)))
+(defprimitive cadr "(list)" "Second element." (cadr (first args)))
+(defprimitive caddr "(list)" "Third element." (caddr (first args)))
+(defprimitive nth "(n list)" "Nth element." (nth (first args) (second args)))
+(defprimitive first "(list)" "First element." (first (first args)))
+(defprimitive second "(list)" "Second element." (second (first args)))
+(defprimitive third "(list)" "Third element." (third (first args)))
+(defprimitive fourth "(list)" "Fourth element." (fourth (first args)))
+(defprimitive rest "(list)" "Rest of list." (rest (first args)))
+(defprimitive last "(list)" "Last element." (car (last (first args))))
+(defprimitive cons "(head tail)" "Construct pair." (cons (first args) (second args)))
+(defprimitive append "(a b)" "Append lists." (append (first args) (second args)))
+(defprimitive mapcar "(fn list)" "Map function over list." (mapcar (first args) (second args)))
+(defprimitive remove-if "(pred list)" "Remove matching." (remove-if (first args) (second args)))
+(defprimitive assoc "(key alist)" "Association list lookup." (assoc (first args) (second args)))
+
+;; ── Workspace tools (Rust actors) ─────────────────────────────────────
+(defprimitive read-file "(path &optional offset limit)" "Read file." (apply #'%prim-read-file args))
+(defprimitive grep "(pattern &optional path)" "Search files." (apply #'%prim-grep args))
+(defprimitive list-files "(&optional path)" "List directory." (apply #'%prim-list-files args))
+(defprimitive file-exists "(path)" "Check file exists." (%prim-file-exists (first args)))
+(defprimitive file-info "(path)" "File metadata." (%prim-file-info (first args)))
+(defprimitive write-file "(path content)" "Write file." (apply #'%prim-write-file args))
+(defprimitive append-file "(path content)" "Append to file." (apply #'%prim-append-file args))
+(defprimitive exec "(cmd &rest args)" "Execute shell command." (apply #'%prim-exec args))
+
+;; ── Action primitives ─────────────────────────────────────────────────
+(defprimitive store "(content &key tags)" "Store to palace." (apply #'%prim-store args))
+(defprimitive spawn "(model &key task workdir)" "Spawn subagent." (apply #'%prim-spawn args))
+(defprimitive tool "(name &rest kwargs)" "Execute tool." (apply #'%prim-tool args))
+(defprimitive observe-route "(from to &key success latency-ms)" "Log route." (apply #'%prim-observe-route args))
+
+;; ── Memory field maintenance ──────────────────────────────────────────
+(defprimitive dream "()" "Field self-maintenance." (%prim-dream))
+(defprimitive meditate "()" "Hebbian edge strengthening." (%prim-meditate))
+
+;; ── Evolution (vitruvian-gated) ───────────────────────────────────────
+(defprimitive evolve "(&key reason target)" "Request evolution." (apply #'%prim-evolve args))
+(defprimitive rewrite-plan "()" "Show rewrite plan." (%prim-rewrite-plan))
+
+;; ── MemPalace (graph-structured knowledge) ────────────────────────────
+(defprimitive palace-search "(query &key room limit)" "Search palace." (apply #'%prim-palace-search args))
+(defprimitive palace-file "(content room-id &key tags)" "File to drawer." (apply #'%prim-palace-file args))
+(defprimitive palace-graph "(from &key traversal depth)" "Graph query." (apply #'%prim-palace-graph args))
+(defprimitive palace-compress "(&rest drawer-ids)" "Compress drawers." (apply #'%prim-palace-compress args))
+(defprimitive palace-context "(tier &key domain query)" "Palace context." (apply #'%prim-palace-context args))
+(defprimitive palace-kg "(op &rest args)" "Knowledge graph ops." (apply #'%prim-palace-kg args))
+
+;; ── Terraphon (platform datamining) ───────────────────────────────────
+(defprimitive datamine "(lode-id &rest args)" "Datamine locally." (apply #'%prim-datamine args))
+(defprimitive datamine-remote "(node-label lode-id &rest args)" "Datamine remotely." (apply #'%prim-datamine-remote args))
+(defprimitive datamine-for "(&key domain query prefer)" "Datamine by domain." (apply #'%prim-datamine-for args))
+(defprimitive lodes "()" "List datamining tools." (%prim-lodes))
+
+;; ── Web + Python ──────────────────────────────────────────────────────
+(defprimitive fetch-url "(url)" "Fetch URL content." (%prim-fetch-url (first args)))
+(defprimitive fetch "(url)" "Alias for fetch-url." (%prim-fetch-url (first args)))
+(defprimitive browse "(url &optional macro arg)" "Browser tool." (apply #'%prim-browse args))
+(defprimitive python "(script)" "Execute Python." (%prim-python (first args)))
+(defprimitive py "(script)" "Alias for python." (%prim-python (first args)))
+(defprimitive search-web "(query)" "Web search." (%prim-search-web (first args)))
+(defprimitive search "(query)" "Alias for search-web." (%prim-search-web (first args)))
+(defprimitive convert-doc "(path)" "Convert document to text." (%prim-convert-doc (first args)))
+(defprimitive convert "(path)" "Alias for convert-doc." (%prim-convert-doc (first args)))
+(defprimitive markitdown "(path)" "Alias for convert-doc." (%prim-convert-doc (first args)))
+
+;; ── Tmux interactive terminal control ──────────────────────────────────
+(defprimitive tmux-create "(name &optional workdir)" "Create a tmux session."
+  (let ((name (first args))
+        (workdir (or (second args) ".")))
+    (or (handler-case
+            (workspace-exec "tmux" (list "new-session" "-d" "-s" name "-c" workdir))
+          (error () nil))
+        (format nil "(:error \"tmux-create ~A failed\")" name))))
+
+(defprimitive tmux-send "(session keys)" "Send keystrokes to a tmux session."
+  (let ((session (first args))
+        (keys (second args)))
+    (or (handler-case
+            (workspace-exec "tmux" (list "send-keys" "-t" session keys "Enter"))
+          (error () nil))
+        (format nil "(:error \"tmux-send to ~A failed\")" session))))
+
+(defprimitive tmux-read "(session &optional lines)" "Capture output from a tmux session pane."
+  (let ((session (first args))
+        (lines (or (second args) 50)))
+    (or (handler-case
+            (workspace-exec "tmux" (list "capture-pane" "-t" session "-p" "-S"
+                                         (format nil "-~D" lines)))
+          (error () nil))
+        (format nil "(:error \"tmux-read ~A failed\")" session))))
+
+(defprimitive tmux-list "()" "List all tmux sessions."
+  (or (handler-case (workspace-exec "tmux" '("list-sessions")) (error () nil))
+      "(no tmux sessions)"))
+
+(defprimitive tmux-kill "(session)" "Kill a tmux session."
+  (let ((session (first args)))
+    (or (handler-case
+            (workspace-exec "tmux" (list "kill-session" "-t" session))
+          (error () nil))
+        (format nil "(:error \"tmux-kill ~A failed\")" session))))
+
+;; ── MCP A2A: bidirectional collaboration via Rust MCP actor ────────────
+;; All MCP communication goes through the Rust MCP actor via IPC dispatch.
+;; Lisp primitives are thin wrappers around IPC calls to the mcp component.
+
+(defprimitive mcp-connect "(server-name &key command)" "Connect to a local MCP server (A2A)."
+  (let ((name (first args))
+        (cmd (getf (cdr args) :command)))
+    (or (handler-case
+            (ipc-call (%sexp-to-ipc-string
+                        `(:component "mcp" :op "connect"
+                          :server ,name ,@(when cmd (list :command cmd)))))
+          (error () nil))
+        (format nil "(:error \"mcp-connect ~A failed\")" name))))
+
+(defprimitive mcp-call "(server tool-name &rest tool-args)" "Call a tool on a connected MCP peer."
+  (let ((server (first args))
+        (tool (second args))
+        (tool-args (third args)))
+    (or (handler-case
+            (ipc-call (%sexp-to-ipc-string
+                        `(:component "mcp" :op "call-tool"
+                          :server ,server :tool ,tool
+                          :arguments ,(or tool-args "{}"))))
+          (error () nil))
+        (format nil "(:error \"mcp-call ~A/~A failed\")" server tool))))
+
+(defprimitive mcp-list "(&optional server)" "List tools on a connected MCP peer."
+  (let ((server (or (first args) "")))
+    (or (handler-case
+            (ipc-call (%sexp-to-ipc-string
+                        `(:component "mcp" :op "list-tools"
+                          ,@(when (> (length server) 0) (list :server server)))))
+          (error () nil))
+        "(:error \"mcp-list failed\")")))
+
+(defprimitive mcp-peers "()" "List all connected MCP peers."
+  (or (handler-case
+          (ipc-call (%sexp-to-ipc-string
+                      '(:component "mcp" :op "list-peers")))
+        (error () nil))
+      "(:error \"mcp-peers failed\")"))
+
+;; ── Task decomposition (recursive subagent tree) ──────────────────────
+(defprimitive decompose "(&rest subtasks)" "Decompose task into parallel subtasks."
+  (if (and args (> (length args) 0))
+      (handler-case
+          (let ((results (funcall '%decompose-and-solve args)))
+            (format nil "(:decomposed ~{~A~^ ~})"
+                    (mapcar (lambda (r)
+                              (format nil "(:task \"~A\" :agent-id ~A :status ~A)"
+                                      (or (getf r :task) "?")
+                                      (or (getf r :agent-id) "nil")
+                                      (or (getf r :status) :unknown)))
+                            results)))
+        (error (e) (format nil "(:error \"decompose: ~A\")" e)))
+      "(:error \"decompose: provide subtasks\")"))
+
+;; ── Finalize: compute *repl-primitives* from dispatch table ───────────
+(setf *repl-primitives* (%compute-repl-primitives))

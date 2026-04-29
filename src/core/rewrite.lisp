@@ -21,10 +21,12 @@
              (harmony-policy-number "rewrite-plan/noise-max" noise-max)))))
 
 (defun maybe-self-rewrite (prompt response)
-  "Record evolution event when vitruvian gate opens. Binary rollout, not source rewrite."
+  "Execute evolution when vitruvian gate opens. Full pipeline:
+   gate check → prepare → record to memory → execute → record to ouroboros."
   (when (or (search "evolve" (string-downcase prompt))
             (%harmonic-plan-ready-p))
     (incf (runtime-state-rewrite-count *runtime*))
+    ;; Record evolution trigger to memory (L1 field + L3 palace)
     (memory-put :skill
                 (list :rewrite-trigger :harmonic-plan
                       :prompt prompt
@@ -35,4 +37,22 @@
     (runtime-log *runtime* :rewrite-triggered
                  (list :count (runtime-state-rewrite-count *runtime*)
                        :hint (subseq response 0 (min 80 (length response)))))
+    ;; Execute evolution pipeline: prepare → execute → record
+    (handler-case
+        (let ((prep (when (fboundp 'evolution-prepare) (evolution-prepare))))
+          (when (and prep (eq (getf prep :health) :ready))
+            (let ((result (when (fboundp 'evolution-execute)
+                            (evolution-execute
+                              :component "repl"
+                              :patch-body (format nil "evolution-trigger cycle=~D"
+                                                  (runtime-state-cycle *runtime*))))))
+              ;; Record to ouroboros crash ledger for audit trail
+              (when (fboundp 'ouroboros-write-patch)
+                (ouroboros-write-patch "evolution"
+                  (format nil "(:evolution :cycle ~D :count ~D :snapshot ~A)"
+                          (runtime-state-cycle *runtime*)
+                          (runtime-state-rewrite-count *runtime*)
+                          (or (getf result :snapshot) "nil"))))
+              (%log :info "evolution" "Evolution executed: ~A" result))))
+      (error (e) (%log :warn "evolution" "Evolution failed: ~A" e)))
     t))

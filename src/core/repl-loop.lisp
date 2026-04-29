@@ -136,31 +136,64 @@ Only #\\ (character literal) is benign; all others are rejected."
 ;;; THE HARMONIC REPL — minimal, pure functional, drives any model
 ;;; ═══════════════════════════════════════════════════════════════════════
 
-(defvar *repl-frame*
-  ";; Output ONE s-expression. (respond \"answer\") to finish.
-;; (field) (recall \"q\") (status) (basin) (exec \"cmd\") (store \"text\")
-;; (fetch \"url\") (browse \"url\" \"text\") (python \"code\") (search \"q\")
-;; (read-file \"p\") (grep \"p\" \"d\") (markitdown \"file\") (datamine \"lode\")
-;; (str a b) joins. (let ((x (fetch \"url\"))) (respond x)) chains.
-"
-  "The REPL instruction frame. Identical in every round — no model confusion.")
+(defun %compute-repl-frame ()
+  "Generate REPL instruction frame from *primitive-dispatch*.
+   Compact: model reads this every round. Lists essential primitives with args-specs."
+  (let ((essential '(field recall status basin exec store
+                     fetch browse python search
+                     read-file grep markitdown datamine respond))
+        (parts '()))
+    (dolist (name essential)
+      (let ((prim (gethash name *primitive-dispatch*)))
+        (when prim
+          (push (format nil "(~(~A~)~A)" name
+                        (let ((s (repl-primitive-args-spec prim)))
+                          (if (or (null s) (string= s "()")) ""
+                              (format nil " ~A" s))))
+                parts))))
+    (format nil ";; Output ONE s-expression. (respond \"answer\") to finish.~%;; ~{~A~^ ~}~%;; (str a b) joins. (let ((x (fetch \"url\"))) (respond x)) chains.~%"
+            (nreverse parts))))
+
+;; Computed at boot from *primitive-dispatch*. Identical every round — no model confusion.
+(defvar *repl-frame* nil "REPL instruction frame — computed from dispatch table.")
+
+(defun %build-repl-prompt (agent-name user-text &key round last-result)
+  "Build prompt as s-expression structure. Rendered to string at LLM boundary.
+   Homoiconic: the epigenetic system can structurally modify prompts."
+  (unless *repl-frame* (setf *repl-frame* (%compute-repl-frame)))
+  (if (or (null round) (= round 1))
+      `(:prompt
+        (:system ,(format nil "~A REPL. Start with (field) for context." agent-name))
+        (:frame ,*repl-frame*)
+        (:user ,user-text))
+      `(:prompt
+        (:system ,(format nil "~A REPL. Previous eval returned:" agent-name))
+        (:context ,(%clip-prompt (or last-result "") 2000))
+        (:frame ,*repl-frame*)
+        (:user ,user-text))))
+
+(defun %render-prompt (prompt-sexp)
+  "Render s-expression prompt to string at LLM API boundary."
+  (with-output-to-string (out)
+    (dolist (section (cdr prompt-sexp))
+      (let ((kind (car section))
+            (content (cadr section)))
+        (case kind
+          (:system  (format out ";; ~A~%" content))
+          (:frame   (write-string content out))
+          (:context (format out ";; ~A~%" content))
+          (:user    (format out ";; user: ~A" content)))))))
 
 (defun %repl-boot-prompt (agent-name user-text)
   "L0 boot: REPL frame + user query. Start with (field) for context."
-  (concatenate 'string
-    (format nil ";; ~A REPL. Start with (field) for context.~%" agent-name)
-    *repl-frame*
-    (format nil ";; user: ~A" user-text)))
+  (%render-prompt (%build-repl-prompt agent-name user-text)))
 
 (defun %repl-continuation-prompt (round agent-name last-result user-text)
   "Continuation: same REPL frame + previous eval result. No 'R3' labels.
    Structurally identical to boot — models cannot distinguish rounds."
   (declare (ignore round))
-  (concatenate 'string
-    (format nil ";; ~A REPL. Previous eval returned:~%" agent-name)
-    (format nil ";; ~A~%" (%clip-prompt (or last-result "") 2000))
-    *repl-frame*
-    (format nil ";; user: ~A" user-text)))
+  (%render-prompt (%build-repl-prompt agent-name user-text
+                                       :round 2 :last-result last-result)))
 
 (defun %clip-prompt (text &optional (limit 256))
   (let ((s (or text "")))
@@ -205,6 +238,22 @@ Only #\\ (character literal) is benign; all others are rejected."
             :round round :model used-model
             :prompt-len (length round-prompt)
             :prompt-content (%clip-prompt round-prompt 800))
+
+          ;; Resonance telemetry: capture system coherence state at every LLM call.
+          ;; Diagnostic-only — wrapped in handler-case so it can never break the call.
+          (handler-case
+              (when *runtime*
+                (let* ((proj (signalograd-current-projection *runtime*))
+                       (plan (getf (runtime-state-harmonic-context *runtime*) :plan)))
+                  (runtime-log *runtime* :repl-llm-call
+                               (list :round round
+                                     :model used-model
+                                     :prompt-len (length round-prompt)
+                                     :rewrite-ready (and plan (getf plan :ready))
+                                     :confidence (or (getf proj :confidence) 0.0)
+                                     :lambdoma-ratio (and plan (getf plan :lambdoma-ratio))
+                                     :chaos-risk (and plan (getf plan :chaos-risk))))))
+            (error () nil))
 
           (let ((llm-output
                   (handler-case (backend-complete round-prompt used-model)
@@ -271,8 +320,8 @@ Only #\\ (character literal) is benign; all others are rejected."
                  (%repl-auto-store-and-return user-text llm-output)))))))))))
 
 (defun %sanitize-repl-response (response)
-  "Strip REPL framing that leaked into the response. Pure functional.
-   Models sometimes echo ;; prefixes, round labels, or instruction text."
+  "Strip REPL framing that leaked into the response. Structural only:
+   removes ;; comment lines (REPL frame echo). No agent-name matching."
   (if (and response (stringp response))
       (let ((cleaned response))
         ;; Strip leading ;; comment lines (REPL framing echo)
@@ -282,11 +331,6 @@ Only #\\ (character literal) is benign; all others are rejected."
                    (if nl
                        (setf cleaned (string-trim '(#\Space #\Newline) (subseq cleaned (1+ nl))))
                        (return))))
-        ;; Strip "harmonia R3." or similar round labels at start
-        (when (and (> (length cleaned) 10)
-                   (search "harmonia" (subseq cleaned 0 (min 20 (length cleaned)))))
-          (let ((nl (position #\Newline cleaned)))
-            (when nl (setf cleaned (string-trim '(#\Space #\Newline) (subseq cleaned (1+ nl)))))))
         (if (> (length cleaned) 0) cleaned response))
       response))
 

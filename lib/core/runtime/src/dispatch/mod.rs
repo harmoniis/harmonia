@@ -76,12 +76,17 @@ pub(crate) fn sexp_string_list(items: &[String]) -> String {
         .join(" ")
 }
 
-use std::ffi::{CStr, CString};
-use std::os::raw::c_char;
-
 // Re-export the functions that actors.rs, ipc.rs, and supervisor.rs call
 pub use matrix::dispatch_matrix_via_actor;
 pub use observability::dispatch_obs_trace;
+
+/// Dispatch vault commands (requires actor-owned VaultState).
+pub(crate) fn dispatch_vault(
+    sexp: &str,
+    state: &mut harmonia_vault::VaultState,
+) -> String {
+    vault::dispatch_with_state(sexp, state)
+}
 
 /// Dispatch signalograd commands (requires actor-owned KernelState).
 pub(crate) fn dispatch_signalograd(
@@ -120,54 +125,36 @@ pub fn extract_vault_symbol(sexp: &str) -> String {
     harmonia_actor_protocol::extract_sexp_string(sexp, ":symbol").unwrap_or_default()
 }
 
-// ── FFI helpers used by provider_router ──────────────────────────────
-
-/// Convert a string to CString for FFI, returning error sexp on null bytes.
-pub(crate) fn to_cstring(s: &str) -> Result<CString, String> {
-    CString::new(s).map_err(|_| "(:error \"string contains null byte\")".to_string())
-}
-
-/// RAII guard for strings allocated by C FFI. Automatically freed on drop.
-pub(crate) struct FfiString(pub *mut c_char);
-impl FfiString {
-    pub fn as_str(&self) -> &str {
-        if self.0.is_null() {
-            return "";
-        }
-        unsafe { CStr::from_ptr(self.0) }.to_str().unwrap_or("")
-    }
-}
-impl Drop for FfiString {
-    fn drop(&mut self) {
-        if !self.0.is_null() {
-            unsafe {
-                drop(CString::from_raw(self.0));
-            }
-        }
-    }
-}
-
 /// Dispatch a command to the named component (synchronous, for non-matrix components).
 /// Returns an sexp reply string.
 pub fn dispatch(component: &str, sexp: &str) -> String {
     match component {
-        "vault" => vault::dispatch(sexp),
+        "vault" => {
+            // Vault requires actor-owned state. Non-actor callers should not reach here.
+            format!(
+                "(:error \"component 'vault' requires actor-owned state\")",
+            )
+        }
         "config" => config::dispatch(sexp),
         "chronicle" => chronicle::dispatch(sexp),
         "gateway" => gateway::dispatch(sexp),
         "tailnet" => tailnet::dispatch(sexp),
-        "harmonic-matrix" | "matrix" => matrix::dispatch(sexp),
+        "harmonic-matrix" | "matrix" => {
+            format!(
+                "(:error \"component 'harmonic-matrix' requires actor-owned state\")",
+            )
+        }
         "provider-router" => provider_router::dispatch(sexp),
         "parallel" => parallel::dispatch(sexp),
         "workspace" => workspace::dispatch(sexp),
         "observability" => observability::dispatch(sexp),
-        "signalograd" | "memory-field" | "mempalace" | "terraphon" | "sessions" => {
+        "signalograd" | "memory-field" | "mempalace" | "terraphon" | "sessions"
+        | "mcp" | "router" => {
             format!(
-                "(:error \"component '{}' requires actor-owned state\")",
+                "(:error \"component '{}' requires actor-owned state — route through actor\")",
                 harmonia_actor_protocol::sexp_escape(component)
             )
         }
-        "router" => "(:ok :result \"router dispatch via actor\")".to_string(),
         _ => format!(
             "(:error \"unknown component: {}\")",
             harmonia_actor_protocol::sexp_escape(component)

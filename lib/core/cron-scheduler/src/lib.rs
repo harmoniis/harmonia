@@ -17,11 +17,15 @@ pub struct SchedulerState {
     jobs: Vec<Job>,
 }
 
-static STATE: OnceLock<RwLock<SchedulerState>> = OnceLock::new();
+impl SchedulerState {
+    pub fn new() -> Self { Self::default() }
+}
+
+static PROCESS_STATE: OnceLock<RwLock<SchedulerState>> = OnceLock::new();
 static LAST_ERROR: OnceLock<RwLock<String>> = OnceLock::new();
 
 fn state() -> &'static RwLock<SchedulerState> {
-    STATE.get_or_init(|| RwLock::new(SchedulerState::default()))
+    PROCESS_STATE.get_or_init(|| RwLock::new(SchedulerState::new()))
 }
 
 fn last_error() -> &'static RwLock<String> {

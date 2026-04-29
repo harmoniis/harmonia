@@ -36,6 +36,7 @@ impl Service for FieldState {
                     eigenvalues: self.eigenvalues.clone(),
                     spectral_version: self.spectral_version,
                     graph_version: self.graph_version,
+                    coherence: self.last_eigenmode_coherence,
                 });
                 Ok((FieldDelta::None, result))
             }
@@ -56,14 +57,14 @@ impl Service for FieldState {
                 }))
             }
             FieldCommand::Recall { query_concepts, access_counts, limit } => {
-                let result = crate::recall::compute_recall_pure(self, &query_concepts, &access_counts, limit);
+                let (result, coherence) = crate::recall::compute_recall_pure(self, &query_concepts, &access_counts, limit);
                 let new_cycle = self.cycle + 1;
-                Ok((FieldDelta::CycleIncremented { new_cycle }, FieldResult::Recalled(result)))
+                Ok((FieldDelta::CycleIncremented { new_cycle, eigenmode_coherence: coherence }, FieldResult::Recalled(result)))
             }
             FieldCommand::RecallStructural { query_concepts, limit } => {
-                let result = crate::recall::compute_recall_pure(self, &query_concepts, &[], limit);
+                let (result, coherence) = crate::recall::compute_recall_pure(self, &query_concepts, &[], limit);
                 let new_cycle = self.cycle + 1;
-                Ok((FieldDelta::CycleIncremented { new_cycle }, FieldResult::Recalled(result)))
+                Ok((FieldDelta::CycleIncremented { new_cycle, eigenmode_coherence: coherence }, FieldResult::Recalled(result)))
             }
             FieldCommand::LoadGraph { nodes, edges, directed_weights } => {
                 let (mut graph, eigenvalues, eigenvectors, node_basins) =
@@ -251,7 +252,8 @@ impl Service for FieldState {
                 self.total_merged += merged_count;
                 self.total_crystallized += crystallized_count;
             }
-            FieldDelta::CycleIncremented { new_cycle } => {
+            FieldDelta::CycleIncremented { new_cycle, eigenmode_coherence } => {
+                self.last_eigenmode_coherence = eigenmode_coherence;
                 self.cycle = new_cycle;
             }
             FieldDelta::BasinRestored { hysteresis } => {

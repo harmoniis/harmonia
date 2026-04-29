@@ -34,13 +34,16 @@ impl ComponentDescriptor for TerraphonComponent {
     }
 }
 
-// ── Chronicle (stateless dispatch + GC tick) ────────────────────────
+// ── Chronicle (actor-owned ChronicleState + GC tick) ────────────────
 
 pub struct ChronicleComponent;
 impl ComponentDescriptor for ChronicleComponent {
     const NAME: &'static str = "chronicle";
-    type State = ();
-    fn init() -> Self::State { let _ = harmonia_chronicle::init(); }
+    type State = harmonia_chronicle::ChronicleState;
+    fn init() -> Self::State {
+        harmonia_chronicle::ChronicleState::open()
+            .expect("chronicle database must be openable")
+    }
     fn dispatch(_state: &mut Self::State, sexp: &str) -> String {
         crate::dispatch::chronicle::dispatch(sexp)
     }
@@ -58,6 +61,21 @@ impl ComponentDescriptor for ChronicleComponent {
         }
     }
     fn capabilities() -> &'static [&'static str] { &["knowledge-base", "event-log"] }
+}
+
+// ── MCP (Model Context Protocol A2A — generic, any MCP server) ──────
+
+pub struct McpComponent;
+impl ComponentDescriptor for McpComponent {
+    const NAME: &'static str = "mcp";
+    type State = harmonia_mcp::McpState;
+    fn init() -> Self::State { harmonia_mcp::McpState::new() }
+    fn dispatch(state: &mut Self::State, sexp: &str) -> String {
+        harmonia_mcp::dispatch(state, sexp)
+    }
+    fn capabilities() -> &'static [&'static str] {
+        &["mcp-client", "a2a-protocol", "tool-discovery"]
+    }
 }
 
 // ── Ouroboros (self-healing crash ledger + patch writing) ────────────
@@ -105,6 +123,7 @@ pub fn capabilities_for(name: &str) -> &'static [&'static str] {
         "provider-router" => &["llm-routing"],
         "parallel" => &["task-execution", "tmux-agents"],
         "observability" => &["tracing", "metrics"],
+        "mcp" => McpComponent::capabilities(),
         "harmonic-matrix" => &["routing-mesh", "vitruvian-scoring"],
         "memory-field" => &["field-recall", "attractor-basins", "spectral-decomposition", "dreaming"],
         "signalograd" => &["adaptive-kernel", "hebbian-learning", "reservoir-computing"],

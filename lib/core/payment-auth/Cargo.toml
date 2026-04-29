@@ -14,7 +14,8 @@ chrono = "0.4"
 hex = "0.4"
 harmonia-baseband-channel-protocol = { version = "0.1.9", path = "../baseband-channel-protocol" }
 harmonia-config-store = { version = "0.1.9", path = "../config-store" }
-harmoniis-wallet = { version = "0.1.39", default-features = false, features = ["bundled-sqlite"] }
+# API (RgbWallet, ark, bitcoin) is behind the `native` stack in current harmoniis-wallet.
+harmoniis-wallet = { version = "0.1.128", default-features = false, features = ["native"] }
 serde_json = "1"
 sha2 = "0.10"
 tokio = { version = "1.44", features = ["rt", "time"] }

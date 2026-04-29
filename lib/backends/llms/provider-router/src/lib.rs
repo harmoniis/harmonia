@@ -11,13 +11,12 @@
 //! - `dispatch` — routing logic: native backend → OpenRouter fallback
 //! - `init`     — boot sequence for all active backends
 //! - `status`   — backend health reporting (sexp for Lisp introspection)
-//! - `ffi`      — C-compatible exports for the runtime IPC bridge
 
-mod dispatch;
+pub mod dispatch;
 mod ffi;
 mod init;
-mod registry;
-mod status;
+pub mod registry;
+pub mod status;
 
-// Re-export FFI surface used by the runtime and IPC dispatch.
+// Re-export FFI surface for backward compat (will be removed when all callers use Rust API).
 pub use ffi::*;

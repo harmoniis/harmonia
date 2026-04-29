@@ -59,3 +59,10 @@
      (ipc-call (%sexp-to-ipc-string
                 `(:component "terraphon" :op "lode-status"
                   :lode-id ,lode-id))))))
+
+(defun terraphon-stats ()
+  "Return rolling-window datamining stats: :samples, :success-rate, :avg-latency-ms."
+  (when (terraphon-port-ready-p)
+    (%parse-port-reply
+     (ipc-call (%sexp-to-ipc-string
+                '(:component "terraphon" :op "stats"))))))

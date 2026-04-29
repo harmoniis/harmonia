@@ -20,6 +20,9 @@ pub struct MemoryFieldState {
     idle_ticks: u64,
     last_dream_cycle: u64,
     total_ticks: u64,
+    // ── Config cached at init (no config-store calls during ticks) ──
+    dream_idle_threshold: u64,
+    dream_cycle_interval: u64,
 }
 
 impl Actor for MemoryFieldActor {
@@ -33,6 +36,11 @@ impl Actor for MemoryFieldActor {
         (bridge, obs): Self::Arguments,
     ) -> Result<Self::State, ActorProcessingErr> {
         let field = harmonia_memory_field::FieldState::new();
+        // Cache config at init — no config-store calls during ticks
+        let dream_idle_threshold = harmonia_config_store::get_own("memory-field", "dream-idle-ticks")
+            .ok().flatten().and_then(|s| s.parse::<u64>().ok()).unwrap_or(5);
+        let dream_cycle_interval = harmonia_config_store::get_own("memory-field", "dream-cycle-interval")
+            .ok().flatten().and_then(|s| s.parse::<u64>().ok()).unwrap_or(30);
         eprintln!("[INFO] [runtime] MemoryFieldActor started");
         Ok(MemoryFieldState {
             bridge,
@@ -42,6 +50,8 @@ impl Actor for MemoryFieldActor {
             idle_ticks: 0,
             last_dream_cycle: 0,
             total_ticks: 0,
+            dream_idle_threshold,
+            dream_cycle_interval,
         })
     }
 
@@ -62,6 +72,7 @@ impl Actor for MemoryFieldActor {
                     if let Some(basin) = extract_basin_from_sexp(&status_sexp) {
                         if basin != state.last_basin {
                             // Basin switched — emit StateChanged to bridge for Lisp consumption.
+                            // Wrap as valid sexp so the Lisp side can parse it.
                             let msg = HarmoniaMessage {
                                 id: 0,
                                 source: 0,
@@ -69,7 +80,10 @@ impl Actor for MemoryFieldActor {
                                 kind: ActorKind::MemoryField,
                                 timestamp: now_unix(),
                                 payload: MessagePayload::StateChanged {
-                                    to: format!("basin:{}", basin),
+                                    to: format!(
+                                        "(:memory-field-basin :basin \"{}\")",
+                                        basin.replace('"', "\\\"")
+                                    ),
                                 },
                             };
                             let _ = state.bridge.cast(BridgeMsg::Enqueue { msg });
@@ -93,14 +107,9 @@ impl Actor for MemoryFieldActor {
                 }
 
                 // ── Automated dreaming (Phase 4A) ──
-                // When idle long enough and enough ticks since last dream, trigger a dream cycle.
-                let dream_idle_threshold = harmonia_config_store::get_own("memory-field", "dream-idle-ticks")
-                    .ok().flatten().and_then(|s| s.parse::<u64>().ok()).unwrap_or(5);
-                let dream_cycle_interval = harmonia_config_store::get_own("memory-field", "dream-cycle-interval")
-                    .ok().flatten().and_then(|s| s.parse::<u64>().ok()).unwrap_or(30);
-
-                if state.idle_ticks >= dream_idle_threshold
-                    && state.total_ticks - state.last_dream_cycle >= dream_cycle_interval
+                // Config cached at init — no config-store calls during ticks.
+                if state.idle_ticks >= state.dream_idle_threshold
+                    && state.total_ticks - state.last_dream_cycle >= state.dream_cycle_interval
                 {
                     if let Ok(report) = harmonia_memory_field::field_dream(&mut state.field) {
                         let report_sexp = harmonia_memory_field::dream_report_to_sexp(&report);

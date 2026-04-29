@@ -2,7 +2,7 @@
 //!
 //! Parse sexp -> SignalogradCmd -> handle(&self) -> (Delta, Ok) -> apply(&mut self) -> to_sexp()
 
-use super::param;
+use super::{esc, param};
 
 pub(crate) fn dispatch(
     sexp: &str,
@@ -13,7 +13,7 @@ pub(crate) fn dispatch(
     // Parse command from sexp.
     let cmd = match parse_command(sexp, &op) {
         Some(cmd) => cmd,
-        None => return format!("(:error \"unknown signalograd op: {}\")", op),
+        None => return format!("(:error \"unknown signalograd op: {}\")", esc(&op)),
     };
 
     // Handle + apply + serialize (Service pattern).
@@ -24,14 +24,14 @@ pub(crate) fn dispatch(
             // Persist after state-mutating operations.
             if is_mutating(&op) {
                 if let Err(e) = harmonia_signalograd::save_state(state) {
-                    return format!("(:error \"{} save: {e}\")", op);
+                    return format!("(:error \"{} save: {}\")", esc(&op), esc(&e.to_string()));
                 }
             }
             result.to_sexp()
         }
         Err(e) => {
             let msg = e.to_string();
-            format!("(:error \"{}: {}\")", op, harmonia_actor_protocol::sexp_escape(&msg))
+            format!("(:error \"{}: {}\")", esc(&op), esc(&msg))
         }
     }
 }

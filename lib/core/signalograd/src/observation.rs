@@ -1,6 +1,6 @@
 use crate::error::clamp;
 use crate::model::{Feedback, Observation, Projection, INPUT_DIM};
-use crate::sexp::{
+use harmonia_actor_protocol::sexp::{
     parse_sexp, plist_bool, plist_f64, plist_i64, plist_list, plist_string, plist_view, Sexp,
 };
 
@@ -103,6 +103,7 @@ pub(crate) fn parse_projection_sexp(sexp: &Sexp) -> Result<Projection, String> {
         rewrite_signal_delta: plist_f64(harmony, "rewrite-signal-delta").unwrap_or(0.0),
         rewrite_chaos_delta: plist_f64(harmony, "rewrite-chaos-delta").unwrap_or(0.0),
         evolution_aggression_bias: plist_f64(harmony, "aggression-bias").unwrap_or(0.0),
+        logistic_r_delta: plist_f64(harmony, "logistic-r-delta").unwrap_or(0.0),
         routing_price_delta: plist_f64(routing, "price-weight-delta").unwrap_or(0.0),
         routing_speed_delta: plist_f64(routing, "speed-weight-delta").unwrap_or(0.0),
         routing_success_delta: plist_f64(routing, "success-weight-delta").unwrap_or(0.0),

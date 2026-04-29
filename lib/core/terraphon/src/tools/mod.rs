@@ -1,5 +1,6 @@
 pub mod system;
 pub mod userspace;
+pub mod discovery;
 
 crate::define_sexp_enum!(ToolKind, System {
     System => "system",

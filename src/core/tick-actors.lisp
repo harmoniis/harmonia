@@ -132,6 +132,23 @@
                              (signalograd-apply-proposal proposal :runtime runtime)
 
                            (error () nil))))))
+                  ;; Memory-field broadcasts -- basin transitions (state-changed)
+                  ;; and dream-complete reports (inbound-signal envelope).
+                  ((eq actor-kind :memory-field)
+                   (cond
+                     ((eq payload-kind :state-changed)
+                      (let ((proposal (getf payload :to)))
+                        (when (and (listp proposal)
+                                   (eq (first proposal) :memory-field-basin))
+                          (handler-case
+                              (runtime-log runtime :memory-field-basin
+                                           (list :basin (getf proposal :basin)))
+                            (error () nil)))))
+                     ((eq payload-kind :inbound-signal)
+                      (handler-case
+                          (runtime-log runtime :memory-field-dream
+                                       (list :envelope (getf payload :envelope)))
+                        (error () nil)))))
                   ;; Chronicle ack -- informational
                   ((eq actor-kind :chronicle) nil))))))
         ;; Increment stall-ticks for actors that received NO messages this tick

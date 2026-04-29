@@ -77,6 +77,18 @@
                        (when (%restart-component comp)
                          (%health-record-success comp)))))
                  *component-health*))
+      ;; MCP discovery: every 60 cycles, scan for new A2A peers.
+      ;; Uses terraphon datamining to discover MCP-compatible tools,
+      ;; then auto-connects via the MCP actor.
+      (when (zerop (mod cycle 60))
+        (handler-case
+            (let ((discovery (ipc-call (%sexp-to-ipc-string
+                                        '(:component "terraphon" :op "datamine"
+                                          :lode "discover-mcp-servers")))))
+              (when (and discovery (ipc-reply-ok-p discovery))
+                (%log :info "heartbeat" "MCP discovery: ~A"
+                      (subseq (or discovery "") 0 (min 100 (length (or discovery "")))))))
+          (error () nil)))
       ;; Wake the agent: every N cycles (DNA constraint), via REPL.
       ;; The LLM receives field context and decides: dream? meditate? nothing?
       (let ((interval (or (handler-case (dna-constraint :dream-cycle-interval) (error () nil)) 30)))
@@ -86,11 +98,29 @@
           (%tick-heartbeat-wake cycle))))))
 
 (defun %tick-heartbeat-wake (cycle)
-  "Wake the agent via the ONE path: REPL. One word. Field provides the rest."
+  "Wake the agent via the ONE path: REPL. Includes crash context from ouroboros."
   (handler-case
-      (progn
+      (let* ((crash-context
+               (handler-case
+                   (when (fboundp 'ouroboros-history)
+                     (let ((history (ouroboros-history 3)))
+                       (when (and history (stringp history) (> (length history) 5))
+                         (format nil " Recent crashes: ~A" (subseq history 0 (min 200 (length history)))))))
+                 (error () nil)))
+             (health-summary
+               (let ((sick '()))
+                 (maphash (lambda (comp health)
+                            (let ((failures (or (getf health :failures) 0)))
+                              (when (> failures 0)
+                                (push (format nil "~A(~D)" comp failures) sick))))
+                          *component-health*)
+                 (when sick (format nil " Sick: ~{~A~^, ~}" sick))))
+             (prompt (format nil "HEARTBEAT cycle=~D~A~A"
+                             cycle
+                             (or health-summary "")
+                             (or crash-context ""))))
         (setf *last-heartbeat-cycle* cycle)
         (%log :info "heartbeat" "Wake cycle ~D" cycle)
-        (funcall '%orchestrate-repl "HEARTBEAT"))
+        (funcall '%orchestrate-repl prompt))
     (error (e)
       (%log :warn "heartbeat" "Wake failed: ~A" e))))

@@ -343,6 +343,16 @@ pub fn build_projection(
             -ea_scale,
             ea_scale,
         ),
+        // Logistic-r delta: same evolution head, anti-chaos auxiliary so the kernel
+        // pushes r toward the edge under low chaos and pulls it back under high chaos.
+        // Same scale envelope as aggression_bias; consumer applies a tighter policy clamp.
+        logistic_r_delta: clamp(
+            (ea_alpha * evolution_head
+                + (1.0 - ea_alpha) * (1.0 - obs.chaos_risk))
+                * ea_scale,
+            -ea_scale,
+            ea_scale,
+        ),
         routing_price_delta: clamp(
             (-rp_alpha * routing_head
                 - (1.0 - rp_alpha) * obs.cost_pressure)

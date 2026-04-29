@@ -97,7 +97,7 @@ pub fn feedback_to_sexp(feedback: &Feedback) -> String {
 pub fn projection_body_sexp(proj: &Projection) -> String {
     format!(
         ":cycle {} :confidence {} :stability {} :novelty {} :latent-energy {} :recall-strength {} \
-         :harmony (:signal-bias {} :noise-bias {} :rewrite-signal-delta {} :rewrite-chaos-delta {} :aggression-bias {}) \
+         :harmony (:signal-bias {} :noise-bias {} :rewrite-signal-delta {} :rewrite-chaos-delta {} :aggression-bias {} :logistic-r-delta {}) \
          :routing (:price-weight-delta {} :speed-weight-delta {} :success-weight-delta {} :reasoning-weight-delta {} :vitruvian-min-delta {}) \
          :memory (:recall-limit-delta {} :crystal-threshold-delta {}) \
          :security-shell (:dissonance-weight-delta {} :anomaly-threshold-delta {}) \
@@ -114,6 +114,7 @@ pub fn projection_body_sexp(proj: &Projection) -> String {
         format_f64(proj.rewrite_signal_delta),
         format_f64(proj.rewrite_chaos_delta),
         format_f64(proj.evolution_aggression_bias),
+        format_f64(proj.logistic_r_delta),
         format_f64(proj.routing_price_delta),
         format_f64(proj.routing_speed_delta),
         format_f64(proj.routing_success_delta),

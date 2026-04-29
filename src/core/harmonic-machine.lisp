@@ -119,11 +119,16 @@
 
 (defun %step-logistic (runtime)
   (let* ((x (runtime-state-harmonic-x runtime))
-         (r (runtime-state-harmonic-r runtime))
-         (x2 (%clamp (%logistic-next x r) 0.0001 0.9999))
+         (r-prev (runtime-state-harmonic-r runtime))
          (edge (harmony-policy-number "logistic/edge" 3.56995))
-         (distance (abs (- r edge)))
          (window (harmony-policy-number "logistic/distance-window" 0.4))
+         ;; Bifurcation parameter `r` evolves under Signalograd's harmonic delta.
+         ;; Same closed-loop pattern as every other modulated knob: the kernel
+         ;; learns the per-cycle nudge; the consumer applies it within bounds.
+         (r-delta (signalograd-logistic-r-delta runtime))
+         (r (%clamp (+ r-prev r-delta) (- edge window) (+ edge window)))
+         (x2 (%clamp (%logistic-next x r) 0.0001 0.9999))
+         (distance (abs (- r edge)))
          (chaos-risk (%clamp (%safe-div (- window distance) window) 0.0 1.0))
          (ag-base (harmony-policy-number "logistic/aggression-base" 0.35))
          (ag-scale (harmony-policy-number "logistic/aggression-scale" 0.65))
@@ -133,6 +138,7 @@
                       (%clamp (* (- 1.0 chaos-risk) (+ ag-base (* ag-scale x2))) ag-min ag-max)
                       runtime)))
     (setf (runtime-state-harmonic-x runtime) x2)
+    (setf (runtime-state-harmonic-r runtime) r)
     (list :x x2 :r r :chaos-risk chaos-risk :rewrite-aggression aggression)))
 
 (defun %lambdoma-convergence (global local)
@@ -307,6 +313,11 @@
                           :focus (getf (getf ctx :local) :focus)
                           :aggression (getf logistic :rewrite-aggression)
                           :lambdoma-ratio (getf projection :ratio)
+                          :chaos-risk (getf logistic :chaos-risk)
+                          :confidence (or (handler-case
+                                              (getf (signalograd-current-projection runtime) :confidence)
+                                            (error () nil))
+                                          0.0)
                           :vitruvian vitruvian
                           :dna-laws (getf *dna* :laws))))
          (when ok

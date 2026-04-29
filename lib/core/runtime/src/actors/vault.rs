@@ -1,4 +1,4 @@
-//! VaultActor — secret storage access.
+//! VaultActor — secret storage access. Actor owns VaultState directly.
 
 use ractor::{Actor, ActorProcessingErr, ActorRef};
 use serde_json::json;
@@ -9,9 +9,14 @@ use super::ComponentMsg;
 
 pub struct VaultActor;
 
+pub struct VaultActorState {
+    vault: harmonia_vault::VaultState,
+    obs: Option<ActorRef<ObsMsg>>,
+}
+
 impl Actor for VaultActor {
     type Msg = ComponentMsg;
-    type State = Option<ActorRef<ObsMsg>>;
+    type State = VaultActorState;
     type Arguments = Option<ActorRef<ObsMsg>>;
 
     async fn pre_start(
@@ -19,8 +24,12 @@ impl Actor for VaultActor {
         _myself: ActorRef<Self::Msg>,
         obs: Self::Arguments,
     ) -> Result<Self::State, ActorProcessingErr> {
+        let mut vault = harmonia_vault::VaultState::new();
+        if let Err(e) = harmonia_vault::init_state(&mut vault) {
+            eprintln!("[WARN] [runtime] VaultActor init failed: {e}");
+        }
         eprintln!("[INFO] [runtime] VaultActor started");
-        Ok(obs)
+        Ok(VaultActorState { vault, obs })
     }
 
     async fn handle(
@@ -32,13 +41,12 @@ impl Actor for VaultActor {
         match message {
             ComponentMsg::Dispatch(sexp, reply) => {
                 if harmonia_observability::harmonia_observability_is_verbose() {
-                    // Trace vault access (symbol name only, never the value)
                     let symbol = crate::dispatch::extract_vault_symbol(&sexp);
                     if !symbol.is_empty() {
-                        state.trace_event("vault-access", "tool", json!({"symbol": symbol}));
+                        state.obs.trace_event("vault-access", "tool", json!({"symbol": symbol}));
                     }
                 }
-                let result = crate::dispatch::dispatch("vault", &sexp);
+                let result = crate::dispatch::dispatch_vault(&sexp, &mut state.vault);
                 let _ = reply.send(result);
             }
             ComponentMsg::Shutdown => {

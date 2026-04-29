@@ -197,6 +197,30 @@
                     "[SYSTEM CONTEXT] You are a subagent in the Harmonia swarm (model: ~A).")))
     (format nil template model)))
 
+;;; --- Recursive task decomposition ---
+;;; The parent REPL drives decomposition. Models call (decompose ...) to split
+;;; tasks into subtasks, each solved by a parallel subagent. Results aggregated
+;;; back to the parent for the model to synthesize.
+
+(defun %decompose-and-solve (subtasks &key (max-depth 3) (current-depth 0))
+  "Recursively decompose and solve subtasks. Each subtask is solved by a
+   parallel subagent. Results are aggregated into a list.
+   Max depth prevents infinite recursion."
+  (when (> current-depth max-depth)
+    (return-from %decompose-and-solve
+      (list (format nil "(:error \"max decomposition depth ~D reached\")" max-depth))))
+  (let ((results '())
+        (workdir (or (handler-case (config-get-for "conductor" "workdir") (error () nil))
+                     (namestring (user-homedir-pathname)))))
+    (dolist (task subtasks)
+      (let ((task-str (if (stringp task) task (princ-to-string task))))
+        (handler-case
+            (let ((agent-id (tmux-spawn "claude-code" workdir task-str)))
+              (push (list :task task-str :agent-id agent-id :status :spawned) results))
+          (error (e)
+            (push (list :task task-str :status :failed :error (princ-to-string e)) results)))))
+    (nreverse results)))
+
 ;;; --- DAG-based task decomposition ---
 
 (defun %swarm-dag-software-dev-p (prompt chain)

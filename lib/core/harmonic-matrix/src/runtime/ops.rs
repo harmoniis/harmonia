@@ -5,6 +5,58 @@ use super::shared::{
 };
 use super::store::persist_if_needed;
 
+/// Summary returned by epoch advancement.
+pub struct EpochSummary {
+    pub epoch: u64,
+    pub samples_retained: usize,
+    pub edges_with_history: usize,
+}
+
+impl EpochSummary {
+    pub fn to_sexp(&self) -> String {
+        format!(
+            "(:ok :epoch {} :samples-retained {} :edges-with-history {})",
+            self.epoch, self.samples_retained, self.edges_with_history,
+        )
+    }
+}
+
+/// Advance the matrix epoch: bump the counter, age the rolling route-sample
+/// histories down to a tight window so long-running processes don't grow
+/// unbounded, persist if needed.
+///
+/// Called from `HarmonicMatrixActor::Tick`. Cheap when `route_history` is small;
+/// only does real work for edges whose sample buffer has crossed the threshold.
+pub fn advance_epoch() -> Result<EpochSummary, String> {
+    let mut st = state()
+        .write()
+        .map_err(|_| "harmonic matrix state lock poisoned".to_string())?;
+    st.epoch = st.epoch.saturating_add(1);
+    // Tighter retention than the per-insert limit: each tick prunes back to
+    // 1/4 of the configured window so old behaviour decays out under sustained
+    // traffic. The per-insert push_limited still bounds spikes.
+    let retain_per_edge = history_limit() / 4;
+    let mut samples_retained: usize = 0;
+    let mut edges_with_history: usize = 0;
+    for samples in st.route_history.values_mut() {
+        if samples.len() > retain_per_edge {
+            let drop = samples.len() - retain_per_edge;
+            samples.drain(0..drop);
+        }
+        if !samples.is_empty() {
+            edges_with_history += 1;
+            samples_retained += samples.len();
+        }
+    }
+    bump_revision(&mut st);
+    persist_if_needed(&st)?;
+    Ok(EpochSummary {
+        epoch: st.epoch,
+        samples_retained,
+        edges_with_history,
+    })
+}
+
 
 fn tool_allowed(st: &State, node_id: &str) -> bool {
     if st.nodes.get(node_id).map(|k| k.as_str()) != Some("tool") {

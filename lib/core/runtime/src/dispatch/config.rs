@@ -1,6 +1,6 @@
 //! Config-store component dispatch — pure functional, declarative.
 
-use super::{dispatch_op, param, sexp_string_list};
+use super::{dispatch_op, esc, param, sexp_string_list};
 
 pub(crate) fn dispatch(sexp: &str) -> String {
     let op = harmonia_actor_protocol::extract_sexp_string(sexp, ":op").unwrap_or_default();
@@ -30,6 +30,6 @@ pub(crate) fn dispatch(sexp: &str) -> String {
         }
         "ingest-env" => dispatch_op!("ingest-env",
             harmonia_config_store::init().map(|_| "(:ok)".to_string())),
-        _ => format!("(:error \"unknown config op: {}\")", op),
+        _ => format!("(:error \"unknown config op: {}\")", esc(&op)),
     }
 }

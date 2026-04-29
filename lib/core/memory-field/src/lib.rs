@@ -84,6 +84,10 @@ pub struct FieldState {
     // ── Signal/noise state (holographic boundary → bulk coupling) ──
     pub(crate) last_signal: f64,
     pub(crate) last_noise: f64,
+    // ── Eigenmode coherence: fraction of recall energy in the dominant
+    // (smallest-eigenvalue) modes. Captured per-recall, decays toward 0 if
+    // no recalls fire. Used by signalograd as `field_eigenmode_coherence`.
+    pub(crate) last_eigenmode_coherence: f64,
 }
 
 impl FieldState {
@@ -111,6 +115,7 @@ impl FieldState {
             topology: TopologyState::default(),
             last_signal: 0.5,
             last_noise: 0.2,
+            last_eigenmode_coherence: 0.0,
         }
     }
 

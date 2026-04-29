@@ -133,6 +133,7 @@ pub struct EigenmodeResult {
     pub eigenvalues: Vec<f64>,
     pub spectral_version: u64,
     pub graph_version: u64,
+    pub coherence: f64,
 }
 
 pub struct DreamStatsResult {
@@ -190,8 +191,8 @@ pub enum FieldDelta {
         merged_count: u64,
         crystallized_count: u64,
     },
-    /// Recall increments cycle counter.
-    CycleIncremented { new_cycle: i64 },
+    /// Recall increments cycle counter and persists the captured eigenmode coherence.
+    CycleIncremented { new_cycle: i64, eigenmode_coherence: f64 },
     /// Basin restored from Chronicle.
     BasinRestored { hysteresis: HysteresisTracker },
     /// Full state restoration from checkpoint.

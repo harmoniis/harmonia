@@ -247,22 +247,27 @@ impl TmuxAgent {
 // Global state — unified for both OpenRouter tasks and Tmux agents
 // ---------------------------------------------------------------------------
 
+/// Actor-owned parallel agents state.
 #[derive(Default)]
-pub(crate) struct State {
+pub struct State {
     pub(crate) next_id: u64,
     pub(crate) tasks: HashMap<u64, Task>,
     pub(crate) prices: HashMap<String, ModelPrice>,
     pub(crate) tmux_agents: HashMap<u64, TmuxAgent>,
 }
 
-static STATE: OnceLock<RwLock<State>> = OnceLock::new();
+impl State {
+    pub fn new() -> Self {
+        Self { next_id: 1, ..Self::default() }
+    }
+}
+
+// Process-level state for callers outside actor runtime.
+static PROCESS_STATE: OnceLock<RwLock<State>> = OnceLock::new();
 
 pub(crate) fn state() -> &'static RwLock<State> {
-    STATE.get_or_init(|| {
-        RwLock::new(State {
-            next_id: 1,
-            ..State::default()
-        })
+    PROCESS_STATE.get_or_init(|| {
+        RwLock::new(State::new())
     })
 }
 

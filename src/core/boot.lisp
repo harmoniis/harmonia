@@ -260,6 +260,7 @@
 (%load-module (%core-path "../orchestrator/prompt-assembly.lisp") "prompt-assembly")
 (load-prompts-config)
 (load-security-patterns-config)
+(load-memory-routing-config)
 (%load-module (%core-path "model-policy.lisp"))
 (%load-module (%core-path "model-providers.lisp") "model-providers")
 (%load-module (%core-path "model-routing.lisp") "model-routing")

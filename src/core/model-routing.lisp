@@ -118,14 +118,25 @@
                                 (fboundp '%repl-fluency))
                            (funcall '%repl-fluency model-id)
                            0.5))
+         ;; Signalograd confidence: how certain is the kernel about system state?
+         ;; High confidence = system is stable, prefer ambitious models.
+         ;; Low confidence = system is uncertain, prefer reliable models.
+         (sg-confidence (handler-case
+                            (when (and (boundp '*runtime*) *runtime*)
+                              (let ((proj (runtime-state-signalograd-projection *runtime*)))
+                                (when proj (or (getf proj :confidence) 0.5))))
+                          (error () 0.5)))
          ;; Base score from weighted signals
          (base-score (+ (* (/ w-price weight-sum) price)
                         (* (/ w-speed weight-sum) speed)
                         (* (/ w-success weight-sum) success)
                         (* (/ w-reasoning weight-sum) reasoning)
                         (* (/ w-vitruvian weight-sum) vitruvian))))
-    ;; Final score: base x REPL fluency. Bad REPL speakers get multiplied down.
-    (* base-score (max 0.1 repl-fluency))))
+    ;; Final: base × REPL fluency × confidence factor.
+    ;; Confidence modulates: high confidence rewards ambitious models,
+    ;; low confidence favors cheap/fast (risk-averse selection).
+    (let ((confidence-factor (+ 0.5 (* 0.5 (or sg-confidence 0.5)))))
+      (* base-score (max 0.1 repl-fluency) confidence-factor))))
 
 (defun %score-and-rank-within-tier (model-ids task)
   "Re-rank MODEL-IDS using tier-biased weights + signalograd."

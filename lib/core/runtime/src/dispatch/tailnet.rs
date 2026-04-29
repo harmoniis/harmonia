@@ -1,6 +1,6 @@
 //! Tailnet component dispatch — pure functional, declarative.
 
-use super::{dispatch_op, sexp_string_list};
+use super::{dispatch_op, esc, sexp_string_list};
 
 pub(crate) fn dispatch(sexp: &str) -> String {
     let op = harmonia_actor_protocol::extract_sexp_string(sexp, ":op").unwrap_or_default();
@@ -11,9 +11,9 @@ pub(crate) fn dispatch(sexp: &str) -> String {
             let messages = harmonia_tailnet::transport::poll_messages();
             let items = messages.iter().map(|m| format!(
                 "(:from \"{}\" :type \"{}\" :payload \"{}\")",
-                harmonia_actor_protocol::sexp_escape(&m.from.to_string()),
-                harmonia_actor_protocol::sexp_escape(&format!("{:?}", m.msg_type)),
-                harmonia_actor_protocol::sexp_escape(&m.payload),
+                esc(&m.from.to_string()),
+                esc(&format!("{:?}", m.msg_type)),
+                esc(&m.payload),
             )).collect::<Vec<_>>().join(" ");
             format!("(:ok :messages ({}))", items)
         }
@@ -52,6 +52,6 @@ pub(crate) fn dispatch(sexp: &str) -> String {
                 format!("(:ok :peers ({}))", sexp_string_list(&items))
             })),
         "stop" => { harmonia_tailnet::transport::stop_listener(); "(:ok)".to_string() }
-        _ => format!("(:error \"unknown tailnet op: {}\")", op),
+        _ => format!("(:error \"unknown tailnet op: {}\")", esc(&op)),
     }
 }

@@ -20,6 +20,8 @@ pub fn register_platform_tools(catalog: &mut LodeCatalog, platform: Platform) {
 
 pub fn register_universal_tools(catalog: &mut LodeCatalog) {
     for tool in universal_tools() { catalog.register(tool); }
+    // MCP and agent discovery tools — scan for A2A peers
+    super::discovery::register_discovery_tools(catalog);
 }
 
 pub(crate) fn exec_capture(cmd: &str, args: &[&str]) -> Result<String, String> {

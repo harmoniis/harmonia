@@ -18,6 +18,16 @@ pub fn all_backends_sexp() -> String {
     format!("({})", entries.join(" "))
 }
 
+/// List all model offerings (delegates to openrouter).
+pub fn list_models() -> String {
+    harmonia_openrouter::client::list_offerings()
+}
+
+/// Select a model for a task (delegates to openrouter).
+pub fn select_model(task_hint: &str) -> String {
+    harmonia_openrouter::client::select_model_for_task(task_hint)
+}
+
 pub fn backend_status_sexp(name: &str) -> Option<String> {
     if name.is_empty() || name == "openrouter" {
         return Some(

@@ -93,17 +93,18 @@ fn compute_diffusion_time(signal: f64, noise: f64) -> f64 {
 
 // ── Core recall computation ──
 
-/// Pure recall computation — takes &FieldState (immutable), returns structured result.
-/// The cycle increment is handled by FieldDelta::CycleIncremented in the Service pattern.
+/// Pure recall computation — takes &FieldState (immutable), returns structured result
+/// plus a scalar eigenmode coherence (energy fraction in dominant modes).
+/// The cycle increment + coherence persistence are applied by the Service pattern.
 pub(crate) fn compute_recall_pure(
     s: &FieldState,
     query_concepts: &[String],
     access_counts: &[(String, f64, f64)],
     limit: usize,
-) -> RecallResult {
+) -> (RecallResult, f64) {
     let n = s.graph.n;
     if n == 0 {
-        return RecallResult { activations: Vec::new() };
+        return (RecallResult { activations: Vec::new() }, 0.0);
     }
 
     // Build source potential vector from query concepts.
@@ -116,11 +117,15 @@ pub(crate) fn compute_recall_pure(
     let phi = solve_field(&s.graph, &sources, max_iter, tol, epsilon);
 
     // Compute eigenmode activation (Chladni projection).
-    let eigenmode_activation = if !s.eigenvectors.is_empty() {
+    // The projections vector ⟨b, v_k⟩ is the energy distribution across modes;
+    // coherence is the fraction in the dominant (lowest-λ) two modes.
+    let (eigenmode_activation, coherence) = if !s.eigenvectors.is_empty() {
         let projections = eigenmode_project(&sources, &s.eigenvectors);
-        eigenmode_activate(&projections, &s.eigenvectors, n)
+        let coh = compute_eigenmode_coherence(&projections);
+        let act = eigenmode_activate(&projections, &s.eigenvectors, n);
+        (act, coh)
     } else {
-        vec![0.0; n]
+        (vec![0.0; n], 0.0)
     };
 
     // Heat kernel: enabled by default — the holographic propagator.
@@ -186,7 +191,21 @@ pub(crate) fn compute_recall_pure(
         })
         .collect();
 
-    RecallResult { activations: concept_activations }
+    (RecallResult { activations: concept_activations }, coherence)
+}
+
+/// Eigenmode coherence: fraction of source energy concentrated in the dominant
+/// (smallest-eigenvalue) two modes. 1.0 means recall is sharply tied to a single
+/// global structure; 0.0 means energy is fully diffuse across all modes.
+/// Returns 0.0 for empty / zero-norm source vectors.
+fn compute_eigenmode_coherence(projections: &[f64]) -> f64 {
+    let total: f64 = projections.iter().map(|p| p * p).sum();
+    if total <= f64::EPSILON || projections.is_empty() {
+        return 0.0;
+    }
+    let take = projections.len().min(2);
+    let dominant: f64 = projections.iter().take(take).map(|p| p * p).sum();
+    (dominant / total).clamp(0.0, 1.0)
 }
 
 /// Build per-node access count vector with temporal decay.

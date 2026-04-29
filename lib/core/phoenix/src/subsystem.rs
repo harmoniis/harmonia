@@ -104,6 +104,10 @@ impl Actor for SubsystemActor {
                 let detail = format!("subsystem={name} exit_code={exit_code:?}");
                 eprintln!("[INFO] [phoenix] Process exited: {detail}");
                 trauma::chronicle_record("child_exit", exit_code, None, None, Some(&detail));
+                // Record to Ouroboros crash ledger for self-healing feedback
+                if exit_code != Some(0) {
+                    trauma::ouroboros_record(name, &detail);
+                }
 
                 state.pid = None;
 

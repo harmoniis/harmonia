@@ -103,7 +103,8 @@
              :noise-bias (sc harmony :noise-bias "harmony/noise-bias-max" 0.04)
              :rewrite-signal-delta (sc harmony :rewrite-signal-delta "harmony/rewrite-signal-delta-max" 0.05)
              :rewrite-chaos-delta (sc harmony :rewrite-chaos-delta "harmony/rewrite-chaos-delta-max" 0.04)
-             :aggression-bias (sc harmony :aggression-bias "harmony/aggression-bias-max" 0.08))
+             :aggression-bias (sc harmony :aggression-bias "harmony/aggression-bias-max" 0.08)
+             :logistic-r-delta (sc harmony :logistic-r-delta "harmony/logistic-r-delta-max" 0.02))
        :routing
        (list :price-weight-delta (sc routing :price-weight-delta "routing/price-weight-delta-max" 0.07)
              :speed-weight-delta (sc routing :speed-weight-delta "routing/speed-weight-delta-max" 0.07)
@@ -281,6 +282,56 @@
 (defun %signalograd-repl-speed ()
   (if (boundp '*repl-model-perf*) (%maphash-average *repl-model-perf* #'%repl-speed) 0.5))
 
+(defun %signalograd-field-stability (ctx)
+  "Basin hysteresis stability — saturates as dwell accumulates."
+  (let* ((field-basin (getf ctx :field-basin))
+         (dwell (or (and field-basin (getf field-basin :dwell-ticks)) 0)))
+    (%signalograd-clamp (/ (float dwell) (+ (float dwell) 20.0)) 0.0 1.0)))
+
+(defun %signalograd-palace-density ()
+  "Mempalace knowledge-graph density (edges / (nodes^2)). 0 if palace offline."
+  (let ((stats (handler-case
+                   (when (and (fboundp 'palace-graph-stats)
+                              (fboundp 'mempalace-port-ready-p)
+                              (funcall 'mempalace-port-ready-p))
+                     (funcall 'palace-graph-stats))
+                 (error () nil))))
+    (if (and (listp stats) stats)
+        (let ((nodes (or (getf stats :nodes) 0))
+              (edges (or (getf stats :edges) 0)))
+          (if (> nodes 1)
+              (%signalograd-clamp (/ (float edges) (float (* nodes nodes))) 0.0 1.0)
+              0.0))
+        0.0)))
+
+(defun %signalograd-field-coherence ()
+  "Memory-field eigenmode coherence ∈ [0, 1]: fraction of last recall's
+   energy concentrated in the dominant modes. 0 if field offline or no
+   recall has fired yet."
+  (let ((status (handler-case
+                    (when (and (fboundp 'memory-field-eigenmode-status)
+                               (fboundp 'memory-field-port-ready-p)
+                               (funcall 'memory-field-port-ready-p))
+                      (funcall 'memory-field-eigenmode-status))
+                  (error () nil))))
+    (if (and (listp status) status)
+        (%signalograd-clamp (or (getf status :coherence) 0.0) 0.0 1.0)
+        0.0)))
+
+(defun %signalograd-datamine-stats ()
+  "Return (success-rate avg-latency-ms) plist from terraphon's rolling
+   window. Both values default to 0 when terraphon offline or empty."
+  (let ((stats (handler-case
+                   (when (and (fboundp 'terraphon-stats)
+                              (fboundp 'terraphon-port-ready-p)
+                              (funcall 'terraphon-port-ready-p))
+                     (funcall 'terraphon-stats))
+                 (error () nil))))
+    (if (and (listp stats) stats)
+        (list :success-rate (%signalograd-clamp (or (getf stats :success-rate) 0.0) 0.0 1.0)
+              :avg-latency-ms (max 0.0 (or (getf stats :avg-latency-ms) 0.0)))
+        (list :success-rate 0.0 :avg-latency-ms 0.0))))
+
 (defun %signalograd-observation-sexp (ctx &optional (runtime *runtime*))
   (let* ((global (getf ctx :global)) (local (getf ctx :local))
          (plan (getf ctx :plan)) (vit (and plan (getf plan :vitruvian)))
@@ -292,7 +343,12 @@
          (presentation (%signalograd-presentation-observation runtime))
          (reward (%signalograd-reward ctx runtime))
          (stability (%signalograd-stability ctx))
-         (novelty (%signalograd-novelty ctx)))
+         (novelty (%signalograd-novelty ctx))
+         (field-stability (%signalograd-field-stability ctx))
+         (field-recall-strength (or (getf (%signalograd-projection runtime) :recall-strength) 0.0))
+         (field-eigenmode-coherence (%signalograd-field-coherence))
+         (datamine-stats (%signalograd-datamine-stats))
+         (palace-density (%signalograd-palace-density)))
     (%signalograd-sexp
      :signalograd-observe
      :cycle (or (getf ctx :cycle) 0)
@@ -327,7 +383,13 @@
      :presentation-user-affinity (getf presentation :user-affinity)
      :route-tier (symbol-name (or *routing-tier* :auto))
      :repl-fluency (%signalograd-repl-fluency)
-     :repl-speed (%signalograd-repl-speed))))
+     :repl-speed (%signalograd-repl-speed)
+     :field-recall-strength field-recall-strength
+     :field-basin-stability field-stability
+     :field-eigenmode-coherence field-eigenmode-coherence
+     :datamine-success-rate (getf datamine-stats :success-rate)
+     :datamine-avg-latency (getf datamine-stats :avg-latency-ms)
+     :palace-graph-density palace-density)))
 
 (defun %signalograd-feedback-plist (ctx &optional (runtime *runtime*))
   (let* ((projection (%signalograd-projection runtime))
@@ -459,6 +521,11 @@
     (append vitruvian
             (list :signal (%signalograd-clamp (+ (or (getf vitruvian :signal) 0.0) signal-bias) 0.0 1.0)
                   :noise (%signalograd-clamp (+ (or (getf vitruvian :noise) 0.0) noise-bias) 0.0 1.0)))))
+
+(defun signalograd-logistic-r-delta (&optional (runtime *runtime*))
+  "Per-cycle delta to apply to the logistic-map bifurcation parameter `r`.
+   Already symmetrically clamped by sanitize-proposal to harmony/logistic-r-delta-max."
+  (%signalograd-section-value :harmony :logistic-r-delta 0.0 runtime))
 
 (defun signalograd-effective-harmony-number (path default &optional (runtime *runtime*))
   (let* ((base (harmony-policy-number path default))

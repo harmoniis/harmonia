@@ -5,7 +5,7 @@ use serde_json::json;
 use harmonia_actor_protocol::extract_sexp_string;
 use harmonia_observability::ObsMsg;
 
-use super::param;
+use super::{esc, param};
 
 pub(crate) fn dispatch(sexp: &str) -> String {
     let op = extract_sexp_string(sexp, ":op").unwrap_or_default();
@@ -46,7 +46,7 @@ pub(crate) fn dispatch(sexp: &str) -> String {
             harmonia_observability::harmonia_observability_shutdown();
             "(:ok)".to_string()
         }
-        _ => format!("(:error \"unknown observability op: {}\")", op),
+        _ => format!("(:error \"unknown observability op: {}\")", esc(&op)),
     }
 }
 
@@ -105,7 +105,9 @@ pub fn dispatch_obs_trace(op: &str, sexp: &str) {
                 trace_id,
             });
         }
-        _ => {}
+        _ => {
+            eprintln!("[WARN] [observability] Unknown trace op: {}", op);
+        }
     }
 }
 

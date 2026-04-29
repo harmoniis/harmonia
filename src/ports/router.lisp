@@ -18,8 +18,12 @@
                            '(:component "provider-router" :op "healthcheck")))))
     (and reply (search ":healthy t" reply))))
 
+(defvar *backend-last-error* ""
+  "Last error from backend-complete. Updated on every call.")
+
 (defun backend-last-error ()
-  "")
+  "Return the last backend error message."
+  *backend-last-error*)
 
 (defun backend-complete (prompt &optional model)
   (let* ((model-str (or model ""))
@@ -33,8 +37,10 @@
          (ok (and reply (ipc-reply-ok-p reply))))
     (%trace-llm-call "provider-router" model-str latency ok)
     (if ok
-        (or (ipc-extract-value reply) "")
-        (error "LLM request failed: ~A" (or reply "IPC unreachable")))))
+        (progn (setf *backend-last-error* "") (or (ipc-extract-value reply) ""))
+        (let ((err (format nil "LLM request failed: ~A" (or reply "IPC unreachable"))))
+          (setf *backend-last-error* err)
+          (error "~A" err)))))
 
 (defun backend-complete-safe (prompt &optional model)
   "Like backend-complete but returns NIL on failure instead of signaling."

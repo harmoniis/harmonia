@@ -8,7 +8,7 @@ pub mod tables;
 
 // Public Rust API (for rlib consumers like Phoenix / Ouroboros)
 pub use dashboard::dashboard_json;
-pub use db::{init, query_sexp};
+pub use db::{init, query_sexp, ChronicleState, DbConn};
 pub use gc::{gc, gc_status};
 pub use query::{
     cost_report, delegation_history, delegation_report, full_digest, harmonic_history,

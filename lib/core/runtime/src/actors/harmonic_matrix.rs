@@ -149,7 +149,12 @@ impl Actor for HarmonicMatrixActor {
                 let _ = reply.send(result);
             }
             MatrixMsg::Tick => {
-                // Epoch advancement — future work
+                // Advance the matrix epoch: increment the counter, age the rolling
+                // route-sample histories so long-running processes do not grow
+                // unbounded, persist when the store opts in.
+                if let Err(e) = harmonia_harmonic_matrix::runtime::ops::advance_epoch() {
+                    eprintln!("[WARN] [matrix] advance-epoch failed: {e}");
+                }
             }
             MatrixMsg::Shutdown => {
                 eprintln!("[INFO] [runtime] HarmonicMatrixActor shutting down");

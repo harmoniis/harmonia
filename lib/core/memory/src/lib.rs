@@ -13,11 +13,15 @@ pub struct MemoryState {
     entries: HashMap<String, String>,
 }
 
-static MEMORY: OnceLock<RwLock<MemoryState>> = OnceLock::new();
+impl MemoryState {
+    pub fn new() -> Self { Self::default() }
+}
+
+static PROCESS_STATE: OnceLock<RwLock<MemoryState>> = OnceLock::new();
 static LAST_ERROR: OnceLock<RwLock<String>> = OnceLock::new();
 
 fn state() -> &'static RwLock<MemoryState> {
-    MEMORY.get_or_init(|| RwLock::new(MemoryState::default()))
+    PROCESS_STATE.get_or_init(|| RwLock::new(MemoryState::new()))
 }
 
 fn last_error() -> &'static RwLock<String> {

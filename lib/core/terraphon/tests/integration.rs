@@ -30,7 +30,23 @@ fn test_health_check() {
 }
 #[test]
 fn test_datamine_nonexistent() {
-    assert!(datamine_local(&TerraphonState::new(), "nonexistent", &[]).is_err());
+    let mut s = TerraphonState::new();
+    assert!(datamine_local(&mut s, "nonexistent", &[]).is_err());
+    // Stats record the failed lookup so the rolling window stays accurate.
+    assert_eq!(s.stats().samples(), 1);
+    assert_eq!(s.stats().success_rate(), 0.0);
+}
+
+#[test]
+fn test_stats_rolling_window() {
+    let mut s = TerraphonState::new();
+    for _ in 0..5 {
+        let _ = datamine_local(&mut s, "nonexistent", &[]);
+    }
+    assert_eq!(s.stats().samples(), 5);
+    assert_eq!(s.stats().success_rate(), 0.0);
+    let stats_sexp = harmonia_terraphon::stats(&s).unwrap();
+    assert!(stats_sexp.contains(":samples 5"));
 }
 #[test]
 fn test_git_log_lode_exists() {

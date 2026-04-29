@@ -272,33 +272,44 @@ impl Actor for RouterActor {
             }
             ComponentMsg::Dispatch(sexp, reply) => {
                 // Route feedback and tier changes arrive as dispatch commands.
-                if sexp.contains("tier-changed") {
-                    if let Some(tier) = extract_sexp_value(&sexp, "tier") {
-                        let old_tier = state.active_tier_name().to_string();
-                        state.active_tier_idx = tier_index(&tier) as u8;
-                        state.obs.trace_event(
-                            "router-tier-changed",
-                            "tool",
-                            json!({"old": old_tier, "new": tier}),
-                        );
+                // Use proper :op extraction instead of string containment checks.
+                let op = harmonia_actor_protocol::extract_sexp_string(&sexp, ":op")
+                    .unwrap_or_default();
+                let result = match op.as_str() {
+                    "tier-changed" => {
+                        if let Some(tier) = harmonia_actor_protocol::extract_sexp_string(&sexp, ":tier") {
+                            let old_tier = state.active_tier_name().to_string();
+                            state.active_tier_idx = tier_index(&tier) as u8;
+                            state.obs.trace_event(
+                                "router-tier-changed",
+                                "tool",
+                                json!({"old": old_tier, "new": tier}),
+                            );
+                        }
+                        "(:ok)".to_string()
                     }
-                    let _ = reply.send("(:ok)".to_string());
-                } else if sexp.contains("route-feedback") {
-                    let model = extract_sexp_value(&sexp, "model").unwrap_or_default();
-                    let task = extract_sexp_value(&sexp, "task").unwrap_or_default();
-                    let tier = extract_sexp_value(&sexp, "tier").unwrap_or_default();
-                    let success = sexp.contains(":success t");
-                    let latency = extract_sexp_u64(&sexp, "latency-ms").unwrap_or(0);
-                    let cost = extract_sexp_f64(&sexp, "cost-usd").unwrap_or(0.0);
-                    state.record_feedback(&model, &task, &tier, success, latency, cost);
-                    if !success && harmonia_observability::harmonia_observability_is_standard() {
-                        state.obs.trace_event("router-cascade-escalate", "tool", json!({"model": model, "reason": "route-feedback-failure", "tier": tier}));
+                    "route-feedback" => {
+                        let model = harmonia_actor_protocol::extract_sexp_string(&sexp, ":model")
+                            .unwrap_or_default();
+                        let task = harmonia_actor_protocol::extract_sexp_string(&sexp, ":task")
+                            .unwrap_or_default();
+                        let tier = harmonia_actor_protocol::extract_sexp_string(&sexp, ":tier")
+                            .unwrap_or_default();
+                        let success = harmonia_actor_protocol::extract_sexp_bool(&sexp, ":success")
+                            .unwrap_or(false);
+                        let latency = harmonia_actor_protocol::extract_sexp_u64(&sexp, ":latency-ms")
+                            .unwrap_or(0);
+                        let cost = harmonia_actor_protocol::extract_sexp_f64(&sexp, ":cost-usd")
+                            .unwrap_or(0.0);
+                        state.record_feedback(&model, &task, &tier, success, latency, cost);
+                        if !success && harmonia_observability::harmonia_observability_is_standard() {
+                            state.obs.trace_event("router-cascade-escalate", "tool", json!({"model": model, "reason": "route-feedback-failure", "tier": tier}));
+                        }
+                        "(:ok)".to_string()
                     }
-                    let _ = reply.send("(:ok)".to_string());
-                } else {
-                    let result = state.status_sexp();
-                    let _ = reply.send(result);
-                }
+                    "status" | _ => state.status_sexp(),
+                };
+                let _ = reply.send(result);
             }
             ComponentMsg::Shutdown => {
                 eprintln!("[INFO] [runtime] RouterActor shutting down");
@@ -308,34 +319,3 @@ impl Actor for RouterActor {
     }
 }
 
-// ── Router sexp parsing helpers ──────────────────────────────────────
-
-fn extract_sexp_value(sexp: &str, key: &str) -> Option<String> {
-    let pattern = format!(":{}  \"", key);
-    let pattern2 = format!(":{} \"", key);
-    let start = sexp.find(&pattern2).or_else(|| sexp.find(&pattern))?;
-    let after_key = start + pattern2.len();
-    let rest = &sexp[after_key..];
-    let end = rest.find('"')?;
-    Some(rest[..end].to_string())
-}
-
-fn extract_sexp_u64(sexp: &str, key: &str) -> Option<u64> {
-    let pattern = format!(":{} ", key);
-    let start = sexp.find(&pattern)? + pattern.len();
-    let rest = &sexp[start..];
-    let end = rest
-        .find(|c: char| !c.is_ascii_digit())
-        .unwrap_or(rest.len());
-    rest[..end].parse().ok()
-}
-
-fn extract_sexp_f64(sexp: &str, key: &str) -> Option<f64> {
-    let pattern = format!(":{} ", key);
-    let start = sexp.find(&pattern)? + pattern.len();
-    let rest = &sexp[start..];
-    let end = rest
-        .find(|c: char| !c.is_ascii_digit() && c != '.' && c != '-')
-        .unwrap_or(rest.len());
-    rest[..end].parse().ok()
-}

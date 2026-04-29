@@ -30,6 +30,19 @@ pub fn chronicle_record(
     );
 }
 
+/// Record crash to Ouroboros crash ledger for self-healing feedback.
+pub fn ouroboros_record(component: &str, detail: &str) {
+    let mut state = harmonia_ouroboros::OuroborosState::new();
+    let _ = harmonia_ouroboros::dispatch(
+        &mut state,
+        &format!(
+            "(:op \"record-crash\" :component-name \"{}\" :detail \"{}\")",
+            component.replace('"', "\\\""),
+            detail.replace('"', "\\\""),
+        ),
+    );
+}
+
 pub fn append_trauma(line: &str) {
     let default_trauma = format!("{}/trauma.log", state_root());
     let trauma_path = harmonia_config_store::get_own_or(COMPONENT, "trauma-log", &default_trauma)
