@@ -2,17 +2,7 @@ name = "harmonia"
 version = "__VERSION__"
 origin = "misc/harmonia"
 comment = "Harmonia agent — dual-stack SBCL+Rust autonomous agent"
-desc = """
-Harmonia is a Rust+SBCL agent that runs as a long-lived FreeBSD service
-with actor-based dispatch over MQTT, Email, SIP, HTTP/3, Slack, Discord,
-Telegram, Signal, WhatsApp, and a local TUI. Identity is HD-derived from
-an embedded extro-node wallet; the device PGP fingerprint is the agent's
-identity in the multi-device trust web.
-
-Service: /usr/local/etc/rc.d/harmonia (sysrc harmonia_enable=YES)
-State:   /var/db/harmonia
-Config:  /usr/local/etc/harmonia/config.toml (sample at share/harmonia)
-"""
+desc = "Rust+SBCL agent that runs as a long-lived FreeBSD service with actor-based dispatch over MQTT, Email, SIP, HTTP/3, Slack, Discord, Telegram, Signal, WhatsApp, and a local TUI. Identity is HD-derived from an embedded extro-node wallet; the device PGP fingerprint is the agent's identity in the multi-device trust web. Service: /usr/local/etc/rc.d/harmonia (sysrc harmonia_enable=YES). State: /var/db/harmonia. Config: /usr/local/etc/harmonia/config.toml (sample at /usr/local/share/harmonia)."
 maintainer = "ops@harmoniis.com"
 www = "https://github.com/harmoniis/harmonia"
 prefix = "/usr/local"
@@ -22,9 +12,9 @@ licenselogic = "single"
 licenses = ["HCL-1.0"]
 categories = ["misc", "net"]
 deps {
-    ca_root_nss   = { origin = "security/ca_root_nss" }
-    sbcl          = { origin = "lang/sbcl" }
-    bash          = { origin = "shells/bash" }
-    jq            = { origin = "textproc/jq" }
-    curl          = { origin = "ftp/curl" }
+    ca_root_nss   = { origin = "security/ca_root_nss", version = "0" }
+    sbcl          = { origin = "lang/sbcl",            version = "0" }
+    bash          = { origin = "shells/bash",          version = "0" }
+    jq            = { origin = "textproc/jq",          version = "0" }
+    curl          = { origin = "ftp/curl",             version = "0" }
 }
