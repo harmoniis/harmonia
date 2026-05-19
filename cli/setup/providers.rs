@@ -30,18 +30,6 @@ pub(crate) fn llm_provider_defs() -> Vec<LlmProviderDef> {
             }],
         },
         LlmProviderDef {
-            id: "harmoniis",
-            display: "Harmoniis",
-            required_command: None,
-            secrets: vec![LlmSecretDef {
-                symbol: "harmoniis-api-key",
-                prompt: "Harmoniis Router API key (HARMONIIS_ROUTER_API_KEY)",
-                is_password: true,
-                required: true,
-                default: None,
-            }],
-        },
-        LlmProviderDef {
             id: "openai",
             display: "OpenAI",
             required_command: None,

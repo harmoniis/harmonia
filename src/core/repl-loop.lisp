@@ -335,9 +335,12 @@ Only #\\ (character literal) is benign; all others are rejected."
       response))
 
 (defun %repl-auto-store-and-return (user-text response)
-  "Sanitize response, store interaction, return clean response."
+  "Sanitize response, store interaction, return clean response.
+   Length filtering happens once, in %memory-should-store-p — duplicating
+   it here was masking real interactions whose response was terse (e.g.
+   'Fact stored.'). The Q+A formatting pads the entry past the floor."
   (let ((clean (%sanitize-repl-response response)))
-    (when (and clean (stringp clean) (> (length clean) 30))
+    (when (and clean (stringp clean) (plusp (length clean)))
       (handler-case
           (progn
             (memory-put :interaction

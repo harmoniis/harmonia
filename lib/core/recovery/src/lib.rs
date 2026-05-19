@@ -43,14 +43,9 @@ fn to_c_string(value: String) -> *mut c_char {
 }
 
 fn state_root() -> String {
-    let default = std::env::temp_dir()
-        .join("harmonia")
+    harmonia_config_store::paths::state_root()
         .to_string_lossy()
-        .to_string();
-    harmonia_config_store::get_config(COMPONENT, "global", "state-root")
-        .ok()
-        .flatten()
-        .unwrap_or(default)
+        .into_owned()
 }
 
 fn log_path() -> String {

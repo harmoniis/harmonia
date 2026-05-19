@@ -32,7 +32,7 @@ mod tests {
             kind: "external".to_string(),
             type_name: "message.structured".to_string(),
             conversation: ConversationRef::new("conv"),
-            channel: ChannelRef::new("http2", "peer/session/default"),
+            channel: ChannelRef::new("http3", "peer/session/default"),
             peer: PeerRef::new("peer"),
             origin: None,
             session: None,
@@ -53,7 +53,7 @@ mod tests {
             },
             attachments: vec![],
             transport: TransportContext {
-                kind: "http2".to_string(),
+                kind: "http3".to_string(),
                 raw_address: "peer/session/default".to_string(),
                 raw_metadata: metadata.map(ToString::to_string),
             },

@@ -191,6 +191,10 @@ Called once at boot, before memory-field initialization."
                      (tags-str (or (getf entry-plist :tags) ""))
                      (source-str (or (getf entry-plist :source-ids) ""))
                      (access (or (getf entry-plist :access-count) 0))
+                     (last-access-raw (getf entry-plist :last-access))
+                     (last-access (when (and (integerp last-access-raw)
+                                             (> last-access-raw 0))
+                                    last-access-raw))
                      ;; Infer class from id prefix or tags.
                      (class (cond
                               ((search "SOUL" (or id "")) :soul)
@@ -214,16 +218,16 @@ Called once at boot, before memory-field initialization."
                                                :tags tags
                                                :source-ids nil
                                                :access-count access
-                                               :last-access nil)))
+                                               :last-access last-access)))
                 (when (and id content)
                   (setf (gethash id *memory-store*) entry)
                   (%push-class-id class id)
                   (incf *memory-seq*)
-                  ;; Index concepts into graph.
+                  ;; Index concepts into graph with true depth and tags so
+                  ;; chronicle reload yields the same graph as runtime puts
+                  ;; (incl. :tag-bridge edges).
                   (handler-case
-
-                      (%index-entry-concepts id class 0 content)
-
+                      (%index-entry-concepts id class depth content :tags tags)
                     (error () nil)))))))
         (%log :info "memory" "Loaded ~D memories, ~D concept nodes."
               count (hash-table-count *memory-concept-nodes*))

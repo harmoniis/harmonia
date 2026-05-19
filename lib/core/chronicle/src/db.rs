@@ -1,5 +1,4 @@
 use rusqlite::Connection;
-use std::env;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
@@ -30,16 +29,6 @@ impl ChronicleState {
     }
 }
 
-fn state_root() -> PathBuf {
-    let default = env::temp_dir()
-        .join("harmonia")
-        .to_string_lossy()
-        .to_string();
-    let root = harmonia_config_store::get_config_or("chronicle", "global", "state-root", &default)
-        .unwrap_or_else(|_| default);
-    PathBuf::from(root)
-}
-
 fn db_path() -> PathBuf {
     if let Some(v) = harmonia_config_store::get_own("chronicle", "db")
         .ok()
@@ -49,7 +38,7 @@ fn db_path() -> PathBuf {
             return PathBuf::from(v);
         }
     }
-    state_root().join("chronicle.db")
+    harmonia_config_store::paths::chronicle_db()
 }
 
 fn ensure_parent(path: &Path) -> Result<(), String> {

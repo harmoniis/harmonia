@@ -4,6 +4,86 @@ use console::style;
 use std::path::Path;
 use std::process::{Child, Command, Stdio};
 
+/// Reap orphaned phoenix children — `harmonia-runtime`, the SBCL agent
+/// loaded with our `boot.lisp`, and `provision-server` — when the supervisor
+/// has died but its children are still alive. Without this, a fresh
+/// `harmonia start` would spawn duplicates while the orphans hold sockets,
+/// IPC files, and database connections from the previous incarnation.
+pub(crate) fn reap_orphan_children(boot_file_path: &Path) {
+    let needles: [&str; 3] = ["harmonia-runtime", "provision-server", ""];
+    let boot_str = boot_file_path.to_string_lossy().into_owned();
+
+    let output = match Command::new("ps").args(["-A", "-o", "pid=,args="]).output() {
+        Ok(o) => o,
+        Err(_) => return,
+    };
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let me = std::process::id() as i32;
+
+    for line in stdout.lines() {
+        let line = line.trim_start();
+        let (pid_part, rest) = match line.split_once(' ') {
+            Some(p) => p,
+            None => continue,
+        };
+        let Ok(pid) = pid_part.parse::<i32>() else {
+            continue;
+        };
+        if pid == me {
+            continue;
+        }
+
+        let matches_runtime = rest.contains(needles[0]);
+        let matches_provision = rest.contains(needles[1]);
+        let matches_sbcl_agent =
+            rest.contains("sbcl") && !boot_str.is_empty() && rest.contains(&boot_str);
+
+        if matches_runtime || matches_provision || matches_sbcl_agent {
+            #[cfg(unix)]
+            unsafe {
+                libc::kill(pid, libc::SIGTERM);
+            }
+            eprintln!(
+                "{} reaped orphan child PID {} ({})",
+                console::style("!").yellow().bold(),
+                pid,
+                rest.split_whitespace().next().unwrap_or("?")
+            );
+        }
+    }
+
+    // Brief grace period for SIGTERM, then SIGKILL stragglers.
+    std::thread::sleep(std::time::Duration::from_millis(500));
+    let output = match Command::new("ps").args(["-A", "-o", "pid=,args="]).output() {
+        Ok(o) => o,
+        Err(_) => return,
+    };
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    for line in stdout.lines() {
+        let line = line.trim_start();
+        let (pid_part, rest) = match line.split_once(' ') {
+            Some(p) => p,
+            None => continue,
+        };
+        let Ok(pid) = pid_part.parse::<i32>() else {
+            continue;
+        };
+        if pid == me {
+            continue;
+        }
+        let matches_runtime = rest.contains(needles[0]);
+        let matches_provision = rest.contains(needles[1]);
+        let matches_sbcl_agent =
+            rest.contains("sbcl") && !boot_str.is_empty() && rest.contains(&boot_str);
+        if matches_runtime || matches_provision || matches_sbcl_agent {
+            #[cfg(unix)]
+            unsafe {
+                libc::kill(pid, libc::SIGKILL);
+            }
+        }
+    }
+}
+
 pub(crate) fn should_start_embedded_broker() -> bool {
     harmonia_config_store::get_config("harmonia-cli", "mqtt-broker", "mode")
         .ok()

@@ -8,21 +8,27 @@
 //! `"sender-policy"`, component `"gateway"`:
 //!   - `allowlist-<frontend>` → comma-separated sender IDs
 //!   - `mode-<frontend>`      → `"deny"` (default) or `"allow-all"`
+//!
+//! The cache lives inside [`SenderPolicyActor`]. The runtime spawns one
+//! actor and threads its `ActorRef` to `GatewayActor` (and any future
+//! consumer) so policy decisions are made via message-passing rather than
+//! a process-wide singleton.
 
 use crate::model::ChannelEnvelope;
+use ractor::{Actor, ActorProcessingErr, ActorRef, RpcReplyPort};
 use std::collections::{HashMap, HashSet};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 /// Messaging frontends subject to sender filtering.
 /// TUI, MQTT, and Tailscale are exempt (device-paired or local).
 const MESSAGING_FRONTENDS: &[&str] = &[
-    "email", "slack", "discord", "mattermost", "signal",
-    "whatsapp", "imessage", "telegram", "nostr",
+    "email", "slack", "discord", "signal", "whatsapp", "telegram",
 ];
 
 const POLICY_REFRESH_MS: u64 = 30_000;
 
-/// Actor-owned sender policy cache. No global singleton.
+/// In-memory policy cache. The actor owns one instance; callers reach it
+/// via [`SenderPolicyMsg`].
 pub struct SenderPolicyCache {
     allowlists: HashMap<String, HashSet<String>>,
     allow_all: HashSet<String>,
@@ -142,31 +148,67 @@ impl Default for SenderPolicyCache {
     }
 }
 
-// ── Module-level convenience functions (delegate to a process-level instance) ──
-// GatewayActor owns its own SenderPolicyCache. These process-level functions
-// exist for callers outside the actor (e.g., baseband poll filtering in dispatch).
+/// Messages accepted by [`SenderPolicyActor`].
+pub enum SenderPolicyMsg {
+    /// Apply policy to one envelope. The reply is `true` when the signal
+    /// should be accepted, `false` when it must be dropped.
+    IsSignalAllowed(ChannelEnvelope, RpcReplyPort<bool>),
+    /// Force-reload policies from config-store (admin operations).
+    Reload(RpcReplyPort<()>),
+}
 
-use std::sync::{Mutex, OnceLock};
+pub struct SenderPolicyActor;
 
-static PROCESS_CACHE: OnceLock<Mutex<SenderPolicyCache>> = OnceLock::new();
+impl Actor for SenderPolicyActor {
+    type Msg = SenderPolicyMsg;
+    type State = SenderPolicyCache;
+    type Arguments = ();
 
-fn process_cache() -> &'static Mutex<SenderPolicyCache> {
-    PROCESS_CACHE.get_or_init(|| {
+    async fn pre_start(
+        &self,
+        _myself: ActorRef<Self::Msg>,
+        _: Self::Arguments,
+    ) -> Result<Self::State, ActorProcessingErr> {
         let mut cache = SenderPolicyCache::new();
         cache.load();
-        Mutex::new(cache)
-    })
+        eprintln!("[INFO] [gateway] SenderPolicyActor started");
+        Ok(cache)
+    }
+
+    async fn handle(
+        &self,
+        _myself: ActorRef<Self::Msg>,
+        msg: Self::Msg,
+        cache: &mut Self::State,
+    ) -> Result<(), ActorProcessingErr> {
+        match msg {
+            SenderPolicyMsg::IsSignalAllowed(envelope, reply) => {
+                cache.refresh_if_stale();
+                let allowed = cache.is_signal_allowed(&envelope);
+                let _ = reply.send(allowed);
+            }
+            SenderPolicyMsg::Reload(reply) => {
+                cache.load();
+                let _ = reply.send(());
+            }
+        }
+        Ok(())
+    }
 }
 
-/// Check whether an inbound envelope should be accepted (process-level).
-pub fn is_signal_allowed(envelope: &ChannelEnvelope) -> bool {
-    let mut guard = process_cache().lock().unwrap_or_else(|e| e.into_inner());
-    guard.refresh_if_stale();
-    guard.is_signal_allowed(envelope)
-}
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use ractor::Actor;
 
-/// Force-reload policies from config-store.
-pub fn reload_policies() {
-    let mut guard = process_cache().lock().unwrap_or_else(|e| e.into_inner());
-    guard.load();
+    #[tokio::test]
+    async fn actor_handles_reload_round_trip() {
+        let (actor, handle) = Actor::spawn(None, SenderPolicyActor, ())
+            .await
+            .expect("spawn SenderPolicyActor");
+        let _: () = ractor::call_t!(actor, SenderPolicyMsg::Reload, 500)
+            .expect("Reload should round-trip through the actor");
+        actor.stop(None);
+        handle.await.expect("actor exits cleanly");
+    }
 }

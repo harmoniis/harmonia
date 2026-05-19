@@ -1,0 +1,39 @@
+# /usr/local/etc/harmonia/config.toml — sample
+#
+# Copy is installed automatically by +POST_INSTALL if the live file
+# does not already exist. Edit in place, then `service harmonia restart`.
+#
+# Values left at "" or commented are read from the environment or
+# config-store at runtime; this file is a starting skeleton.
+
+[agent]
+# Optional human-readable label shown in the trust-web UI.
+label = "harmonia"
+
+# Path to the wallet seed. Lives on the persistent state directory and
+# survives `pkg upgrade harmonia`. In cluster pots this directory must
+# be a Ceph-backed RBD mount so the device PGP fingerprint is stable
+# across auto-rebakes.
+wallet_seed_path = "/var/db/harmonia/wallet/seed"
+
+[network]
+# Marketplace base URL the agent registers its fingerprint against and
+# polls for trusted-devices / wake / tailnet-authkey / mqtt-credential.
+marketplace_url = "https://marketplace.harmoniis.com"
+
+# Provisioner base URL (Cloudflare tunnel). Used by `harmonia setup`
+# for cluster lifecycle introspection during onboarding.
+provisioner_url = "https://agents.harmoniis.com"
+
+[mqtt]
+# Broker hostname and port. mTLS credentials are fetched at first boot
+# from the marketplace `/api/v1/harmonia/mqtt-credential` endpoint and
+# installed under /usr/local/etc/harmonia/certs.
+broker_host = "mqtt.harmoniis.com"
+broker_port = 8883
+
+[tailnet]
+# Tailscale OAuth-minted preauth key is fetched at first boot from the
+# marketplace `/api/v1/harmonia/tailnet-authkey` endpoint; this section
+# only carries tunables.
+hostname = "harmonia"

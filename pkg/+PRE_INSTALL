@@ -1,0 +1,11 @@
+#!/bin/sh
+# Create the unprivileged harmonia service account before the package is
+# laid down so file ownership in +POST_INSTALL can target it.
+set -eu
+
+if ! pw user show harmonia >/dev/null 2>&1; then
+    pw useradd -n harmonia \
+        -d /var/db/harmonia \
+        -s /usr/sbin/nologin \
+        -c "Harmonia agent service"
+fi

@@ -104,7 +104,7 @@ pub fn load_all_entries() -> Result<String, String> {
     let db = db::conn()?;
     let lock = db.lock().map_err(|e| e.to_string())?;
     let mut stmt = lock
-        .prepare("SELECT id, ts, content, tags, source_ids, access_count FROM memory_entries ORDER BY ts ASC")
+        .prepare("SELECT id, ts, content, tags, source_ids, access_count, last_access FROM memory_entries ORDER BY ts ASC")
         .map_err(|e| e.to_string())?;
 
     let mut entries = Vec::new();
@@ -117,20 +117,22 @@ pub fn load_all_entries() -> Result<String, String> {
                 row.get::<_, String>(3)?,
                 row.get::<_, String>(4)?,
                 row.get::<_, i64>(5)?,
+                row.get::<_, Option<i64>>(6)?,
             ))
         })
         .map_err(|e| e.to_string())?;
 
     for row in rows {
-        if let Ok((id, ts, content, tags, source_ids, access_count)) = row {
+        if let Ok((id, ts, content, tags, source_ids, access_count, last_access)) = row {
             entries.push(format!(
-                "(:id \"{}\" :ts {} :content \"{}\" :tags \"{}\" :source-ids \"{}\" :access-count {})",
+                "(:id \"{}\" :ts {} :content \"{}\" :tags \"{}\" :source-ids \"{}\" :access-count {} :last-access {})",
                 id.replace('"', "\\\""),
                 ts,
                 content.replace('"', "\\\"").replace('\n', "\\n"),
                 tags,
                 source_ids,
                 access_count,
+                last_access.unwrap_or(0),
             ));
         }
     }

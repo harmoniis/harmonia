@@ -7,6 +7,10 @@ Type=simple
 ExecStart=__HARMONIA_BIN__ start --foreground
 Restart=on-failure
 RestartSec=5
+# Back off if the service flaps repeatedly so we don't spin in a tight loop
+# while a deeper bug (missing source tree, broken vault) is unfixed.
+StartLimitIntervalSec=120
+StartLimitBurst=5
 Environment=HARMONIA_STATE_ROOT=__HOME__/.harmoniis/harmonia
 WorkingDirectory=__HOME__/.harmoniis/harmonia
 StandardOutput=append:__HOME__/.local/state/harmonia/harmonia.log

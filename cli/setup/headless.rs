@@ -115,6 +115,38 @@ pub fn run_headless(config_path: &str) -> Result<(), Box<dyn std::error::Error>>
         eprintln!("[INFO] [setup]   workspace: {}", workspace);
     }
 
+    // Provision the bootstrap trust-bundle. The provisioner pulls the
+    // operator's mobile-device PGP keys out of the marketplace at agent-create
+    // time and renders them into `trust_bundle.devices`. We persist the list
+    // verbatim into `<state>/trust-bundle.json`; the trust-store actor reads
+    // this on boot to seed the per-device PGP key map without a network call.
+    if let Some(bundle) = config.get("trust_bundle") {
+        if let Some(devices) = bundle.get("devices") {
+            if devices.as_array().map(|a| !a.is_empty()).unwrap_or(false) {
+                let bundle_path = system_dir.join("trust-bundle.json");
+                fs::write(
+                    &bundle_path,
+                    serde_json::to_string_pretty(&serde_json::json!({
+                        "devices": devices,
+                    }))?,
+                )?;
+                #[cfg(unix)]
+                {
+                    use std::os::unix::fs::PermissionsExt;
+                    let _ = fs::set_permissions(
+                        &bundle_path,
+                        fs::Permissions::from_mode(0o600),
+                    );
+                }
+                eprintln!(
+                    "[INFO] [setup]   trust-bundle: {} device(s) → {}",
+                    devices.as_array().map(|a| a.len()).unwrap_or(0),
+                    bundle_path.display()
+                );
+            }
+        }
+    }
+
     // Auto-detect and persist enabled runtime modules
     let enabled_modules = resolve_configured_modules();
     if !enabled_modules.is_empty() {

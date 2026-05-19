@@ -1,0 +1,26 @@
+[package]
+name = "harmonia-email"
+version = "0.1.0"
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+authors.workspace = true
+description = "Email IMAP/SMTP frontend with PGP sign/verify for the Harmonia agent"
+keywords = ["harmonia", "email", "pgp"]
+
+[lib]
+
+[dependencies]
+harmonia-actor-protocol = { version = "0.1.9", path = "../../core/actor-protocol" }
+harmonia-config-store = { version = "0.1.9", path = "../../core/config-store" }
+harmonia-frontend-trait = { version = "0.1.0", path = "../shared/frontend-trait" }
+harmonia-vault = { version = "0.1.9", path = "../../core/vault" }
+async-trait = "0.1"
+imap = "2.4"
+lettre = { version = "0.11", default-features = false, features = ["smtp-transport", "native-tls", "builder"] }
+mailparse = "0.15"
+native-tls = "0.2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tokio = { version = "1", features = ["rt", "macros"] }

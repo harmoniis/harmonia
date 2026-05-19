@@ -10,6 +10,9 @@ pub enum SupervisorMsg {
     GetHealth(RpcReplyPort<HealthSnapshot>),
     /// A subsystem actor reports its state has changed.
     SubsystemStateChanged { name: String, state: SubsystemState },
+    /// A subsystem actor reports its current restart_count so the supervisor
+    /// can preserve the budget across actor respawns.
+    SubsystemRestartCount { name: String, count: u32 },
     /// Initiate graceful shutdown of all subsystems.
     Shutdown,
 }

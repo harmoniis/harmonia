@@ -2,6 +2,7 @@ mod store;
 
 pub mod api;
 mod ingest;
+pub mod paths;
 mod policy;
 mod registry;
 

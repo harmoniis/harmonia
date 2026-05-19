@@ -194,10 +194,21 @@ pub fn observe_route(
         .write()
         .map_err(|_| "harmonic matrix state lock poisoned".to_string())?;
 
+    // Hebbian: the act of observing a route IS its registration. Edges
+    // emerge from traffic instead of needing a pre-seed pass — if a route
+    // ran, the matrix now knows the pair exists. Defaults match what
+    // `register_edge` would use for a freshly-seeded route.
     let edge = st
         .edges
-        .get_mut(&(from.to_string(), to.to_string()))
-        .ok_or_else(|| format!("route observe failed: edge missing {} -> {}", from, to))?;
+        .entry((from.to_string(), to.to_string()))
+        .or_insert_with(|| Edge {
+            weight: 1.0,
+            min_harmony: 0.0,
+            uses: 0,
+            successes: 0,
+            total_latency_ms: 0,
+            total_cost_usd: 0.0,
+        });
 
     edge.uses += 1;
     if success {

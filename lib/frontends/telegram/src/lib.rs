@@ -1,1 +1,3 @@
-pub mod bot;
+pub mod frontend;
+
+pub use frontend::TelegramFrontend;

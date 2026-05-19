@@ -32,12 +32,6 @@ pub(crate) const DISCORD_FIELDS: &[FrontendField] = &[
     FrontendField { key: "channels", prompt: "Discord channel IDs (comma-separated)", default: None, secret: false, optional: false },
 ];
 
-pub(crate) const MATTERMOST_FIELDS: &[FrontendField] = &[
-    FrontendField { key: "api-url", prompt: "Mattermost API URL", default: None, secret: false, optional: false },
-    FrontendField { key: "bot-token", prompt: "Mattermost bot token", default: None, secret: true, optional: false },
-    FrontendField { key: "channels", prompt: "Mattermost channel IDs (comma-separated)", default: None, secret: false, optional: false },
-];
-
 pub(crate) const WHATSAPP_FIELDS: &[FrontendField] = &[
     FrontendField { key: "api-url", prompt: "WhatsApp bridge URL", default: Some("http://127.0.0.1:3000"), secret: false, optional: false },
     FrontendField { key: "api-key", prompt: "WhatsApp bridge API key", default: None, secret: true, optional: true },
@@ -46,12 +40,6 @@ pub(crate) const WHATSAPP_FIELDS: &[FrontendField] = &[
 pub(crate) const SIGNAL_FIELDS: &[FrontendField] = &[
     FrontendField { key: "rpc-url", prompt: "Signal bridge URL", default: Some("http://127.0.0.1:8080"), secret: false, optional: false },
     FrontendField { key: "auth-token", prompt: "Signal bridge auth token", default: None, secret: true, optional: true },
-];
-
-#[cfg(target_os = "macos")]
-pub(crate) const IMESSAGE_FIELDS: &[FrontendField] = &[
-    FrontendField { key: "server-url", prompt: "BlueBubbles server URL", default: None, secret: false, optional: false },
-    FrontendField { key: "password", prompt: "BlueBubbles password", default: None, secret: true, optional: true },
 ];
 
 pub(crate) const EMAIL_FIELDS: &[FrontendField] = &[
@@ -69,17 +57,12 @@ pub(crate) const EMAIL_FIELDS: &[FrontendField] = &[
     FrontendField { key: "smtp-tls", prompt: "SMTP TLS mode (starttls/tls/none)", default: Some("starttls"), secret: false, optional: false },
 ];
 
-pub(crate) const NOSTR_FIELDS: &[FrontendField] = &[
-    FrontendField { key: "private-key", prompt: "Nostr private key", default: None, secret: true, optional: false },
-    FrontendField { key: "relays", prompt: "Nostr relays (comma-separated)", default: Some("wss://relay.damus.io,wss://relay.primal.net,wss://nos.lol"), secret: false, optional: true },
-];
-
 pub(crate) const TAILSCALE_FIELDS: &[FrontendField] = &[FrontendField {
     key: "auth-key", prompt: "Tailscale auth key", default: None, secret: true, optional: false,
 }];
 
-pub(crate) const HTTP2_FIELDS: &[FrontendField] = &[
-    FrontendField { key: "bind", prompt: "HTTP/2 bind address", default: Some("127.0.0.1:9443"), secret: false, optional: false },
+pub(crate) const HTTP3_FIELDS: &[FrontendField] = &[
+    FrontendField { key: "bind", prompt: "HTTP/3 bind address", default: Some("127.0.0.1:9443"), secret: false, optional: false },
     FrontendField { key: "ca-cert", prompt: "Client CA certificate path", default: None, secret: false, optional: false },
     FrontendField { key: "server-cert", prompt: "Server certificate path", default: None, secret: false, optional: false },
     FrontendField { key: "server-key", prompt: "Server private key path", default: None, secret: false, optional: false },
@@ -90,21 +73,16 @@ pub(crate) const HTTP2_FIELDS: &[FrontendField] = &[
 ];
 
 pub(crate) fn frontend_catalog() -> Vec<FrontendCatalogEntry> {
-    let mut entries = vec![
+    vec![
         FrontendCatalogEntry { name: "telegram", display: "Telegram", fields: TELEGRAM_FIELDS },
         FrontendCatalogEntry { name: "slack", display: "Slack", fields: SLACK_FIELDS },
         FrontendCatalogEntry { name: "discord", display: "Discord", fields: DISCORD_FIELDS },
-        FrontendCatalogEntry { name: "mattermost", display: "Mattermost", fields: MATTERMOST_FIELDS },
         FrontendCatalogEntry { name: "whatsapp", display: "WhatsApp", fields: WHATSAPP_FIELDS },
         FrontendCatalogEntry { name: "signal", display: "Signal", fields: SIGNAL_FIELDS },
         FrontendCatalogEntry { name: "email", display: "Email", fields: EMAIL_FIELDS },
-        FrontendCatalogEntry { name: "nostr", display: "Nostr", fields: NOSTR_FIELDS },
         FrontendCatalogEntry { name: "tailscale", display: "Tailscale", fields: TAILSCALE_FIELDS },
-        FrontendCatalogEntry { name: "http2", display: "HTTP/2 mTLS", fields: HTTP2_FIELDS },
-    ];
-    #[cfg(target_os = "macos")]
-    entries.push(FrontendCatalogEntry { name: "imessage", display: "iMessage", fields: IMESSAGE_FIELDS });
-    entries
+        FrontendCatalogEntry { name: "http3", display: "HTTP/3 mTLS", fields: HTTP3_FIELDS },
+    ]
 }
 
 pub(crate) fn prompt_frontend_values(

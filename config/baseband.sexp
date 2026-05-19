@@ -13,22 +13,16 @@
     :push-webhook-url ""
     :push-webhook-token ""
     :push-webhook-timeout-ms 5000)
-   (:name "http2"
-    :so-path "target/release/libharmonia_http2_mtls.so"
+   (:name "http3"
+    :so-path "target/release/libharmonia_http3.so"
     :security-label :authenticated
     :auto-load :if-ready
     :vault-keys nil
-    :config-keys (("http2-frontend" "bind")
-                  ("http2-frontend" "ca-cert")
-                  ("http2-frontend" "server-cert")
-                  ("http2-frontend" "server-key")
-                  ("http2-frontend" "trusted-client-fingerprints-json")))
-   (:name "imessage"
-    :so-path "target/release/libharmonia_imessage.so"
-    :security-label :authenticated
-    :auto-load :if-vault-keys
-    :vault-keys (:bluebubbles-password)
-    :platforms (:macos))
+    :config-keys (("http3-frontend" "bind")
+                  ("http3-frontend" "ca-cert")
+                  ("http3-frontend" "server-cert")
+                  ("http3-frontend" "server-key")
+                  ("http3-frontend" "trusted-client-fingerprints-json")))
    (:name "whatsapp"
     :so-path "target/release/libharmonia_whatsapp.so"
     :security-label :authenticated
@@ -64,17 +58,7 @@
     :so-path "target/release/libharmonia_email_client.so"
     :security-label :authenticated
     :auto-load :if-vault-keys
-    :vault-keys (:email-imap-password :email-password))
-   (:name "mattermost"
-    :so-path "target/release/libharmonia_mattermost.so"
-    :security-label :authenticated
-    :auto-load :if-vault-keys
-    :vault-keys (:mattermost-bot-token))
-   (:name "nostr"
-    :so-path "target/release/libharmonia_nostr.so"
-    :security-label :untrusted
-    :auto-load :if-vault-keys
-    :vault-keys (:nostr-private-key)))
+    :vault-keys (:email-imap-password :email-password)))
  :tools
   ((:name "browser"
     :so-path "target/release/libharmonia_browser.dylib"

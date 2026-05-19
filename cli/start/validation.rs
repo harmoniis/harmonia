@@ -45,7 +45,12 @@ pub(crate) fn resolve_lib_dir(source_dir: &Path) -> PathBuf {
 pub(crate) fn find_phoenix_binary(
     source_dir: &Path,
 ) -> Result<PathBuf, Box<dyn std::error::Error>> {
-    // Check sibling of current exe (both names)
+    // We deliberately do NOT fall back to PATH lookup here: probing an unknown
+    // binary with `--version` can have side effects (an earlier bug in
+    // harmonia-phoenix caused the probe itself to spin up a full supervisor).
+    // Instead, look only in known-safe locations.
+
+    // 1. Sibling of current exe (both names)
     if let Ok(exe) = std::env::current_exe() {
         for name in ["harmonia-phoenix", "phoenix"] {
             let sibling = exe.with_file_name(name);
@@ -54,7 +59,7 @@ pub(crate) fn find_phoenix_binary(
             }
         }
     }
-    // Check dev build paths (debug + release, both names)
+    // 2. Dev build paths (debug + release, both names)
     for profile in ["debug", "release"] {
         for name in ["phoenix", "harmonia-phoenix"] {
             let dev = source_dir.join("target").join(profile).join(name);
@@ -63,18 +68,33 @@ pub(crate) fn find_phoenix_binary(
             }
         }
     }
-    // Check installed lib dir
+    // 3. Installed lib dir (next to other harmonia libs)
     if let Ok(lib) = crate::paths::lib_dir() {
-        let installed = lib.join("phoenix");
-        if installed.exists() {
-            return Ok(installed);
+        for name in ["harmonia-phoenix", "phoenix"] {
+            let installed = lib.join(name);
+            if installed.exists() {
+                return Ok(installed);
+            }
         }
     }
-    // Last resort: PATH (may block if binary hangs on --version)
-    if check_command("harmonia-phoenix") {
-        return Ok(PathBuf::from("harmonia-phoenix"));
+    // 4. ~/.local/bin / /usr/local/bin (standard install prefixes)
+    if let Some(home) = dirs::home_dir() {
+        for name in ["harmonia-phoenix", "phoenix"] {
+            let p = home.join(".local").join("bin").join(name);
+            if p.exists() {
+                return Ok(p);
+            }
+        }
     }
-    Err("harmonia-phoenix binary not found — run install script".into())
+    for prefix in ["/usr/local/bin", "/opt/homebrew/bin"] {
+        for name in ["harmonia-phoenix", "phoenix"] {
+            let p = Path::new(prefix).join(name);
+            if p.exists() {
+                return Ok(p);
+            }
+        }
+    }
+    Err("harmonia-phoenix binary not found in known locations — run scripts/install.sh".into())
 }
 
 pub(crate) fn find_sibling_binary(phoenix_bin: &Path, name: &str) -> String {

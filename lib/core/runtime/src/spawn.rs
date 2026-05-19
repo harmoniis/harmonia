@@ -29,9 +29,9 @@ pub struct SpawnedActors {
     pub router_ref: ractor::ActorRef<ComponentMsg>,
     pub mempalace_ref: ractor::ActorRef<ComponentMsg>,
     pub terraphon_ref: ractor::ActorRef<ComponentMsg>,
-    pub mcp_ref: ractor::ActorRef<ComponentMsg>,
     pub ouroboros_ref: ractor::ActorRef<ComponentMsg>,
     pub session_ref: ractor::ActorRef<ComponentMsg>,
+    pub proactive_waker_ref: ractor::ActorRef<ComponentMsg>,
     pub dynamic_registry: crate::dynamic_registry::SharedDynamicRegistry,
     pub topic_bus: crate::topic_bus::SharedTopicBus,
 }
@@ -68,9 +68,72 @@ pub async fn spawn_all(module_registry: HashMap<String, crate::registry::ModuleE
 
     let _ = supervisor_ref.cast(msg::RuntimeMsg::RegisterObsActor(obs_ref.clone()));
 
+    // 3b. Frontend registry — owned by the runtime, used by the gateway actor
+    // to dispatch poll/send to trait-based frontends.
+    let frontend_registry = crate::frontend_registry::FrontendRegistry::new();
+
+    // 3c. Shared PGP trust-store + optional signer. Each transport frontend
+    // (MQTT, Email, SIP, HTTP/3) reaches them via these refs to verify
+    // inbound signatures and produce outbound ones, instead of each
+    // frontend bringing its own keyring.
+    let state_root = std::env::var("HARMONIA_STATE_ROOT").unwrap_or_default();
+    let trust_store_ref =
+        match harmonia_transport_pgp::spawn_trust_store(&supervisor_ref, state_root).await {
+            Ok(r) => Some(r),
+            Err(e) => {
+                eprintln!("[WARN] [runtime] trust-store spawn failed: {e}");
+                None
+            }
+        };
+    let signer_ref = match (
+        harmonia_vault::get_secret_for_component("mqtt-frontend", "agent-pgp-secret-armored")
+            .ok()
+            .flatten(),
+        harmonia_vault::get_secret_for_component("mqtt-frontend", "agent-pgp-passphrase")
+            .ok()
+            .flatten()
+            .unwrap_or_default(),
+    ) {
+        (Some(armored), passphrase) => {
+            match harmonia_transport_pgp::spawn_signer(&supervisor_ref, armored, passphrase).await
+            {
+                Ok(r) => Some(r),
+                Err(e) => {
+                    eprintln!("[WARN] [runtime] signer spawn failed: {e}");
+                    None
+                }
+            }
+        }
+        _ => None,
+    };
+    let transport_pgp =
+        harmonia_transport_pgp::TransportPgp::new(trust_store_ref, signer_ref);
+
+    // 3d. Sender-policy actor — owns the deny-by-default allowlist cache for
+    // messaging frontends. GatewayActor consults it on every inbound envelope.
+    let (sender_policy_ref, _sender_policy_handle) = Actor::spawn_linked(
+        Some("sender-policy".to_string()),
+        harmonia_gateway::SenderPolicyActor,
+        (),
+        supervisor_ref.get_cell(),
+    )
+    .await
+    .expect("sender-policy actor is required for runtime boot");
+
     // 4. Spawn component actors linked to supervisor
     let chronicle_ref = spawn_linked("chronicle", actors::ChronicleComponentActor, (), &supervisor_ref).await;
-    let gateway_ref = spawn_linked("gateway", actors::GatewayActor, (bridge_ref.clone(), obs_opt.clone()), &supervisor_ref).await;
+    let gateway_ref = spawn_linked(
+        "gateway",
+        actors::GatewayActor,
+        (
+            bridge_ref.clone(),
+            obs_opt.clone(),
+            frontend_registry.clone(),
+            transport_pgp.clone(),
+            sender_policy_ref.clone(),
+        ),
+        &supervisor_ref,
+    ).await;
     let tailnet_ref = spawn_linked("tailnet", actors::TailnetActor, (bridge_ref.clone(), obs_opt.clone()), &supervisor_ref).await;
     let signalograd_ref = spawn_linked("signalograd", actors::SignalogradActor, (bridge_ref.clone(), obs_opt.clone()), &supervisor_ref).await;
     let memory_field_ref = spawn_linked("memory-field", actors::MemoryFieldActor, (bridge_ref.clone(), obs_opt.clone()), &supervisor_ref).await;
@@ -86,6 +149,22 @@ pub async fn spawn_all(module_registry: HashMap<String, crate::registry::ModuleE
     let mcp_ref = spawn_linked("mcp", actors::McpActor, (), &supervisor_ref).await;
     let ouroboros_ref = spawn_linked("ouroboros", actors::OuroborosActor, (), &supervisor_ref).await;
     let session_ref = spawn_linked("sessions", actors::SessionActor, (), &supervisor_ref).await;
+
+    // 4b. Proactive waker — heartbeat ticker that publishes liveness through
+    // the MQTT frontend on a configurable cadence. Reads the agent fingerprint
+    // out of vault if present; behaves as a no-op until pot provisioning
+    // (Phase 8) writes one.
+    let agent_fp = harmonia_vault::get_secret_for_component("mqtt-frontend", "mqtt-agent-fp")
+        .ok()
+        .flatten()
+        .unwrap_or_default();
+    let proactive_waker_ref = spawn_linked(
+        "proactive-waker",
+        actors::ProactiveWakerActor,
+        (frontend_registry.clone(), agent_fp),
+        &supervisor_ref,
+    )
+    .await;
 
     // 5. Register component actors with supervisor for restart tracking
     register_component(&supervisor_ref, "chronicle", &chronicle_ref);
@@ -128,9 +207,94 @@ pub async fn spawn_all(module_registry: HashMap<String, crate::registry::ModuleE
     eprintln!("[INFO] [runtime] DynamicRegistry: {} components, TopicBus: {} topics",
         dyn_reg.len(), topic_bus.topics().len());
 
-    // Inject DynamicRegistry + TopicBus into supervisor for crash-restart handling.
+    // Inject DynamicRegistry + TopicBus + FrontendRegistry into supervisor
+    // so it can re-pass them on actor respawn.
     let _ = supervisor_ref.cast(msg::RuntimeMsg::SetDynamicRegistry(dyn_reg.clone()));
     let _ = supervisor_ref.cast(msg::RuntimeMsg::SetTopicBus(topic_bus.clone()));
+    let _ = supervisor_ref.cast(msg::RuntimeMsg::SetFrontendRegistry(frontend_registry.clone()));
+    let _ = supervisor_ref.cast(msg::RuntimeMsg::SetTransportPgp(transport_pgp.clone()));
+    let _ = supervisor_ref.cast(msg::RuntimeMsg::SetSenderPolicy(sender_policy_ref.clone()));
+
+    // 7. Trait-based frontend actors. Each frontend opts in by impl'ing
+    // `harmonia_frontend_trait::Frontend`. We attempt to spawn each migrated
+    // frontend; init failures (missing tokens, unconfigured) leave the actor
+    // out of the registry and the gateway dispatch silently skips it.
+    spawn_frontend_actor::<harmonia_slack::SlackFrontend>(
+        &supervisor_ref,
+        &frontend_registry,
+        "()".to_string(),
+    )
+    .await;
+    spawn_frontend_actor::<harmonia_discord::DiscordFrontend>(
+        &supervisor_ref,
+        &frontend_registry,
+        "()".to_string(),
+    )
+    .await;
+    spawn_frontend_actor::<harmonia_telegram::TelegramFrontend>(
+        &supervisor_ref,
+        &frontend_registry,
+        "()".to_string(),
+    )
+    .await;
+    spawn_frontend_actor::<harmonia_whatsapp::WhatsAppFrontend>(
+        &supervisor_ref,
+        &frontend_registry,
+        "()".to_string(),
+    )
+    .await;
+    spawn_frontend_actor::<harmonia_signal::SignalFrontend>(
+        &supervisor_ref,
+        &frontend_registry,
+        "()".to_string(),
+    )
+    .await;
+    // TUI server — local UDS listener for the operator's interactive session.
+    // Owned by the runtime as a Frontend trait actor; replaces the previous
+    // module-level OnceLock<RwLock<TuiState>>.
+    spawn_frontend_actor::<harmonia_tui_server::TuiServer>(
+        &supervisor_ref,
+        &frontend_registry,
+        (),
+    )
+    .await;
+    // HTTP/3 — quinn + h3 + mTLS (replaces the previous C-ABI http2-mtls
+    // dynamic library). Init may fail with "missing config" if the operator
+    // hasn't configured certs yet — that's fine; the actor just isn't
+    // registered and the gateway dispatch silently skips it.
+    spawn_frontend_actor::<harmonia_http3::Http3Frontend>(
+        &supervisor_ref,
+        &frontend_registry,
+        (),
+    )
+    .await;
+    // MQTT 5 — VerneMQ broker client. Inbound publishes are decoded
+    // verbatim; PGP signature verification happens at the gateway, not
+    // here, so MQTT/HTTP/Email share one verify path.
+    spawn_frontend_actor::<harmonia_mqtt::MqttFrontend>(
+        &supervisor_ref,
+        &frontend_registry,
+        (),
+    )
+    .await;
+    // Email — IMAP+SMTP frontend. Same model as MQTT: bodies in/out
+    // verbatim; the gateway runs PGP verification on signed bodies.
+    spawn_frontend_actor::<harmonia_email::EmailFrontend>(
+        &supervisor_ref,
+        &frontend_registry,
+        (),
+    )
+    .await;
+    // SIP — kamailio UAC over plain TCP using the cluster-internal Consul
+    // DNS. Standard SIP digest auth (provisioner inserted the subscriber
+    // row at agent-create time, password lives in vault under
+    // `sip-frontend/sip-password`). No mTLS, no PGP signing at this hop.
+    spawn_frontend_actor::<harmonia_sip::SipFrontend>(
+        &supervisor_ref,
+        &frontend_registry,
+        (),
+    )
+    .await;
 
     SpawnedActors {
         supervisor_ref,
@@ -150,11 +314,46 @@ pub async fn spawn_all(module_registry: HashMap<String, crate::registry::ModuleE
         router_ref,
         mempalace_ref,
         terraphon_ref,
-        mcp_ref,
         ouroboros_ref,
         session_ref,
+        proactive_waker_ref,
         dynamic_registry: dyn_reg,
         topic_bus,
+    }
+}
+
+/// Spawn one trait-based frontend, register it on success, log on failure.
+async fn spawn_frontend_actor<F>(
+    supervisor_ref: &ractor::ActorRef<msg::RuntimeMsg>,
+    registry: &crate::frontend_registry::FrontendRegistry,
+    config: F::Config,
+) where
+    F: harmonia_frontend_trait::Frontend + Sync,
+    F::Config: Sync,
+{
+    match harmonia_frontend_trait::spawn_frontend::<F, msg::RuntimeMsg>(supervisor_ref, config)
+        .await
+    {
+        Ok(actor) => {
+            registry.insert(
+                F::name(),
+                crate::frontend_registry::FrontendEntry {
+                    actor,
+                    security_label: F::security_label(),
+                },
+            );
+            eprintln!(
+                "[INFO] [runtime] frontend-{} spawned (label={})",
+                F::name(),
+                F::security_label()
+            );
+        }
+        Err(e) => {
+            eprintln!(
+                "[INFO] [runtime] frontend-{} not started: {e} (likely unconfigured)",
+                F::name()
+            );
+        }
     }
 }
 

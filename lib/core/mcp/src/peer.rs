@@ -31,7 +31,7 @@ impl McpPeer {
             return Err("empty command".to_string());
         }
 
-        let mut child = Command::new(parts[0])
+        let child = Command::new(parts[0])
             .args(&parts[1..])
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())

@@ -6,19 +6,15 @@ use crate::registry::Registry;
 ///
 /// FFI-based frontend polling has been removed -- frontends are now ractor
 /// actors that push envelopes directly. This function processes any envelopes
-/// that arrive through the registry (currently none via FFI), applies sender
-/// policy, payment interception, and command dispatch.
+/// that arrive through the registry (currently none via FFI), applies
+/// payment interception, and command dispatch. Sender-policy filtering runs
+/// in the caller (GatewayActor) against [`crate::SenderPolicyActor`], so the
+/// gateway library stays sync-pure and the policy cache stays actor-owned.
 pub fn poll_baseband(registry: &Registry) -> ChannelBatch {
     // No FFI frontends to poll -- actor-based frontends push envelopes via
     // the runtime IPC system. The batch will be empty unless envelopes are
     // injected through some other path.
     let all_envelopes: Vec<ChannelEnvelope> = Vec::new();
-
-    // Apply sender policy: deny-by-default for messaging frontends
-    let all_envelopes: Vec<ChannelEnvelope> = all_envelopes
-        .into_iter()
-        .filter(|env| crate::sender_policy::is_signal_allowed(env))
-        .collect();
 
     let all_envelopes = crate::payment_auth::intercept_paid_actions(registry, all_envelopes);
 

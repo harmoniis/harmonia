@@ -137,7 +137,9 @@ pub fn dispatch(component: &str, sexp: &str) -> String {
         }
         "config" => config::dispatch(sexp),
         "chronicle" => chronicle::dispatch(sexp),
-        "gateway" => gateway::dispatch(sexp),
+        "gateway" => format!(
+            "(:error \"component 'gateway' requires actor-owned frontend registry — use GatewayActor's Dispatch handler\")",
+        ),
         "tailnet" => tailnet::dispatch(sexp),
         "harmonic-matrix" | "matrix" => {
             format!(

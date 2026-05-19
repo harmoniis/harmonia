@@ -7,11 +7,6 @@ use super::providers::llm_provider_defs;
 
 fn default_seed_models_for_provider(provider_id: &str) -> Vec<&'static str> {
     match provider_id {
-        "harmoniis" => vec![
-            "ber1-ai/qwen3.5-27b",
-            "ber1-ai/magistral-24b",
-            "ber1-ai/nanbeige-3b",
-        ],
         "openrouter" => vec![
             "qwen/qwen3.6-plus:free",
             "google/gemini-2.5-flash-lite-preview-09-2025",
@@ -49,7 +44,6 @@ fn all_provider_seed_defaults() -> Vec<(&'static str, Vec<&'static str>)> {
         ("bedrock", default_seed_models_for_provider("bedrock")),
         ("groq", default_seed_models_for_provider("groq")),
         ("alibaba", default_seed_models_for_provider("alibaba")),
-        ("harmoniis", default_seed_models_for_provider("harmoniis")),
     ]
 }
 
@@ -116,14 +110,7 @@ pub(crate) fn configure_model_seed_policy(
 
     let mut unified_seeds: Vec<String> = Vec::new();
     for (provider, defaults) in all_provider_seed_defaults() {
-        if provider == "harmoniis" && provider_ids.contains(&provider.to_string()) {
-            for m in &defaults {
-                unified_seeds.push(m.to_string());
-            }
-        }
-    }
-    for (provider, defaults) in all_provider_seed_defaults() {
-        if provider != "harmoniis" && provider_ids.contains(&provider.to_string()) {
+        if provider_ids.contains(&provider.to_string()) {
             for m in &defaults {
                 if !unified_seeds.contains(&m.to_string()) {
                     unified_seeds.push(m.to_string());

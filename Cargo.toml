@@ -45,7 +45,6 @@ members = [
     "lib/backends/llms/amazon-bedrock",
     "lib/backends/llms/groq",
     "lib/backends/llms/alibaba",
-    "lib/backends/llms/harmoniis",
     "lib/backends/storage/s3",
     "lib/backends/http",
 
@@ -67,18 +66,19 @@ members = [
 
     # Frontends — hot-pluggable communication channels
     "lib/frontends/push",
-    "lib/frontends/mqtt-client",
-    "lib/frontends/http2-mtls",
+    "lib/frontends/shared/frontend-trait",
+    "lib/frontends/shared/transport-pgp",
+    "lib/frontends/tui-server",
+    "lib/frontends/mqtt",
+    "lib/frontends/http3",
+    "lib/frontends/email",
+    "lib/frontends/sip",
     "lib/frontends/whatsapp",
     "lib/frontends/telegram",
     "lib/frontends/slack",
     "lib/frontends/discord",
     "lib/frontends/signal",
-    "lib/frontends/mattermost",
-    "lib/frontends/nostr",
-    "lib/frontends/email-client",
     "lib/frontends/tui",
-    "lib/frontends/imessage",
     "lib/frontends/tailscale",
 ]
 
@@ -91,7 +91,7 @@ authors = ["Harmoniis <dev@harmoniis.com>"]
 
 [package]
 name = "harmonia"
-version = "0.2.0"
+version = "0.2.1"
 edition.workspace = true
 license.workspace = true
 repository.workspace = true

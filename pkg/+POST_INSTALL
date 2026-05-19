@@ -1,0 +1,29 @@
+#!/bin/sh
+# Lay down state and config directories with the correct ownership. The
+# wallet directory is mode 700 because it eventually holds the BIP39 seed
+# that the embedded extro-node derives the device PGP keypair from — see
+# the "wallet seed on Ceph" invariant in the deploy-pipeline plan.
+set -eu
+
+install -d -o harmonia -g harmonia -m 750 /var/db/harmonia
+install -d -o harmonia -g harmonia -m 700 /var/db/harmonia/wallet
+install -d                        -m 755 /usr/local/etc/harmonia
+install -d -o harmonia -g harmonia -m 750 /usr/local/etc/harmonia/certs
+
+if [ ! -f /usr/local/etc/harmonia/config.toml ]; then
+    cp /usr/local/share/harmonia/config.toml.sample \
+       /usr/local/etc/harmonia/config.toml
+fi
+
+cat <<'EOF'
+
+==> harmonia installed.
+
+    Enable at boot:   sysrc harmonia_enable=YES
+    Start now:        service harmonia start
+    Sample config:    /usr/local/share/harmonia/config.toml.sample
+    Live config:      /usr/local/etc/harmonia/config.toml
+    State directory:  /var/db/harmonia          (mode 750, harmonia:harmonia)
+    Wallet directory: /var/db/harmonia/wallet   (mode 700, holds device seed)
+
+EOF

@@ -26,10 +26,9 @@ impl OuroborosState {
 
 impl OuroborosState {
     pub fn new() -> Self {
-        let state_root = harmonia_config_store::get_config_or(
-            "ouroboros-core", "global", "state-root",
-            &std::env::temp_dir().join("harmonia").to_string_lossy(),
-        ).unwrap_or_else(|_| std::env::temp_dir().join("harmonia").to_string_lossy().into());
+        let state_root = harmonia_config_store::paths::state_root()
+            .to_string_lossy()
+            .into_owned();
 
         let recovery_log_path = harmonia_config_store::get_config(
             "ouroboros-core", "global", "recovery-log",

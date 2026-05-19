@@ -2,17 +2,11 @@ use std::collections::HashMap;
 
 const COMPONENT: &str = "harmonic-matrix";
 
-fn state_root() -> String {
-    let default = std::env::temp_dir()
-        .join("harmonia")
-        .to_string_lossy()
-        .to_string();
-    harmonia_config_store::get_config_or(COMPONENT, "global", "state-root", &default)
-        .unwrap_or_else(|_| default)
-}
-
 fn default_matrix_db() -> String {
-    format!("{}/harmonic-matrix.db", state_root())
+    harmonia_config_store::paths::state_root()
+        .join("harmonic-matrix.db")
+        .to_string_lossy()
+        .into_owned()
 }
 
 #[derive(Clone, Debug)]

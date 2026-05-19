@@ -16,5 +16,7 @@ categories = ["api-bindings"]
 harmonia-actor-protocol = { version = "0.1.9", path = "../../core/actor-protocol" }
 harmonia-config-store = { version = "0.1.9", path = "../../core/config-store" }
 harmonia-vault = { version = "0.1.9", path = "../../core/vault" }
+harmonia-frontend-trait = { version = "0.1.0", path = "../shared/frontend-trait" }
+async-trait = "0.1"
 serde_json = "1"
 ureq = { version = "2", features = ["json"] }

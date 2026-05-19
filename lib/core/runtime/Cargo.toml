@@ -35,17 +35,18 @@ harmonia-parallel-agents = { version = "0.1.9", path = "../parallel-agents" }
 
 # Frontends
 harmonia-tui = { version = "0.1.9", path = "../../frontends/tui" }
-harmonia-mqtt-client = { version = "0.1.9", path = "../../frontends/mqtt-client" }
-harmonia-http2-mtls = { version = "0.1.9", path = "../../frontends/http2-mtls" }
+harmonia-mqtt = { version = "0.1.0", path = "../../frontends/mqtt" }
+harmonia-http3 = { version = "0.1.0", path = "../../frontends/http3" }
 harmonia-telegram = { version = "0.1.9", path = "../../frontends/telegram" }
 harmonia-slack = { version = "0.1.9", path = "../../frontends/slack" }
+harmonia-frontend-trait = { version = "0.1.0", path = "../../frontends/shared/frontend-trait" }
+harmonia-transport-pgp = { version = "0.1.0", path = "../../frontends/shared/transport-pgp" }
+harmonia-tui-server = { version = "0.1.0", path = "../../frontends/tui-server" }
 harmonia-signal = { version = "0.1.1", path = "../../frontends/signal" }
 harmonia-discord = { version = "0.1.1", path = "../../frontends/discord" }
-harmonia-mattermost = { version = "0.1.9", path = "../../frontends/mattermost" }
-harmonia-nostr = { version = "0.1.9", path = "../../frontends/nostr" }
-harmonia-email-client = { version = "0.1.9", path = "../../frontends/email-client" }
+harmonia-email = { version = "0.1.0", path = "../../frontends/email" }
+harmonia-sip = { version = "0.1.0", path = "../../frontends/sip" }
 harmonia-whatsapp = { version = "0.1.9", path = "../../frontends/whatsapp" }
-harmonia-imessage = { version = "0.1.9", path = "../../frontends/imessage" }
 harmonia-tailscale-frontend = { version = "0.1.9", path = "../../frontends/tailscale" }
 harmonia-push = { version = "0.1.9", path = "../../frontends/push" }
 
@@ -65,6 +66,7 @@ harmonia-zoom = { version = "0.1.1", path = "../../tools/zoom" }
 # Actor framework
 ractor = "0.15"
 tokio = { version = "1.44", features = ["rt-multi-thread", "macros", "process", "signal", "time", "sync", "io-util"] }
+serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 
 # Cross-platform IPC (Unix domain sockets / Windows named pipes)

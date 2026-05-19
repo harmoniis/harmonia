@@ -1,6 +1,6 @@
-mod messaging;
-mod pairing;
+pub mod frontend;
+pub mod pairing;
 mod rpc;
-mod state;
 
-pub mod client;
+pub use frontend::SignalFrontend;
+pub use pairing::{pair_init, pair_status};

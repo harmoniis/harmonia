@@ -9,6 +9,12 @@
 //! - call_tool(): send tools/call JSON-RPC, await response
 //! - list_tools(): query peer's tool catalog
 //! - serve(): handle incoming JSON-RPC requests (Harmonia as MCP server)
+//!
+//! `peer` and `protocol` carry wire-format struct fields populated by
+//! serde deserialization of remote MCP messages; the Rust compiler can't see
+//! that usage, so we suppress the resulting "field never read" noise at the
+//! crate boundary rather than per-field.
+#![allow(dead_code)]
 
 mod peer;
 mod protocol;

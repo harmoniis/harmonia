@@ -59,12 +59,6 @@ pub static PROVIDERS: &[ProviderEntry] = &[
         vault_component: "alibaba-backend",
         vault_symbols: &["alibaba-api-key", "dashscope-api-key", "alibaba"],
     },
-    ProviderEntry {
-        id: "harmoniis",
-        prefixes: &["ber1-ai/"],
-        vault_component: "harmoniis-backend",
-        vault_symbols: &["harmoniis-api-key", "harmoniis-router-api-key", "harmoniis"],
-    },
 ];
 
 // ── Vault key detection (cached) ─────────────────────────────────────

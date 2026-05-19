@@ -6,7 +6,6 @@ use harmonia_anthropic::backend as anthropic;
 use harmonia_google_ai_studio::backend as google_ai_studio;
 use harmonia_google_vertex::backend as google_vertex;
 use harmonia_groq::backend as groq;
-use harmonia_harmoniis::backend as harmoniis;
 use harmonia_openai::backend as openai;
 use harmonia_openrouter::client as openrouter;
 use harmonia_xai::backend as xai;
@@ -24,7 +23,6 @@ fn dispatch_native(provider_id: &str, prompt: &str, model: &str) -> Result<Strin
         "bedrock" => bedrock::complete(prompt, model),
         "groq" => groq::complete(prompt, model),
         "alibaba" => alibaba::complete(prompt, model),
-        "harmoniis" => harmoniis::complete(prompt, model),
         _ => Err(format!("unknown native provider: {provider_id}")),
     }
 }
@@ -43,7 +41,6 @@ fn dispatch_native_for_task(
         "bedrock" => bedrock::complete_for_task(prompt, task_hint),
         "groq" => groq::complete_for_task(prompt, task_hint),
         "alibaba" => alibaba::complete_for_task(prompt, task_hint),
-        "harmoniis" => harmoniis::complete_for_task(prompt, task_hint),
         _ => Err(format!("unknown native provider: {provider_id}")),
     }
 }

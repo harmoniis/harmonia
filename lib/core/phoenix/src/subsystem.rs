@@ -24,26 +24,35 @@ impl SubsystemActorState {
             state: new_state,
         });
     }
+
+    fn report_restart_count(&self) {
+        let _ = self.supervisor.cast(SupervisorMsg::SubsystemRestartCount {
+            name: self.config.name.clone(),
+            count: self.restart_count,
+        });
+    }
 }
 
 impl Actor for SubsystemActor {
     type Msg = SubsystemMsg;
     type State = SubsystemActorState;
-    type Arguments = (SubsystemConfig, ActorRef<SupervisorMsg>);
+    /// Includes a starting `restart_count` so the supervisor can respawn the
+    /// actor without resetting the process-restart budget.
+    type Arguments = (SubsystemConfig, ActorRef<SupervisorMsg>, u32);
 
     async fn pre_start(
         &self,
         myself: ActorRef<Self::Msg>,
         args: Self::Arguments,
     ) -> Result<Self::State, ActorProcessingErr> {
-        let (config, supervisor) = args;
+        let (config, supervisor, initial_restart_count) = args;
         let delay = config.startup_delay_ms;
         let mut state = SubsystemActorState {
             config,
             supervisor,
             pid: None,
             state: SubsystemState::Stopped,
-            restart_count: 0,
+            restart_count: initial_restart_count,
             stopping: false,
         };
 
@@ -140,6 +149,7 @@ impl Actor for SubsystemActor {
 
                 // Check restart budget
                 state.restart_count += 1;
+                state.report_restart_count();
                 if state.restart_count > state.config.max_restarts {
                     let reason = format!("max restarts ({}) exceeded", state.config.max_restarts);
                     eprintln!("[ERROR] [phoenix] Subsystem {name}: {reason}");
@@ -248,6 +258,7 @@ fn spawn_process(state: &mut SubsystemActorState, myself: &ActorRef<SubsystemMsg
 
             // Treat spawn failure like a process exit with failure
             state.restart_count += 1;
+            state.report_restart_count();
             if state.restart_count > state.config.max_restarts {
                 let reason = format!("spawn failed after {} attempts: {e}", state.restart_count);
                 state.set_state(SubsystemState::Failed {

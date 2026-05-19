@@ -1,1 +1,3 @@
-pub mod client;
+pub mod frontend;
+
+pub use frontend::DiscordFrontend;

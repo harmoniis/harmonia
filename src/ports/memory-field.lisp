@@ -29,11 +29,15 @@
 ;;; --- Graph and recall ---
 
 (defun memory-field-load-graph ()
-  "Serialize the current concept graph and send to the Rust field engine."
+  "Serialize the current concept graph and send to the Rust field engine.
+   Serialization walks the concept hash-tables under the memory lock to
+   avoid torn reads under concurrent mutations. IPC happens outside the lock."
   (when (not (memory-field-port-ready-p))
     (return-from memory-field-load-graph nil))
-  (let* ((nodes-sexp (%serialize-field-nodes))
-         (edges-sexp (%serialize-field-edges)))
+  (multiple-value-bind (nodes-sexp edges-sexp)
+      (with-memory-lock ()
+        (values (%serialize-field-nodes)
+                (%serialize-field-edges)))
     (ipc-call (%sexp-to-ipc-string
                `(:component "memory-field" :op "load-graph"
                  :nodes ,nodes-sexp :edges ,edges-sexp)))))
@@ -179,19 +183,53 @@ Returns a plist (:activations (...) :basin (...) :thomas (...)) or nil."
 
 ;;; --- Serialization helpers ---
 
+(defparameter *field-priority-tau-seconds* (* 14 86400.0d0)
+  "Recency decay time constant for field-node priority ordering (14 days).
+   Rust truncates the node list to MAX_NODES; this priority sort decides
+   which concepts survive the cut. Lower-priority concepts are dropped first.")
+
+(defun %node-priority (node now)
+  "priority = count × exp(-(now - max_last_access) / TAU) + Σ access-count.
+   Falls back to entry.time when last-access is nil/0."
+  (let* ((count (or (getf node :count) 0))
+         (entries (getf node :entries))
+         (max-touch 0)
+         (access-sum 0))
+    (dolist (eid entries)
+      (let ((e (and (stringp eid) (gethash eid *memory-store*))))
+        (when e
+          (incf access-sum (or (memory-entry-access-count e) 0))
+          (let ((la (or (memory-entry-last-access e)
+                        (memory-entry-time e)
+                        0)))
+            (when (> la max-touch) (setf max-touch la))))))
+    (let* ((age (max 0 (- now max-touch)))
+           (decay (if (zerop max-touch)
+                      1.0d0
+                      (exp (- (/ (float age 1.0d0)
+                                 *field-priority-tau-seconds*))))))
+      (+ (* count decay) access-sum))))
+
 (defun %serialize-field-nodes ()
-  "Serialize *memory-concept-nodes* as sexp for the field engine."
-  (let ((items '()))
+  "Serialize *memory-concept-nodes* as sexp for the field engine.
+   Nodes are sorted by priority so Rust's MAX_NODES truncation drops the
+   lowest-priority concepts, not arbitrary hash-iteration-order ones.
+   Must be called under with-memory-lock — walks *memory-store* too."
+  (let ((pairs '())
+        (now (get-universal-time)))
     (maphash (lambda (_ node)
                (declare (ignore _))
-               (push (%sexp-to-ipc-string
-                      `(:concept ,(getf node :concept)
-                        :domain ,(princ-to-string (getf node :domain))
-                        :count ,(getf node :count)
-                        :entries ,(getf node :entries)))
-                     items))
+               (push (cons (%node-priority node now) node) pairs))
              *memory-concept-nodes*)
-    (format nil "(~{~A~^ ~})" items)))
+    (let* ((sorted (mapcar #'cdr (sort pairs #'> :key #'car)))
+           (items (mapcar (lambda (node)
+                            (%sexp-to-ipc-string
+                             `(:concept ,(getf node :concept)
+                               :domain ,(princ-to-string (getf node :domain))
+                               :count ,(getf node :count)
+                               :entries ,(getf node :entries))))
+                          sorted)))
+      (format nil "(~{~A~^ ~})" items))))
 
 (defun %serialize-field-edges ()
   "Serialize *memory-concept-edges* as sexp for the field engine.

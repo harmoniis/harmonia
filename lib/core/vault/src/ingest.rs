@@ -45,7 +45,6 @@ pub fn ingest_env(secrets: &mut HashMap<String, String>) {
     // These follow the standard `PROVIDER_API_KEY` naming convention.
     let well_known = [
         ("OPENROUTER_API_KEY", "openrouter-api-key"),
-        ("HARMONIIS_ROUTER_API_KEY", "harmoniis-api-key"),
         ("GROQ_API_KEY", "groq-api-key"),
         ("ANTHROPIC_API_KEY", "anthropic-api-key"),
         ("OPENAI_API_KEY", "openai-api-key"),

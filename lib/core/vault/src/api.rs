@@ -52,7 +52,6 @@ fn default_component_patterns(component: &str) -> &'static [&'static str] {
         ],
         "groq-backend" => &["groq", "groq-api-key"],
         "alibaba-backend" => &["alibaba", "alibaba-api-key", "dashscope-api-key"],
-        "harmoniis-backend" => &["harmoniis", "harmoniis-api-key", "harmoniis-router-api-key"],
         "search-exa-tool" => &["exa-api-key"],
         "search-brave-tool" => &["brave-api-key"],
         "whisper-backend" => &["groq-api-key", "groq", "openai-api-key", "openai"],
@@ -61,8 +60,6 @@ fn default_component_patterns(component: &str) -> &'static [&'static str] {
             "email-imap-password", "email-password",
             "email-smtp-password", "email-api-key",
         ],
-        "mattermost-frontend" => &["mattermost-bot-token", "mattermost-token"],
-        "nostr-frontend" => &["nostr-private-key", "nostr-nsec"],
         "telegram-frontend" => &["telegram-bot-token", "telegram-bot-api-token"],
         "slack-frontend" => &[
             "slack-bot-token", "slack-app-token",
@@ -75,10 +72,6 @@ fn default_component_patterns(component: &str) -> &'static [&'static str] {
         ],
         "whatsapp-frontend" => &[
             "whatsapp-session", "whatsapp-api-key", "whatsapp-bridge-url",
-        ],
-        "imessage-frontend" => &[
-            "bluebubbles-password", "imessage-password",
-            "bluebubbles-server-url", "imessage-server-url",
         ],
         "tailscale-frontend" => &["tailscale-auth-key"],
         "mqtt-frontend" => &[

@@ -29,6 +29,7 @@ pub fn run(env: &str, foreground: bool) -> Result<(), Box<dyn std::error::Error>
 
     // Check if already running
     let pid_path = crate::paths::pid_path()?;
+    let mut supervisor_was_dead = false;
     if pid_path.exists() {
         if let Ok(pid_str) = std::fs::read_to_string(&pid_path) {
             if let Ok(pid) = pid_str.trim().parse::<i32>() {
@@ -40,11 +41,26 @@ pub fn run(env: &str, foreground: bool) -> Result<(), Box<dyn std::error::Error>
                         eprintln!("  {}  to open the current session", style("harmonia").cyan().bold());
                         eprintln!("  {}  to restart", style("harmonia stop && harmonia start").cyan().bold());
                         return Ok(());
+                    } else {
+                        supervisor_was_dead = true;
                     }
                 }
             }
         }
         let _ = std::fs::remove_file(&pid_path);
+    }
+    // Phoenix-managed children (harmonia-runtime / sbcl-agent / provision-server)
+    // can outlive the supervisor. If the supervisor was dead, sweep them so
+    // the new incarnation starts cleanly.
+    if supervisor_was_dead {
+        let boot_hint = crate::paths::data_dir()
+            .ok()
+            .map(|d| d.join("src").join("core").join("boot.lisp"))
+            .unwrap_or_default();
+        daemon::reap_orphan_children(&boot_hint);
+        // Stale child PID files lose their meaning the moment the supervisor dies.
+        let _ = std::fs::remove_file(crate::paths::broker_pid_path()?);
+        let _ = std::fs::remove_file(crate::paths::node_service_pid_path()?);
     }
 
     // Bootstrap env

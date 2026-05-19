@@ -60,11 +60,8 @@ fn resolve_enabled_components() -> HashSet<String> {
         "slack",
         "discord",
         "signal",
-        "mattermost",
-        "nostr",
         "email",
         "whatsapp",
-        "imessage",
         "tailscale",
     ] {
         enabled.insert(name.to_string());

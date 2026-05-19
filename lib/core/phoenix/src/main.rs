@@ -19,6 +19,26 @@ fn config_bool(key: &str, default: bool) -> bool {
 
 #[tokio::main]
 async fn main() {
+    // 0. CLI args — recognise --version / --help so probe calls (e.g.
+    //    `harmonia-phoenix --version` from `which`-style detection)
+    //    don't accidentally start a full supervisor.
+    let args: Vec<String> = std::env::args().collect();
+    if args.iter().any(|a| a == "--version" || a == "-V") {
+        println!("harmonia-phoenix {}", env!("CARGO_PKG_VERSION"));
+        std::process::exit(0);
+    }
+    if args.iter().any(|a| a == "--help" || a == "-h") {
+        println!("harmonia-phoenix {}", env!("CARGO_PKG_VERSION"));
+        println!("Subsystem supervisor. Reads phoenix.toml from PHOENIX_CONFIG_PATH.");
+        println!();
+        println!("USAGE: harmonia-phoenix");
+        println!();
+        println!("ENVIRONMENT:");
+        println!("  PHOENIX_CONFIG_PATH   path to phoenix.toml (required)");
+        println!("  HARMONIA_STATE_ROOT   state directory (pid/log files)");
+        std::process::exit(0);
+    }
+
     // 1. Init chronicle
     let _ = harmonia_chronicle::init();
 
@@ -119,6 +139,13 @@ async fn main() {
     // 7. Await supervisor exit
     supervisor_handle.await.unwrap();
     let _ = std::fs::remove_file(&pidfile_path);
+
+    if supervisor::FATAL_CORE_FAILURE.load(std::sync::atomic::Ordering::SeqCst) {
+        eprintln!(
+            "[ERROR] [phoenix] Exiting non-zero — core subsystem permanently failed (max_restarts exceeded)"
+        );
+        std::process::exit(2);
+    }
     eprintln!("[INFO] [phoenix] Supervisor exited, shutting down");
 }
 

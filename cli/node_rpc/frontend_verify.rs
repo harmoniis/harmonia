@@ -4,19 +4,6 @@ use super::helpers::{config_get, config_has, config_set, vault_get, vault_has};
 
 // --- HTTP verification helpers ---
 
-fn http_ok(url: &str, bearer: Option<&str>) -> Result<bool, String> {
-    let req = ureq::get(url);
-    let req = match bearer {
-        Some(token) => req.set("Authorization", &format!("Bearer {token}")),
-        None => req,
-    };
-    match req.call() {
-        Ok(_) => Ok(true),
-        Err(ureq::Error::Status(code, _)) => Ok(code < 500),
-        Err(e) => Err(format!("{e}")),
-    }
-}
-
 fn http_ok_bot(url: &str, token: &str) -> Result<bool, String> {
     let req = ureq::get(url)
         .set("Authorization", &format!("Bot {token}"))
@@ -67,26 +54,6 @@ pub(crate) fn verify_discord_token() -> Result<bool, String> {
     http_ok_bot("https://discord.com/api/v10/users/@me", &token)
 }
 
-pub(crate) fn verify_mattermost_token() -> Result<bool, String> {
-    let url = config_get("mattermost-frontend", "api-url").ok_or("no url")?;
-    let token = vault_get(
-        "mattermost-frontend",
-        &["mattermost-bot-token", "mattermost-token"],
-    )
-    .ok_or("no token")?;
-    http_ok(&format!("{url}/api/v4/users/me"), Some(&token))
-}
-
-#[cfg(target_os = "macos")]
-pub(crate) fn verify_imessage_bridge() -> Result<bool, String> {
-    let url = config_get("imessage-frontend", "server-url").ok_or("no url")?;
-    let password = vault_get(
-        "imessage-frontend",
-        &["bluebubbles-password", "imessage-password"],
-    );
-    http_ok(&format!("{url}/api/v1/server/info"), password.as_deref())
-}
-
 // --- Append token-based frontends to the pairable list ---
 
 pub(crate) fn append_token_frontends(frontends: &mut Vec<harmonia_node_rpc::PairableFrontend>) {
@@ -126,19 +93,6 @@ pub(crate) fn append_token_frontends(frontends: &mut Vec<harmonia_node_rpc::Pair
         } else { ("not configured".into(), false) };
         frontends.push(harmonia_node_rpc::PairableFrontend { name: "discord".into(), display: "Discord".into(), status, pairable });
     }
-    // Mattermost
-    {
-        let has_url = config_has("mattermost-frontend", "api-url");
-        let has_token = vault_has("mattermost-frontend", &["mattermost-bot-token", "mattermost-token"]);
-        let (status, pairable) = if has_url && has_token {
-            match verify_mattermost_token() {
-                Ok(true) => ("connected".into(), false),
-                Ok(false) => ("auth failed".into(), true),
-                Err(_) => ("server unreachable".into(), true),
-            }
-        } else { ("not configured".into(), false) };
-        frontends.push(harmonia_node_rpc::PairableFrontend { name: "mattermost".into(), display: "Mattermost".into(), status, pairable });
-    }
     // Email
     {
         let has_host = config_has("email-frontend", "imap-host");
@@ -146,33 +100,15 @@ pub(crate) fn append_token_frontends(frontends: &mut Vec<harmonia_node_rpc::Pair
         let (status, pairable) = if has_host && has_password { ("configured".into(), false) } else { ("not configured".into(), false) };
         frontends.push(harmonia_node_rpc::PairableFrontend { name: "email".into(), display: "Email".into(), status, pairable });
     }
-    // iMessage (macOS)
-    #[cfg(target_os = "macos")]
-    {
-        let has_url = config_has("imessage-frontend", "server-url");
-        let (status, pairable) = if has_url {
-            match verify_imessage_bridge() {
-                Ok(true) => ("connected".into(), false),
-                Ok(false) | Err(_) => ("bridge unreachable".into(), true),
-            }
-        } else { ("not configured".into(), false) };
-        frontends.push(harmonia_node_rpc::PairableFrontend { name: "imessage".into(), display: "iMessage".into(), status, pairable });
-    }
-    // Nostr
-    {
-        let has_key = vault_has("nostr-frontend", &["nostr-private-key", "nostr-nsec"]);
-        let (status, pairable) = if has_key { ("key configured".into(), false) } else { ("not configured".into(), false) };
-        frontends.push(harmonia_node_rpc::PairableFrontend { name: "nostr".into(), display: "Nostr".into(), status, pairable });
-    }
     // Tailscale
     {
         let configured = vault_has("tailscale-frontend", &["tailscale-auth-key"]);
         frontends.push(harmonia_node_rpc::PairableFrontend { name: "tailscale".into(), display: "Tailscale".into(), status: if configured { "configured".into() } else { "not configured".into() }, pairable: false });
     }
-    // HTTP/2 mTLS
+    // HTTP/3 mTLS
     {
-        let configured = config_has("http2-frontend", "bind") && config_has("http2-frontend", "ca-cert") && config_has("http2-frontend", "server-cert") && config_has("http2-frontend", "server-key") && config_has("http2-frontend", "trusted-client-fingerprints-json");
-        frontends.push(harmonia_node_rpc::PairableFrontend { name: "http2".into(), display: "HTTP/2 mTLS".into(), status: if configured { "configured".into() } else { "not configured".into() }, pairable: false });
+        let configured = config_has("http3-frontend", "bind") && config_has("http3-frontend", "ca-cert") && config_has("http3-frontend", "server-cert") && config_has("http3-frontend", "server-key") && config_has("http3-frontend", "trusted-client-fingerprints-json");
+        frontends.push(harmonia_node_rpc::PairableFrontend { name: "http3".into(), display: "HTTP/3 mTLS".into(), status: if configured { "configured".into() } else { "not configured".into() }, pairable: false });
     }
 }
 
@@ -195,17 +131,6 @@ pub(crate) fn pair_init_token_based(frontend: &str) -> Result<(Option<String>, S
             Ok(false) => Err("Discord bot token is invalid. Update it via `harmonia setup`.".into()),
             Err(e) => Err(format!("Cannot reach Discord API: {e}")),
         },
-        "mattermost" => match verify_mattermost_token() {
-            Ok(true) => Ok((None, "Mattermost bot token verified. Bot is connected.".into())),
-            Ok(false) => Err("Mattermost auth failed. Check api-url and bot token via `harmonia setup`.".into()),
-            Err(e) => Err(format!("Cannot reach Mattermost server: {e}")),
-        },
-        #[cfg(target_os = "macos")]
-        "imessage" => match verify_imessage_bridge() {
-            Ok(true) => Ok((None, "BlueBubbles bridge is reachable. iMessage is connected.".into())),
-            Ok(false) => Err("BlueBubbles bridge is not responding. Check server-url via `harmonia setup`.".into()),
-            Err(e) => Err(format!("Cannot reach BlueBubbles: {e}")),
-        },
         _ => Err(format!("frontend '{frontend}' does not support linking")),
     }
 }
@@ -215,19 +140,12 @@ pub(crate) fn pair_status_token_based(frontend: &str) -> Result<(bool, String), 
         "telegram" => verify_telegram_token().map(|ok| (ok, if ok { "connected" } else { "token invalid" }.into())),
         "slack" => verify_slack_token().map(|ok| (ok, if ok { "connected" } else { "token invalid" }.into())),
         "discord" => verify_discord_token().map(|ok| (ok, if ok { "connected" } else { "token invalid" }.into())),
-        "mattermost" => verify_mattermost_token().map(|ok| (ok, if ok { "connected" } else { "auth failed" }.into())),
-        #[cfg(target_os = "macos")]
-        "imessage" => verify_imessage_bridge().map(|ok| (ok, if ok { "connected" } else { "bridge unreachable" }.into())),
         "email" => {
             let configured = config_has("email-frontend", "imap-host") && vault_has("email-frontend", &["email-imap-password","email-password"]);
             Ok((configured, if configured { "configured" } else { "not configured" }.into()))
         }
-        "nostr" => {
-            let configured = vault_has("nostr-frontend", &["nostr-private-key", "nostr-nsec"]);
-            Ok((configured, if configured { "key configured" } else { "not configured" }.into()))
-        }
-        "http2" => {
-            let configured = config_has("http2-frontend", "bind") && config_has("http2-frontend", "ca-cert") && config_has("http2-frontend", "server-cert") && config_has("http2-frontend", "server-key") && config_has("http2-frontend", "trusted-client-fingerprints-json");
+        "http3" => {
+            let configured = config_has("http3-frontend", "bind") && config_has("http3-frontend", "ca-cert") && config_has("http3-frontend", "server-cert") && config_has("http3-frontend", "server-key") && config_has("http3-frontend", "trusted-client-fingerprints-json");
             Ok((configured, if configured { "configured" } else { "not configured" }.into()))
         }
         _ => Err(format!("unknown frontend '{frontend}'")),

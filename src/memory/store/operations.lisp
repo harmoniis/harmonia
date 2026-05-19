@@ -64,11 +64,15 @@
 
 (defun %field-indexable-p (class)
   "Policy-driven: check routing config for field-indexable classes.
-   Falls back to hardcoded defaults if config not loaded."
+   Honors the :all sentinel (every class is indexed).
+   Falls back to indexing every class if config not loaded — the field
+   topology decides relevance, not class labels."
   (let ((policy (%routing-policy :field-indexable)))
-    (if policy
-        (member class policy :test #'eq)
-        (member class '(:soul :skill :genesis) :test #'eq))))
+    (cond
+      ((null policy) t)
+      ((eq policy :all) t)
+      ((listp policy) (member class policy :test #'eq))
+      (t t))))
 
 (defun %palace-worthy-p (class depth)
   "Policy-driven: check routing config for palace-worthy classes.
@@ -119,10 +123,11 @@
                        :tags (mapcar (lambda (tg) (string-downcase (symbol-name tg)))
                                      (remove-if-not #'keywordp all-tags)))))
         (error () nil)))
-    ;; Reload field graph periodically (only if field-indexable content changed).
+    ;; Reload field graph on every field-indexable put. Serialization now
+    ;; happens under the memory lock (see memory-field-load-graph), so
+    ;; eager reloads are safe and keep the field in sync with chronicle.
     (when (and (%field-indexable-p class)
-               (fboundp 'memory-field-port-ready-p) (funcall 'memory-field-port-ready-p)
-               (zerop (mod *memory-seq* 5)))
+               (fboundp 'memory-field-port-ready-p) (funcall 'memory-field-port-ready-p))
       (handler-case (funcall 'memory-field-load-graph) (error () nil)))
     (%pipeline-trace :memory-put :class class :depth depth
       :store-targets (format nil "chronicle~A~A"
@@ -212,10 +217,42 @@
       (error () nil))
     daily-id))
 
+(defparameter *memory-recall-tau-seconds* (* 14 86400.0)
+  "Recency decay time constant for content-substring recall fallback (14 days).")
+
+(defun %memory-substring-recall (query limit)
+  "Scan *memory-store* for entries whose words intersect QUERY.
+   Score by word_overlap × exp(-age/TAU). Returns up to LIMIT entries
+   in descending score order. Thread-safe: walk happens under the memory lock."
+  (let ((q-words (%split-words (or query "")))
+        (matches '())
+        (now (get-universal-time)))
+    (when q-words
+      (with-memory-lock ()
+        (maphash (lambda (_ entry)
+                   (declare (ignore _))
+                   (let* ((words (%split-words (%entry-text entry)))
+                          (common (when words
+                                    (length (intersection q-words words :test #'string=)))))
+                     (when (and common (>= common 1))
+                       (let* ((age (- now (or (memory-entry-time entry) now)))
+                              (decay (exp (- (/ (float age 1.0d0)
+                                                *memory-recall-tau-seconds*))))
+                              (score (* common decay)))
+                         (push (cons score entry) matches)))))
+                 *memory-store*)))
+    (when matches
+      (mapcar #'cdr
+              (subseq (sort matches #'> :key #'car)
+                      0 (min limit (length matches)))))))
+
 (defun memory-recall (query &key (limit 10))
-  "ONE recall function. Field first, recent entries as fallback. No class filter.
-The field topology decides relevance. If field unavailable, return recent entries.
-Thread-safe: field IPC outside lock, hash-table reads/writes under lock."
+  "ONE recall function with four-tier fallback:
+     1. Field topology recall (Rust engine via IPC).
+     2. Content-substring scan of *memory-store* with recency-decayed score.
+     3. High-depth entries (crystallized identity).
+     4. Most-recent entries (unscored).
+   Thread-safe: field IPC outside lock, hash-table walks under lock."
   (let ((source "none") (result-count 0))
     (or (handler-case
             (when (and (fboundp 'memory-field-port-ready-p)
@@ -248,12 +285,21 @@ Thread-safe: field IPC outside lock, hash-table reads/writes under lock."
                       :source source :result-count result-count)
                     results))))
           (error () nil))
-        ;; Fallback: high-depth entries first, then any recent.
+        ;; Fallback 1: content-substring scan with recency decay.
+        ;; Re-promotes cold chronicle entries that match the query.
+        (let ((matches (%memory-substring-recall query limit)))
+          (when matches
+            (setf source "substring-fallback" result-count (length matches))
+            (%pipeline-trace :memory-recall
+              :query (%clip-prompt query 60) :source source :result-count result-count))
+          matches)
+        ;; Fallback 2: high-depth entries.
         (let ((deep (%memory-by-depth limit 1)))
           (when deep (setf source "depth-fallback" result-count (length deep))
                 (%pipeline-trace :memory-recall
                   :query (%clip-prompt query 60) :source source :result-count result-count))
           deep)
+        ;; Fallback 3: most recent entries.
         (let ((recent (memory-recent :limit limit)))
           (when recent (setf source "recent-fallback" result-count (length recent))
                 (%pipeline-trace :memory-recall

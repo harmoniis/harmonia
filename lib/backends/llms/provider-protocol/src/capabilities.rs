@@ -218,16 +218,6 @@ fn hardcoded_fallback(model: &str) -> ModelCapabilities {
             }),
             ..ModelCapabilities::default()
         }
-    } else if lower.contains("ber1-ai/qwen3.5-27b") || lower.contains("ber1-ai/magistral") {
-        // Harmoniis reasoning models
-        ModelCapabilities {
-            reasoning: Some(ReasoningConfig {
-                enabled: true,
-                effort: "high".to_string(),
-                exclude: true,
-            }),
-            ..ModelCapabilities::default()
-        }
     } else {
         ModelCapabilities::default()
     }

@@ -40,6 +40,12 @@ pub enum RuntimeMsg {
     SetDynamicRegistry(crate::dynamic_registry::SharedDynamicRegistry),
     /// Inject the TopicBus so supervisor can unsubscribe crashed actors.
     SetTopicBus(crate::topic_bus::SharedTopicBus),
+    /// Inject the FrontendRegistry so supervisor can re-pass it on GatewayActor respawn.
+    SetFrontendRegistry(crate::frontend_registry::FrontendRegistry),
+    /// Inject the shared PGP authenticator so supervisor can re-pass it on GatewayActor respawn.
+    SetTransportPgp(harmonia_transport_pgp::TransportPgp),
+    /// Inject the sender-policy actor so supervisor can re-pass it on GatewayActor respawn.
+    SetSenderPolicy(ActorRef<harmonia_gateway::SenderPolicyMsg>),
     /// List all modules and their status. call_t!(sup, ListModules, timeout) → String
     ListModules(RpcReplyPort<String>),
     /// Load a module by name. call_t!(sup, LoadModule, name, timeout) → String

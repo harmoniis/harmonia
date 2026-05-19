@@ -246,10 +246,16 @@
       (member (%current-platform) platforms)))
 
 (defun register-configured-frontends ()
-  "Read baseband.sexp and register each frontend, honoring auto-load policy and platform constraints."
+  "Frontend registration is Rust-driven now. Frontends ship as ractor
+   actors spawned by harmonia-runtime during init and registered with
+   the FrontendRegistry — there is no IPC `register` op for Lisp to call.
+   This function reads baseband.sexp and logs the expected frontend
+   list so missing components are visible at boot. Active registration
+   is observable via the live runtime registry, not by re-registering."
   (let ((config-path (%gateway-config-path)))
     (when (probe-file config-path)
-      (let ((config (with-open-file (s config-path) (read s))))
+      (let* ((config (with-open-file (s config-path) (read s)))
+             (expected '()))
         (dolist (fe (getf config :frontends))
           (let ((name (getf fe :name))
                 (auto-load (getf fe :auto-load))
@@ -259,11 +265,8 @@
             (when (and (%platform-allowed-p platforms)
                        (%should-auto-load-p auto-load vault-keys)
                        (%config-keys-ready-p config-keys))
-              (handler-case
-                  (gateway-register
-                    name
-                    (%normalize-frontend-so-path (getf fe :so-path))
-                    (format nil "~S" fe)
-                    (string-downcase (symbol-name (getf fe :security-label))))
-                (error (e)
-                  (%log :warn "gateway" (format nil "Failed to register frontend ~A: ~A" name e)))))))))))
+              (push name expected))))
+        (when expected
+          (%log :info "gateway"
+                (format nil "Configured frontends (~D): ~{~A~^, ~}"
+                        (length expected) (nreverse expected))))))))

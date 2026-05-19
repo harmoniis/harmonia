@@ -31,7 +31,7 @@
          :min-samples 3
          :score-weights (:harmony 0.3 :latency 0.2 :cost 0.2 :success-rate 0.3))
  :defaults (:required (:tui :openrouter-api-key)
-            :optional (:s3 :telegram :slack :whatsapp :imessage :mqtt :tailscale :exa :brave))
+            :optional (:s3 :telegram :slack :whatsapp :mqtt :tailscale :exa :brave))
  :security (:dissonance-weight 0.15
             :anomaly-threshold-stddev 2.0
             :digest-interval-hours 24

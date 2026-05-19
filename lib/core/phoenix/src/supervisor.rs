@@ -15,6 +15,9 @@ struct ChildEntry {
     config: SubsystemConfig,
     state: SubsystemState,
     core: bool,
+    /// Restart counter persisted across SubsystemActor incarnations so a
+    /// crashing-and-respawning child can never exceed `max_restarts`.
+    restart_count: u32,
 }
 
 pub struct SupervisorState {
@@ -23,6 +26,13 @@ pub struct SupervisorState {
     shutting_down: bool,
     shutdown_timeout_secs: u64,
 }
+
+/// Set when the supervisor initiates shutdown because a core subsystem
+/// permanently failed. `main` reads this after the supervisor exits so the
+/// process can exit with a non-zero code, prompting service managers
+/// (launchd / systemd / rc.d) to back off rather than spin in a tight loop.
+pub static FATAL_CORE_FAILURE: std::sync::atomic::AtomicBool =
+    std::sync::atomic::AtomicBool::new(false);
 
 impl Actor for PhoenixSupervisor {
     type Msg = SupervisorMsg;
@@ -37,7 +47,7 @@ impl Actor for PhoenixSupervisor {
         let mut children = HashMap::new();
 
         for sub_cfg in &config.subsystems {
-            match spawn_child(&myself, sub_cfg).await {
+            match spawn_child(&myself, sub_cfg, 0).await {
                 Ok(actor_ref) => {
                     children.insert(
                         sub_cfg.name.clone(),
@@ -46,6 +56,7 @@ impl Actor for PhoenixSupervisor {
                             config: sub_cfg.clone(),
                             state: SubsystemState::Starting,
                             core: sub_cfg.core,
+                            restart_count: 0,
                         },
                     );
                 }
@@ -93,11 +104,37 @@ impl Actor for PhoenixSupervisor {
             } => {
                 if state.children.contains_key(&name) {
                     let old_mode = derive_mode(&state.children);
-                    state.children.get_mut(&name).unwrap().state = new_state;
+                    let entry = state.children.get_mut(&name).unwrap();
+                    let became_failed = matches!(new_state, SubsystemState::Failed { .. });
+                    let was_core = entry.core;
+                    entry.state = new_state;
                     let new_mode = derive_mode(&state.children);
                     if old_mode != new_mode {
                         eprintln!("[INFO] [phoenix] Mode changed: {old_mode:?} → {new_mode:?}");
                     }
+
+                    // A core subsystem reaching `Failed` (max_restarts exceeded
+                    // or unrecoverable spawn failure) is a fatal condition: the
+                    // supervisor exits non-zero so launchd / systemd / rc.d can
+                    // back off instead of us spinning silently in a degraded
+                    // mode. This is the single most important difference vs.
+                    // the previous behaviour, where the supervisor stayed up
+                    // forever next to a permanently-broken child.
+                    if became_failed && was_core && !state.shutting_down {
+                        eprintln!(
+                            "[ERROR] [phoenix] Core subsystem {name} permanently failed — initiating shutdown"
+                        );
+                        trauma::append_trauma(&format!(
+                            "core-subsystem-failed subsystem={name} initiating-shutdown"
+                        ));
+                        FATAL_CORE_FAILURE.store(true, std::sync::atomic::Ordering::SeqCst);
+                        let _ = myself.cast(SupervisorMsg::Shutdown);
+                    }
+                }
+            }
+            SupervisorMsg::SubsystemRestartCount { name, count } => {
+                if let Some(entry) = state.children.get_mut(&name) {
+                    entry.restart_count = count;
                 }
             }
             SupervisorMsg::Shutdown => {
@@ -181,8 +218,9 @@ impl Actor for PhoenixSupervisor {
             return Ok(());
         };
         let config = child.config.clone();
+        let restart_count = child.restart_count;
 
-        match spawn_child(&myself, &config).await {
+        match spawn_child(&myself, &config, restart_count).await {
             Ok(actor_ref) => {
                 if let Some(entry) = state.children.get_mut(&name) {
                     entry.actor_ref = actor_ref;
@@ -209,11 +247,12 @@ impl Actor for PhoenixSupervisor {
 async fn spawn_child(
     supervisor: &ActorRef<SupervisorMsg>,
     config: &SubsystemConfig,
+    initial_restart_count: u32,
 ) -> Result<ActorRef<SubsystemMsg>, Box<dyn std::error::Error>> {
     let (actor_ref, _handle) = Actor::spawn_linked(
         Some(config.name.clone()),
         SubsystemActor,
-        (config.clone(), supervisor.clone()),
+        (config.clone(), supervisor.clone(), initial_restart_count),
         supervisor.get_cell(),
     )
     .await?;

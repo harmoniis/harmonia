@@ -96,6 +96,14 @@ pub fn validate_config(reqs: &[ConfigReq]) -> Result<(), String> {
 /// No-op shutdown for modules that don't need explicit cleanup.
 fn noop_shutdown() {}
 
+/// Used for frontends/components whose lifecycle is fully managed by an actor
+/// spawned in `spawn.rs` (e.g. trait-based frontends). The ModuleEntry is
+/// retained only so `harmonia modules list/status` reports them; the runtime
+/// does not need to call any free function to initialise them.
+fn noop_init() -> Result<(), String> {
+    Ok(())
+}
+
 /// Build the full module registry declaring every known module.
 pub fn build_registry() -> Vec<ModuleEntry> {
     vec![
@@ -147,7 +155,7 @@ pub fn build_registry() -> Vec<ModuleEntry> {
             status: ModuleStatus::Unloaded,
             core: false,
             config_reqs: vec![],
-            init_fn: || harmonia_tui::terminal::init().map_err(|e| e),
+            init_fn: noop_init,
             shutdown_fn: noop_shutdown,
         },
         ModuleEntry {
@@ -190,7 +198,7 @@ pub fn build_registry() -> Vec<ModuleEntry> {
             status: ModuleStatus::Unloaded,
             core: false,
             config_reqs: vec![ConfigReq::VaultSecret("telegram-bot-token".into())],
-            init_fn: || harmonia_telegram::bot::init("()"),
+            init_fn: noop_init,
             shutdown_fn: noop_shutdown,
         },
         ModuleEntry {
@@ -201,7 +209,7 @@ pub fn build_registry() -> Vec<ModuleEntry> {
                 ConfigReq::VaultSecret("slack-bot-token".into()),
                 ConfigReq::VaultSecret("slack-app-token".into()),
             ],
-            init_fn: || harmonia_slack::client::init("()"),
+            init_fn: noop_init,
             shutdown_fn: noop_shutdown,
         },
         ModuleEntry {
@@ -209,7 +217,7 @@ pub fn build_registry() -> Vec<ModuleEntry> {
             status: ModuleStatus::Unloaded,
             core: false,
             config_reqs: vec![ConfigReq::VaultSecret("discord-bot-token".into())],
-            init_fn: || harmonia_discord::client::init("()"),
+            init_fn: noop_init,
             shutdown_fn: noop_shutdown,
         },
         ModuleEntry {
@@ -220,23 +228,7 @@ pub fn build_registry() -> Vec<ModuleEntry> {
                 component: "signal-frontend".into(),
                 key: "account".into(),
             }],
-            init_fn: || harmonia_signal::client::init("()"),
-            shutdown_fn: noop_shutdown,
-        },
-        ModuleEntry {
-            name: "mattermost".into(),
-            status: ModuleStatus::Unloaded,
-            core: false,
-            config_reqs: vec![ConfigReq::VaultSecret("mattermost-bot-token".into())],
-            init_fn: || harmonia_mattermost::client::init("()"),
-            shutdown_fn: noop_shutdown,
-        },
-        ModuleEntry {
-            name: "nostr".into(),
-            status: ModuleStatus::Unloaded,
-            core: false,
-            config_reqs: vec![ConfigReq::VaultSecret("nostr-private-key".into())],
-            init_fn: || harmonia_nostr::client::init("()"),
+            init_fn: noop_init,
             shutdown_fn: noop_shutdown,
         },
         ModuleEntry {
@@ -247,7 +239,7 @@ pub fn build_registry() -> Vec<ModuleEntry> {
                 component: "email-frontend".into(),
                 key: "imap-host".into(),
             }],
-            init_fn: || harmonia_email_client::client::init("()"),
+            init_fn: noop_init,
             shutdown_fn: noop_shutdown,
         },
         ModuleEntry {
@@ -255,19 +247,18 @@ pub fn build_registry() -> Vec<ModuleEntry> {
             status: ModuleStatus::Unloaded,
             core: false,
             config_reqs: vec![],
-            init_fn: || harmonia_whatsapp::client::init("()"),
+            init_fn: noop_init,
             shutdown_fn: noop_shutdown,
         },
-        #[cfg(target_os = "macos")]
         ModuleEntry {
-            name: "imessage".into(),
+            name: "sip".into(),
             status: ModuleStatus::Unloaded,
             core: false,
             config_reqs: vec![ConfigReq::ConfigKey {
-                component: "imessage-frontend".into(),
-                key: "server-url".into(),
+                component: "sip-frontend".into(),
+                key: "kamailio-host".into(),
             }],
-            init_fn: || harmonia_imessage::client::init("()"),
+            init_fn: noop_init,
             shutdown_fn: noop_shutdown,
         },
         ModuleEntry {

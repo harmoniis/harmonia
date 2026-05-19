@@ -23,7 +23,6 @@
                                "aws-session-token" "aws-region"))
   ("groq-backend"             ("groq" "groq-api-key"))
   ("alibaba-backend"          ("alibaba" "alibaba-api-key" "dashscope-api-key"))
-  ("harmoniis-backend"        ("harmoniis" "harmoniis-api-key" "harmoniis-router-api-key"))
   ;; Tools
   ("search-exa-tool"          ("exa-api-key"))
   ("search-brave-tool"        ("brave-api-key"))
@@ -33,8 +32,6 @@
   ;; Frontends
   ("email-frontend"           ("email-imap-password" "email-password"
                                "email-smtp-password" "email-api-key"))
-  ("mattermost-frontend"      ("mattermost-bot-token" "mattermost-token"))
-  ("nostr-frontend"           ("nostr-private-key" "nostr-nsec"))
   ("telegram-frontend"        ("telegram-bot-token" "telegram-bot-api-token"))
   ("slack-frontend"           ("slack-bot-token" "slack-app-token"
                                "slack-bot-token-v2" "slack-app-level-token"))
@@ -42,8 +39,6 @@
   ("signal-frontend"          ("signal-auth-token" "signal-auth-token-v2"
                                "signal-account" "signal-rpc-url" "signal-bridge-url"))
   ("whatsapp-frontend"        ("whatsapp-session" "whatsapp-api-key" "whatsapp-bridge-url"))
-  ("imessage-frontend"        ("bluebubbles-password" "imessage-password"
-                               "bluebubbles-server-url" "imessage-server-url"))
   ("tailscale-frontend"       ("tailscale-auth-key"))
   ("mqtt-frontend"            ("mqtt-agent-fp" "mqtt-tls-master-seed"
                                "mqtt-tls-client-cert-pem" "mqtt-tls-client-key-pem"

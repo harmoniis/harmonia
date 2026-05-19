@@ -18,12 +18,9 @@ use harmonia_actor_protocol::sexp::{
 };
 
 pub fn default_state_root() -> String {
-    let default = std::env::temp_dir()
-        .join("harmonia")
+    harmonia_config_store::paths::state_root()
         .to_string_lossy()
-        .to_string();
-    harmonia_config_store::get_config_or(COMPONENT, "global", "state-root", &default)
-        .unwrap_or(default)
+        .into_owned()
 }
 
 pub fn default_state_path() -> String {

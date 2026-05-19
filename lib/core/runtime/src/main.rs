@@ -5,6 +5,7 @@ mod bridge;
 mod components;
 mod dispatch;
 mod dynamic_registry;
+mod frontend_registry;
 mod topic_bus;
 mod hardening;
 mod init;
@@ -22,15 +23,10 @@ use std::sync::Arc;
 
 use tokio::sync::Notify;
 
-const COMPONENT: &str = "harmonia-runtime";
-
 fn state_root() -> String {
-    let default = env::temp_dir()
-        .join("harmonia")
+    harmonia_config_store::paths::state_root()
         .to_string_lossy()
-        .to_string();
-    harmonia_config_store::get_config_or(COMPONENT, "global", "state-root", &default)
-        .unwrap_or_else(|_| default)
+        .into_owned()
 }
 
 #[tokio::main]
@@ -83,6 +79,14 @@ async fn main() {
     tick::spawn_tick(spawned.memory_field_ref.clone(), std::time::Duration::from_secs(5));
     tick::spawn_tick(spawned.router_ref.clone(), std::time::Duration::from_secs(10));
     tick::spawn_matrix_tick(spawned.harmonic_matrix_ref.clone(), std::time::Duration::from_secs(5));
+    // Proactive waker — heartbeat cadence is configurable in the actor itself
+    // (`gateway/heartbeat/interval-secs`); the tick driver runs at the same
+    // 30 s default so the actor's `interval` field gates further down if the
+    // operator sets a longer interval in config-store.
+    tick::spawn_tick(
+        spawned.proactive_waker_ref.clone(),
+        std::time::Duration::from_secs(30),
+    );
 
     // 5. Shutdown handler
     let shutdown_actors = vec![

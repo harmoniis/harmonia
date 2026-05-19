@@ -34,8 +34,14 @@
     "slack-bot-token": "",
     "slack-app-token": "",
     "discord-bot-token": "",
-    "mattermost-bot-token": "",
-    "nostr-private-key": "",
+
+    "_comment_pgp": "Pot-provisioned identity. The provisioner generates these per-agent and renders them into the bootstrap config; the agent's `setup --headless-config` step seeds them into vault.",
+    "agent-pgp-secret-armored": "",
+    "agent-pgp-public-armored": "",
+    "mqtt-agent-fp": "",
+
+    "_comment_tailnet": "Short-lived tailscale auth-key minted by the marketplace at provision time so the agent's tsnet stack can join the operator's tailnet on first boot. Used once and traded for a long-lived node key.",
+    "tailscale-auth-key": "",
 
     "exa-api-key": "",
     "brave-api-key": "",
@@ -79,12 +85,6 @@
         "smtp-username": ""
       }
     },
-    "imessage-frontend": {
-      "default": {
-        "server-url": ""
-      }
-    },
-
     "observability": {
       "default": {
         "enabled": "",
@@ -98,6 +98,31 @@
       "runtime": {
         "components": ""
       }
+    },
+
+    "mqtt-frontend": {
+      "default": {
+        "broker": "",
+        "tls": "true",
+        "ca-cert": "/etc/harmonia/certs/mqtt-ca.pem",
+        "client-cert": "/etc/harmonia/certs/bridge.crt",
+        "client-key": "/etc/harmonia/certs/bridge.key"
+      }
+    },
+
+    "http3-frontend": {
+      "default": {
+        "bind": "0.0.0.0:9443",
+        "ca-cert": "/etc/harmonia/certs/ca.crt",
+        "server-cert": "/etc/harmonia/certs/server.crt",
+        "server-key": "/etc/harmonia/certs/server.key"
+      }
     }
+  },
+
+  "trust_bundle": {
+    "_comment": "Bootstrap list of operator devices the agent should trust on first boot. The provisioner pulls these from the marketplace at agent-create time. Each entry's `device_public_key` is added to the agent's PGP trust-store.",
+    "_comment_format": "[{\"device_id\": \"...\", \"client_fp\": \"...\", \"device_public_key\": \"-----BEGIN PGP PUBLIC KEY BLOCK-----\\n...\\n-----END PGP PUBLIC KEY BLOCK-----\"}]",
+    "devices": []
   }
 }

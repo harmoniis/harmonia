@@ -1,0 +1,9 @@
+#!/bin/sh
+# Stop the service before files vanish. Never touch /var/db/harmonia —
+# that directory holds the wallet seed, the device's identity in the
+# trust web. Wiping it would orphan the device's PGP fingerprint.
+set -eu
+
+if service harmonia status >/dev/null 2>&1; then
+    service harmonia stop || true
+fi

@@ -213,6 +213,18 @@ impl Actor for RuntimeSupervisor {
                 state.topic_bus = Some(bus);
                 eprintln!("[INFO] [runtime] TopicBus injected into supervisor");
             }
+            RuntimeMsg::SetFrontendRegistry(registry) => {
+                state.frontend_registry = Some(registry);
+                eprintln!("[INFO] [runtime] FrontendRegistry injected into supervisor");
+            }
+            RuntimeMsg::SetTransportPgp(pgp) => {
+                state.transport_pgp = Some(pgp);
+                eprintln!("[INFO] [runtime] TransportPgp injected into supervisor");
+            }
+            RuntimeMsg::SetSenderPolicy(actor) => {
+                state.sender_policy = Some(actor);
+                eprintln!("[INFO] [runtime] SenderPolicy actor injected into supervisor");
+            }
 
             RuntimeMsg::ListModules(reply) => {
                 let sexp = state.modules_list_sexp();

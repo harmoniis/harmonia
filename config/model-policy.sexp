@@ -39,18 +39,7 @@
    :tags (:frontier :reasoning :truth-seeking :software-dev :codemode))
   (:id "anthropic/claude-opus-4.6" :tier :frontier :cost 10 :latency 7 :quality 10 :completion 10
    :usd-in-1k 0.015 :usd-out-1k 0.075
-   :tags (:frontier :reasoning :writing :codemode :software-dev))
-  ;; Demoted — cannot speak s-expressions, unreliable downtime
-  (:id "ber1-ai/qwen3.5-27b" :tier :demoted :cost 0 :latency 4 :quality 3 :completion 3
-   :usd-in-1k 0.0 :usd-out-1k 0.0
-   :features (:reasoning t)
-   :tags (:demoted :unreliable :no-sexp))
-  (:id "ber1-ai/magistral-24b" :tier :demoted :cost 0 :latency 5 :quality 2 :completion 2
-   :usd-in-1k 0.0 :usd-out-1k 0.0
-   :tags (:demoted :unreliable :no-sexp))
-  (:id "ber1-ai/nanbeige-3b" :tier :demoted :cost 0 :latency 1 :quality 1 :completion 1
-   :usd-in-1k 0.0 :usd-out-1k 0.0
-   :tags (:demoted :unreliable :no-sexp)))
+   :tags (:frontier :reasoning :writing :codemode :software-dev)))
  :task-routing
  (:software-dev (:models ("anthropic/claude-opus-4.6" "x-ai/grok-4.20"
                            "x-ai/grok-4.1-fast"
@@ -107,6 +96,6 @@
     ((:task :memory-ops :preferred-tier :eco)
      (:task :critical-reasoning :preferred-tier :premium)
      (:task :truth-seeking :preferred-tier :auto))
-  :model-bans ("ber1-ai/qwen3.5-27b" "ber1-ai/magistral-24b" "ber1-ai/nanbeige-3b")
+  :model-bans ()
   :model-boosts ("google/gemini-2.5-flash-lite-preview-09-2025")
   :cascade-config (:max-escalations 3 :confidence-threshold 0.7)))

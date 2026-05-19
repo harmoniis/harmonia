@@ -202,10 +202,7 @@ fn interpolate_env(s: &str) -> String {
 }
 
 fn state_root() -> String {
-    let default = env::temp_dir()
-        .join("harmonia")
+    harmonia_config_store::paths::state_root()
         .to_string_lossy()
-        .to_string();
-    harmonia_config_store::get_config_or(COMPONENT, "global", "state-root", &default)
-        .unwrap_or_else(|_| default)
+        .into_owned()
 }

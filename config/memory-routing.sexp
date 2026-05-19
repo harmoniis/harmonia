@@ -4,8 +4,9 @@
 ;;; Loaded at boot by load-memory-routing-config.
 
 (:routing
-  ;; Classes eligible for L1 field (global concept graph)
-  (:field-indexable (:soul :skill :genesis))
+  ;; Classes eligible for L1 field (global concept graph).
+  ;; :all sentinel = every class is indexed into the recall graph.
+  (:field-indexable :all)
   ;; Classes routed to L3 palace at depth 0
   (:palace-worthy (:daily :interaction))
   ;; Classes routed to L3 palace only when depth > 0 (compressed entries)

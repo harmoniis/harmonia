@@ -128,20 +128,7 @@ fn frontend_configure(
             if !ok { return Err("Discord token verification failed".to_string()); }
             Ok((None, format!("Discord verified. Saved channels: {channels}")))
         }
-        "mattermost" => {
-            let api_url = value_for(values, "api-url").unwrap_or("").trim();
-            let channels = value_for(values, "channels").unwrap_or("").trim();
-            if api_url.is_empty() { return Err("Mattermost requires api-url".to_string()); }
-            if channels.is_empty() { return Err("Mattermost requires at least one channel ID".to_string()); }
-            config_set("mattermost-frontend", "api-url", api_url)?;
-            config_set("mattermost-frontend", "channels", channels)?;
-            set_secret_if_present(value_for(values, "bot-token"), &["mattermost-bot-token"])?;
-            let ok = frontend_verify::verify_mattermost_token()?;
-            if !ok { return Err("Mattermost auth failed".to_string()); }
-            Ok((None, format!("Mattermost verified. Saved channels: {channels}")))
-        }
         "email" => configure_email(values),
-        "nostr" => configure_nostr(values),
         "whatsapp" => {
             let api_url = default_if_empty(value_for(values, "api-url"), "http://127.0.0.1:3000");
             config_set("whatsapp-frontend", "api-url", &api_url)?;
@@ -154,21 +141,11 @@ fn frontend_configure(
             set_secret_if_present(value_for(values, "auth-token"), &["signal-auth-token"])?;
             frontend_pair_init(frontend)
         }
-        #[cfg(target_os = "macos")]
-        "imessage" => {
-            let server_url = value_for(values, "server-url").unwrap_or("").trim();
-            if server_url.is_empty() { return Err("iMessage requires server-url".to_string()); }
-            config_set("imessage-frontend", "server-url", server_url)?;
-            set_secret_if_present(value_for(values, "password"), &["bluebubbles-password"])?;
-            let ok = frontend_verify::verify_imessage_bridge()?;
-            if !ok { return Err("BlueBubbles bridge is not responding".to_string()); }
-            Ok((None, "BlueBubbles bridge verified. Frontend ready.".to_string()))
-        }
         "tailscale" => {
             set_secret_if_present(value_for(values, "auth-key"), &["tailscale-auth-key"])?;
             Ok((None, "Tailscale auth key saved.".to_string()))
         }
-        "http2" => configure_http2(values),
+        "http3" => configure_http3(values),
         "mqtt" => Ok((None, "MQTT is managed automatically by Harmonia.".to_string())),
         _ => Err(format!("frontend '{frontend}' does not support configuration")),
     }
@@ -189,40 +166,31 @@ fn configure_email(values: &[harmonia_node_rpc::FrontendConfigEntry]) -> Result<
     Ok((None, "Email settings saved.".to_string()))
 }
 
-fn configure_nostr(values: &[harmonia_node_rpc::FrontendConfigEntry]) -> Result<(Option<String>, String), String> {
-    let key = value_for(values, "private-key").unwrap_or("").trim();
-    if key.is_empty() { return Err("Nostr requires a private key".to_string()); }
-    harmonia_vault::set_secret_for_symbol("nostr-private-key", key)?;
-    let relays = default_if_empty(value_for(values, "relays"), "wss://relay.damus.io,wss://relay.primal.net,wss://nos.lol");
-    config_set("nostr-frontend", "relays", &relays)?;
-    Ok((None, format!("Nostr configured with relays: {relays}")))
-}
-
-fn configure_http2(values: &[harmonia_node_rpc::FrontendConfigEntry]) -> Result<(Option<String>, String), String> {
+fn configure_http3(values: &[harmonia_node_rpc::FrontendConfigEntry]) -> Result<(Option<String>, String), String> {
     let bind = default_if_empty(value_for(values, "bind"), "127.0.0.1:9443");
     bind.parse::<std::net::SocketAddr>().map_err(|e| format!("invalid bind address: {e}"))?;
     let ca_cert = value_for(values, "ca-cert").unwrap_or("").trim();
     let server_cert = value_for(values, "server-cert").unwrap_or("").trim();
     let server_key = value_for(values, "server-key").unwrap_or("").trim();
     for (label, path) in [("ca-cert", ca_cert), ("server-cert", server_cert), ("server-key", server_key)] {
-        if path.is_empty() { return Err(format!("HTTP/2 requires {label}")); }
-        if !Path::new(path).exists() { return Err(format!("HTTP/2 {label} path does not exist: {path}")); }
+        if path.is_empty() { return Err(format!("HTTP/3 requires {label}")); }
+        if !Path::new(path).exists() { return Err(format!("HTTP/3 {label} path does not exist: {path}")); }
     }
     let trusted_csv = value_for(values, "trusted-client-fingerprints").unwrap_or("").trim().to_string();
-    if trusted_csv.is_empty() { return Err("HTTP/2 requires at least one trusted client fingerprint".to_string()); }
+    if trusted_csv.is_empty() { return Err("HTTP/3 requires at least one trusted client fingerprint".to_string()); }
     let trusted: Vec<String> = trusted_csv.split(',').map(harmonia_transport_auth::normalize_fingerprint).filter(|value| !value.is_empty()).collect();
-    if trusted.is_empty() { return Err("HTTP/2 requires at least one valid trusted client fingerprint".to_string()); }
-    config_set("http2-frontend", "bind", &bind)?;
-    config_set("http2-frontend", "ca-cert", ca_cert)?;
-    config_set("http2-frontend", "server-cert", server_cert)?;
-    config_set("http2-frontend", "server-key", server_key)?;
-    config_set("http2-frontend", "trusted-client-fingerprints-json", &serde_json::to_string(&trusted).map_err(|e| e.to_string())?)?;
+    if trusted.is_empty() { return Err("HTTP/3 requires at least one valid trusted client fingerprint".to_string()); }
+    config_set("http3-frontend", "bind", &bind)?;
+    config_set("http3-frontend", "ca-cert", ca_cert)?;
+    config_set("http3-frontend", "server-cert", server_cert)?;
+    config_set("http3-frontend", "server-key", server_key)?;
+    config_set("http3-frontend", "trusted-client-fingerprints-json", &serde_json::to_string(&trusted).map_err(|e| e.to_string())?)?;
     for key in ["max-concurrent-streams","session-idle-timeout-ms","max-frame-bytes"] {
         let value = value_for(values, key).unwrap_or("").trim();
         if value.is_empty() { continue; }
-        config_set("http2-frontend", key, value)?;
+        config_set("http3-frontend", key, value)?;
     }
-    Ok((None, format!("HTTP/2 mTLS configured on {bind}. Trusted client identities: {}", trusted.join(", "))))
+    Ok((None, format!("HTTP/3 mTLS configured on {bind}. Trusted client identities: {}", trusted.join(", "))))
 }
 
 pub(crate) fn list_pairable_frontends() -> Vec<harmonia_node_rpc::PairableFrontend> {
@@ -240,7 +208,7 @@ pub(crate) fn list_pairable_frontends() -> Vec<harmonia_node_rpc::PairableFronte
     {
         let configured = config_has("whatsapp-frontend", "api-url");
         let (status, pairable) = if configured {
-            match harmonia_whatsapp::client::pair_status() {
+            match harmonia_whatsapp::pair_status() {
                 Ok((true, _)) => ("connected".into(), false),
                 Ok((false, msg)) => (msg, true),
                 Err(_) => ("bridge unreachable".into(), true),
@@ -253,7 +221,7 @@ pub(crate) fn list_pairable_frontends() -> Vec<harmonia_node_rpc::PairableFronte
     {
         let configured = config_has("signal-frontend", "rpc-url") || config_has("signal-frontend", "account");
         let (status, pairable) = if configured {
-            match harmonia_signal::client::pair_status() {
+            match harmonia_signal::pair_status() {
                 Ok((true, _)) => ("device linked".into(), false),
                 Ok((false, msg)) => (msg, true),
                 Err(_) => ("bridge unreachable".into(), true),
@@ -271,11 +239,11 @@ fn frontend_pair_init(frontend: &str) -> Result<(Option<String>, String), String
     let _ = harmonia_vault::init_from_env();
     match frontend {
         "whatsapp" => {
-            let qr = harmonia_whatsapp::client::pair_init()?;
+            let qr = harmonia_whatsapp::pair_init()?;
             Ok((qr, "Scan the QR code with WhatsApp on your phone:\nWhatsApp > Settings > Linked Devices > Link a Device".to_string()))
         }
         "signal" => {
-            let uri = harmonia_signal::client::pair_init()?;
+            let uri = harmonia_signal::pair_init()?;
             Ok((uri, "Scan the QR code with Signal on your phone:\nSignal > Settings > Linked Devices > Link New Device".to_string()))
         }
         other => frontend_verify::pair_init_token_based(other),
@@ -285,9 +253,9 @@ fn frontend_pair_init(frontend: &str) -> Result<(Option<String>, String), String
 fn frontend_pair_status(frontend: &str) -> Result<(bool, String), String> {
     let _ = harmonia_vault::init_from_env();
     match frontend {
-        "whatsapp" => harmonia_whatsapp::client::pair_status(),
+        "whatsapp" => harmonia_whatsapp::pair_status(),
         "signal" => {
-            let status = harmonia_signal::client::pair_status()?;
+            let status = harmonia_signal::pair_status()?;
             if status.0 { let _ = frontend_verify::discover_and_store_signal_account(); }
             Ok(status)
         }

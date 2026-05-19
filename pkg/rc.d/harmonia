@@ -1,0 +1,95 @@
+#!/bin/sh
+#
+# PROVIDE: harmonia
+# REQUIRE: NETWORKING DAEMON
+# KEYWORD: shutdown
+#
+# FreeBSD rc.d script for the harmonia agent installed via pkg.
+# Standard FreeBSD layout: binary at /usr/local/bin, config under
+# /usr/local/etc/harmonia, persistent state under /var/db/harmonia.
+#
+# rc.conf variables:
+#   harmonia_enable      (bool):  Enable the service (default NO)
+#   harmonia_user        (str):   User to run as (default harmonia)
+#   harmonia_state_root  (str):   State directory (default /var/db/harmonia)
+#   harmonia_config      (str):   Config path (default /usr/local/etc/harmonia/config.toml)
+#   harmonia_log         (str):   Log file (default /var/log/harmonia.log)
+
+. /etc/rc.subr
+
+name="harmonia"
+rcvar="${name}_enable"
+
+load_rc_config "$name"
+
+: ${harmonia_enable:="NO"}
+: ${harmonia_user:="harmonia"}
+: ${harmonia_state_root:="/var/db/harmonia"}
+: ${harmonia_config:="/usr/local/etc/harmonia/config.toml"}
+: ${harmonia_log:="/var/log/harmonia.log"}
+: ${harmonia_pidfile:="${harmonia_state_root}/harmonia.pid"}
+
+pidfile="${harmonia_pidfile}"
+command="/usr/local/bin/harmonia"
+
+export HARMONIA_STATE_ROOT="${harmonia_state_root}"
+export PHOENIX_CONFIG_PATH="${harmonia_config}"
+
+start_cmd="${name}_start"
+stop_cmd="${name}_stop"
+status_cmd="${name}_status"
+
+harmonia_start() {
+    install -d -o "${harmonia_user}" -g "${harmonia_user}" -m 750 "${harmonia_state_root}"
+    install -d -o "${harmonia_user}" -g "${harmonia_user}" -m 700 "${harmonia_state_root}/wallet"
+
+    # Pot-only: /alloc/local/config.json is mounted by the cluster Nomad job.
+    # On first boot under a managed-agent provision the agent runs headless
+    # setup and stamps .setup-done; subsequent boots skip this branch.
+    _config="/alloc/local/config.json"
+    _setup_stamp="${harmonia_state_root}/.setup-done"
+    if [ -f "${_config}" ] && [ ! -f "${_setup_stamp}" ]; then
+        echo "Running headless setup from ${_config}..."
+        install -d -o "${harmonia_user}" -g "${harmonia_user}" -m 750 \
+            /usr/local/etc/harmonia/certs
+        for _f in server.crt server.key ca.crt bridge.crt bridge.key mqtt-ca.pem; do
+            [ -f "/secrets/${_f}" ] && install -o "${harmonia_user}" \
+                -g "${harmonia_user}" -m 600 \
+                "/secrets/${_f}" "/usr/local/etc/harmonia/certs/${_f}"
+        done
+
+        su -m "${harmonia_user}" -c \
+            "HARMONIA_STATE_ROOT='${harmonia_state_root}' \
+             ${command} setup --headless-config '${_config}'" \
+            >> "${harmonia_log}" 2>&1 && \
+            date -u '+%Y-%m-%dT%H:%M:%SZ' > "${_setup_stamp}"
+    fi
+
+    echo "Starting ${name}."
+    /usr/sbin/daemon -f -p "${pidfile}" -u "${harmonia_user}" \
+        env \
+        HARMONIA_STATE_ROOT="${harmonia_state_root}" \
+        PHOENIX_CONFIG_PATH="${harmonia_config}" \
+        "${command}" start --foreground >> "${harmonia_log}" 2>&1
+}
+
+harmonia_stop() {
+    if [ -f "${pidfile}" ]; then
+        echo "Stopping ${name}."
+        kill -TERM "$(cat "${pidfile}")" 2>/dev/null
+        rm -f "${pidfile}"
+    else
+        echo "${name} is not running."
+    fi
+}
+
+harmonia_status() {
+    if [ -f "${pidfile}" ] && kill -0 "$(cat "${pidfile}")" 2>/dev/null; then
+        echo "${name} is running as pid $(cat "${pidfile}")."
+    else
+        echo "${name} is not running."
+        return 1
+    fi
+}
+
+run_rc_command "$1"

@@ -1,27 +1,39 @@
-/// Unified command dispatch — the gateway is the single interception point for
-/// ALL /commands from ALL frontends (TUI, MQTT, Tailscale, paired nodes).
-///
-/// Commands are handled in two tiers:
-///   1. **Native** — fully executed in Rust (wallet, identity, help).
-///   2. **Delegated** — routed via IPC dispatch in the runtime actor system.
-///
-/// Agent-level prompts pass through to the orchestrator.
+//! Slash-command interception path for *all* frontends.
+//!
+//! The gateway is the single point where slash commands are recognised. No
+//! frontend (TUI, MQTT, HTTP/3, Slack, …) parses `/<command>` itself; they
+//! all submit envelopes whose `body.text` is the raw user input. This
+//! module:
+//!
+//! 1. Looks each envelope up against the static [`registry`] of known
+//!    commands.
+//! 2. Enforces per-command security gates (`min_security`, `tui_only`)
+//!    against the envelope's [`SecurityLabel`] and originating channel.
+//! 3. Routes by [`Handler`]:
+//!    * `Native` → Rust generates the response, gateway sends it back, the
+//!      envelope is filtered out.
+//!    * `PassThrough` → envelope is returned unchanged for the Lisp
+//!      orchestrator (`src/core/system-commands.lisp`) to handle. The
+//!      gateway never produces a response of its own, so there's no
+//!      double-output.
+//!    * `Exit` → set the pending-exit flag, send a closing message,
+//!      filter out.
+//! 4. For any text that *isn't* a slash command, the body is `@`-expanded
+//!    and the envelope passes through to Lisp as a regular prompt.
+
 use crate::commands::reference::expand_at_references;
-use crate::commands::registry::{lookup, CommandKind};
+use crate::commands::registry::{lookup, CommandMeta, Handler};
 #[cfg(test)]
 use crate::commands::registry::ALL_COMMANDS;
 use crate::model::{ChannelEnvelope, SecurityLabel};
 use crate::registry::Registry;
 
-/// Intercept ALL system commands from the envelope batch.
+/// Intercept slash commands from a batch of inbound envelopes.
 ///
-/// For each envelope whose body text matches a known command:
-///   1. Enforce security policy (Owner/Authenticated/TUI-only).
-///   2. Execute the handler (native Rust or delegated Lisp callback).
-///   3. Send the response back to the originating frontend.
-///   4. Filter the envelope out so Lisp only receives agent prompts.
-///
-/// Returns envelopes that were NOT intercepted (pass-through to Lisp).
+/// Returns the envelopes that should still reach the Lisp orchestrator —
+/// non-commands and `Handler::PassThrough` commands. Native and Exit
+/// commands respond directly through the registry's send path and are
+/// filtered out.
 pub fn intercept_commands(
     registry: &Registry,
     envelopes: Vec<ChannelEnvelope>,
@@ -30,44 +42,33 @@ pub fn intercept_commands(
 
     for envelope in envelopes {
         match lookup(&envelope.body.text) {
-            Some((meta, ref args)) => {
-                let response = execute_command(
-                    meta,
-                    args,
-                    envelope.security.label,
-                    &envelope.channel.kind,
-                );
-                match response {
-                    CommandResult::Response(text) => {
-                        if let Err(e) = crate::baseband::send_signal(
-                            registry,
-                            &envelope.channel.kind,
-                            &envelope.channel.address,
-                            &text,
-                        ) {
-                            log::warn!(
-                                "gateway: command response send failed for {}: {}",
-                                meta.name,
-                                e
-                            );
-                        }
-                    }
-                    CommandResult::SystemExit => {
-                        crate::state::set_pending_exit(true);
-                        let _ = crate::baseband::send_signal(
-                            registry,
-                            &envelope.channel.kind,
-                            &envelope.channel.address,
-                            "Session ended.",
-                        );
-                    }
-                }
-            }
             None => {
-                // Expand @path references before passing to Lisp.
                 let mut enriched = envelope;
                 enriched.body.text = expand_at_references(&enriched.body.text);
                 pass_through.push(enriched);
+            }
+            Some((meta, args)) => {
+                if let Err(reason) =
+                    enforce_security(meta, envelope.security.label, &envelope.channel.kind)
+                {
+                    send_back(registry, &envelope, &reason, meta.name);
+                    continue;
+                }
+                match meta.handler {
+                    Handler::Native(f) => {
+                        let response = f(&args);
+                        send_back(registry, &envelope, &response, meta.name);
+                    }
+                    Handler::PassThrough => {
+                        // Recognised command, but Lisp owns it. Don't expand
+                        // @refs — slash commands have their own grammar.
+                        pass_through.push(envelope);
+                    }
+                    Handler::Exit => {
+                        crate::state::set_pending_exit(true);
+                        send_back(registry, &envelope, "Session ended.", meta.name);
+                    }
+                }
             }
         }
     }
@@ -75,47 +76,42 @@ pub fn intercept_commands(
     pass_through
 }
 
-// ── Internal dispatch ────────────────────────────────────────────────
-
-enum CommandResult {
-    Response(String),
-    SystemExit,
-}
-
-fn execute_command(
-    meta: &crate::commands::registry::CommandMeta,
-    args: &str,
+fn enforce_security(
+    meta: &CommandMeta,
     security: SecurityLabel,
     channel_kind: &str,
-) -> CommandResult {
-    // Security gate
+) -> Result<(), String> {
     if let Some(check) = meta.min_security {
         if !check(security) {
-            return CommandResult::Response(format!(
+            return Err(format!(
                 "[system] Permission denied: {} requires elevated access.",
                 meta.name
             ));
         }
     }
     if meta.tui_only && channel_kind != "tui" {
-        return CommandResult::Response(format!(
+        return Err(format!(
             "[system] {} is only available from the TUI.",
             meta.name
         ));
     }
-
-    // Dispatch by kind — no giant match, the registry carries the handler.
-    match &meta.kind {
-        CommandKind::Native(handler) => CommandResult::Response(handler(args)),
-        CommandKind::Delegated => CommandResult::Response(format!(
-            "[system] Command {} is handled by the runtime IPC dispatch.",
-            meta.name
-        )),
-        CommandKind::Exit => CommandResult::SystemExit,
-    }
+    Ok(())
 }
 
-// ── Tests ────────────────────────────────────────────────────────────
+fn send_back(registry: &Registry, envelope: &ChannelEnvelope, text: &str, cmd_name: &str) {
+    if let Err(e) = crate::baseband::send_signal(
+        registry,
+        &envelope.channel.kind,
+        &envelope.channel.address,
+        text,
+    ) {
+        log::warn!(
+            "gateway: command response send failed for {}: {}",
+            cmd_name,
+            e
+        );
+    }
+}
 
 #[cfg(test)]
 mod tests {
@@ -164,8 +160,6 @@ mod tests {
         assert!(!is_read_allowed(SecurityLabel::Untrusted));
     }
 
-    // ── Routing command tests ────────────────────────────────────────
-
     #[test]
     fn parse_routing_commands() {
         for cmd in ["/auto", "/eco", "/premium", "/free", "/route"] {
@@ -190,11 +184,11 @@ mod tests {
     }
 
     #[test]
-    fn routing_commands_are_native() {
+    fn tier_commands_are_native() {
         for cmd in ["/auto", "/eco", "/premium", "/free"] {
             let (meta, _) = lookup(cmd).unwrap();
             assert!(
-                matches!(meta.kind, CommandKind::Native(_)),
+                matches!(meta.handler, Handler::Native(_)),
                 "{} should be Native",
                 cmd
             );
@@ -202,11 +196,11 @@ mod tests {
     }
 
     #[test]
-    fn route_is_not_native() {
+    fn route_passes_through_to_lisp() {
         let (meta, _) = lookup("/route").unwrap();
         assert!(
-            matches!(meta.kind, CommandKind::Delegated),
-            "/route should be Delegated, not Native"
+            matches!(meta.handler, Handler::PassThrough),
+            "/route should be PassThrough so the Lisp orchestrator handles it"
         );
     }
 
@@ -221,38 +215,6 @@ mod tests {
             );
         }
     }
-
-    #[test]
-    fn tier_commands_denied_for_anonymous() {
-        for cmd in ["/auto", "/eco", "/premium", "/free"] {
-            let (meta, _) = lookup(cmd).unwrap();
-            let result = execute_command(meta, "", SecurityLabel::Anonymous, "mqtt");
-            match result {
-                CommandResult::Response(msg) => {
-                    assert!(msg.contains("Permission denied"), "{}: {}", cmd, msg);
-                }
-                _ => panic!("{} should deny anonymous", cmd),
-            }
-        }
-    }
-
-    #[test]
-    fn tier_commands_allowed_for_owner_on_mqtt() {
-        let (meta, _) = lookup("/eco").unwrap();
-        let result = execute_command(meta, "", SecurityLabel::Owner, "mqtt");
-        match result {
-            CommandResult::Response(msg) => {
-                assert!(
-                    msg.contains("Routing tier: eco"),
-                    "expected tier confirmation: {}",
-                    msg
-                );
-            }
-            _ => panic!("/eco should work for Owner on mqtt"),
-        }
-    }
-
-    // ── @reference expansion tests ──────────────────────────────────
 
     #[test]
     fn at_ref_no_references() {

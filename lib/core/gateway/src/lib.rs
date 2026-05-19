@@ -21,6 +21,6 @@ pub use model::{
     SecurityContext, SecurityLabel, SessionContext, TransportContext, UserTier,
 };
 pub use registry::Registry;
-pub use sender_policy::{is_signal_allowed, reload_policies};
+pub use sender_policy::{SenderPolicyActor, SenderPolicyCache, SenderPolicyMsg};
 pub use tool_baseband::{invoke_tool_raw, invoke_tool_signal};
 pub use tool_registry::ToolRegistry;

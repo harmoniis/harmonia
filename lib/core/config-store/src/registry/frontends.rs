@@ -42,42 +42,42 @@ pub(crate) const ENTRIES: &[Entry] = &[
         env_override: None,
     },
     Entry {
-        scope: "http2-frontend",
+        scope: "http3-frontend",
         key: "bind",
         env_override: None,
     },
     Entry {
-        scope: "http2-frontend",
+        scope: "http3-frontend",
         key: "ca-cert",
         env_override: None,
     },
     Entry {
-        scope: "http2-frontend",
+        scope: "http3-frontend",
         key: "server-cert",
         env_override: None,
     },
     Entry {
-        scope: "http2-frontend",
+        scope: "http3-frontend",
         key: "server-key",
         env_override: None,
     },
     Entry {
-        scope: "http2-frontend",
+        scope: "http3-frontend",
         key: "trusted-client-fingerprints-json",
         env_override: None,
     },
     Entry {
-        scope: "http2-frontend",
+        scope: "http3-frontend",
         key: "max-concurrent-streams",
         env_override: None,
     },
     Entry {
-        scope: "http2-frontend",
+        scope: "http3-frontend",
         key: "session-idle-timeout-ms",
         env_override: None,
     },
     Entry {
-        scope: "http2-frontend",
+        scope: "http3-frontend",
         key: "max-frame-bytes",
         env_override: None,
     },
@@ -192,23 +192,8 @@ pub(crate) const ENTRIES: &[Entry] = &[
         env_override: None,
     },
     Entry {
-        scope: "nostr-frontend",
-        key: "api-url",
-        env_override: None,
-    },
-    Entry {
-        scope: "mattermost-frontend",
-        key: "api-url",
-        env_override: None,
-    },
-    Entry {
         scope: "whatsapp-frontend",
         key: "api-url",
-        env_override: None,
-    },
-    Entry {
-        scope: "imessage-frontend",
-        key: "server-url",
         env_override: None,
     },
     Entry {
@@ -229,6 +214,41 @@ pub(crate) const ENTRIES: &[Entry] = &[
     Entry {
         scope: "signal-frontend",
         key: "account",
+        env_override: None,
+    },
+    Entry {
+        scope: "sip-frontend",
+        key: "kamailio-host",
+        env_override: None,
+    },
+    Entry {
+        scope: "sip-frontend",
+        key: "kamailio-port",
+        env_override: None,
+    },
+    Entry {
+        scope: "sip-frontend",
+        key: "realm",
+        env_override: None,
+    },
+    Entry {
+        scope: "sip-frontend",
+        key: "agent-sip-uri",
+        env_override: None,
+    },
+    Entry {
+        scope: "sip-frontend",
+        key: "ca-cert",
+        env_override: None,
+    },
+    Entry {
+        scope: "sip-frontend",
+        key: "client-cert",
+        env_override: None,
+    },
+    Entry {
+        scope: "sip-frontend",
+        key: "client-key",
         env_override: None,
     },
 ];

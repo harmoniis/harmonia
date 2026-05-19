@@ -6,7 +6,7 @@
 /// that define frequency-selective recall.
 
 /// Maximum supported graph size.
-pub(crate) const MAX_NODES: usize = 256;
+pub(crate) const MAX_NODES: usize = 4096;
 
 /// Domain classification for concept nodes, matching Lisp concept-map.lisp.
 #[derive(Clone, Debug, Copy, PartialEq, Eq, Hash)]
@@ -353,5 +353,25 @@ mod tests {
         assert_eq!(concept_index(&g, "b"), Some(1));
         assert_eq!(concept_index(&g, "c"), Some(2));
         assert_eq!(concept_index(&g, "d"), None);
+    }
+
+    #[test]
+    fn test_max_nodes_capacity() {
+        use harmonia_actor_protocol::ConceptGraph;
+        let n = MAX_NODES;
+        let nodes: Vec<(String, String, i32, Vec<String>)> = (0..n)
+            .map(|i| (format!("c{i}"), "generic".into(), 1, vec![]))
+            .collect();
+        let mut edges: Vec<(String, String, f64, bool)> = Vec::with_capacity(n);
+        for i in 0..(n - 1) {
+            edges.push((format!("c{i}"), format!("c{}", i + 1), 1.0, false));
+        }
+        let g = build_graph(&nodes, &edges);
+        assert_eq!(g.n, n);
+        let ones = vec![1.0; g.n];
+        let mut out = vec![0.0; g.n];
+        g.laplacian_mul(&ones, &mut out);
+        let max_abs = out.iter().cloned().fold(0.0_f64, |a, b| a.max(b.abs()));
+        assert!(max_abs < 1e-9, "L*1 should be zero at MAX_NODES, got max |·|={max_abs}");
     }
 }

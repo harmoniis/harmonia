@@ -6,7 +6,6 @@ use harmonia_anthropic::backend as anthropic;
 use harmonia_google_ai_studio::backend as google_ai_studio;
 use harmonia_google_vertex::backend as google_vertex;
 use harmonia_groq::backend as groq;
-use harmonia_harmoniis::backend as harmoniis;
 use harmonia_openai::backend as openai;
 use harmonia_openrouter::client as openrouter;
 use harmonia_xai::backend as xai;
@@ -29,7 +28,6 @@ pub fn init_all() -> Result<(), String> {
             "bedrock" => bedrock::init(),
             "groq" => groq::init(),
             "alibaba" => alibaba::init(),
-            "harmoniis" => harmoniis::init(),
             _ => Ok(()),
         };
     }

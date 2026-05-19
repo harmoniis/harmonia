@@ -15,6 +15,8 @@ categories = ["network-programming"]
 [dependencies]
 log = "0.4"
 parking_lot = "0.12"
+ractor = "0.15"
+tokio = { version = "1.44", features = ["sync", "time", "macros"] }
 harmonia-baseband-channel-protocol = { version = "0.1.9", path = "../baseband-channel-protocol" }
 harmonia-payment-auth = { version = "0.1.9", path = "../payment-auth" }
 harmonia-signal-integrity = { version = "0.1.9", path = "../signal-integrity" }

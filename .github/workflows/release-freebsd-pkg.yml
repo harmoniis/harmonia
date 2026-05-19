@@ -1,0 +1,117 @@
+name: Release FreeBSD pkg
+
+on:
+  push:
+    tags:
+      - "harmonia-v[0-9]+.[0-9]+.[0-9]+"
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Semver without leading v (e.g. 0.2.1)"
+        required: true
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: Build harmonia .pkg and attach to release
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Compute version
+        id: ver
+        shell: bash
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            v="${{ github.event.inputs.version }}"
+          else
+            v="${GITHUB_REF_NAME#harmonia-v}"
+          fi
+          if ! printf '%s' "$v" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+'; then
+            echo "::error::version '$v' does not look like a semver"
+            exit 1
+          fi
+          echo "version=$v" >> $GITHUB_OUTPUT
+
+      - name: Cross-check Cargo.toml version matches tag
+        shell: bash
+        run: |
+          cargo_v=$(grep -m1 '^version' Cargo.toml | sed -E 's/.*"([^"]+)".*/\1/')
+          if [ "$cargo_v" != "${{ steps.ver.outputs.version }}" ]; then
+            echo "::error::Cargo.toml version ($cargo_v) does not match tag (${{ steps.ver.outputs.version }})"
+            exit 1
+          fi
+
+      - name: Build + package inside FreeBSD VM
+        uses: vmactions/freebsd-vm@v1
+        env:
+          VERSION: ${{ steps.ver.outputs.version }}
+        with:
+          release: "14.1"
+          usesh: true
+          envs: "VERSION"
+          prepare: |
+            pkg install -y rust git
+          run: |
+            set -eu
+
+            echo "==> Cargo build (release)"
+            export CARGO_HOME=/root/.cargo
+            export CARGO_TARGET_DIR=/tmp/target
+            cargo build --release -p harmonia --bin harmonia
+
+            echo "==> Stage rootfs"
+            STAGE=/tmp/stage-root
+            rm -rf $STAGE
+            mkdir -p $STAGE/usr/local/bin
+            mkdir -p $STAGE/usr/local/etc/rc.d
+            mkdir -p $STAGE/usr/local/share/harmonia
+            mkdir -p $STAGE/usr/local/share/licenses/harmonia-$VERSION
+
+            install -m 755 /tmp/target/release/harmonia $STAGE/usr/local/bin/harmonia
+            install -m 555 pkg/rc.d/harmonia $STAGE/usr/local/etc/rc.d/harmonia
+            install -m 644 pkg/config.toml.sample \
+                $STAGE/usr/local/share/harmonia/config.toml.sample
+            if [ -f LICENSE ]; then
+              install -m 644 LICENSE \
+                $STAGE/usr/local/share/licenses/harmonia-$VERSION/LICENSE
+            fi
+
+            echo "==> Stage manifest dir"
+            MDIR=/tmp/manifest
+            rm -rf $MDIR; mkdir -p $MDIR
+            sed "s/__VERSION__/$VERSION/g" pkg/+MANIFEST.tmpl > $MDIR/+MANIFEST
+            install -m 755 pkg/+PRE_INSTALL   $MDIR/+PRE_INSTALL
+            install -m 755 pkg/+POST_INSTALL  $MDIR/+POST_INSTALL
+            install -m 755 pkg/+PRE_DEINSTALL $MDIR/+PRE_DEINSTALL
+
+            echo "==> pkg create"
+            OUT=/tmp/out
+            rm -rf $OUT; mkdir -p $OUT
+            pkg create -M $MDIR/+MANIFEST -r $STAGE -o $OUT
+            ls -la $OUT
+
+            mkdir -p out
+            cp $OUT/harmonia-$VERSION.pkg out/
+
+            # Compute checksum so consumers (pot bake) can verify the
+            # downloaded artifact end-to-end. Both files go to the release.
+            ( cd out && sha256 harmonia-$VERSION.pkg > harmonia-$VERSION.pkg.sha256 )
+
+      - name: GitHub release
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            out/harmonia-${{ steps.ver.outputs.version }}.pkg
+            out/harmonia-${{ steps.ver.outputs.version }}.pkg.sha256
+          generate_release_notes: true
+
+      - name: Manual upload (workflow_dispatch)
+        if: github.event_name == 'workflow_dispatch'
+        uses: actions/upload-artifact@v4
+        with:
+          name: harmonia-${{ steps.ver.outputs.version }}.pkg
+          path: out/

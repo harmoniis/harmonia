@@ -21,6 +21,13 @@
         <false/>
     </dict>
 
+    <!-- Back off restarts so a permanently-failing harmonia doesn't spin in
+         a tight loop. With our non-zero exit-on-fatal-core-failure semantics
+         and KeepAlive.SuccessfulExit=false, launchd will only relaunch on a
+         non-zero exit, and at most once per ThrottleInterval seconds. -->
+    <key>ThrottleInterval</key>
+    <integer>30</integer>
+
     <key>StandardOutPath</key>
     <string>__HOME__/Library/Logs/Harmonia/harmonia.log</string>
 

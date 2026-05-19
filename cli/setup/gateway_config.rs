@@ -13,21 +13,15 @@ pub(crate) fn generate_gateway_config(enabled: &[&str]) -> String {
         ("tui", "target/release/libharmonia_tui", ":owner", "nil"),
         (
             "mqtt",
-            "target/release/libharmonia_mqtt_client",
-            ":authenticated",
+            "target/release/libharmonia_mqtt",
+            ":owner",
             "(:mqtt-broker-url :mqtt-cert)",
         ),
         (
-            "http2",
-            "target/release/libharmonia_http2_mtls",
+            "http3",
+            "target/release/libharmonia_http3",
             ":authenticated",
             "nil",
-        ),
-        (
-            "imessage",
-            "target/release/libharmonia_imessage",
-            ":authenticated",
-            "(:bluebubbles-server-url :bluebubbles-password)",
         ),
         (
             "whatsapp",
@@ -67,19 +61,13 @@ pub(crate) fn generate_gateway_config(enabled: &[&str]) -> String {
         ),
         (
             "email",
-            "target/release/libharmonia_email_client",
+            "target/release/libharmonia_email",
             ":authenticated",
             "nil",
         ),
         (
-            "mattermost",
-            "target/release/libharmonia_mattermost",
-            ":authenticated",
-            "nil",
-        ),
-        (
-            "nostr",
-            "target/release/libharmonia_nostr",
+            "sip",
+            "target/release/libharmonia_sip",
             ":authenticated",
             "nil",
         ),
@@ -97,13 +85,10 @@ pub(crate) fn generate_gateway_config(enabled: &[&str]) -> String {
         if *name == "signal" {
             extra.push_str("\n    :config-keys ((\"signal-frontend\" \"account\"))");
         }
-        if *name == "http2" {
+        if *name == "http3" {
             extra.push_str(
-                "\n    :config-keys ((\"http2-frontend\" \"bind\") (\"http2-frontend\" \"ca-cert\") (\"http2-frontend\" \"server-cert\") (\"http2-frontend\" \"server-key\") (\"http2-frontend\" \"trusted-client-fingerprints-json\"))",
+                "\n    :config-keys ((\"http3-frontend\" \"bind\") (\"http3-frontend\" \"ca-cert\") (\"http3-frontend\" \"server-cert\") (\"http3-frontend\" \"server-key\") (\"http3-frontend\" \"trusted-client-fingerprints-json\"))",
             );
-        }
-        if *name == "imessage" {
-            extra.push_str("\n    :platforms (:macos)");
         }
         entries.push(format!(
             "   (:name \"{name}\"\n    :so-path \"{path}.{so_ext}\"\n    :security-label {label}\n    :auto-load {auto_load}{extra}\n    :vault-keys {keys})",
@@ -134,8 +119,6 @@ pub(crate) fn resolve_configured_modules() -> Vec<String> {
         ("telegram", &["telegram-bot-token"]),
         ("slack", &["slack-bot-token", "slack-app-token"]),
         ("discord", &["discord-bot-token"]),
-        ("mattermost", &["mattermost-bot-token"]),
-        ("nostr", &["nostr-private-key"]),
         ("provider-router", &["openrouter-api-key"]),
     ];
 
@@ -152,17 +135,6 @@ pub(crate) fn resolve_configured_modules() -> Vec<String> {
         ("signal", "signal-frontend", "account"),
         ("email", "email-frontend", "imap-host"),
     ];
-
-    #[cfg(target_os = "macos")]
-    {
-        let macos_config_modules: &[(&str, &str, &str)] =
-            &[("imessage", "imessage-frontend", "server-url")];
-        for (module, component, key) in macos_config_modules {
-            if let Ok(Some(_)) = harmonia_config_store::get_config(component, "default", key) {
-                enabled.push(module.to_string());
-            }
-        }
-    }
 
     for (module, component, key) in config_modules {
         if let Ok(Some(_)) = harmonia_config_store::get_config(component, "default", key) {

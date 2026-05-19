@@ -129,14 +129,36 @@ async fn try_restart_component(
         )
         .await
         .map(|(r, _)| r),
-        "gateway" => Actor::spawn_linked(
-            Some(name.clone()),
-            crate::actors::GatewayActor,
-            (state.bridge.clone(), state.obs_actor.clone()),
-            myself.get_cell(),
-        )
-        .await
-        .map(|(r, _)| r),
+        "gateway" => {
+            let registry = state
+                .frontend_registry
+                .clone()
+                .unwrap_or_default();
+            let pgp = state
+                .transport_pgp
+                .clone()
+                .unwrap_or_default();
+            let Some(sender_policy) = state.sender_policy.clone() else {
+                eprintln!(
+                    "[ERROR] [runtime] cannot respawn GatewayActor: SenderPolicy actor missing"
+                );
+                return Ok(true);
+            };
+            Actor::spawn_linked(
+                Some(name.clone()),
+                crate::actors::GatewayActor,
+                (
+                    state.bridge.clone(),
+                    state.obs_actor.clone(),
+                    registry,
+                    pgp,
+                    sender_policy,
+                ),
+                myself.get_cell(),
+            )
+            .await
+            .map(|(r, _)| r)
+        }
         "tailnet" => Actor::spawn_linked(
             Some(name.clone()),
             crate::actors::TailnetActor,

@@ -32,6 +32,15 @@ pub struct RuntimeState {
     pub(super) dynamic_registry: Option<crate::dynamic_registry::SharedDynamicRegistry>,
     /// TopicBus for unsubscribing crashed actors and re-subscribing after restart.
     pub(super) topic_bus: Option<crate::topic_bus::SharedTopicBus>,
+    /// Trait-based frontend registry for restart-safe respawn of GatewayActor.
+    pub(super) frontend_registry: Option<crate::frontend_registry::FrontendRegistry>,
+    /// Shared PGP authenticator (trust-store + signer refs) — re-passed to
+    /// GatewayActor on respawn so the gateway-side authentication pass keeps
+    /// stamping `:auth-method` / `:auth-level` / `:auth-fp` after a crash.
+    pub(super) transport_pgp: Option<harmonia_transport_pgp::TransportPgp>,
+    /// Sender-policy actor — re-passed to GatewayActor on respawn so deny/allow
+    /// decisions over inbound envelopes survive a crash.
+    pub(super) sender_policy: Option<ActorRef<harmonia_gateway::SenderPolicyMsg>>,
 }
 
 impl RuntimeState {
@@ -52,6 +61,9 @@ impl RuntimeState {
             respawn_counts: HashMap::new(),
             dynamic_registry: None,
             topic_bus: None,
+            frontend_registry: None,
+            transport_pgp: None,
+            sender_policy: None,
         }
     }
 
