@@ -49,7 +49,7 @@ jobs:
         env:
           VERSION: ${{ steps.ver.outputs.version }}
         with:
-          release: "14.1"
+          release: "15.0"
           usesh: true
           envs: "VERSION"
           prepare: |
