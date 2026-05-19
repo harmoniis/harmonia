@@ -91,7 +91,7 @@ authors = ["Harmoniis <dev@harmoniis.com>"]
 
 [package]
 name = "harmonia"
-version = "0.2.1"
+version = "0.2.2"
 edition.workspace = true
 license.workspace = true
 repository.workspace = true
