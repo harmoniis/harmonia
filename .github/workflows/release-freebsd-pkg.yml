@@ -87,11 +87,20 @@ jobs:
             install -m 755 pkg/+POST_INSTALL  $MDIR/+POST_INSTALL
             install -m 755 pkg/+PRE_DEINSTALL $MDIR/+PRE_DEINSTALL
 
+            echo "==> Generate +PLIST from stage"
+            # pkg create with -M file mode + manifest-without-files{} packs only
+            # the manifest. The legacy -m manifestdir -p plistfile form does the
+            # right thing: every file under the stage dir is listed relative to
+            # the prefix (/usr/local), pkg discovers permissions + sha256.
+            ( cd $STAGE/usr/local && find . -type f | sed "s|^\./||" ) > $MDIR/+PLIST
+
             echo "==> pkg create"
             OUT=/tmp/out
             rm -rf $OUT; mkdir -p $OUT
-            pkg create -M $MDIR/+MANIFEST -r $STAGE -o $OUT
+            pkg create -m $MDIR -p $MDIR/+PLIST -r $STAGE -o $OUT
             ls -la $OUT
+            echo "==> contents"
+            tar -tf $OUT/harmonia-$VERSION.pkg | head -20
 
             mkdir -p out
             cp $OUT/harmonia-$VERSION.pkg out/
