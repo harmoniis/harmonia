@@ -432,8 +432,17 @@
   "Persist the routing tier (auto|eco|premium|free) to config-store and reload it, so
 the choice actually takes effect and survives restart. Closes the `/premium`-is-a-no-op
 gap: the tier now gates every selection path via %load-routing-tier."
+  ;; Persist under the config own-scope (component=scope='config'), the one write the
+  ;; config-store policy permits for this path; %load-routing-tier reads the same
+  ;; (scope='config', key='active-tier'). The tier now actually takes effect + persists.
   (when (fboundp 'config-set-for)
-    (config-set-for "router" "active-tier" tier-name))
+    (config-set-for "config" "active-tier" tier-name))
+  ;; Take effect immediately in-memory (config read-back can lag); persistence above
+  ;; survives restart, and %load-routing-tier no longer clobbers a set tier.
+  (setf *routing-tier* (cond ((string= tier-name "eco") :eco)
+                             ((string= tier-name "premium") :premium)
+                             ((string= tier-name "free") :free)
+                             (t :auto)))
   (%load-routing-tier)
   (format nil "[system] routing tier → ~A (~D models in pool)"
           (string-downcase (symbol-name *routing-tier*))

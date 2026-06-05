@@ -536,6 +536,11 @@ CONTEXT END")
         (error (e) (%log :warn "conductor" "chronicle-record-delegation failed: ~A" e))))
     (handler-case (harmonic-matrix-observe-route "orchestrator" used-tool t elapsed-ms estimated-cost)
       (error (e) (%log :warn "conductor" "matrix observe-route failed: ~A" e)))
+    ;; Record the orchestrator→model route too, so the matrix learns per-model
+    ;; experience that %matrix-gate-chain consults when selecting (closes the loop).
+    (when (and model (stringp model) (plusp (length model)))
+      (handler-case (harmonic-matrix-observe-route "orchestrator" model t elapsed-ms estimated-cost)
+        (error () nil)))
     (handler-case (%route-or-error used-tool "memory") (error () nil))
     (handler-case (harmonic-matrix-observe-route used-tool "memory" t 1) (error () nil))
     (handler-case (harmonic-matrix-log-event used-tool "output" "response" (%clip-text visible-response) t "") (error () nil))

@@ -22,15 +22,22 @@
   "Self-rewriting routing rules. Signalograd mutates at runtime.")
 
 (defun %load-routing-tier ()
-  "Load routing tier from config-store (persists across sessions)."
-  (let ((raw (and (fboundp 'config-get-for)
-                  (config-get-for "router" "active-tier"))))
-    (setf *routing-tier*
-          (cond
-            ((and raw (string= raw "eco")) :eco)
-            ((and raw (string= raw "premium")) :premium)
-            ((and raw (string= raw "free")) :free)
-            (t :auto)))))
+  "Load routing tier from config-store (persists across sessions). Stored under the
+config own-scope — the (component=scope) write the policy permits (see %syscmd-set-tier)."
+  (let* ((raw (and (fboundp 'config-get-for)
+                   (config-get-for "config" "active-tier")))
+         (parsed (cond
+                   ((and raw (string= raw "eco")) :eco)
+                   ((and raw (string= raw "premium")) :premium)
+                   ((and raw (string= raw "free")) :free)
+                   ((and raw (string= raw "auto")) :auto)
+                   (t nil))))
+    ;; Only override from a recognized persisted value. If the config read returns
+    ;; nothing (round-trip lag), KEEP the current in-memory tier rather than forcing
+    ;; :auto — so a /premium set by the operator actually sticks for the session.
+    (when parsed (setf *routing-tier* parsed))
+    (unless *routing-tier* (setf *routing-tier* :auto))
+    *routing-tier*))
 
 ;;; ===============================================================================
 ;;; MODEL POOL -- declarative, functional, tier-aware
@@ -160,7 +167,19 @@
   (let* ((pool (%tier-model-pool *routing-tier*))
          (task (%task-kind prompt))
          (scored (when pool (%score-and-rank-within-tier pool task))))
-    (or scored (list "cli:claude-code"))))
+    (or (%matrix-gate-chain scored) scored (list "cli:claude-code"))))
+
+(defun %matrix-gate-chain (models)
+  "Close the harmonic-matrix → routing loop: consult the matrix and return the ranked
+chain starting at the first model whose orchestrator-route it allows. Open policy —
+unknown routes pass, so a fresh pool is never starved; only matrix-learned constraints
+(topology / min-harmony) steer the pick. Lazy: stops at the first allowed (≈1 IPC)."
+  (when (and models (fboundp 'harmonic-matrix-route-allowed-p))
+    (or (member-if (lambda (m)
+                     (handler-case (funcall 'harmonic-matrix-route-allowed-p "orchestrator" m)
+                       (error () t)))
+                   models)
+        models)))
 
 ;;; --- Task Routing ---
 

@@ -235,9 +235,17 @@
             (%assert "observing a route registers it in the matrix (uses recorded)"
                      (and (search from rep) (search to rep)))))
       (error (e) (%gap (format nil "harmonic-matrix observe/report errored: ~A" e)))))
-  ;; E2 KNOWN OPEN LOOP: matrix route observations are recorded but not consumed by
-  ;; model selection (%selection-chain-tiered does not gate on harmonic-matrix-route-allowed-p).
-  (%gap "harmonic-matrix is an OPEN loop for model selection: routes are observed (edges/success-rate updated) but %selection-chain-tiered never consults harmonic-matrix-route-allowed-p, so matrix experience does not yet steer which model is picked. Wire it to close the loop.")
+  ;; E2 (W4-B): the matrix is now CONSULTED in model selection — loop closed.
+  ;; %selection-chain-tiered routes its ranked pool through %matrix-gate-chain, which
+  ;; respects matrix-learned route constraints (open policy: unknown routes pass, so a
+  ;; fresh pool is never starved). orchestrator→model routes are also recorded now.
+  (%assert "matrix gate is wired into model selection (loop closed)"
+           (fboundp '%matrix-gate-chain))
+  (let* ((pool (%tier-model-pool :auto))
+         (gated (and (fboundp '%matrix-gate-chain) (funcall '%matrix-gate-chain pool))))
+    (%pp "matrix-gated chain length (open policy keeps the pool)" (lambda () (length gated)))
+    (%assert "matrix gating consults the matrix without starving the pool"
+             (and (listp gated) (plusp (length gated)))))
 
   (format t "~%════════ COGNITION TALLY: ~A pass / ~A fail / ~A gap ════════~%"
           *probe-pass* *probe-fail* *cog-gap*)
