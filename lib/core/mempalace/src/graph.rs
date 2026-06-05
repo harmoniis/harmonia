@@ -1,6 +1,6 @@
 use harmonia_actor_protocol::MemoryError;
 
-use crate::{sexp_escape, current_epoch_ms, cfg_usize};
+use crate::{cfg_usize, current_epoch_ms, sexp_escape};
 
 // ── Types ──
 
@@ -67,13 +67,21 @@ pub struct KnowledgeGraph {
 
 impl KnowledgeGraph {
     pub fn new() -> Self {
-        Self { nodes: Vec::new(), edges: Vec::new(), offsets: vec![0], targets: Vec::new(), weights: Vec::new() }
+        Self {
+            nodes: Vec::new(),
+            edges: Vec::new(),
+            offsets: vec![0],
+            targets: Vec::new(),
+            weights: Vec::new(),
+        }
     }
 
     pub fn rebuild_csr(&mut self) {
         let n = self.nodes.len();
         let now = current_epoch_ms();
-        let valid_edges: Vec<(usize, usize, f64)> = self.edges.iter()
+        let valid_edges: Vec<(usize, usize, f64)> = self
+            .edges
+            .iter()
             .filter(|e| e.is_valid_at(now))
             .filter(|e| (e.source as usize) < n && (e.target as usize) < n)
             .flat_map(|e| {
@@ -81,10 +89,18 @@ impl KnowledgeGraph {
                 vec![(s, t, e.weight), (t, s, e.weight)].into_iter()
             })
             .collect();
-        let degree: Vec<usize> = valid_edges.iter()
-            .fold(vec![0usize; n], |mut deg, &(src, _, _)| { deg[src] += 1; deg });
+        let degree: Vec<usize> =
+            valid_edges
+                .iter()
+                .fold(vec![0usize; n], |mut deg, &(src, _, _)| {
+                    deg[src] += 1;
+                    deg
+                });
         self.offsets = std::iter::once(0)
-            .chain(degree.iter().scan(0usize, |acc, &d| { *acc += d; Some(*acc) }))
+            .chain(degree.iter().scan(0usize, |acc, &d| {
+                *acc += d;
+                Some(*acc)
+            }))
             .collect();
         let total = *self.offsets.last().unwrap_or(&0);
         self.targets = vec![0; total];
@@ -114,8 +130,15 @@ impl KnowledgeGraph {
         self.nodes.iter().position(|n| n.id == id)
     }
 
-    /// Restore a node from persisted Chronicle data (warm-start).
-    pub fn restore_node(&mut self, id: u32, kind: &str, label: &str, domain: &str, created_at: u64) {
+    /// Restore a node from the on-disk graph sexp checkpoint (warm-start).
+    pub fn restore_node(
+        &mut self,
+        id: u32,
+        kind: &str,
+        label: &str,
+        domain: &str,
+        created_at: u64,
+    ) {
         let node = GraphNode {
             id,
             kind: NodeKind::from_str(kind),
@@ -128,15 +151,24 @@ impl KnowledgeGraph {
         self.offsets.push(*self.offsets.last().unwrap_or(&0));
     }
 
-    /// Restore an edge from persisted Chronicle data (warm-start).
-    pub fn restore_edge(&mut self, source: u32, target: u32, kind: &str, weight: f64, confidence: f64) {
+    /// Restore an edge from the on-disk graph sexp checkpoint (warm-start).
+    pub fn restore_edge(
+        &mut self,
+        source: u32,
+        target: u32,
+        kind: &str,
+        weight: f64,
+        confidence: f64,
+        valid_from: u64,
+        valid_to: Option<u64>,
+    ) {
         let edge = GraphEdge {
             source,
             target,
             kind: EdgeKind::from_str(kind),
             weight,
-            valid_from: 0,
-            valid_to: None,
+            valid_from,
+            valid_to,
             confidence,
         };
         self.edges.push(edge);
@@ -146,7 +178,9 @@ impl KnowledgeGraph {
 // ── ConceptGraph trait implementation ──
 
 impl harmonia_actor_protocol::ConceptGraph for KnowledgeGraph {
-    fn node_count(&self) -> usize { self.nodes.len() }
+    fn node_count(&self) -> usize {
+        self.nodes.len()
+    }
 
     fn concept_index(&self, concept: &str) -> Option<usize> {
         self.find_node(concept)
@@ -162,14 +196,18 @@ impl harmonia_actor_protocol::ConceptGraph for KnowledgeGraph {
 
     fn degree(&self, node: usize) -> f64 {
         if node + 1 < self.offsets.len() {
-            self.weights[self.offsets[node]..self.offsets[node + 1]].iter().sum()
+            self.weights[self.offsets[node]..self.offsets[node + 1]]
+                .iter()
+                .sum()
         } else {
             0.0
         }
     }
 
     fn edge_weight(&self, from: usize, to: usize) -> f64 {
-        if from + 1 >= self.offsets.len() { return 0.0; }
+        if from + 1 >= self.offsets.len() {
+            return 0.0;
+        }
         let start = self.offsets[from];
         let end = self.offsets[from + 1];
         for idx in start..end {
@@ -189,20 +227,46 @@ pub fn add_node(
     label: &str,
     domain: Domain,
 ) -> Result<String, MemoryError> {
+    if let Some(existing_idx) = s.graph.find_node(label) {
+        let node = &s.graph.nodes[existing_idx];
+        return Ok(format!(
+            "(:ok :id {} :kind {} :label \"{}\" :domain {})",
+            node.id,
+            node.kind.to_sexp(),
+            sexp_escape(&node.label),
+            node.domain.to_sexp(),
+        ));
+    }
     let max_nodes = cfg_usize("max-nodes", 1024);
     if s.graph.nodes.len() >= max_nodes {
-        return Err(MemoryError::CapacityExceeded { kind: "nodes", limit: max_nodes });
-    }
-    if s.graph.find_node(label).is_some() {
-        return Err(MemoryError::DuplicateNode(label.into()));
+        return Err(MemoryError::CapacityExceeded {
+            kind: "nodes",
+            limit: max_nodes,
+        });
     }
     let id = s.graph.nodes.len() as u32;
     let node = GraphNode {
-        id, kind, label: label.to_string(), domain, created_at: current_epoch_ms(), properties: Vec::new(),
+        id,
+        kind,
+        label: label.to_string(),
+        domain,
+        created_at: current_epoch_ms(),
+        properties: Vec::new(),
     };
     s.graph.nodes.push(node);
     s.graph.offsets.push(*s.graph.offsets.last().unwrap_or(&0));
-    Ok(format!("(:ok :id {} :kind {} :label \"{}\" :domain {})", id, kind.to_sexp(), sexp_escape(label), domain.to_sexp()))
+    if let Err(e) = s.persist_graph() {
+        s.graph.nodes.pop();
+        s.graph.offsets.pop();
+        return Err(e);
+    }
+    Ok(format!(
+        "(:ok :id {} :kind {} :label \"{}\" :domain {})",
+        id,
+        kind.to_sexp(),
+        sexp_escape(label),
+        domain.to_sexp()
+    ))
 }
 
 pub fn add_edge(
@@ -214,15 +278,44 @@ pub fn add_edge(
 ) -> Result<String, MemoryError> {
     let n = s.graph.nodes.len();
     if source as usize >= n || target as usize >= n {
-        return Err(MemoryError::NodeNotFound(format!("id {source} or {target}")));
+        return Err(MemoryError::NodeNotFound(format!(
+            "id {source} or {target}"
+        )));
+    }
+    if let Some(edge) = s.graph.edges.iter().find(|e| {
+        e.source == source && e.target == target && e.kind == kind && e.valid_to.is_none()
+    }) {
+        return Ok(format!(
+            "(:ok :source {} :target {} :kind {} :weight {:.3})",
+            source,
+            target,
+            edge.kind.to_sexp(),
+            edge.weight,
+        ));
     }
     let edge = GraphEdge {
-        source, target, kind, weight: weight.clamp(0.0, 1.0),
-        valid_from: current_epoch_ms(), valid_to: None, confidence: 1.0,
+        source,
+        target,
+        kind,
+        weight: weight.clamp(0.0, 1.0),
+        valid_from: current_epoch_ms(),
+        valid_to: None,
+        confidence: 1.0,
     };
     s.graph.edges.push(edge);
     s.graph.rebuild_csr();
-    Ok(format!("(:ok :source {} :target {} :kind {} :weight {:.3})", source, target, kind.to_sexp(), weight))
+    if let Err(e) = s.persist_graph() {
+        s.graph.edges.pop();
+        s.graph.rebuild_csr();
+        return Err(e);
+    }
+    Ok(format!(
+        "(:ok :source {} :target {} :kind {} :weight {:.3})",
+        source,
+        target,
+        kind.to_sexp(),
+        weight
+    ))
 }
 
 pub fn find_tunnels(s: &mut crate::PalaceState) -> Result<String, MemoryError> {
@@ -231,7 +324,8 @@ pub fn find_tunnels(s: &mut crate::PalaceState) -> Result<String, MemoryError> {
     for e in &s.graph.edges {
         if e.kind == EdgeKind::Contains && e.is_valid_at(current_epoch_ms()) {
             let (si, ti) = (e.source as usize, e.target as usize);
-            if si < s.graph.nodes.len() && ti < s.graph.nodes.len()
+            if si < s.graph.nodes.len()
+                && ti < s.graph.nodes.len()
                 && s.graph.nodes[si].kind == NodeKind::Wing
                 && s.graph.nodes[ti].kind == NodeKind::Room
             {
@@ -239,19 +333,28 @@ pub fn find_tunnels(s: &mut crate::PalaceState) -> Result<String, MemoryError> {
             }
         }
     }
-    let tunnels: Vec<String> = room_wings.iter()
+    let tunnels: Vec<String> = room_wings
+        .iter()
         .filter(|(_, wings)| wings.len() >= 2)
         .filter_map(|(room_id, wings)| {
             let idx = *room_id as usize;
-            if idx >= s.graph.nodes.len() { return None; }
+            if idx >= s.graph.nodes.len() {
+                return None;
+            }
             let label = &s.graph.nodes[idx].label;
-            let wing_labels: Vec<String> = wings.iter()
+            let wing_labels: Vec<String> = wings
+                .iter()
                 .filter_map(|w| {
                     let i = *w as usize;
-                    (i < s.graph.nodes.len()).then(|| format!("\"{}\"", sexp_escape(&s.graph.nodes[i].label)))
+                    (i < s.graph.nodes.len())
+                        .then(|| format!("\"{}\"", sexp_escape(&s.graph.nodes[i].label)))
                 })
                 .collect();
-            Some(format!("(:room \"{}\" :wings ({}))", sexp_escape(label), wing_labels.join(" ")))
+            Some(format!(
+                "(:room \"{}\" :wings ({}))",
+                sexp_escape(label),
+                wing_labels.join(" ")
+            ))
         })
         .collect();
     Ok(format!("(:ok :tunnels ({}))", tunnels.join(" ")))
@@ -262,11 +365,22 @@ pub fn graph_stats(s: &crate::PalaceState) -> Result<String, MemoryError> {
     let valid_edges = s.graph.edges.iter().filter(|e| e.is_valid_at(now)).count();
     let counts = s.graph.nodes.iter().fold([0usize; 5], |mut c, n| {
         match n.kind {
-            NodeKind::Wing => c[0] += 1, NodeKind::Room => c[1] += 1,
-            NodeKind::Entity => c[2] += 1, NodeKind::Concept => c[3] += 1,
+            NodeKind::Wing => c[0] += 1,
+            NodeKind::Room => c[1] += 1,
+            NodeKind::Entity => c[2] += 1,
+            NodeKind::Concept => c[3] += 1,
             NodeKind::Tunnel => c[4] += 1,
         }
         c
     });
-    Ok(format!("(:ok :nodes {} :edges {} :wings {} :rooms {} :entities {} :concepts {} :tunnels {})", s.graph.nodes.len(), valid_edges, counts[0], counts[1], counts[2], counts[3], counts[4]))
+    Ok(format!(
+        "(:ok :nodes {} :edges {} :wings {} :rooms {} :entities {} :concepts {} :tunnels {})",
+        s.graph.nodes.len(),
+        valid_edges,
+        counts[0],
+        counts[1],
+        counts[2],
+        counts[3],
+        counts[4]
+    ))
 }

@@ -15,11 +15,22 @@
 ;;; ═══════════════════════════════════════════════════════════════════════
 
 (defun %is-sexp-output-p (text)
-  "Output starts with ( → it's code. Period. No false-positive filtering.
-   The model was told to output s-expressions. If it does, we eval.
-   If it doesn't, it's natural language — which is the final answer."
-  (and text (stringp text) (> (length text) 1)
-       (char= (char (string-trim '(#\Space #\Newline #\Return #\Tab) text) 0) #\()))
+  "True when TEXT starts with a REPL form whose operator is known.
+The boundary is structural: registered primitives plus evaluator special forms."
+  (when (and text (stringp text))
+    (let ((trimmed (string-trim '(#\Space #\Newline #\Return #\Tab) text)))
+      (and (> (length trimmed) 1)
+           (char= (char trimmed 0) #\()
+           (handler-case
+               (progn
+                 (%reject-reader-macros trimmed)
+                 (let ((*read-eval* nil)
+                       (*package* (find-package :harmonia)))
+                   (with-input-from-string (stream trimmed)
+                     (let ((form (read stream nil :eof)))
+                       (and (consp form)
+                            (%repl-known-operator-p (car form)))))))
+             (error () nil))))))
 
 (defun %reject-reader-macros (text)
   "Signal error if TEXT contains reader macro dispatch sequences.
@@ -29,16 +40,62 @@ Only #\\ (character literal) is benign; all others are rejected."
                   (not (char= (char text (1+ i)) #\\)))
           do (error "reader macro rejected: #~A" (char text (1+ i)))))
 
+(defun %repl-read-forms (text)
+  "Read all model forms as data in the restricted REPL package."
+  (%reject-reader-macros text)
+  (let ((*read-eval* nil)
+        (*package* (find-package :harmonia)))
+    (with-input-from-string (stream text)
+      (loop for form = (read stream nil :eof)
+            until (eq form :eof)
+            collect form))))
+
+(defun %repl-code-signature (text)
+  "Canonical structural signature used to detect a stalled REPL loop."
+  (with-output-to-string (out)
+    (dolist (form (%repl-read-forms text))
+      (write form :stream out :readably t)
+      (terpri out))))
+
+(defparameter *repl-observation-operators*
+  '(field status basin env introspect models chaos-risk)
+  "Read-only context calls whose raw result is not a user-facing answer.")
+
+(defun %repl-observation-only-p (text)
+  "True when every model form only inspects context."
+  (let ((forms (handler-case (%repl-read-forms text) (error () nil))))
+    (and forms
+         (every (lambda (form)
+                  (and (consp form)
+                       (member (car form) *repl-observation-operators* :test #'eq)))
+                forms))))
+
+(defun %repl-explicit-observation-request-p (user-text code)
+  "True when USER-TEXT names an observation primitive called by CODE."
+  (let ((words (%split-words user-text))
+        (forms (handler-case (%repl-read-forms code) (error () nil))))
+    (some (lambda (form)
+            (and (consp form)
+                 (member (car form) *repl-observation-operators* :test #'eq)
+                 (member (string-downcase (symbol-name (car form)))
+                         words
+                         :test #'string=)))
+          forms)))
+
 ;;; ═══════════════════════════════════════════════════════════════════════
 ;;; FORM EVALUATION — read in :harmonia package, eval restricted
 ;;; ═══════════════════════════════════════════════════════════════════════
 
 (defun %eval-all-forms (text)
-  "Parse text as restricted Lisp forms and evaluate each. Return combined results."
+  "Parse TEXT as restricted Lisp forms, evaluate each.
+   Returns (values OUTPUT ERRORED-P). ERRORED-P is true if any form raised a
+   condition or any result is an error s-expression — so the caller can score
+   the model honestly instead of treating an (:error ...) value as success."
   (%reject-reader-macros text)
   (let ((*read-eval* nil)
         (*package* (find-package :harmonia))  ;; symbols in our package for case dispatch
         (results '())
+        (errored nil)
         (env '()))
     (handler-case
         (with-input-from-string (stream text)
@@ -48,16 +105,16 @@ Only #\\ (character literal) is benign; all others are rejected."
                 do (let ((result (handler-case
                                      (%reval form env)
                                    (error (c)
+                                     (setf errored t)
                                      (format nil "(:error \"~A\")" (princ-to-string c))))))
-                     (%log :info "sexp-eval" "Eval: ~A → ~D chars"
-                           (subseq (princ-to-string form) 0
-                                   (min 60 (length (princ-to-string form))))
-                           (length (princ-to-string result)))
                      ;; Bound at DISPLAY time only — raw values flowed through let bindings intact.
-                     (push (%bound-result (princ-to-string result)) results))))
+                     (let ((printed (%bound-result (princ-to-string result))))
+                       (when (%error-form-p printed) (setf errored t))
+                       (push printed results)))))
       (error (c)
+        (setf errored t)
         (push (format nil "(:parse-error \"~A\")" (princ-to-string c)) results)))
-    (format nil "~{~A~%~}" (nreverse results))))
+    (values (format nil "~{~A~%~}" (nreverse results)) errored)))
 
 ;;; ═══════════════════════════════════════════════════════════════════════
 ;;; MODEL PERFORMANCE — the REPL rates models by how they use it
@@ -118,6 +175,9 @@ Only #\\ (character literal) is benign; all others are rejected."
 (defun %select-model-by-repl-perf (prompt)
   "Select best model by measured REPL performance. Purely data-driven."
   (declare (ignore prompt))
+  ;; Honor the persisted tier (same source as choose-model) so both selection paths
+  ;; agree — otherwise /premium would gate one path but not the other.
+  (when (fboundp '%load-routing-tier) (%load-routing-tier))
   (let* ((tier-pool (handler-case (%tier-model-pool *routing-tier*) (error () nil)))
          (all-pool (or tier-pool
                        (handler-case (%tier-model-pool :auto) (error () nil))
@@ -136,23 +196,48 @@ Only #\\ (character literal) is benign; all others are rejected."
 ;;; THE HARMONIC REPL — minimal, pure functional, drives any model
 ;;; ═══════════════════════════════════════════════════════════════════════
 
+(defparameter *repl-frame-examples*
+  '((field      . "(field)")
+    (recall     . "(recall \"topic\")")
+    (status     . "(status)")
+    (basin      . "(basin)")
+    (store      . "(store \"text to remember\")")
+    (exec       . "(exec \"uname -a\")")
+    (fetch      . "(fetch \"https://example.com\")")
+    (search     . "(search \"query\")")
+    (read-file  . "(read-file \"/path/to/file\")")
+    (grep       . "(grep \"pattern\" \"/path\")")
+    (python     . "(python \"print(2+2)\")"))
+  "Concrete call examples — the teaching surface for the restricted dialect.
+   Dumb models copy what they see verbatim, so we show exact calls with real
+   arguments, never lambda-list keywords. Rendered only for primitives that
+   actually exist in *primitive-dispatch* (computed, not asserted).")
+
+(defparameter *repl-frame-answer-examples*
+  '((field  . "(respond (field))")
+    (status . "(respond (status))")
+    (recall . "(respond (recall \"topic\"))")
+    (store  . "(respond (store \"text to remember\"))")
+    (exec   . "(respond (exec \"uname -a\"))")
+    (python . "(respond (python \"print(2+2)\"))"))
+  "Complete one-expression action-to-answer forms for weak models.")
+
 (defun %compute-repl-frame ()
-  "Generate REPL instruction frame from *primitive-dispatch*.
-   Compact: model reads this every round. Lists essential primitives with args-specs."
-  (let ((essential '(field recall status basin exec store
-                     fetch browse python search
-                     read-file grep markitdown datamine respond))
-        (parts '()))
-    (dolist (name essential)
-      (let ((prim (gethash name *primitive-dispatch*)))
-        (when prim
-          (push (format nil "(~(~A~)~A)" name
-                        (let ((s (repl-primitive-args-spec prim)))
-                          (if (or (null s) (string= s "()")) ""
-                              (format nil " ~A" s))))
-                parts))))
-    (format nil ";; Output ONE s-expression. (respond \"answer\") to finish.~%;; ~{~A~^ ~}~%;; (str a b) joins. (let ((x (fetch \"url\"))) (respond x)) chains.~%"
-            (nreverse parts))))
+  "REPL instruction frame — concrete call examples derived from the dispatch table.
+   No lambda-lists (&key/&optional/&rest): models echo them literally and fail."
+  (let ((lines '())
+        (answers '()))
+    (dolist (pair *repl-frame-examples*)
+      (when (gethash (car pair) *primitive-dispatch*)
+        (push (format nil ";;   ~A" (cdr pair)) lines)))
+    (dolist (pair *repl-frame-answer-examples*)
+      (when (and (%repl-known-operator-p 'respond)
+                 (gethash (car pair) *primitive-dispatch*))
+        (push (format nil ";;   ~A" (cdr pair)) answers)))
+    (format nil
+            ";; Restricted Lisp REPL. Reply with ONE s-expression, nothing else.~%;; Choose the call that directly advances the user request. Never repeat a completed call.~%;; Use EXACTLY these calls, with real arguments (no &key, no &optional):~%~{~A~%~};; Complete action-to-answer forms:~%~{~A~%~}"
+            (nreverse lines)
+            (nreverse answers))))
 
 ;; Computed at boot from *primitive-dispatch*. Identical every round — no model confusion.
 (defvar *repl-frame* nil "REPL instruction frame — computed from dispatch table.")
@@ -163,11 +248,11 @@ Only #\\ (character literal) is benign; all others are rejected."
   (unless *repl-frame* (setf *repl-frame* (%compute-repl-frame)))
   (if (or (null round) (= round 1))
       `(:prompt
-        (:system ,(format nil "~A REPL. Start with (field) for context." agent-name))
+        (:system ,(format nil "~A REPL. Complete the user request directly." agent-name))
         (:frame ,*repl-frame*)
         (:user ,user-text))
       `(:prompt
-        (:system ,(format nil "~A REPL. Previous eval returned:" agent-name))
+        (:system ,(format nil "~A REPL. Use the previous result, choose a different call, or respond." agent-name))
         (:context ,(%clip-prompt (or last-result "") 2000))
         (:frame ,*repl-frame*)
         (:user ,user-text))))
@@ -185,7 +270,7 @@ Only #\\ (character literal) is benign; all others are rejected."
           (:user    (format out ";; user: ~A" content)))))))
 
 (defun %repl-boot-prompt (agent-name user-text)
-  "L0 boot: REPL frame + user query. Start with (field) for context."
+  "L0 boot: REPL frame + user query."
   (%render-prompt (%build-repl-prompt agent-name user-text)))
 
 (defun %repl-continuation-prompt (round agent-name last-result user-text)
@@ -199,6 +284,39 @@ Only #\\ (character literal) is benign; all others are rejected."
   (let ((s (or text "")))
     (if (<= (length s) limit) s (subseq s 0 limit))))
 
+(defun %repl-usable-response-p (response)
+  (and (stringp response)
+       (plusp (length response))
+       (not (%error-form-p response))))
+
+(defun %record-repl-completion (user-text response model model-prompt latency-ms success)
+  "Record the actual model that completed one REPL task exactly once."
+  (when (and (stringp model) (plusp (length model)))
+    (let* ((task (handler-case (%task-kind user-text) (error () :general)))
+           (task-hint (string-downcase (symbol-name task)))
+           (cost-usd (handler-case
+                         (model-policy-estimate-cost-usd model model-prompt response)
+                       (error () 0.0)))
+           (harmony-score (handler-case (harmonic-score user-text response)
+                            (error () 0.0))))
+      (handler-case
+          (let ((*last-task-kind* task))
+            (model-policy-record-outcome
+             :model model :success success :latency-ms latency-ms
+             :harmony-score harmony-score :cost-usd cost-usd))
+        (error (e) (%log :warn "sexp-eval" "REPL model outcome failed: ~A" e)))
+      (handler-case
+          (chronicle-record-delegation
+           :task-hint task-hint :model model :backend "repl"
+           :reason "repl-completion" :escalated nil :cost-usd cost-usd
+           :latency-ms latency-ms :success success
+           :tokens-in (%token-estimate model-prompt)
+           :tokens-out (%token-estimate response))
+        (error (e) (%log :warn "sexp-eval" "REPL delegation record failed: ~A" e)))
+      (%pipeline-trace :repl-completion
+        :model model :task task-hint :success success :latency-ms latency-ms)
+      t)))
+
 (defun %orchestrate-repl (prompt &key (max-rounds *repl-max-rounds*))
   "ONE path. Boot prompt (L0) → send → eval → loop. Pure functional.
    No memory injected into prompt — model discovers via REPL primitives.
@@ -208,7 +326,15 @@ Only #\\ (character literal) is benign; all others are rejected."
                         (if (stringp prompt) prompt (princ-to-string prompt))))
          (current-prompt (%repl-boot-prompt (%agent-name) user-text))
          (round 0)
-         (last-eval-result nil))
+         (last-eval-result nil)
+         (last-presentable-result nil)
+         (attempted-model "")
+         (attempted-prompt "")
+         (completion-model "")
+         (completion-prompt "")
+         (completed-p nil)
+         (total-latency-ms 0)
+         (seen-code-signatures (make-hash-table :test 'equal)))
 
     (%log :info "sexp-eval" "REPL: len=~D user=[~A]"
           (length current-prompt)
@@ -220,108 +346,179 @@ Only #\\ (character literal) is benign; all others are rejected."
       :max-rounds max-rounds
       :routing-tier *routing-tier*)
 
-    ;; The (respond ...) primitive throws 'repl-respond to exit the loop.
-    ;; Both paths (throw and return-from) go through %repl-auto-store-and-return.
-    (%repl-auto-store-and-return user-text
-    (catch 'repl-respond
-      (loop while (< round max-rounds) do
-        (incf round)
-        (let ((round-prompt
-                (if (= round 1)
-                    current-prompt
-                    (%repl-continuation-prompt round (%agent-name) last-eval-result user-text)))
-              (used-model (or (handler-case (%select-model user-text) (error () nil)) ""))
-              (call-start (get-internal-real-time)))
+    ;; A single result path owns response delivery, memory, and routing feedback.
+    ;; The inner catch identifies successful (respond ...) exits without dynamic state.
+    (let* ((answer
+             (loop while (< round max-rounds) do
+               (incf round)
+               (let ((round-prompt
+                       (if (= round 1)
+                           current-prompt
+                           (%repl-continuation-prompt round (%agent-name) last-eval-result user-text)))
+                     (used-model (or (handler-case (%select-model user-text) (error () nil)) ""))
+                     (call-start (get-internal-real-time)))
+                 (setf attempted-model used-model
+                       attempted-prompt round-prompt)
 
-          ;; Trace prompt sent to LLM
-          (%pipeline-trace :repl-llm-prompt
-            :round round :model used-model
-            :prompt-len (length round-prompt)
-            :prompt-content (%clip-prompt round-prompt 800))
+                 (%pipeline-trace :repl-llm-prompt
+                   :round round :model used-model
+                   :prompt-len (length round-prompt)
+                   :prompt-content (%clip-prompt round-prompt 800))
 
-          ;; Resonance telemetry: capture system coherence state at every LLM call.
-          ;; Diagnostic-only — wrapped in handler-case so it can never break the call.
-          (handler-case
-              (when *runtime*
-                (let* ((proj (signalograd-current-projection *runtime*))
-                       (plan (getf (runtime-state-harmonic-context *runtime*) :plan)))
-                  (runtime-log *runtime* :repl-llm-call
-                               (list :round round
-                                     :model used-model
-                                     :prompt-len (length round-prompt)
-                                     :rewrite-ready (and plan (getf plan :ready))
-                                     :confidence (or (getf proj :confidence) 0.0)
-                                     :lambdoma-ratio (and plan (getf plan :lambdoma-ratio))
-                                     :chaos-risk (and plan (getf plan :chaos-risk))))))
-            (error () nil))
+                 (handler-case
+                     (when *runtime*
+                       (let* ((proj (signalograd-current-projection *runtime*))
+                              (plan (getf (runtime-state-harmonic-context *runtime*) :plan)))
+                         (runtime-log *runtime* :repl-llm-call
+                                      (list :round round
+                                            :model used-model
+                                            :prompt-len (length round-prompt)
+                                            :rewrite-ready (and plan (getf plan :ready))
+                                            :confidence (or (getf proj :confidence) 0.0)
+                                            :lambdoma-ratio (and plan (getf plan :lambdoma-ratio))
+                                            :chaos-risk (and plan (getf plan :chaos-risk))))))
+                   (error () nil))
 
-          (let ((llm-output
-                  (handler-case (backend-complete round-prompt used-model)
-                    (error (c)
-                      (%log :warn "sexp-eval" "REPL ~D error: ~A" round c)
-                      (%record-repl-perf used-model :error)
-                      nil)))
-                (latency-ms (truncate (* 1000 (/ (- (get-internal-real-time) call-start)
-                                                  (float internal-time-units-per-second))))))
-            (cond
-              ;; No response — model unavailable
-              ((null llm-output)
-               (%log :info "sexp-eval" "REPL ~D: LLM unavailable" round)
-               (%pipeline-trace :repl-round :round round :model used-model
-                 :response-type "unavailable" :response-len 0)
-               (%record-repl-perf used-model :unavailable :latency-ms latency-ms)
-               (when last-eval-result
-                 (return-from %orchestrate-repl
-                   (format nil "Based on what I found: ~A"
-                           (subseq last-eval-result 0
-                                   (min 800 (length last-eval-result))))))
-               (return-from %orchestrate-repl nil))
+                 (let* ((llm-output
+                          (handler-case (backend-complete round-prompt used-model)
+                            (error (c)
+                              (%log :warn "sexp-eval" "REPL ~D error: ~A" round c)
+                              (%record-repl-perf used-model :error)
+                              nil)))
+                        (latency-ms
+                          (truncate (* 1000 (/ (- (get-internal-real-time) call-start)
+                                                (float internal-time-units-per-second))))))
+                   (incf total-latency-ms latency-ms)
+                   (cond
+                     ((or (null llm-output)
+                          (and (stringp llm-output) (zerop (length llm-output))))
+                      (%log :info "sexp-eval" "REPL ~D: LLM unavailable" round)
+                      (%pipeline-trace :repl-round :round round :model used-model
+                        :response-type "unavailable" :response-len 0)
+                      (%record-repl-perf used-model :unavailable :latency-ms latency-ms)
+                      (return (or last-presentable-result
+                                  "I could not complete that within the available steps.")))
 
-              ;; Output starts with ( → code. Evaluate.
-              ((%is-sexp-output-p llm-output)
-               (%log :info "sexp-eval" "REPL ~D: evaluating code" round)
-               (%pipeline-trace :repl-sexp-generated
-                 :round round :model used-model
-                 :sexp-content (%clip-prompt llm-output 500)
-                 :latency-ms latency-ms)
-               (%pipeline-trace :repl-round :round round :model used-model
-                 :response-type "sexp-code" :response-len (length llm-output))
-               (let ((eval-result (handler-case (%eval-all-forms llm-output)
-                                    (error (e)
-                                      (%log :warn "sexp-eval" "REPL ~D: eval failed: ~A" round e)
-                                      nil))))
-                 (if (and eval-result (> (length eval-result) 0)
-                          (not (search "parse-error" eval-result)))
-                     (progn
-                       (setf last-eval-result eval-result)
-                       (%pipeline-trace :repl-sexp-eval-ok
-                         :round round :model used-model
-                         :eval-result (%clip-prompt eval-result 300))
-                       (%record-repl-perf used-model :code-ok :latency-ms latency-ms))
-                     (progn
-                       (%pipeline-trace :repl-sexp-eval-fail
-                         :round round :model used-model
-                         :sexp-attempted (%clip-prompt llm-output 200))
-                       (%record-repl-perf used-model :code-error :latency-ms latency-ms)
-                       ;; Error feeds back into the loop — model sees what failed
-                       (setf last-eval-result
-                             (or eval-result (format nil "(:eval-error \"~A\")" (%clip-prompt llm-output 100))))))))
+                     ((%is-sexp-output-p llm-output)
+                      (%log :info "sexp-eval" "REPL ~D: evaluating code" round)
+                      (%pipeline-trace :repl-sexp-generated
+                        :round round :model used-model
+                        :sexp-content (%clip-prompt llm-output 500)
+                        :latency-ms latency-ms)
+                      (%pipeline-trace :repl-round :round round :model used-model
+                        :response-type "sexp-code" :response-len (length llm-output))
+                      (let ((normal-eval-p nil)
+                            (eval-result nil)
+                            (errored nil))
+                        (let ((responded
+                                (catch 'repl-respond
+                                  (multiple-value-bind (result result-errored)
+                                      (let ((signature
+                                              (handler-case (%repl-code-signature llm-output)
+                                                (error () llm-output))))
+                                        (if (gethash signature seen-code-signatures)
+                                            (values "(:error \"repeated form; use the result, choose a different call, or respond\")"
+                                                    t)
+                                            (progn
+                                              (setf (gethash signature seen-code-signatures) t)
+                                              (handler-case (%eval-all-forms llm-output)
+                                                (error (e)
+                                                  (%log :warn "sexp-eval" "REPL ~D: eval failed: ~A" round e)
+                                                  (values nil t))))))
+                                    (setf normal-eval-p t
+                                          eval-result result
+                                          errored result-errored)
+                                    nil))))
+                          (if normal-eval-p
+                              (if (and eval-result (plusp (length eval-result)) (not errored))
+                                  (progn
+                                    (setf last-eval-result eval-result)
+                                    (when (or (not (%repl-observation-only-p llm-output))
+                                              (%repl-explicit-observation-request-p user-text llm-output))
+                                      (setf last-presentable-result eval-result
+                                            completion-model used-model
+                                            completion-prompt round-prompt
+                                            completed-p t))
+                                    (%pipeline-trace :repl-sexp-eval-ok
+                                      :round round :model used-model
+                                      :eval-result (%clip-prompt eval-result 300))
+                                    (%record-repl-perf used-model :code-ok :latency-ms latency-ms))
+                                  (progn
+                                    (%pipeline-trace :repl-sexp-eval-fail
+                                      :round round :model used-model
+                                      :sexp-attempted (%clip-prompt llm-output 200))
+                                    (%record-repl-perf used-model :code-error :latency-ms latency-ms)
+                                    (setf last-eval-result
+                                          (or eval-result
+                                              (format nil "(:eval-error \"~A\")"
+                                                      (%clip-prompt llm-output 100))))))
+                              (let ((response (if (stringp responded)
+                                                  responded
+                                                  (princ-to-string responded))))
+                                (setf completion-model used-model
+                                      completion-prompt round-prompt
+                                      completed-p (%repl-usable-response-p response))
+                                (%pipeline-trace :repl-sexp-eval-ok
+                                  :round round :model used-model
+                                  :eval-result (%clip-prompt response 300))
+                                (%record-repl-perf used-model :code-ok :latency-ms latency-ms)
+                                (return response))))))
 
-              ;; Natural language → final answer from model
-              (t
-               (%record-repl-perf used-model :natural :latency-ms latency-ms)
-               (%log :info "sexp-eval" "REPL ~D: response (~D chars)" round (length llm-output))
-               (%pipeline-trace :repl-round :round round :model used-model
-                 :response-type "natural-language" :response-len (length llm-output))
-               (%pipeline-trace :response-delivery
-                 :frontend (if (harmonia-signal-p prompt) (harmonia-signal-frontend prompt) "tui")
-                 :response-len (length llm-output) :model used-model :latency-ms latency-ms)
-               (return-from %orchestrate-repl
-                 (%repl-auto-store-and-return user-text llm-output)))))))))))
+                     (t
+                      (%record-repl-perf used-model :natural :latency-ms latency-ms)
+                      (%log :info "sexp-eval" "REPL ~D: response (~D chars)" round (length llm-output))
+                      (%pipeline-trace :repl-round :round round :model used-model
+                        :response-type "natural-language" :response-len (length llm-output))
+                      (setf completion-model used-model
+                            completion-prompt round-prompt
+                            completed-p (%repl-usable-response-p llm-output))
+                      (return llm-output)))))
+               finally
+                  (return (or (and last-presentable-result
+                                   (not (%error-form-p last-presentable-result))
+                                   last-presentable-result)
+                              "I could not complete that within the available steps."))))
+           (raw-answer (if (stringp answer) answer (princ-to-string answer)))
+           (clean (%repl-auto-store-and-return user-text raw-answer))
+           (success (and completed-p (%repl-usable-response-p clean)))
+           (outcome-model (if success completion-model attempted-model))
+           (outcome-prompt (if success completion-prompt attempted-prompt))
+           (recorded-p (%record-repl-completion
+                        user-text clean outcome-model outcome-prompt total-latency-ms success)))
+      (when success
+        (%pipeline-trace :response-delivery
+          :frontend (if (harmonia-signal-p prompt) (harmonia-signal-frontend prompt) "tui")
+          :response-len (length clean) :model outcome-model :latency-ms total-latency-ms))
+      (values clean
+              (list :outcome-recorded-p recorded-p
+                    :model outcome-model
+                    :llm-calls round
+                    :latency-ms total-latency-ms
+                    :success success
+                    :model-input-prompt outcome-prompt)))))
+
+(defun %repl-diagnostic-envelope-p (text)
+  "True when TEXT is wholly a raw tool-diagnostic envelope such as
+`(search: no results …)` or `(grep: no results)` — a colon-tagged observation a
+primitive emits, never a user-facing answer. Structural, not name-matched: one
+parenthesized form whose head is a bare lowercase word immediately followed by
+':'. Distinct from prose, from real calls like `(search \"x\")` (no colon), and
+from keyword plists like `(:status …)` (colon right after the paren)."
+  (let ((s (string-trim '(#\Space #\Newline #\Tab) (or text ""))))
+    (and (> (length s) 3)
+         (char= (char s 0) #\()
+         (char= (char s (1- (length s))) #\))
+         (let ((colon (position #\: s)))
+           (and colon (> colon 1)
+                (loop for i from 1 below colon
+                      for c = (char s i)
+                      always (or (char<= #\a c #\z) (char= c #\-))))))))
 
 (defun %sanitize-repl-response (response)
   "Strip REPL framing that leaked into the response. Structural only:
-   removes ;; comment lines (REPL frame echo). No agent-name matching."
+   removes ;; comment lines (REPL frame echo) and converts a bare tool-diagnostic
+   envelope (e.g. `(search: no results …)`) into a graceful line, so no internal
+   observation ever reaches the user as the answer. No agent-name matching."
   (if (and response (stringp response))
       (let ((cleaned response))
         ;; Strip leading ;; comment lines (REPL framing echo)
@@ -331,7 +528,10 @@ Only #\\ (character literal) is benign; all others are rejected."
                    (if nl
                        (setf cleaned (string-trim '(#\Space #\Newline) (subseq cleaned (1+ nl))))
                        (return))))
-        (if (> (length cleaned) 0) cleaned response))
+        (cond
+          ((%repl-diagnostic-envelope-p cleaned) "I couldn't find anything relevant for that.")
+          ((> (length cleaned) 0) cleaned)
+          (t response)))
       response))
 
 (defun %repl-auto-store-and-return (user-text response)

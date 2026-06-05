@@ -97,7 +97,7 @@
 (defun memory-semantic-recall-block (query &key (limit 5) (max-chars 1500))
   "Recall from memory field. If query produces no concepts after stopwords,
 fall back to high-depth entries — crystallized = structural = identity."
-  (let* ((results (or (memory-layered-recall query :limit limit)
+  (let* ((results (or (memory-recall query :limit limit)
                       ;; Fallback: high-depth entries (crystallized by dreaming or seeded by DNA).
                       (%memory-by-depth limit 1)
                       (memory-recent :limit limit)))

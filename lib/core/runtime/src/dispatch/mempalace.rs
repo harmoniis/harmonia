@@ -42,8 +42,14 @@ pub(crate) fn dispatch(
             let room_id = param_u64!(sexp,":room", 0) as u32;
             let tags_str = param!(sexp, ":tags");
             let tags: Vec<&str> = tags_str.split_whitespace().collect();
-            dispatch_op!("file-drawer", harmonia_mempalace::file_drawer(palace, &content, room_id, harmonia_mempalace::drawer::DrawerSource::Manual, &tags))
+            let entry_id = extract_sexp_string(sexp, ":entry-id").filter(|s| !s.is_empty());
+            let source = match entry_id {
+                Some(entry_id) => harmonia_mempalace::drawer::DrawerSource::Memory { entry_id },
+                None => harmonia_mempalace::drawer::DrawerSource::Manual,
+            };
+            dispatch_op!("file-drawer", harmonia_mempalace::file_drawer(palace, &content, room_id, source, &tags))
         }
+        "entry-ids" => dispatch_op!("entry-ids", harmonia_mempalace::entry_ids(palace)),
         "search" => {
             let query = param!(sexp, ":query");
             let room = param_u64!(sexp,":room", u64::MAX);

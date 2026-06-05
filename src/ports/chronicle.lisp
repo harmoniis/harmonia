@@ -62,8 +62,8 @@
           :lambdoma-global ,(coerce (or (getf global :global-score) 0.0) 'double-float)
           :lambdoma-local ,(coerce (or (getf local :local-score) 0.0) 'double-float)
           :lambdoma-ratio ,(coerce (or (getf projection :ratio) 0.0) 'double-float)
-          :lambdoma-convergent ,(if (getf projection :convergent-p) 1 0)
-          :rewrite-ready ,(if (and plan (getf plan :ready)) 1 0)
+          :lambdoma-convergent ,(if (getf projection :convergent-p) t nil)
+          :rewrite-ready ,(if (and plan (getf plan :ready)) t nil)
           :rewrite-count ,(or (getf plan :rewrite-count) 0)
           :security-posture ,(string-downcase (symbol-name (or (getf security :posture) :nominal)))
           :security-events ,(or (getf security :events) 0)
@@ -122,14 +122,14 @@
        (%sexp-to-ipc-string
         `(:component "chronicle" :op "record-delegation"
           :task-hint ,(or task-hint "")
-          :model ,(or model "unknown")
+          :model-chosen ,(or model "unknown")
           :backend ,(or backend "provider-router")
           :reason ,(or reason "")
-          :escalated ,(if escalated 1 0)
+          :escalated ,(if escalated t nil)
           :escalated-from ,(or escalated-from "")
           :cost-usd ,(coerce (or cost-usd 0.0) 'double-float)
           :latency-ms ,(or latency-ms 0)
-          :success ,(if success 1 0)
+          :success ,(if success t nil)
           :tokens-in ,(or tokens-in 0)
           :tokens-out ,(or tokens-out 0))))
     (error (e) (%log :warn "chronicle" "record-delegation failed: ~A" e))))
@@ -171,6 +171,22 @@
           :nodes-json ,nodes-json :edges-json ,edges-json))))
     (error (e) (%log :warn "chronicle" "record-graph-snapshot failed: ~A" e))))
 
+(defun chronicle-latest-graph-snapshot ()
+  "Read the most-recent concept-graph snapshot map from the chronicle. Returns the
+parsed memory-map plist (with :concept-nodes / :concept-edges), or nil when none
+exists. This is the durable capture the field warm-start merges back so learned
+edges (e.g. :meditation) survive a restart."
+  (handler-case
+      (let ((reply (ipc-call (%sexp-to-ipc-string
+                              '(:component "chronicle" :op "latest-graph")))))
+        (when (and reply (ipc-reply-ok-p reply))
+          (let* ((*read-eval* nil)
+                 (parsed (read-from-string reply))
+                 (plist (if (and (listp parsed) (eq (car parsed) :ok)) (cdr parsed) parsed))
+                 (map (getf plist :sexp)))
+            (when (and (listp map) map) map))))
+    (error (e) (%log :warn "chronicle" "latest-graph failed: ~A" e) nil)))
+
 (defun chronicle-record-signalograd-event (event-type &key cycle confidence stability novelty
                                                       reward accepted recall-hits checkpoint-path
                                                       checkpoint-digest detail)
@@ -185,7 +201,7 @@
         :stability ,(coerce (or stability 0.0) 'double-float)
         :novelty ,(coerce (or novelty 0.0) 'double-float)
         :reward ,(coerce (or reward 0.0) 'double-float)
-        :accepted ,(if accepted 1 0)
+        :accepted ,(if accepted t nil)
         :recall-hits ,(or recall-hits 0)
         :checkpoint-path ,(or checkpoint-path "")
           :checkpoint-digest ,(or checkpoint-digest "")
@@ -217,7 +233,7 @@
         :component ,(or component "")
         :detail ,(or detail "")
           :patch-size ,(or patch-size 0)
-          :success ,(if success 1 0))))
+          :success ,(if success t nil))))
     (error (e) (%log :warn "chronicle" "record-ouroboros-event failed: ~A" e))))
 
 ;;; --- Query API ---

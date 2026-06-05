@@ -29,6 +29,11 @@ pub(crate) fn dispatch(op: &str, sexp: &str) -> Option<String> {
                 .map(|s| format!("(:ok :result \"{}\")", esc(&s)))),
         "load-all-entries" => dispatch_op!("load-all-entries",
             harmonia_chronicle::memory::load_all_entries()),
+        "latest-graph" => dispatch_op!("latest-graph",
+            harmonia_chronicle::graph::latest_sexp().map(|opt| match opt {
+                Some(sexp) => format!("(:ok :sexp {sexp})"),
+                None => "(:ok :sexp nil)".to_string(),
+            })),
         "entry-count" => dispatch_op!("entry-count",
             harmonia_chronicle::memory::entry_count()
                 .map(|count| format!("(:ok :count {})", count))),

@@ -48,13 +48,12 @@ Returns a plist (:activations (...) :basin (...) :thomas (...)) or nil."
   (when (not (memory-field-port-ready-p))
     (return-from memory-field-recall nil))
   (let* ((concepts (%split-words (or query "")))
-         (access-sexp (%field-access-counts concepts))
-         (concepts-sexp (%list-to-sexp-strings concepts))
+         (access-counts (%field-access-counts concepts))
          (reply (ipc-call
                  (%sexp-to-ipc-string
                   `(:component "memory-field" :op "field-recall"
-                    :query-concepts ,concepts-sexp
-                    :access-counts ,access-sexp
+                    :query-concepts ,concepts
+                    :access-counts ,access-counts
                     :limit ,limit)))))
     (%parse-port-reply reply)))
 
@@ -149,6 +148,14 @@ Returns a plist (:activations (...) :basin (...) :thomas (...)) or nil."
             (when (and entry (< (memory-entry-depth entry) 3))
               (incf (memory-entry-depth entry))
               (incf crystallized-count))))))
+    ;; Forgetting: dream gently decays concept-edge weights so reinforcement stays
+    ;; bounded and adaptive (keeps weights spread below the saturation ceiling so the
+    ;; spectral recall retains variance). Pairs with the bounded reinforcement in
+    ;; concept-map.lisp — together they hold the field in a bounded dynamic equilibrium.
+    (when (fboundp '%decay-concept-edges) (funcall '%decay-concept-edges))
+    ;; Emergent domain inheritance (off the hot indexing path): :generic concepts
+    ;; acquire the dominant domain of their neighbours. Cheap on the capped edge set.
+    (when (fboundp '%refine-generic-domains) (funcall '%refine-generic-domains))
     (%log :info "dream" "Applied: ~D merged, ~D pruned, ~D crystallized (stats: ~A)"
           merged-count pruned-count crystallized-count stats)
     (list :pruned pruned-count :merged merged-count :crystallized crystallized-count)))
@@ -211,7 +218,7 @@ Returns a plist (:activations (...) :basin (...) :thomas (...)) or nil."
       (+ (* count decay) access-sum))))
 
 (defun %serialize-field-nodes ()
-  "Serialize *memory-concept-nodes* as sexp for the field engine.
+  "Return *memory-concept-nodes* as nested s-expression data for the field engine.
    Nodes are sorted by priority so Rust's MAX_NODES truncation drops the
    lowest-priority concepts, not arbitrary hash-iteration-order ones.
    Must be called under with-memory-lock — walks *memory-store* too."
@@ -221,18 +228,16 @@ Returns a plist (:activations (...) :basin (...) :thomas (...)) or nil."
                (declare (ignore _))
                (push (cons (%node-priority node now) node) pairs))
              *memory-concept-nodes*)
-    (let* ((sorted (mapcar #'cdr (sort pairs #'> :key #'car)))
-           (items (mapcar (lambda (node)
-                            (%sexp-to-ipc-string
-                             `(:concept ,(getf node :concept)
-                               :domain ,(princ-to-string (getf node :domain))
-                               :count ,(getf node :count)
-                               :entries ,(getf node :entries))))
-                          sorted)))
-      (format nil "(~{~A~^ ~})" items))))
+    (mapcar (lambda (node)
+              `(:concept ,(getf node :concept)
+                :domain ,(string-downcase
+                          (symbol-name (or (getf node :domain) :generic)))
+                :count ,(getf node :count)
+                :entries ,(getf node :entries)))
+            (mapcar #'cdr (sort pairs #'> :key #'car)))))
 
 (defun %serialize-field-edges ()
-  "Serialize *memory-concept-edges* as sexp for the field engine.
+  "Return *memory-concept-edges* as nested s-expression data for the field engine.
    Includes directed weights for A-B topological flux computation."
   (let ((items '()))
     (maphash (lambda (_ edge)
@@ -243,19 +248,18 @@ Returns a plist (:activations (...) :basin (...) :thomas (...)) or nil."
                       (rev-key (format nil "~A>~A" b a))
                       (fwd (or (gethash fwd-key *memory-concept-directed-counts*) 0))
                       (rev (or (gethash rev-key *memory-concept-directed-counts*) 0)))
-                 (push (%sexp-to-ipc-string
-                        `(:a ,a
-                          :b ,b
-                          :weight ,(getf edge :weight)
-                          :interdisciplinary ,(if (getf edge :interdisciplinary) t nil)
-                          :forward-weight ,(max 1 fwd)
-                          :reverse-weight ,(max 1 rev)))
+                 (push `(:a ,a
+                         :b ,b
+                         :weight ,(getf edge :weight)
+                         :interdisciplinary ,(if (getf edge :interdisciplinary) t nil)
+                         :forward-weight ,(max 1 fwd)
+                         :reverse-weight ,(max 1 rev))
                        items)))
              *memory-concept-edges*)
-    (format nil "(~{~A~^ ~})" items)))
+    items))
 
 (defun %field-access-counts (concepts)
-  "Build access-count sexp for field recall, including last-access time for temporal decay."
+  "Return access-count data for field recall, including temporal decay input."
   (let ((items '())
         (now (get-universal-time)))
     (dolist (c concepts)
@@ -267,12 +271,7 @@ Returns a plist (:activations (...) :basin (...) :thomas (...)) or nil."
               (let ((entry (gethash eid *memory-store*)))
                 (when (and entry (memory-entry-last-access entry))
                   (setf max-access (max max-access (memory-entry-last-access entry))))))
-            (push (%sexp-to-ipc-string
-                   `(:concept ,c :count ,(getf node :count)
-                     :last-access ,(if (> max-access 0) max-access now)))
+            (push `(:concept ,c :count ,(getf node :count)
+                    :last-access ,(if (> max-access 0) max-access now))
                   items)))))
-    (format nil "(~{~A~^ ~})" items)))
-
-(defun %list-to-sexp-strings (lst)
-  "Format a list of strings as sexp string list."
-  (%sexp-to-ipc-string (or lst '())))
+    items))

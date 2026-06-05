@@ -124,13 +124,19 @@ pub fn load_all_entries() -> Result<String, String> {
 
     for row in rows {
         if let Ok((id, ts, content, tags, source_ids, access_count, last_access)) = row {
+            // Use the canonical sexp escape from actor-protocol so every
+            // emitter in the codebase uses the same `\\` / `\"` rules SBCL
+            // expects. The previous half-escape (`"` only + a `\n` pun)
+            // silently corrupted load-all-entries the moment any row had
+            // a backslash, dropping every entry after it on the Lisp side.
+            let esc = harmonia_actor_protocol::sexp_escape;
             entries.push(format!(
                 "(:id \"{}\" :ts {} :content \"{}\" :tags \"{}\" :source-ids \"{}\" :access-count {} :last-access {})",
-                id.replace('"', "\\\""),
+                esc(&id),
                 ts,
-                content.replace('"', "\\\"").replace('\n', "\\n"),
-                tags,
-                source_ids,
+                esc(&content),
+                esc(&tags),
+                esc(&source_ids),
                 access_count,
                 last_access.unwrap_or(0),
             ));

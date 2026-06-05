@@ -4,10 +4,7 @@
 
 use super::{esc, param};
 
-pub(crate) fn dispatch(
-    sexp: &str,
-    state: &mut harmonia_signalograd::KernelState,
-) -> String {
+pub(crate) fn dispatch(sexp: &str, state: &mut harmonia_signalograd::KernelState) -> String {
     let op = harmonia_actor_protocol::extract_sexp_string(sexp, ":op").unwrap_or_default();
 
     // Parse command from sexp.
@@ -37,7 +34,10 @@ pub(crate) fn dispatch(
 }
 
 fn is_mutating(op: &str) -> bool {
-    matches!(op, "observe" | "feedback" | "reset" | "checkpoint" | "restore")
+    matches!(
+        op,
+        "observe" | "feedback" | "reset" | "checkpoint" | "restore"
+    )
 }
 
 fn parse_command(sexp: &str, op: &str) -> Option<harmonia_signalograd::SignalogradCmd> {
@@ -45,14 +45,16 @@ fn parse_command(sexp: &str, op: &str) -> Option<harmonia_signalograd::Signalogr
     match op {
         "init" => Some(SignalogradCmd::Status), // init is a no-op, return status
         "observe" => {
-            let raw = param!(sexp, ":observation");
+            let raw = harmonia_actor_protocol::extract_sexp_form(sexp, ":observation")
+                .unwrap_or_default();
             match harmonia_signalograd::parse_observation(&raw) {
                 Ok(obs) => Some(SignalogradCmd::Observe(obs)),
                 Err(_) => None,
             }
         }
         "feedback" => {
-            let raw = param!(sexp, ":feedback");
+            let raw =
+                harmonia_actor_protocol::extract_sexp_form(sexp, ":feedback").unwrap_or_default();
             match harmonia_signalograd::parse_feedback(&raw) {
                 Ok(fb) => Some(SignalogradCmd::ApplyFeedback(fb)),
                 Err(_) => None,
@@ -63,13 +65,41 @@ fn parse_command(sexp: &str, op: &str) -> Option<harmonia_signalograd::Signalogr
         "reset" => Some(SignalogradCmd::Reset),
         "checkpoint" => {
             let path_str = param!(sexp, ":path");
-            Some(SignalogradCmd::Checkpoint(std::path::PathBuf::from(path_str.trim())))
+            Some(SignalogradCmd::Checkpoint(std::path::PathBuf::from(
+                path_str.trim(),
+            )))
         }
         "restore" => {
             let path_str = param!(sexp, ":path");
-            Some(SignalogradCmd::Restore(std::path::PathBuf::from(path_str.trim())))
+            Some(SignalogradCmd::Restore(std::path::PathBuf::from(
+                path_str.trim(),
+            )))
         }
         "save" => Some(SignalogradCmd::SaveToDisk),
         _ => None,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use harmonia_signalograd::SignalogradCmd;
+
+    #[test]
+    fn parse_observe_accepts_nested_observation_form() {
+        let cmd = parse_command(
+            "(:component \"signalograd\" :op \"observe\" :observation (:signalograd-observe :cycle 7 :signal 0.7 :stability 0.8 :novelty 0.2 :security-posture \"nominal\"))",
+            "observe",
+        )
+        .expect("observe command");
+
+        match cmd {
+            SignalogradCmd::Observe(obs) => {
+                assert_eq!(obs.cycle, 7);
+                assert_eq!(obs.signal, 0.7);
+                assert_eq!(obs.security_posture, "nominal");
+            }
+            _ => panic!("expected observe command"),
+        }
     }
 }

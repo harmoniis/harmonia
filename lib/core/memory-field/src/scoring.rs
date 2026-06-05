@@ -1,8 +1,9 @@
-/// Activation scoring — combines field potential, eigenmode projection,
-/// heat kernel propagation, basin membership, topological flux, and access
-/// count into a single recall activation score.
+/// Activation scoring — combines query boundaries, field potential, eigenmode
+/// projection, heat kernel propagation, basin membership, topological flux,
+/// and access count into a single recall activation score.
 ///
-/// Legacy:  activation[i] = field_w × field + eigen_w × eigenmode + basin_w × basin + 0.10 × access
+/// Query sources are unit Dirichlet boundary conditions. Other nodes use:
+/// Without heat kernel: activation[i] = field_w × field + eigen_w × eigenmode + basin_w × basin + 0.10 × access
 /// Holographic: activation[i] = 0.25 × field + 0.15 × eigen + 0.20 × heat_kernel + 0.20 × basin + 0.10 × topo_flux + 0.10 × access
 
 use crate::error::clamp;
@@ -111,6 +112,7 @@ pub(crate) fn compute_activation(
     heat_kernel_activation: Option<&[f64]>,
     topological_flux: Option<&[f64]>,
     basin_affinity: &[f64],
+    source_activation: &[f64],
     access_counts: &[f64],
     n: usize,
     threshold: f64,
@@ -138,11 +140,16 @@ pub(crate) fn compute_activation(
     let mut activations: Vec<Activation> = (0..n)
         .map(|i| {
             let affinity = if i < basin_affinity.len() { clamp(basin_affinity[i], 0.0, 1.0) } else { 0.15 };
+            let source = source_activation.get(i).copied().unwrap_or(0.0) > 0.0;
             let access = if i < access_counts.len() { clamp(access_counts[i], 0.0, 1.0) } else { 0.0 };
             let tf = if let Some(ref tfn) = topo_flux_norm { if i < tfn.len() { tfn[i] } else { 0.0 } } else { 0.0 };
             Activation {
                 node_index: i,
-                score: score_node(phi_norm[i], eigen_norm[i], hk_norm[i], affinity, access, tf, &weights),
+                score: if source {
+                    1.0
+                } else {
+                    score_node(phi_norm[i], eigen_norm[i], hk_norm[i], affinity, access, tf, &weights)
+                },
             }
         })
         .filter(|a| a.score >= threshold)
@@ -187,6 +194,7 @@ mod tests {
         let eigen = vec![0.6, 0.4, 0.5];
         // Node 0: in-basin (1.0), node 1: out-of-basin (0.15), node 2: in-basin (1.0)
         let basin_affinity = vec![1.0, 0.15, 1.0];
+        let sources = vec![0.0; 3];
         let access = vec![0.5, 0.5, 0.5];
 
         let results = compute_activation(
@@ -195,6 +203,7 @@ mod tests {
             None,
             None,
             &basin_affinity,
+            &sources,
             &access,
             3,
             0.0,
@@ -216,15 +225,35 @@ mod tests {
         let phi = vec![0.1, 0.9];
         let eigen = vec![0.1, 0.9];
         let basin_affinity = vec![1.0, 1.0];
+        let sources = vec![0.0; 2];
         let access = vec![0.0, 0.0];
 
         let results =
-            compute_activation(&phi, &eigen, None, None, &basin_affinity, &access, 2, 0.5, 100);
+            compute_activation(&phi, &eigen, None, None, &basin_affinity, &sources, &access, 2, 0.5, 100);
 
         // With a high threshold, only the high-scoring node should pass.
         assert!(results.len() <= 2);
         if results.len() == 1 {
             assert_eq!(results[0].node_index, 1);
         }
+    }
+
+    #[test]
+    fn query_source_is_unit_boundary_condition() {
+        let results = compute_activation(
+            &[0.0, 1.0],
+            &[0.0, 1.0],
+            None,
+            None,
+            &[0.0, 1.0],
+            &[1.0, 0.0],
+            &[0.0, 0.0],
+            2,
+            0.0,
+            100,
+        );
+
+        assert_eq!(results[0].node_index, 0);
+        assert_eq!(results[0].score, 1.0);
     }
 }

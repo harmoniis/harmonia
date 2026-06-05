@@ -363,7 +363,7 @@ CONTEXT END")
   (let ((used-tool "provider-router") (llm-calls 0) (tool-calls 0)
         (datasource-count 1) (intermediate-tokens 0) (mode :llm)
         (swarm-recorded-p nil) (swarm-best-cost 0.0) (selection-trace "")
-        (model-input-prompt llm-prompt) (response nil))
+        (outcome-recorded-p nil) (model-input-prompt llm-prompt) (response nil))
     (setf response
           (handler-case
               (block %orchestrate-execute-dispatch
@@ -392,11 +392,17 @@ CONTEXT END")
                           (trace-event "delegation-direct" :chain
                                        :metadata (list :model (model-policy-orchestrator-model)
                                                        :reason "internal-question")))
-                        (setf used-tool "orchestrator-direct" mode :direct llm-calls 1
-                              model (model-policy-orchestrator-model))
+                        (setf used-tool "orchestrator-direct" mode :direct)
                         (%trace-conductor-decision :direct model prompt "internal-question/owner")
-                        (return-from %orchestrate-execute-dispatch
-                          (%orchestrator-answer-directly prompt)))
+                        (multiple-value-bind (direct-response repl-outcome)
+                            (%orchestrator-answer-directly prompt)
+                          (setf outcome-recorded-p (getf repl-outcome :outcome-recorded-p)
+                                model (or (getf repl-outcome :model)
+                                          (model-policy-orchestrator-model))
+                                llm-calls (or (getf repl-outcome :llm-calls) 1)
+                                model-input-prompt (or (getf repl-outcome :model-input-prompt)
+                                                       model-input-prompt))
+                          (return-from %orchestrate-execute-dispatch direct-response)))
                       (let ((orch-chain nil) (orch-max-subagents nil))
                         (if (model-policy-orchestrator-enabled-p)
                             (let ((task (%task-kind prompt)))
@@ -476,6 +482,7 @@ CONTEXT END")
           :llm-calls llm-calls :tool-calls tool-calls
           :datasource-count datasource-count :intermediate-tokens intermediate-tokens
           :swarm-recorded-p swarm-recorded-p :swarm-best-cost swarm-best-cost
+          :outcome-recorded-p outcome-recorded-p
           :selection-trace selection-trace :model-input-prompt model-input-prompt)))
 
 (defun %record-orchestration-outcome (result model prompt safe-prompt started-at)
@@ -490,6 +497,7 @@ CONTEXT END")
          (intermediate-tokens (getf result :intermediate-tokens))
          (swarm-recorded-p (getf result :swarm-recorded-p))
          (swarm-best-cost (getf result :swarm-best-cost))
+         (outcome-recorded-p (getf result :outcome-recorded-p))
          (selection-trace (getf result :selection-trace))
          (model-input-prompt (getf result :model-input-prompt))
          (raw-response (if (stringp response) response (princ-to-string response)))
@@ -514,12 +522,12 @@ CONTEXT END")
                                    :tool used-tool :elapsed-ms elapsed-ms)))
     (when (and *runtime* llm-ran) (setf (runtime-state-active-model *runtime*) model))
     (memory-record-tool-usage used-tool :latency-ms elapsed-ms :success t)
-    (when (and llm-ran (not swarm-recorded-p))
+    (when (and llm-ran (not swarm-recorded-p) (not outcome-recorded-p))
       (handler-case
           (model-policy-record-outcome :model model :success t :latency-ms elapsed-ms
                                        :harmony-score score :cost-usd estimated-cost)
         (error (e) (%log :warn "conductor" "model-policy-record-outcome failed: ~A" e))))
-    (when llm-ran
+    (when (and llm-ran (not outcome-recorded-p))
       (handler-case
           (chronicle-record-delegation
            :task-hint (string-downcase (symbol-name mode)) :model model :backend used-tool

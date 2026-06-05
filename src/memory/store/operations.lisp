@@ -88,13 +88,13 @@
 
 (defun memory-put (class content &key (depth 0) (tags '()) (source-ids '()))
   "Store a memory entry with layer-separated routing.
-   L1 Field:    :soul, :skill, :genesis → concept graph (global context)
+   L1 Field:    policy-selected classes → concept graph (global context)
    L2 Chronicle: ALL classes → persistent system log
-   L3 Palace:   :daily, :interaction, :skill(depth>0) → user knowledge drawers
+   L3 Palace:   policy-selected user knowledge → graph + drawers
    Thread-safe: RAM mutations under lock, IPC outside lock."
   (unless (%memory-should-store-p class content depth)
     (return-from memory-put nil))
-  (let (id now all-tags)
+  (let (id now all-tags indexed-concepts)
     (with-memory-lock ()
       (incf *memory-seq*)
       (setf now (get-universal-time))
@@ -106,22 +106,21 @@
                                        :access-count 0 :last-access nil)))
         (setf (gethash id *memory-store*) entry)
         (%push-class-id class id)
-        ;; L1: Only index global context into concept graph (soul/skill/genesis).
+        ;; L1: policy-selected classes enter the field graph.
         (when (%field-indexable-p class)
-          (%index-entry-concepts id class depth content :tags all-tags))))
+          (setf indexed-concepts
+                (%index-entry-concepts id class depth content :tags all-tags)))))
     ;; L2: ALL entries persist to Chronicle (system log).
     (handler-case (%persist-entry-to-chronicle id now content all-tags source-ids)
       (error (e) (%log :warn "memory" "Persist failed for ~A: ~A" id e)))
-    ;; L3: User knowledge → Palace drawers. Rooms created on demand.
+    ;; L3: User knowledge → palace graph + drawers. IPC outside the memory lock.
     (when (and (%palace-worthy-p class depth)
-               (fboundp '%palace-ensure-room))
+               (fboundp '%palace-file-memory-entry))
       (handler-case
-          (let ((room-id (funcall '%palace-ensure-room
-                                   (funcall '%palace-room-for-class class))))
-            (when room-id
-              (funcall 'palace-file-drawer content room-id
-                       :tags (mapcar (lambda (tg) (string-downcase (symbol-name tg)))
-                                     (remove-if-not #'keywordp all-tags)))))
+          (funcall '%palace-file-memory-entry class content
+                   :tags all-tags
+                   :concepts indexed-concepts
+                   :id id)
         (error () nil)))
     ;; Reload field graph on every field-indexable put. Serialization now
     ;; happens under the memory lock (see memory-field-load-graph), so
@@ -135,6 +134,49 @@
                        (if (%palace-worthy-p class depth) "+palace" ""))
       :content-len (length content))
     id))
+
+(defun %palace-reconcile-from-memory ()
+  "Boot reconciliation. Chronicle (L2) is the durable record; the palace (L3) is a
+projection that warm-starts from its own disk journal, then converges here: file
+into the palace exactly the chronicle-loaded entries it lacks, keyed strictly on
+entry-id. This is idempotent — it never re-files an entry the palace already holds,
+so it closes the mid-`memory-put` crash window without ever duplicating a drawer.
+Returns the number of entries filed."
+  (unless (and (fboundp 'palace-entry-ids)
+               (fboundp 'mempalace-port-ready-p) (funcall 'mempalace-port-ready-p)
+               (fboundp '%palace-file-memory-entry))
+    (return-from %palace-reconcile-from-memory 0))
+  (let ((have (funcall 'palace-entry-ids))
+        (missing '()))
+    ;; Collect under the lock; do IPC filing outside it (mirror memory-put).
+    ;; Note: an entry whose content is below the engine's drawer minimum never
+    ;; gains a Memory drawer, so it stays "missing" and is re-attempted each boot.
+    ;; This is outcome-idempotent (it files no drawer and the count returns 0),
+    ;; only a cheap rebuild of its already-deduped nodes — bounded, not a leak.
+    (with-memory-lock ()
+      (maphash
+       (lambda (id entry)
+         (when (and (%palace-worthy-p (memory-entry-class entry) (memory-entry-depth entry))
+                    (not (gethash (princ-to-string id) have)))
+           (push (list id (memory-entry-class entry)
+                       (memory-entry-content entry) (memory-entry-tags entry))
+                 missing)))
+       *memory-store*))
+    (let ((filed 0))
+      (dolist (m missing)
+        (destructuring-bind (id class content tags) m
+          (handler-case
+              ;; Count only entries that actually produced a drawer. Entries the
+              ;; engine declines (e.g. degenerate content) never gain a Memory
+              ;; drawer, so they stay "missing" — counting them would make the
+              ;; reconciliation report phantom work on every boot.
+              (let ((res (funcall '%palace-file-memory-entry class content
+                                  :tags tags :concepts nil :id id)))
+                (when (getf res :drawer-filed) (incf filed)))
+            (error (e) (%log :warn "palace" "reconcile ~A failed: ~A" id e)))))
+      (when (> filed 0)
+        (%log :info "palace" "Reconciled ~D missing palace entries from chronicle." filed))
+      filed)))
 
 ;; memory-seed-soul-from-dna is defined in dna.lisp — the DNA is the source of seeds.
 
@@ -172,31 +214,24 @@
               :tags (list :tool-metric)))
 
 (defun %populate-palace-from-memory ()
-  "File high-value memory entries as palace drawers. Called at boot.
-   Only entries with depth >= 1 (crystallized/identity) are filed."
+  "File high-value memory entries into the palace. Called at boot."
   (let ((filed 0))
     (maphash (lambda (id entry)
                (declare (ignore id))
                (when (and (>= (memory-entry-depth entry) 1)
                           (stringp (memory-entry-content entry))
                           (> (length (memory-entry-content entry)) 30)
-                          (fboundp 'palace-file-drawer))
+                          (fboundp '%palace-file-memory-entry))
                  (handler-case
-                     (let* ((class (memory-entry-class entry))
-                            (room-id (when (fboundp '%palace-ensure-room)
-                                       (funcall '%palace-ensure-room
-                                                (funcall '%palace-room-for-class class))))
-                            (tags (memory-entry-tags entry))
-                            (tag-strings (mapcar (lambda (tg)
-                                                   (string-downcase (symbol-name tg)))
-                                                 (remove-if-not #'keywordp tags))))
-                       (funcall 'palace-file-drawer
-                                (memory-entry-content entry) room-id
-                                :tags tag-strings)
+                     (let ((class (memory-entry-class entry))
+                           (tags (memory-entry-tags entry)))
+                       (funcall '%palace-file-memory-entry class
+                                (memory-entry-content entry)
+                                :tags tags)
                        (incf filed))
                    (error () nil))))
              *memory-store*)
-    (%log :info "mempalace" "Filed ~D entries as palace drawers." filed)
+    (%log :info "mempalace" "Filed ~D entries into the palace." filed)
     filed))
 
 (defun memory-record-orchestration (prompt response tool score latency-ms &key harmony)
@@ -217,96 +252,138 @@
       (error () nil))
     daily-id))
 
-(defparameter *memory-recall-tau-seconds* (* 14 86400.0)
-  "Recency decay time constant for content-substring recall fallback (14 days).")
+(defun %memory-rank-greater-p (left right)
+  "Lexicographic comparison for declarative recall rank vectors."
+  (loop for l in left
+        for r in right
+        when (> l r) return t
+        when (< l r) return nil
+        finally (return nil)))
+
+(defun %memory-tag-name (tag)
+  (string-downcase
+   (cond ((symbolp tag) (symbol-name tag))
+         ((stringp tag) tag)
+         (t (princ-to-string tag)))))
+
+(defun %memory-entry-has-tag-p (entry tag)
+  (let ((wanted (%memory-tag-name tag)))
+    (some (lambda (entry-tag)
+            (string= wanted (%memory-tag-name entry-tag)))
+          (memory-entry-tags entry))))
+
+(defun %memory-entry-recall-text (entry)
+  "Return the user-knowledge portion of ENTRY.
+Interaction prompts echo the recall query and must not inflate lexical rank."
+  (let* ((text (%entry-text entry))
+         (marker (and (%memory-entry-has-tag-p entry :interaction)
+                      (search (format nil "~%A: ") text :test #'char-equal))))
+    (if marker
+        (subseq text (+ marker 4))
+        text)))
+
+(defun %memory-entry-recall-rank (query-words entry)
+  "Rank one recall candidate by relevance, provenance, then recency.
+With no lexical evidence, all candidates tie so stable sort preserves the
+memory-field's semantic ordering."
+  (let* ((text (%memory-entry-recall-text entry))
+         (entry-words (%split-words text))
+         (overlap (length (intersection query-words entry-words :test #'string=))))
+    (if (plusp overlap)
+        (let* ((precision (/ (float overlap) (max 1 (length entry-words))))
+               (recall (/ (float overlap) (max 1 (length query-words))))
+               (f1 (/ (* 2.0 precision recall) (max 1.0e-6 (+ precision recall)))))
+          (list 1
+                f1
+                overlap
+                (if (%memory-entry-has-tag-p entry :user-stored) 1 0)
+                (or (memory-entry-time entry) 0)
+                (- (length text))))
+        '(0 0 0 0 0 0))))
+
+(defun %rank-memory-entries (query entries &key (dedupe-key #'memory-entry-id))
+  "Return unique ENTRIES ordered by the shared declarative recall policy."
+  (let ((query-words (%split-words query)))
+    (stable-sort
+     (remove-duplicates (copy-list entries)
+                        :key dedupe-key
+                        :test #'string=
+                        :from-end t)
+     (lambda (left right)
+       (%memory-rank-greater-p
+        (%memory-entry-recall-rank query-words left)
+        (%memory-entry-recall-rank query-words right))))))
 
 (defun %memory-substring-recall (query limit)
-  "Scan *memory-store* for entries whose words intersect QUERY.
-   Score by word_overlap × exp(-age/TAU). Returns up to LIMIT entries
-   in descending score order. Thread-safe: walk happens under the memory lock."
+  "Return lexically relevant store entries under the shared recall policy."
   (let ((q-words (%split-words (or query "")))
-        (matches '())
-        (now (get-universal-time)))
+        (matches '()))
     (when q-words
       (with-memory-lock ()
         (maphash (lambda (_ entry)
                    (declare (ignore _))
-                   (let* ((words (%split-words (%entry-text entry)))
-                          (common (when words
-                                    (length (intersection q-words words :test #'string=)))))
-                     (when (and common (>= common 1))
-                       (let* ((age (- now (or (memory-entry-time entry) now)))
-                              (decay (exp (- (/ (float age 1.0d0)
-                                                *memory-recall-tau-seconds*))))
-                              (score (* common decay)))
-                         (push (cons score entry) matches)))))
+                   (when (intersection q-words
+                                       (%split-words (%memory-entry-recall-text entry))
+                                       :test #'string=)
+                     (push entry matches)))
                  *memory-store*)))
     (when matches
-      (mapcar #'cdr
-              (subseq (sort matches #'> :key #'car)
-                      0 (min limit (length matches)))))))
+      (let ((ranked (%rank-memory-entries query matches)))
+        (subseq ranked 0 (min limit (length ranked)))))))
+
+(defun %memory-field-recall-entries (query limit)
+  "Resolve field activations to memory entries, preserving semantic score order."
+  (handler-case
+      (when (and (fboundp 'memory-field-port-ready-p)
+                 (funcall 'memory-field-port-ready-p))
+        ;; Field IPC call OUTSIDE lock — can take up to 90s.
+        (let* ((field-result (funcall 'memory-field-recall query :limit (* limit 3)))
+               (activations (and (listp field-result) (getf field-result :activations)))
+               (scored '()))
+          (with-memory-lock ()
+            (dolist (activation activations)
+              (when (listp activation)
+                (dolist (entry-id (getf activation :entries))
+                  (when (stringp entry-id)
+                    (let ((entry (gethash entry-id *memory-store*)))
+                      (when entry
+                        (setf (memory-entry-access-count entry)
+                              (1+ (or (memory-entry-access-count entry) 0)))
+                        (setf (memory-entry-last-access entry) (get-universal-time))
+                        (push (cons (or (getf activation :score) 0.0) entry)
+                              scored))))))))
+          (mapcar #'cdr
+                  (sort (remove-duplicates scored
+                                           :key (lambda (pair)
+                                                  (memory-entry-id (cdr pair)))
+                                           :test #'string=
+                                           :from-end t)
+                        #'> :key #'car))))
+    (error () nil)))
 
 (defun memory-recall (query &key (limit 10))
-  "ONE recall function with four-tier fallback:
-     1. Field topology recall (Rust engine via IPC).
-     2. Content-substring scan of *memory-store* with recency-decayed score.
-     3. High-depth entries (crystallized identity).
-     4. Most-recent entries (unscored).
-   Thread-safe: field IPC outside lock, hash-table walks under lock."
-  (let ((source "none") (result-count 0))
-    (or (handler-case
-            (when (and (fboundp 'memory-field-port-ready-p)
-                       (funcall 'memory-field-port-ready-p))
-              ;; Field IPC call OUTSIDE lock — can take up to 90s.
-              (let* ((field-result (funcall 'memory-field-recall query :limit (* limit 3)))
-                     (activations (and (listp field-result) (getf field-result :activations)))
-                     (all '()))
-                ;; Hash-table reads/writes UNDER lock.
-                (with-memory-lock ()
-                  (dolist (act activations)
-                    (when (listp act)
-                      (dolist (entry-id (getf act :entries))
-                        (when (stringp entry-id)
-                          (let ((entry (gethash entry-id *memory-store*)))
-                            (when entry
-                              (incf (memory-entry-access-count entry))
-                              (setf (memory-entry-last-access entry) (get-universal-time))
-                              (push (cons (or (getf act :score) 0.0) entry) all))))))))
-                (when all
-                  (setf source "field" result-count (length all))
-                  (let ((results (mapcar #'cdr
-                                   (subseq (sort (remove-duplicates all
-                                                   :key (lambda (p) (memory-entry-id (cdr p)))
-                                                   :test #'string=)
-                                                 #'> :key #'car)
-                                           0 (min limit (length all))))))
-                    (%pipeline-trace :memory-recall
-                      :query (%clip-prompt query 60)
-                      :source source :result-count result-count)
-                    results))))
-          (error () nil))
-        ;; Fallback 1: content-substring scan with recency decay.
-        ;; Re-promotes cold chronicle entries that match the query.
-        (let ((matches (%memory-substring-recall query limit)))
-          (when matches
-            (setf source "substring-fallback" result-count (length matches))
-            (%pipeline-trace :memory-recall
-              :query (%clip-prompt query 60) :source source :result-count result-count))
-          matches)
-        ;; Fallback 2: high-depth entries.
-        (let ((deep (%memory-by-depth limit 1)))
-          (when deep (setf source "depth-fallback" result-count (length deep))
-                (%pipeline-trace :memory-recall
-                  :query (%clip-prompt query 60) :source source :result-count result-count))
-          deep)
-        ;; Fallback 3: most recent entries.
-        (let ((recent (memory-recent :limit limit)))
-          (when recent (setf source "recent-fallback" result-count (length recent))
-                (%pipeline-trace :memory-recall
-                  :query (%clip-prompt query 60) :source source :result-count result-count))
-          recent))))
-
-;; Legacy compat — old callers use memory-layered-recall
-(defun memory-layered-recall (query &key (limit 10) (dive nil))
-  (declare (ignore dive))
-  (memory-recall query :limit limit))
+  "Recall through one ranked path.
+Field topology and lexical-store candidates are unioned before ranking so a
+weak semantic hit cannot starve an exact stored fact. High-depth and recent
+entries remain contextual fallbacks only when no relevant candidate exists."
+  (let* ((count (if (and (integerp limit) (plusp limit)) limit 10))
+         (field (%memory-field-recall-entries query count))
+         (lexical (%memory-substring-recall query count))
+         (relevant (%rank-memory-entries query (append field lexical)))
+         (results (or (and relevant
+                           (subseq relevant 0 (min count (length relevant))))
+                      (%memory-by-depth count 1)
+                      (memory-recent :limit count)))
+         (source (cond ((and field lexical) "field+substring")
+                       (field "field")
+                       (lexical "substring")
+                       ((some (lambda (entry) (>= (memory-entry-depth entry) 1))
+                              results)
+                        "depth-fallback")
+                       (results "recent-fallback")
+                       (t "none"))))
+    (%pipeline-trace :memory-recall
+      :query (%clip-prompt query 60)
+      :source source
+      :result-count (length results))
+    results))

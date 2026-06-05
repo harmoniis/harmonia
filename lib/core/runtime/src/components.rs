@@ -9,12 +9,12 @@ pub struct MemPalaceComponent;
 impl ComponentDescriptor for MemPalaceComponent {
     const NAME: &'static str = "mempalace";
     type State = harmonia_mempalace::PalaceState;
-    fn init() -> Self::State { harmonia_mempalace::PalaceState::new() }
+    fn init() -> Self::State {
+        harmonia_mempalace::PalaceState::load_or_empty()
+            .expect("mempalace state must be loadable")
+    }
     fn dispatch(state: &mut Self::State, sexp: &str) -> String {
         crate::dispatch::dispatch_mempalace(sexp, state)
-    }
-    fn shutdown(state: &mut Self::State) {
-        let _ = harmonia_mempalace::persist(state);
     }
     fn capabilities() -> &'static [&'static str] {
         &["knowledge-graph", "aaak-compression", "tiered-context"]

@@ -65,6 +65,8 @@
           ((string= command "/security")   (%syscmd-security args-str))
           ((string= command "/feedback")   (%syscmd-feedback args-str))
           ((string= command "/route")      (%syscmd-route args-str))
+          ((member command '("/auto" "/eco" "/premium" "/free") :test #'string=)
+           (%syscmd-set-tier (subseq command 1)))
           ((string= command "/ouroboros")  (%syscmd-ouroboros args-str))
           ((string= command "/palace")    (%syscmd-palace args-str))
           ((string= command "/tailnet")   (%syscmd-tailnet args-str))
@@ -425,6 +427,17 @@
           (add "  No recent errors.")))))
 
 ;;; --- /route ---
+
+(defun %syscmd-set-tier (tier-name)
+  "Persist the routing tier (auto|eco|premium|free) to config-store and reload it, so
+the choice actually takes effect and survives restart. Closes the `/premium`-is-a-no-op
+gap: the tier now gates every selection path via %load-routing-tier."
+  (when (fboundp 'config-set-for)
+    (config-set-for "router" "active-tier" tier-name))
+  (%load-routing-tier)
+  (format nil "[system] routing tier → ~A (~D models in pool)"
+          (string-downcase (symbol-name *routing-tier*))
+          (length (handler-case (%tier-model-pool *routing-tier*) (error () nil)))))
 
 (defun %syscmd-route (args)
   (declare (ignore args))

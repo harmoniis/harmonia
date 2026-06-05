@@ -245,7 +245,15 @@
 ;;; --- Escalation Chain ---
 
 (defun model-escalation-chain (prompt chosen)
-  (let ((chain (%selection-chain prompt)))
-    (if (member chosen chain :test #'string=)
-        (or (member chosen chain :test #'string=) chain)
-        chain)))
+  "Models to try after CHOSEN has failed, in escalation order: the remaining ranked
+alternatives, then the premium tier. CHOSEN is never retried — a model that just
+failed is not its own escalation — and the chain always reaches premium, so
+repeated REPL failure escalates capability while the default selection stays free."
+  (let* ((chain (%selection-chain prompt))
+         (after (if (member chosen chain :test #'string=)
+                    (rest (member chosen chain :test #'string=))
+                    chain))
+         (premium (%tier-model-pool :premium)))
+    (remove chosen
+            (remove-duplicates (append after premium) :test #'string= :from-end t)
+            :test #'string=)))

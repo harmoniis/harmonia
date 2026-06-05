@@ -50,12 +50,67 @@ pub fn extract_string(sexp: &str, key: &str) -> Option<String> {
     None
 }
 
+/// Extract the value after KEY as a raw S-expression form.
+/// Quoted strings are unescaped like `extract_string`; nested lists are returned
+/// as the balanced raw list text so component parsers can parse them structurally.
+pub fn extract_form(sexp: &str, key: &str) -> Option<String> {
+    let idx = sexp.find(key)?;
+    let after = sexp[idx + key.len()..].trim_start();
+    if after.starts_with('"') {
+        return extract_string(sexp, key);
+    }
+    if after.starts_with('(') {
+        return extract_balanced_list(after);
+    }
+    extract_string(sexp, key)
+}
+
+fn extract_balanced_list(input: &str) -> Option<String> {
+    let mut depth = 0i32;
+    let mut in_string = false;
+    let mut escaped = false;
+
+    for (idx, ch) in input.char_indices() {
+        if in_string {
+            if escaped {
+                escaped = false;
+            } else if ch == '\\' {
+                escaped = true;
+            } else if ch == '"' {
+                in_string = false;
+            }
+            continue;
+        }
+
+        match ch {
+            '"' => in_string = true,
+            '(' => depth += 1,
+            ')' => {
+                depth -= 1;
+                if depth == 0 {
+                    let end = idx + ch.len_utf8();
+                    return Some(input[..end].to_string());
+                }
+                if depth < 0 {
+                    return None;
+                }
+            }
+            _ => {}
+        }
+    }
+    None
+}
+
 /// Extract a u64 value after the given key.
 pub fn extract_u64(sexp: &str, key: &str) -> Option<u64> {
     let idx = sexp.find(key)?;
     let after = sexp[idx + key.len()..].trim_start();
     let num: String = after.chars().take_while(|c| c.is_ascii_digit()).collect();
-    if num.is_empty() { None } else { num.parse().ok() }
+    if num.is_empty() {
+        None
+    } else {
+        num.parse().ok()
+    }
 }
 
 /// Extract a u64 with default.
@@ -71,17 +126,27 @@ pub fn extract_f64(sexp: &str, key: &str) -> Option<f64> {
         .chars()
         .take_while(|c| c.is_ascii_digit() || *c == '.' || *c == '-')
         .collect();
-    if num.is_empty() { None } else { num.parse().ok() }
+    if num.is_empty() {
+        None
+    } else {
+        num.parse().ok()
+    }
 }
 
 /// Extract a list of quoted strings: (:key ("a" "b" "c")).
 pub fn extract_string_list(sexp: &str, key: &str) -> Vec<String> {
     let mut items = Vec::new();
-    let Some(pos) = sexp.find(key) else { return items };
+    let Some(pos) = sexp.find(key) else {
+        return items;
+    };
     let rest = &sexp[pos + key.len()..];
-    let Some(open) = rest.find('(') else { return items };
+    let Some(open) = rest.find('(') else {
+        return items;
+    };
     let inner = &rest[open + 1..];
-    let Some(close) = inner.find(')') else { return items };
+    let Some(close) = inner.find(')') else {
+        return items;
+    };
     let content = &inner[..close];
     let mut in_quote = false;
     let mut current = String::new();
@@ -118,9 +183,13 @@ pub fn extract_bool(sexp: &str, key: &str) -> Option<bool> {
 
 /// Truncate a string to at most `max_bytes` bytes at a valid UTF-8 boundary.
 pub fn truncate_safe(s: &str, max_bytes: usize) -> &str {
-    if s.len() <= max_bytes { return s; }
+    if s.len() <= max_bytes {
+        return s;
+    }
     let mut end = max_bytes;
-    while end > 0 && !s.is_char_boundary(end) { end -= 1; }
+    while end > 0 && !s.is_char_boundary(end) {
+        end -= 1;
+    }
     &s[..end]
 }
 
@@ -173,7 +242,9 @@ impl SexpBuilder {
 
     /// Start an `:error` sexp.
     pub fn error() -> Self {
-        Self { buf: "(:error".into() }
+        Self {
+            buf: "(:error".into(),
+        }
     }
 
     /// Append a keyword (`:key`).
@@ -265,9 +336,15 @@ pub fn parse_sexp(raw: &str) -> Result<Sexp, String> {
 
 impl<'a> SexpParser<'a> {
     fn new(raw: &'a str) -> Self {
-        Self { chars: raw.chars().collect(), index: 0, _raw: raw }
+        Self {
+            chars: raw.chars().collect(),
+            index: 0,
+            _raw: raw,
+        }
     }
-    fn peek(&self) -> Option<char> { self.chars.get(self.index).copied() }
+    fn peek(&self) -> Option<char> {
+        self.chars.get(self.index).copied()
+    }
     fn bump(&mut self) -> Option<char> {
         let ch = self.peek()?;
         self.index += 1;
@@ -293,7 +370,10 @@ impl<'a> SexpParser<'a> {
         loop {
             self.skip_ws();
             match self.peek() {
-                Some(')') => { self.bump(); return Ok(Sexp::List(items)); }
+                Some(')') => {
+                    self.bump();
+                    return Ok(Sexp::List(items));
+                }
                 Some(_) => items.push(self.parse_expr()?),
                 None => return Err("unterminated list".to_string()),
             }
@@ -321,11 +401,17 @@ impl<'a> SexpParser<'a> {
     fn parse_atom(&mut self) -> Result<Sexp, String> {
         let mut out = String::new();
         while let Some(ch) = self.peek() {
-            if ch.is_whitespace() || ch == '(' || ch == ')' { break; }
+            if ch.is_whitespace() || ch == '(' || ch == ')' {
+                break;
+            }
             out.push(ch);
             self.index += 1;
         }
-        if out.is_empty() { Err("expected atom".to_string()) } else { Ok(Sexp::Atom(out)) }
+        if out.is_empty() {
+            Err("expected atom".to_string())
+        } else {
+            Ok(Sexp::Atom(out))
+        }
     }
 }
 
@@ -486,12 +572,42 @@ mod tests {
     #[test]
     fn extract_string_with_escapes() {
         let sexp = r#"(:text "hello \"world\"")"#;
-        assert_eq!(extract_string(sexp, ":text"), Some(r#"hello "world""#.into()));
+        assert_eq!(
+            extract_string(sexp, ":text"),
+            Some(r#"hello "world""#.into())
+        );
     }
 
     #[test]
     fn extract_string_unquoted() {
-        assert_eq!(extract_string("(:kind gateway)", ":kind"), Some("gateway".into()));
+        assert_eq!(
+            extract_string("(:kind gateway)", ":kind"),
+            Some("gateway".into())
+        );
+    }
+
+    #[test]
+    fn extract_form_nested_list() {
+        let sexp = r#"(:component "signalograd" :op "observe" :observation (:signalograd-observe :cycle 7 :security-posture "nominal"))"#;
+        assert_eq!(
+            extract_form(sexp, ":observation"),
+            Some(r#"(:signalograd-observe :cycle 7 :security-posture "nominal")"#.into())
+        );
+    }
+
+    #[test]
+    fn extract_form_nested_list_with_inner_parens() {
+        let sexp = r#"(:payload (:outer :text "a ) inside string" :nested (:x 1)))"#;
+        assert_eq!(
+            extract_form(sexp, ":payload"),
+            Some(r#"(:outer :text "a ) inside string" :nested (:x 1))"#.into())
+        );
+    }
+
+    #[test]
+    fn extract_form_quoted_string() {
+        let sexp = r#"(:payload "(:x 1)")"#;
+        assert_eq!(extract_form(sexp, ":payload"), Some("(:x 1)".into()));
     }
 
     #[test]
@@ -510,7 +626,10 @@ mod tests {
     #[test]
     fn extract_string_list_works() {
         let sexp = r#"(:tags ("rust" "actor" "ipc"))"#;
-        assert_eq!(extract_string_list(sexp, ":tags"), vec!["rust", "actor", "ipc"]);
+        assert_eq!(
+            extract_string_list(sexp, ":tags"),
+            vec!["rust", "actor", "ipc"]
+        );
     }
 
     #[test]
@@ -521,7 +640,12 @@ mod tests {
 
     #[test]
     fn sexp_builder_ok_with_key_values() {
-        let s = SexpBuilder::ok().key("n").uint(5).key("edges").uint(10).build();
+        let s = SexpBuilder::ok()
+            .key("n")
+            .uint(5)
+            .key("edges")
+            .uint(10)
+            .build();
         assert_eq!(s, "(:ok :n 5 :edges 10)");
     }
 
@@ -546,7 +670,10 @@ mod tests {
 
     #[test]
     fn sexp_builder_escapes_strings() {
-        let s = SexpBuilder::ok().key("label").str(r#"hello "world""#).build();
+        let s = SexpBuilder::ok()
+            .key("label")
+            .str(r#"hello "world""#)
+            .build();
         assert_eq!(s, r#"(:ok :label "hello \"world\"")"#);
     }
 

@@ -155,7 +155,8 @@ pub(crate) fn compute_recall_pure(
         &s.halvorsen,
     );
 
-    // Build access count vector with depth-aware temporal decay.
+    // Build access count vector with depth-aware temporal decay. Query concepts
+    // remain a separate unit boundary condition in activation scoring.
     let access_vec = build_access_vector(n, access_counts, &s.graph);
 
     // Score all nodes — holographic fusion of all boundary and bulk signals.
@@ -165,6 +166,7 @@ pub(crate) fn compute_recall_pure(
         heat_kernel_act.as_deref(),
         topo_flux,
         &basin_affinity,
+        &sources,
         &access_vec,
         n,
         cfg_f64("activation-threshold", 0.1),

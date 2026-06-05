@@ -20,7 +20,7 @@
            :config-get
            :config-list
            :memory-recent
-           :memory-layered-recall
+           :memory-recall
            :memory-bootstrap-context
            :memory-semantic-recall-block
            :memory-maybe-journal-yesterday
@@ -410,6 +410,13 @@
       (when (fboundp '%load-memories-from-chronicle)
         (%load-memories-from-chronicle))
     (error (e) (%log :warn "boot" "load-memories-from-chronicle failed: ~A" e) nil))
+  ;; Restore runtime-learned concept edges (e.g. :meditation bridges) that the
+  ;; entry-derived rebuild cannot reproduce, from the latest chronicle graph
+  ;; snapshot — so field warm-start is lossless, not just idempotent.
+  (handler-case
+      (when (fboundp '%merge-graph-snapshot-into-field)
+        (%merge-graph-snapshot-into-field))
+    (error (e) (%log :warn "boot" "graph-snapshot merge failed: ~A" e) nil))
   ;; Always ensure genesis memories exist (idempotent — dedup by content hash).
   (memory-seed-soul-from-dna)
   (init-signalograd-port)
@@ -429,15 +436,16 @@
     (error (e) (%log :warn "boot" "memory-field-load-graph failed: ~A" e) nil))
   (handler-case (memory-field-warm-start-from-chronicle)
     (error (e) (%log :warn "boot" "memory-field-warm-start failed: ~A" e) nil))
-  ;; MemPalace: graph-structured knowledge palace.
+  ;; MemPalace: graph-structured knowledge palace. The actor warm-starts from its
+  ;; own on-disk journal; we then reconcile against the chronicle record (the
+  ;; durable source) so the palace converges to it without a lossy full rebuild.
   (handler-case (init-mempalace-port)
     (error (e) (%log :warn "boot" "init-mempalace-port failed: ~A" e) nil))
-  ;; Populate palace from high-value memory entries.
-  ;; Rooms are created on demand — no hardcoded structure.
   (handler-case
-      (when (and (fboundp 'mempalace-port-ready-p) (mempalace-port-ready-p))
-        (%populate-palace-from-memory))
-    (error (e) (%log :warn "boot" "palace population failed: ~A" e) nil))
+      (when (and (fboundp 'mempalace-port-ready-p) (mempalace-port-ready-p)
+                 (fboundp '%palace-reconcile-from-memory))
+        (%palace-reconcile-from-memory))
+    (error (e) (%log :warn "boot" "palace reconcile failed: ~A" e) nil))
   ;; Terraphon: platform datamining tools.
   (handler-case (init-terraphon-port)
     (error (e) (%log :warn "boot" "init-terraphon-port failed: ~A" e) nil))

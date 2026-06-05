@@ -23,36 +23,80 @@
 
 ;; ── recall: smart memory search ─────────────────────────────────────
 
-(defun %prim-recall (query &rest kwargs &key (limit 5) (max-chars 1200) verbatim tags since)
-  "Recall from L3 palace (user knowledge). Falls back to L2 chronicle.
-   The palace stores user interactions and mined data.
-   (recall \"Thomas\") → search palace drawers for Thomas-related content."
-  (declare (ignore kwargs tags since))
-  (let ((q (if (stringp query) query (princ-to-string query))))
-    (cond
-      (verbatim
-       ;; Verbatim: exact match in palace
-       (or (handler-case
-               (when (fboundp 'palace-search)
-                 (let ((result (funcall 'palace-search q :limit limit)))
-                   (if result (format nil "~A" result) "(no verbatim match)")))
-             (error () nil))
-           "(verbatim unavailable)"))
-      (t
-       ;; Default: search palace (L3), fall back to memory store
-       (or (handler-case
-               (when (and (fboundp 'palace-search) (fboundp 'mempalace-port-ready-p)
-                          (funcall 'mempalace-port-ready-p))
-                 (let ((result (funcall 'palace-search q :limit limit)))
-                   (when (and result (stringp result) (> (length result) 10))
-                     result)))
-             (error () nil))
-           ;; Fallback to memory-semantic-recall-block (scans *memory-store*)
-           (handler-case
-               (let ((r (memory-semantic-recall-block q :limit limit :max-chars max-chars)))
-                 (if (and r (> (length r) 0)) r "(no memories found)"))
-             (error () nil))
-           "(recall unavailable)")))))
+(defun %rank-recall-entries (query entries)
+  "Return unique ENTRIES ordered for concise user-facing recall."
+  (%rank-memory-entries query entries :dedupe-key #'%entry-text))
+
+(defun %palace-recall-entries (query limit)
+  "Convert palace-only drawer hits into the common recall candidate shape."
+  (handler-case
+      (when (and (fboundp 'palace-search)
+                 (fboundp 'palace-get-drawer)
+                 (fboundp 'mempalace-port-ready-p)
+                 (funcall 'mempalace-port-ready-p))
+        (let ((result (funcall 'palace-search query :limit limit)))
+          (loop for hit in (and (listp result) (getf result :results))
+                for id = (and (listp hit) (getf hit :id))
+                for drawer = (and id (funcall 'palace-get-drawer id))
+                for content = (and (listp drawer) (getf drawer :content))
+                when (stringp content)
+                  collect (make-memory-entry
+                           :id (format nil "palace:~A" id)
+                           :class :palace
+                           :depth 0
+                           :content content
+                           :tags (getf drawer :tags)))))
+    (error () nil)))
+
+(defun %recall-entry-matches-p (entry query verbatim tags since)
+  "Apply optional declarative filters to one recall candidate."
+  (let ((text (%memory-entry-recall-text entry))
+        (wanted-tags (cond ((null tags) nil)
+                           ((listp tags) tags)
+                           (t (list tags)))))
+    (and (or (not verbatim)
+             (zerop (length query))
+             (search query text :test #'char-equal))
+         (or (null wanted-tags)
+             (every (lambda (tag)
+                      (%memory-entry-has-tag-p entry tag))
+                    wanted-tags))
+         (or (not (numberp since))
+             (>= (or (memory-entry-time entry) 0) since)))))
+
+(defun %render-recall-entries (entries limit max-chars)
+  "Render recall values without orchestration labels or hardcoded prose."
+  (let* ((texts (mapcar (lambda (entry)
+                          (string-trim '(#\Space #\Newline #\Return #\Tab)
+                                       (%memory-entry-recall-text entry)))
+                        (subseq entries 0 (min limit (length entries)))))
+         (rendered (if texts
+                       (format nil "~{~A~^~%~}" texts)
+                       "(:recall ())")))
+    (subseq rendered 0 (min max-chars (length rendered)))))
+
+(defun %prim-recall (&optional (query "") &rest kwargs
+                     &key (limit 1) (max-chars 1200) verbatim tags since)
+  "Recall concise values from the memory field and persistent store.
+The orchestration-only MEMORY_RECALL context format stays behind its bootstrap
+boundary; this primitive returns values a weak model can answer with directly."
+  (declare (ignore kwargs))
+  (let* ((q (if (stringp query) query (princ-to-string query)))
+         (count (if (and (integerp limit) (plusp limit)) limit 1))
+         (char-limit (if (and (integerp max-chars) (plusp max-chars))
+                         max-chars
+                         1200))
+         (candidate-limit (max 12 (* count 4)))
+         (entries (append
+                   (handler-case
+                       (memory-recall q :limit candidate-limit)
+                     (error () nil))
+                   (%palace-recall-entries q candidate-limit)))
+         (filtered (remove-if-not
+                    (lambda (entry)
+                      (%recall-entry-matches-p entry q verbatim tags since))
+                    (%rank-recall-entries q entries))))
+    (%render-recall-entries filtered count char-limit)))
 
 ;; ── ipc: generic system query ───────────────────────────────────────
 
@@ -78,6 +122,18 @@ The REPL has full Lisp power; Rust is the boundary."
         (error () nil))
       "(introspect unavailable)"))
 
+(defun %palace-readiness ()
+  "Return the live palace readiness as a declarative keyword."
+  (if (and (fboundp 'mempalace-port-ready-p)
+           (funcall 'mempalace-port-ready-p))
+      :ready
+      :offline))
+
+(defun %render-declarative (value)
+  "Render one stable, compact s-expression for model and TUI boundaries."
+  (let ((*print-pretty* nil))
+    (prin1-to-string value)))
+
 (defun %prim-status ()
   "Runtime state — derivable, not memorized. The LLM calls this to know itself."
   (or (handler-case
@@ -96,8 +152,14 @@ The REPL has full Lisp power; Rust is the boundary."
                            (setf last-model model)
                            (setf last-fluency (%repl-fluency model)))))
                      *repl-model-perf*))
-          (format nil "cycle=~D tier=~A model=~A fluency=~,2F rewrites=~D"
-                  cycle tier last-model last-fluency rewrite-count))
+          (%render-declarative
+           (list :status
+                 :cycle cycle
+                 :tier tier
+                 :model last-model
+                 :fluency last-fluency
+                 :rewrites rewrite-count
+                 :palace (%palace-readiness))))
         (error () nil))
       "(status unavailable)"))
 
@@ -111,30 +173,18 @@ The REPL has full Lisp power; Rust is the boundary."
       0.5))
 
 (defun %prim-field ()
-  "L1 global context: derived from live state and *primitive-dispatch*.
-   The model reads this FIRST to understand how to proceed."
+  "Concise declarative L1 context derived from live state."
   (let ((basin (or (handler-case (%prim-basin) (error () nil)) "?"))
         (mem-count (hash-table-count *memory-store*))
         (concept-count (hash-table-count *memory-concept-nodes*))
-        (palace-ok (and (fboundp 'mempalace-port-ready-p) (funcall 'mempalace-port-ready-p)))
         (tier (if (boundp '*routing-tier*) (symbol-name *routing-tier*) "auto")))
-    ;; TOOLS section: derived from *primitive-dispatch*
-    (let ((tool-names '()))
-      (maphash (lambda (name prim)
-                 (declare (ignore prim))
-                 (when (member name '(exec read-file grep list-files write-file
-                                      fetch python search convert datamine browse markitdown))
-                   (push (string-downcase (symbol-name name)) tool-names)))
-               *primitive-dispatch*)
-      (format nil "GLOBAL CONTEXT:
-basin=~A concepts=~D memories=~D palace=~A tier=~A
-CHAIN: (field)->understand -> (recall q)->user-data -> (status)->system -> (respond answer)
-TOOLS: ~{~A~^ ~}
-MEMORY: (recall q) searches palace for user knowledge. (store text) saves to palace.
-SYSTEM: (status) (basin) (introspect) (models) for self-knowledge.
-EXPLORE: (exec cmd) (fetch url) (python code) (search q) (datamine lode) for new data."
-              basin mem-count concept-count (if palace-ok "ready" "offline") tier
-              (sort tool-names #'string<)))))
+    (%render-declarative
+     (list :field
+           :basin basin
+           :concepts concept-count
+           :memories mem-count
+           :palace (%palace-readiness)
+           :tier tier))))
 
 (defun %prim-basin ()
   "Return basin status as structured string: basin=X dwell=N threshold=F"
@@ -220,15 +270,36 @@ EXPLORE: (exec cmd) (fetch url) (python code) (search q) (datamine lode) for new
 
 ;; ── Dreaming primitive ────────────────────────────────────────────
 
+(defun %dream-once ()
+  "Run one dream cycle (prune/merge/crystallize + edge decay) and apply it. The single
+shared action behind the (dream) primitive AND the harmonic-cadence auto-dream. Returns
+the applied-results plist, or nil if the field is unavailable."
+  (when (and (fboundp 'memory-field-port-ready-p) (funcall 'memory-field-port-ready-p))
+    (let ((report (memory-field-dream)))
+      (when report (%apply-dream-results report)))))
+
+(defun %meditate-recent (&key (limit 10) (max-concepts 15))
+  "Strengthen connections among concepts active in the last LIMIT entries. The single
+shared action behind the (meditate) primitive AND the harmonic-cadence auto-meditate
+(reinforcement is bounded/saturating in concept-map.lisp). Returns the memory-meditate
+result plist, or nil if there are too few active concepts."
+  (when (fboundp 'memory-meditate)
+    (let ((concepts '()))
+      (dolist (entry (memory-recent :limit limit))
+        (let ((text (%entry-text entry)))
+          (when (stringp text)
+            (dolist (w (%split-words text)) (push w concepts)))))
+      (let ((unique (remove-duplicates concepts :test #'string=)))
+        (when (>= (length unique) 2)
+          (funcall 'memory-meditate (subseq unique 0 (min max-concepts (length unique)))
+                   :success t))))))
+
 (defun %prim-dream ()
   (or (handler-case
-          (when (and (fboundp 'memory-field-port-ready-p)
-                     (funcall 'memory-field-port-ready-p))
-            (let* ((report (memory-field-dream))
-                   (results (when report (%apply-dream-results report))))
+          (let ((results (%dream-once)))
+            (when results
               (format nil "Dream: pruned=~D crystallized=~D"
-                      (or (getf results :pruned) 0)
-                      (or (getf results :crystallized) 0))))
+                      (or (getf results :pruned) 0) (or (getf results :crystallized) 0))))
         (error () nil))
       "(dream unavailable)"))
 
@@ -236,23 +307,11 @@ EXPLORE: (exec cmd) (fetch url) (python code) (search q) (datamine lode) for new
   "Meditate: gather recent concepts from memory, strengthen their connections.
    Pure functional — reads from the field, not from hardcoded state."
   (or (handler-case
-          (when (fboundp 'memory-meditate)
-          ;; Gather concepts from recent entries (last N accessed).
-          (let* ((recent (memory-recent :limit 10))
-                 (concepts '()))
-            (dolist (entry recent)
-              (let ((text (%entry-text entry)))
-                (when (stringp text)
-                  (dolist (w (%split-words text))
-                    (push w concepts)))))
-            (let ((unique (remove-duplicates concepts :test #'string=)))
-              (when (>= (length unique) 2)
-                (let ((results (funcall 'memory-meditate
-                                        (subseq unique 0 (min 15 (length unique)))
-                                        :success t)))
-                  (format nil "Meditate: ~D strengthened, ~D bridged"
-                          (or (getf results :strengthened) 0)
-                          (or (getf results :bridged) 0)))))))
+          (let ((results (%meditate-recent)))
+            (when results
+              (format nil "Meditate: ~D strengthened, ~D bridged"
+                      (or (getf results :strengthened) 0)
+                      (or (getf results :bridged) 0))))
         (error () nil))
       "(meditate: nothing to strengthen)"))
 
@@ -502,22 +561,31 @@ except Exception as e:
       "(browse: url required)"))
 
 (defun %prim-python (script)
-  "Execute Python script. Large scripts written to temp file to avoid
-   escaping issues with inline -c. Pure functional: no side effects beyond exec."
-  (if (and script (stringp script) (> (length script) 0))
-      (or (handler-case
-              (if (or (> (length script) 200)
-                      (position #\Newline script)
-                      (position #\' script))
-                  ;; Large/complex scripts: write to temp file, execute file
-                  (progn
-                    (workspace-write-file (%temp-path "harmonia-py-exec.py") script)
-                    (workspace-exec "python3" (list (%temp-path "harmonia-py-exec.py"))))
-                  ;; Short simple scripts: inline -c
-                  (workspace-exec "python3" (list "-c" script)))
-            (error (e) (format nil "(python error: ~A)" e)))
-          "(python: execution failed)")
-      "(python: script required)"))
+  "Execute Python script via a temp file.
+The workspace exec protocol currently carries args as whitespace-split text, so
+inline -c corrupts scripts containing spaces. A file path is stable data."
+  (unless (and script (stringp script) (> (length script) 0))
+    (return-from %prim-python "(:error \"python script required\")"))
+  (handler-case
+      (let* ((path (%temp-path "harmonia-py-exec.py"))
+             (write-reply (workspace-write-file path script))
+             (reply (and write-reply
+                         (ipc-call
+                          (%sexp-to-ipc-string
+                           `(:component "workspace" :op "exec"
+                             :cmd "python3" :args ,path)))))
+             (*read-eval* nil)
+             (parsed (when (and reply (ipc-reply-ok-p reply))
+                       (handler-case (read-from-string reply) (error () nil))))
+             (body (when (listp parsed) (cdr parsed)))
+             (exit (and body (getf body :exit)))
+             (result (and body (getf body :result))))
+        (cond ((not body) "(:error \"python execution failed\")")
+              ((and (integerp exit) (zerop exit)) (or result ""))
+              (t (format nil "(:error \"python exit ~A: ~A\")"
+                         (or exit "?")
+                         (or result "")))))
+    (error (e) (format nil "(:error \"python error: ~A\")" e))))
 
 (defun %prim-search-web (query)
   "Search the web. Uses existing search-exa or search-brave tool."
@@ -566,7 +634,7 @@ except Exception as e:
 ;; ── Self-discovery ────────────────────────────────────────────────────
 (defprimitive env "()" "All available primitives." (%prim-env))
 (defprimitive field "()" "L1 global context map." (%prim-field))
-(defprimitive recall "(query &key limit max-chars verbatim tags since)" "Search palace/chronicle." (apply #'%prim-recall args))
+(defprimitive recall "(query &key limit max-chars verbatim tags since)" "Recall concise memory values." (apply #'%prim-recall args))
 (defprimitive ipc "(component op &rest kwargs)" "Generic IPC query." (apply #'%prim-ipc args))
 (defprimitive introspect "()" "Runtime identity." (%prim-introspect))
 (defprimitive status "()" "Runtime state." (%prim-status))
@@ -580,6 +648,7 @@ except Exception as e:
 (defprimitive str "(&rest parts)" "Join parts into string." (apply #'concatenate 'string (mapcar #'princ-to-string args)))
 (defprimitive cat "(&rest parts)" "Alias for str." (apply #'concatenate 'string (mapcar #'princ-to-string args)))
 (defprimitive concat "(&rest parts)" "Alias for str." (apply #'concatenate 'string (mapcar #'princ-to-string args)))
+(defprimitive strcat "(&rest parts)" "Alias for str." (apply #'concatenate 'string (mapcar #'princ-to-string args)))
 (defprimitive join "(list)" "Join list with spaces." (format nil "~{~A~^ ~}" (first args)))
 (defprimitive getf "(plist key)" "Property list access." (getf (first args) (second args)))
 (defprimitive length "(seq)" "Length of sequence." (length (first args)))
@@ -587,8 +656,11 @@ except Exception as e:
 (defprimitive concatenate "(&rest strings)" "Concatenate strings." (apply #'concatenate 'string args))
 (defprimitive string-downcase "(s)" "Downcase string." (string-downcase (first args)))
 (defprimitive string-upcase "(s)" "Upcase string." (string-upcase (first args)))
+(defprimitive string-trim "(s)" "Trim surrounding whitespace." (string-trim '(#\Space #\Newline #\Return #\Tab) (princ-to-string (first args))))
+(defprimitive trim "(s)" "Alias for string-trim." (string-trim '(#\Space #\Newline #\Return #\Tab) (princ-to-string (first args))))
 (defprimitive to-string "(x)" "Convert to string." (princ-to-string (first args)))
 (defprimitive princ-to-string "(x)" "Convert to string." (princ-to-string (first args)))
+(defprimitive number->string "(x)" "Convert number to string." (princ-to-string (first args)))
 
 ;; ── Arithmetic & comparison ───────────────────────────────────────────
 (defprimitive + "(&rest nums)" "Addition." (apply #'+ args))

@@ -5,6 +5,13 @@
 (defparameter *harmonic-phases*
   '(:observe :evaluate-global :evaluate-local :logistic-balance :lambdoma-project :attractor-sync :rewrite-plan :security-audit :stabilize))
 
+;;; --- Self-improvement cadence (bounded; relies on saturating reinforcement) ---
+(defparameter *harmonic-stabilize-count* 0
+  "Number of completed :stabilize phases — the self-improvement cadence clock.")
+(defparameter *harmonic-dream-interval* 8
+  "Run an auto-dream every Nth :stabilize. Meditation runs every :stabilize. Both are
+bounded (saturating reinforcement + dream decay), so cadence cannot run away.")
+
 ;;; --- Wave 5: Security posture tracking ---
 (defparameter *security-posture* :nominal
   "Current security posture: :nominal, :elevated, or :alert.")
@@ -414,6 +421,14 @@
                (ignore-errors
                  (chronicle-record-field-checkpoint
                   (or (ipc-extract-value checkpoint) "")))))))
+       ;; Self-IMPROVEMENT on the harmonic cadence (bounded). Meditation every
+       ;; :stabilize (Hebbian strengthening, saturating per concept-map.lisp); dream
+       ;; every Nth :stabilize (compaction + edge decay). This makes the agent recurse
+       ;; on its own — not only when the model happens to call (meditate)/(dream).
+       (incf *harmonic-stabilize-count*)
+       (ignore-errors (when (fboundp '%meditate-recent) (funcall '%meditate-recent)))
+       (when (zerop (mod *harmonic-stabilize-count* *harmonic-dream-interval*))
+         (ignore-errors (when (fboundp '%dream-once) (funcall '%dream-once))))
        ;; Routing: maybe rewrite routing rules based on accumulated experience
        (ignore-errors (%maybe-rewrite-routing-rules ctx))
        (setf (runtime-state-harmonic-phase runtime) :observe))

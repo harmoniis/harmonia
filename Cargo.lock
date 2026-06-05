@@ -2988,8 +2988,6 @@ version = "0.1.9"
 dependencies = [
  "harmonia-actor-protocol",
  "harmonia-config-store",
- "serde",
- "serde_json",
 ]
 
 [[package]]

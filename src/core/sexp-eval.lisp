@@ -28,6 +28,30 @@
 (defparameter *repl-max-rounds*
   (or (handler-case (dna-constraint :repl-max-rounds) (error () nil)) 5))
 
+(defvar *primitive-dispatch*)
+
+(defparameter *repl-special-forms*
+  '(quote let if when unless progn respond)
+  "Evaluator-owned operators. These are valid REPL code but not primitives.")
+
+(defparameter *repl-denied-operators*
+  '(eval load compile compile-file funcall apply function lambda defun defmacro
+    set setq setf makunbound fmakunbound symbol-function set-macro-character
+    read read-from-string open delete-file rename-file)
+  "Operators rejected before argument evaluation.")
+
+(defun %repl-special-form-p (op)
+  (member op *repl-special-forms* :test #'eq))
+
+(defun %repl-denied-operator-p (op)
+  (member op *repl-denied-operators* :test #'eq))
+
+(defun %repl-known-operator-p (op)
+  "Structural code boundary: special form or registered primitive."
+  (and (symbolp op)
+       (or (%repl-special-form-p op)
+           (gethash op *primitive-dispatch*))))
+
 ;;; ═══════════════════════════════════════════════════════════════════════
 ;;; PRIMITIVE PROTOCOL — declarative registration via defprimitive macro
 ;;; ═══════════════════════════════════════════════════════════════════════
@@ -56,6 +80,36 @@
                       ,@handler-body))))
 
 ;;; ═══════════════════════════════════════════════════════════════════════
+;;; ERROR PROTOCOL — failure is data: (:error ...) / (:parse-error ...) / ...
+;;; ═══════════════════════════════════════════════════════════════════════
+
+(defun %error-form-p (s)
+  "Structural: does a printed result represent an error s-expression?
+   The restricted dialect signals failure as (:error ...) / (:parse-error ...) /
+   (:eval-error ...) / (:unknown ...). This IS the protocol, not a heuristic."
+  (and (stringp s)
+       (let ((tr (string-left-trim '(#\Space #\Newline #\Return #\Tab) s)))
+         (some (lambda (p) (and (>= (length tr) (length p))
+                                (string-equal (subseq tr 0 (length p)) p)))
+               '("(:error" "(:parse-error" "(:eval-error" "(:unknown")))))
+
+(defun %suggest-primitives (op)
+  "Up to 3 registered primitive names sharing OP's leading characters.
+   Turns an unknown-primitive failure into a teaching signal for the model."
+  (let* ((s (string-downcase (string op)))
+         (pre (subseq s 0 (min 3 (length s))))
+         (hits '()))
+    (when (plusp (length pre))
+      (maphash (lambda (k v) (declare (ignore v))
+                 (let ((ks (string-downcase (string k))))
+                   (when (and (>= (length ks) (length pre))
+                              (string= (subseq ks 0 (length pre)) pre))
+                     (push ks hits))))
+               *primitive-dispatch*))
+    (let ((sorted (sort hits #'string<)))
+      (subseq sorted 0 (min 3 (length sorted))))))
+
+;;; ═══════════════════════════════════════════════════════════════════════
 ;;; RESTRICTED EVALUATOR — sandboxed Lisp interpreter
 ;;; ═══════════════════════════════════════════════════════════════════════
 
@@ -78,6 +132,8 @@ ENV is an alist of (symbol . value) bindings. No global mutation."
     ;; Lists = function calls or special forms
     ((listp form)
      (let ((op (car form)))
+       (when (%repl-denied-operator-p op)
+         (error "Denied operator: ~A" op))
        (case op
          ;; ── Special forms ──────────────────────────────────────
          (quote   (second form))
@@ -89,7 +145,12 @@ ENV is an alist of (symbol . value) bindings. No global mutation."
                     (%reval-progn (cddr form) env)))
          (progn   (%reval-progn (cdr form) env))
          ;; ── Respond: final answer to user (terminates REPL) ────
-         (respond (throw 'repl-respond (%reval (second form) env)))
+         (respond (let ((v (%reval (second form) env)))
+                    ;; Never deliver a raw error form to the user. Return it as a
+                    ;; value so the round scores as error and the model retries.
+                    (if (%error-form-p (princ-to-string v))
+                        v
+                        (throw 'repl-respond v))))
          ;; ── Primitives (evaluated args) ────────────────────────
          (t       (%reval-call op (mapcar (lambda (a) (%reval a env))
                                           (cdr form))
@@ -133,8 +194,15 @@ ENV is an alist of (symbol . value) bindings. No global mutation."
   ;; Truncation happens ONLY at display boundaries (eval-all-forms, respond).
   (let ((prim (gethash op *primitive-dispatch*)))
     (if prim
-        (funcall (repl-primitive-handler prim) args env)
-        (format nil "(:error \"unknown primitive: ~A\")" op))))
+        (let ((result (funcall (repl-primitive-handler prim) args env)))
+          (if (%error-form-p (princ-to-string result))
+              (error "~A" result)
+              result))
+        (let ((suggest (%suggest-primitives op)))
+          (error "~A"
+                 (if suggest
+                     (format nil "(:unknown \"~A is not a primitive — try: ~{~A~^ ~}\")" op suggest)
+                     (format nil "(:unknown \"~A is not a primitive\")" op)))))))
 
 (defun %bound-result (val)
   (let ((s (if (stringp val) val (princ-to-string val))))

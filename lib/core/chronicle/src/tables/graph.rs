@@ -86,6 +86,22 @@ fn md5_simple(input: &str) -> u64 {
     hash
 }
 
+/// The raw s-expression of the most recent concept-graph snapshot (the full
+/// memory-map, including learned/meditation edges), or `None` if no snapshot
+/// exists yet. Used for lossless field warm-start.
+pub fn latest_sexp() -> Result<Option<String>, String> {
+    let db = db::conn()?;
+    let lock = db.lock().map_err(|e| e.to_string())?;
+    let mut stmt = lock
+        .prepare("SELECT sexp FROM graph_snapshots ORDER BY id DESC LIMIT 1")
+        .map_err(|e| e.to_string())?;
+    let mut rows = stmt.query([]).map_err(|e| e.to_string())?;
+    match rows.next().map_err(|e| e.to_string())? {
+        Some(row) => Ok(Some(row.get::<_, String>(0).map_err(|e| e.to_string())?)),
+        None => Ok(None),
+    }
+}
+
 /// Query: find all concepts connected to a given concept within N hops.
 /// Uses recursive CTE for graph traversal — this is the power of SQL on graph data.
 pub fn traverse_from(

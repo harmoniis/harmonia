@@ -76,7 +76,9 @@ pub async fn spawn_all(module_registry: HashMap<String, crate::registry::ModuleE
     // (MQTT, Email, SIP, HTTP/3) reaches them via these refs to verify
     // inbound signatures and produce outbound ones, instead of each
     // frontend bringing its own keyring.
-    let state_root = std::env::var("HARMONIA_STATE_ROOT").unwrap_or_default();
+    let state_root = harmonia_config_store::paths::state_root()
+        .to_string_lossy()
+        .into_owned();
     let trust_store_ref =
         match harmonia_transport_pgp::spawn_trust_store(&supervisor_ref, state_root).await {
             Ok(r) => Some(r),

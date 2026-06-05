@@ -28,5 +28,7 @@ pub trait ComponentDescriptor: Send + Sync + 'static {
     /// Graceful shutdown. Default: no-op.
     fn shutdown(_state: &mut Self::State) {}
     /// Declared capabilities for pub/sub topic subscription.
-    fn capabilities() -> &'static [&'static str] { &[] }
+    fn capabilities() -> &'static [&'static str] {
+        &[]
+    }
 }

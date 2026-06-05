@@ -99,6 +99,10 @@
     (string= "ab" (%reval '(concatenate "a" "b") '())))
   (test-assert "string-downcase works"
     (string= "hello" (%reval '(string-downcase "HELLO") '())))
+  (test-assert "string-trim trims whitespace"
+    (string= "hello" (%reval '(string-trim "  hello  ") '())))
+  (test-assert "number->string converts numbers"
+    (string= "42" (%reval '(number->string 42) '())))
 
   ;; ── List operations ───────────────────────────────────────────────
   (format t "~%── Lists ──~%")
@@ -177,6 +181,28 @@
     (handler-case
         (progn (%reval '(setf x 42) '()) nil)
       (error () t)))
+  (test-assert "primitive errors cannot be composed into respond"
+    (let ((old (gethash 'test-error *primitive-dispatch*)))
+      (unwind-protect
+           (progn
+             (setf (gethash 'test-error *primitive-dispatch*)
+                   (make-repl-primitive
+                    :name 'test-error
+                    :args-spec "()"
+                    :doc "test primitive error"
+                    :handler (lambda (args env)
+                               (declare (ignore args env))
+                               "(:error \"boom\")")))
+             (handler-case
+                 (progn
+                   (%reval '(let ((x (test-error)))
+                              (respond (strcat "wrapped " x)))
+                           '())
+                   nil)
+               (error () t)))
+        (if old
+            (setf (gethash 'test-error *primitive-dispatch*) old)
+            (remhash 'test-error *primitive-dispatch*)))))
 
   ;; ── Results ───────────────────────────────────────────────────────
   (format t "~%═══ RESULTS: ~D passed, ~D failed ═══════════════════~%"

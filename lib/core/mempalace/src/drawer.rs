@@ -4,6 +4,10 @@ use crate::{sexp_escape, current_epoch_ms};
 
 #[derive(Clone, Debug)]
 pub enum DrawerSource {
+    /// Filed from a durable chronicle memory entry. `entry_id` is the chronicle
+    /// memory-entry id; it is the key the boot reconciliation diffs against so the
+    /// palace can converge to the chronicle record without ever re-filing a drawer.
+    Memory { entry_id: String },
     Conversation { session_id: String },
     File { path: String, hash: u64 },
     Datamining { lode_id: String, node_label: String },
@@ -13,6 +17,7 @@ pub enum DrawerSource {
 impl DrawerSource {
     pub fn to_sexp(&self) -> String {
         match self {
+            Self::Memory { entry_id } => format!("(:memory :entry \"{}\")", sexp_escape(entry_id)),
             Self::Conversation { session_id } => format!("(:conversation :session \"{}\")", sexp_escape(session_id)),
             Self::File { path, hash } => format!("(:file :path \"{}\" :hash {})", sexp_escape(path), hash),
             Self::Datamining { lode_id, node_label } => format!("(:datamining :lode \"{}\" :node \"{}\")", sexp_escape(lode_id), sexp_escape(node_label)),
@@ -20,11 +25,12 @@ impl DrawerSource {
         }
     }
 
-    /// Serialize to a compact string for Chronicle persistence.
+    /// Serialize to a compact string for the on-disk drawer sexp checkpoint.
     /// Format: "conversation:<session_id>", "file:<path>:<hash>",
     ///         "datamining:<lode_id>:<node_label>", "manual"
     pub fn to_persist_str(&self) -> String {
         match self {
+            Self::Memory { entry_id } => format!("memory:{}", entry_id),
             Self::Conversation { session_id } => format!("conversation:{}", session_id),
             Self::File { path, hash } => format!("file:{}:{}", path, hash),
             Self::Datamining { lode_id, node_label } => format!("datamining:{}:{}", lode_id, node_label),
@@ -34,7 +40,9 @@ impl DrawerSource {
 
     /// Deserialize from the compact persist string.
     pub fn from_persist_str(s: &str) -> Self {
-        if let Some(rest) = s.strip_prefix("conversation:") {
+        if let Some(rest) = s.strip_prefix("memory:") {
+            Self::Memory { entry_id: rest.to_string() }
+        } else if let Some(rest) = s.strip_prefix("conversation:") {
             Self::Conversation { session_id: rest.to_string() }
         } else if let Some(rest) = s.strip_prefix("file:") {
             // Split on last ':' to separate path from hash
@@ -79,21 +87,7 @@ impl DrawerStore {
     pub fn len(&self) -> usize { self.drawers.len() }
     pub fn push(&mut self, drawer: Drawer) { self.drawers.push(drawer); }
 
-    /// Restore a drawer from persisted Chronicle data (warm-start).
-    pub fn restore(
-        &mut self,
-        id: u64,
-        content: String,
-        source: DrawerSource,
-        room_id: u32,
-        chunk_index: u16,
-        created_at: u64,
-        tags: Vec<String>,
-    ) {
-        self.drawers.push(Drawer { id, content, source, room_id, chunk_index, created_at, tags });
-    }
-
-    /// Get all drawers (for persistence).
+    /// Get all drawers (for the full-state checkpoint).
     pub fn all(&self) -> &[Drawer] {
         &self.drawers
     }
@@ -143,20 +137,13 @@ pub fn file_drawer(
         return Err(MemoryError::RoomNotFound(room_id));
     }
     let id = s.next_drawer_id;
-    s.next_drawer_id += 1;
     let drawer = Drawer {
         id, content: content.to_string(), source, room_id, chunk_index: 0,
         created_at: current_epoch_ms(), tags: tags.iter().map(|t| t.to_string()).collect(),
     };
-    s.drawers.push(drawer.clone());
-
-    // Write to disk IMMEDIATELY -- verbatim must never be lost
-    if let Some(root) = crate::disk::memory_root() {
-        let (wing, room) = s.resolve_wing_room(room_id);
-        let path = crate::disk::drawer_md_path(&root, &wing, &room, id);
-        let md = crate::disk::drawer_to_md(&drawer);
-        let _ = crate::disk::write_drawer_md(&path, &md);
-    }
+    s.persist_drawer(&drawer)?;
+    s.next_drawer_id += 1;
+    s.drawers.push(drawer);
 
     Ok(format!("(:ok :id {} :room {} :size {})", id, room_id, content.len()))
 }
@@ -184,6 +171,22 @@ pub fn search_drawers(
         })
         .collect();
     Ok(format!("(:ok :count {} :results ({}))", results.len(), items.join(" ")))
+}
+
+/// The set of chronicle memory-entry ids the palace has filed (drawers whose
+/// source is `Memory`). Boot reconciliation diffs the chronicle record against
+/// this set and files only what is missing — keyed on entry-id, never content.
+pub fn entry_ids(s: &crate::PalaceState) -> Result<String, MemoryError> {
+    let ids: Vec<String> = s
+        .drawers
+        .all()
+        .iter()
+        .filter_map(|d| match &d.source {
+            DrawerSource::Memory { entry_id } => Some(format!("\"{}\"", sexp_escape(entry_id))),
+            _ => None,
+        })
+        .collect();
+    Ok(format!("(:ok :count {} :ids ({}))", ids.len(), ids.join(" ")))
 }
 
 pub fn get_drawer(s: &crate::PalaceState, id: u64) -> Result<String, MemoryError> {

@@ -20,7 +20,7 @@ For the Rust crate reference, see [memory-field-crate.md](memory-field-crate.md)
 
 Current retrieval path: `query → substring match → sort by 10*depth + access_count`. That is linear search with a heuristic, not a dynamical system finding its basin.
 
-See: [state.lisp](/Users/george/workspace/harmoniis/agent/harmonia/src/memory/store/state.lisp), `memory-layered-recall` (line 170).
+See: [state.lisp](/Users/george/workspace/harmoniis/agent/harmonia/src/memory/store/state.lisp) and `memory-recall`.
 
 ## What Memory-Field Is
 
@@ -270,7 +270,7 @@ The holographic property applies: the 2D concept graph surface encodes high-dime
 |----------|------|---------|
 | Rust crate | `lib/core/memory-field/` | Graph Laplacian, spectral cache, attractor dynamics, activation engine |
 | Lisp port | `src/ports/memory-field.lisp` | IPC wrapper for field recall |
-| Recall replacement | `src/memory/store/state.lisp` | `memory-layered-recall` dispatches to field when available |
+| Recall path | `src/memory/store/operations.lisp` | `memory-recall` unions field and lexical candidates before shared ranking |
 | Concept graph source | `src/memory/store/concept-map.lisp` | Source of graph data serialized to Rust |
 | Chronicle graph store | `lib/core/chronicle/src/tables/graph.rs` | Persistent graph snapshots |
 | Signalograd kernel | `lib/core/signalograd/src/kernel.rs` | Lorenz attractor state (read by memory-field for basin context) |

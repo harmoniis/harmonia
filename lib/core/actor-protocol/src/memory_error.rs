@@ -96,7 +96,10 @@ mod tests {
 
     #[test]
     fn display_capacity_exceeded() {
-        let e = MemoryError::CapacityExceeded { kind: "nodes", limit: 256 };
+        let e = MemoryError::CapacityExceeded {
+            kind: "nodes",
+            limit: 256,
+        };
         assert_eq!(e.to_string(), "nodes capacity exceeded: max 256");
     }
 

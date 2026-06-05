@@ -39,7 +39,12 @@ pub fn compress_aaak(
     let combined = combine_content(&drawers);
     let word_counts = count_words(&combined);
     let top_entities = select_top_entities(word_counts, 15);
+    let previous_codebook = s.codebook.to_sexp();
     let entities = assign_codes(&mut s.codebook, top_entities);
+    if let Err(e) = s.persist_codebook() {
+        s.codebook = crate::codebook::AaakCodebook::from_sexp(&previous_codebook);
+        return Err(e);
+    }
     let topic = extract_topic(&drawers);
     let weight = combined.len() as f64 / 100.0;
     let entry = AaakEntry {
@@ -56,12 +61,17 @@ pub fn codebook_register(
     s: &mut crate::PalaceState,
     concepts: &[String],
 ) -> Result<String, MemoryError> {
+    let previous_codebook = s.codebook.to_sexp();
     let mut registered = 0;
     for concept in concepts {
         if !concept.is_empty() && concept.len() > 2 {
             s.codebook.code_for(concept);
             registered += 1;
         }
+    }
+    if let Err(e) = s.persist_codebook() {
+        s.codebook = crate::codebook::AaakCodebook::from_sexp(&previous_codebook);
+        return Err(e);
     }
     Ok(format!("(:ok :registered {} :total {})", registered, s.codebook.len()))
 }

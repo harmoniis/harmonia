@@ -352,7 +352,7 @@ Field propagation on the concept graph for dynamical memory recall.
 Graph Laplacian L=D-A, spectral eigenmodes (Chladni patterns), 3 attractors (Thomas/Aizawa/Halvorsen).
 Hysteresis: basin switching requires sustained coercive energy. Warm-start from Chronicle.
 Integration: :observe pushes graph, :attractor-sync steps attractors, :stabilize persists basin.
-Recall: memory-layered-recall dispatches to field when available, falls back to substring.
+Recall: memory-recall unions field and substring candidates before shared ranking.
 
 GUARDIAN HEALER (src/core/recovery-cascade.lisp)
 Self-healing via LLM-guarded recovery cascade:

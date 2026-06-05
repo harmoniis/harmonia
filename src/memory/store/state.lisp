@@ -114,7 +114,9 @@
       (when (or (= i (length norm))
                 (char= (char norm i) #\Space))
         (let ((w (string-trim " " (subseq norm start i))))
-          (when (> (length w) 2)
+          (when (or (> (length w) 2)
+                    (and (> (length w) 1)
+                         (some #'digit-char-p w)))
             (push w words)))
         (setf start (1+ i))))
     (remove-duplicates

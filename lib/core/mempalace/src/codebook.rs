@@ -1,7 +1,10 @@
 use std::collections::HashMap;
 
+use harmonia_actor_protocol::{extract_sexp_string, extract_sexp_u64, sexp_escape};
+
 const MAX_CODEBOOK_ENTRIES: usize = 256;
 
+#[derive(Clone)]
 pub struct AaakCodebook {
     entity_to_code: HashMap<String, String>,
     code_to_entity: HashMap<String, String>,
@@ -91,35 +94,66 @@ impl AaakCodebook {
         }
     }
 
-    pub fn to_json(&self) -> String {
-        let entries: Vec<serde_json::Value> = self.entity_to_code.iter()
-            .map(|(entity, code)| serde_json::json!([entity, code]))
-            .collect();
-        serde_json::json!({ "entries": entries, "next": self.next_index }).to_string()
+    pub fn to_sexp(&self) -> String {
+        let mut entries: Vec<(&String, &String)> = self.entity_to_code.iter().collect();
+        entries.sort_by(|a, b| a.0.cmp(b.0));
+        let rows = entries
+            .into_iter()
+            .map(|(entity, code)| {
+                format!(
+                    "  (:entity \"{}\" :code \"{}\")",
+                    sexp_escape(entity),
+                    sexp_escape(code)
+                )
+            })
+            .collect::<Vec<_>>()
+            .join("\n");
+        format!("(:codebook :next {} :entries (\n{}\n))\n", self.next_index, rows)
     }
 
-    pub fn from_json(json: &str) -> Self {
+    pub fn from_sexp(sexp: &str) -> Self {
         let mut cb = Self::new();
-        let Ok(v) = serde_json::from_str::<serde_json::Value>(json) else { return cb; };
-        if let Some(n) = v.get("next").and_then(|n| n.as_u64()) {
-            cb.next_index = n as u32;
-        }
-        if let Some(entries) = v.get("entries").and_then(|e| e.as_array()) {
-            for pair in entries {
-                if let Some(arr) = pair.as_array() {
-                    if let [entity, code] = arr.as_slice() {
-                        if let (Some(e), Some(c)) = (entity.as_str(), code.as_str()) {
-                            cb.access_counter += 1;
-                            cb.access_order.insert(e.to_string(), cb.access_counter);
-                            cb.entity_to_code.insert(e.to_string(), c.to_string());
-                            cb.code_to_entity.insert(c.to_string(), e.to_string());
-                        }
-                    }
-                }
-            }
+        cb.next_index = extract_sexp_u64(sexp, ":next").unwrap_or(0) as u32;
+        for chunk in sexp.split(":entity").skip(1) {
+            let Some(entity) = extract_first_quoted(chunk) else { continue };
+            let Some(code) = extract_sexp_string(chunk, ":code") else { continue };
+            cb.access_counter += 1;
+            cb.access_order.insert(entity.clone(), cb.access_counter);
+            cb.entity_to_code.insert(entity.clone(), code.clone());
+            cb.code_to_entity.insert(code, entity);
         }
         cb
     }
+}
+
+fn extract_first_quoted(s: &str) -> Option<String> {
+    let start = s.find('"')? + 1;
+    let rest = &s[start..];
+    let mut out = String::new();
+    let mut escaped = false;
+    for ch in rest.chars() {
+        if escaped {
+            match ch {
+                '"' => out.push('"'),
+                '\\' => out.push('\\'),
+                'n' => out.push('\n'),
+                'r' => out.push('\r'),
+                't' => out.push('\t'),
+                other => {
+                    out.push('\\');
+                    out.push(other);
+                }
+            }
+            escaped = false;
+        } else if ch == '\\' {
+            escaped = true;
+        } else if ch == '"' {
+            return Some(out);
+        } else {
+            out.push(ch);
+        }
+    }
+    None
 }
 
 #[cfg(test)]
@@ -155,11 +189,11 @@ mod tests {
         let mut cb = AaakCodebook::new();
         cb.code_for("memory-field");
         cb.code_for("spectral");
-        let json = cb.to_json();
-        let cb2 = AaakCodebook::from_json(&json);
-        assert_eq!(cb2.len(), 2);
-        assert_eq!(cb2.lookup("A"), Some("memory-field".into()));
-        assert_eq!(cb2.lookup("memory-field"), Some("A".into()));
+        let sexp = cb.to_sexp();
+        let cb3 = AaakCodebook::from_sexp(&sexp);
+        assert_eq!(cb3.len(), 2);
+        assert_eq!(cb3.lookup("A"), Some("memory-field".into()));
+        assert_eq!(cb3.lookup("memory-field"), Some("A".into()));
     }
 
     #[test]

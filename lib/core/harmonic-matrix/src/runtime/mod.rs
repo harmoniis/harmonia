@@ -79,6 +79,31 @@ mod tests {
     }
 
     #[test]
+    fn observe_route_auto_creates_missing_edge() {
+        // Hebbian: traffic observation IS the edge registration. A route
+        // that fires without pre-seeding must register itself, not error,
+        // so the matrix learns the topology from real usage.
+        let _guard = test_guard();
+        set_store("memory", None).expect("memory store");
+        init().expect("init");
+        register_node("hebb_from", "core").expect("node from");
+        register_node("hebb_to", "tool").expect("node to");
+        // Note: no register_edge — observe_route is the first touch.
+        observe_route("hebb_from", "hebb_to", true, 42, 0.005)
+            .expect("observe must auto-create the edge");
+        let st = state().read().unwrap();
+        let edge = st
+            .edges
+            .get(&("hebb_from".to_string(), "hebb_to".to_string()))
+            .expect("edge must exist after first observation");
+        assert_eq!(edge.uses, 1, "uses must reflect the observation");
+        assert_eq!(edge.successes, 1, "successful observation counts toward successes");
+        assert_eq!(edge.total_latency_ms, 42);
+        assert!((edge.weight - 1.0).abs() < f64::EPSILON, "default weight = 1.0");
+        assert_eq!(edge.min_harmony, 0.0, "default min_harmony = 0.0");
+    }
+
+    #[test]
     fn graph_store_contract_returns_error() {
         let _guard = test_guard();
         set_store("memory", None).expect("start on memory");
