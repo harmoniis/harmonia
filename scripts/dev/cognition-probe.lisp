@@ -77,6 +77,10 @@
     (%pp "chosen model before error burst" (lambda () chosen))
     (if (and (stringp chosen) (> (length chosen) 0))
         (progn
+          ;; Control the precondition: clear the chosen model's accumulated (heritable)
+          ;; perf so the error burst deterministically collapses fluency — otherwise an
+          ;; established model with many prior code-ok correctly resists 15 errors.
+          (remhash chosen *repl-model-perf*)
           (dotimes (i 15) (%record-repl-perf chosen :code-error))
           (let ((after (choose-model prompt)) (fl (%repl-fluency chosen)))
             (%pp "chosen after 15 errors / its fluency" (lambda () (list :after after :fluency fl)))

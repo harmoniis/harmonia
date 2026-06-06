@@ -270,7 +270,7 @@ so model selection is steered by inherited competence from the first turn after 
                  (gethash (car pair) *primitive-dispatch*))
         (push (format nil ";;   ~A" (cdr pair)) answers)))
     (format nil
-            ";; Restricted Lisp REPL. Reply with ONE s-expression, nothing else.~%;; Choose the call that directly advances the user request. Never repeat a completed call.~%;; Use EXACTLY these calls, with real arguments (no &key, no &optional):~%~{~A~%~};; Complete action-to-answer forms:~%~{~A~%~}"
+            ";; Restricted Lisp REPL. Reply with ONE s-expression, nothing else.~%;; Choose the call that directly advances the user request. Never repeat a completed call.~%;; Use EXACTLY these calls, with real arguments (no &key, no &optional):~%~{~A~%~};; Complete action-to-answer forms:~%~{~A~%~};; MULTI-STEP TASKS: one call per round; the previous result is shown above as a ';;' line —~%;; read it and use it in your next call. Carry a value across steps via memory:~%;;   (store \"SQ is 36\")   then a later round:   (recall \"SQ\")~%;; Recall the operands you need, compute on the numbers, store intermediate results, then (respond ...).~%"
             (nreverse lines)
             (nreverse answers))))
 
@@ -559,14 +559,19 @@ user-facing answer. Prose answers never take this shape, so this is safe."
     (and (> (length s) 2)
          (char= (char s 0) #\()
          (char= (char s (1- (length s))) #\))
-         (or (char= (char s 1) #\:)                    ; keyword-led: (:STATUS …) (:field …)
-             ;; OR an internal record whose head is an ALL-CAPS tag: (DELEGATION :tool …),
-             ;; (MEMORY …). Prose answers are never a whole upper-tag s-expr.
-             (let ((sp (or (position #\Space s) (1- (length s)))))
-               (and (> sp 2)
-                    (loop for i from 1 below sp for c = (char s i)
-                          always (or (char<= #\A c #\Z) (char= c #\-)))
-                    (search " :" s)))))))
+         (let ((head (let ((sp (or (position #\Space s) (1- (length s)))))
+                       (and (> sp 1) (subseq s 1 sp)))))
+           (or (char= (char s 1) #\:)                  ; keyword-led: (:STATUS …) (:field …)
+               ;; bare observation-primitive call leaked as the answer: (env) (status) (field) …
+               (and head (member (string-downcase head)
+                                 '("env" "status" "field" "basin" "models" "introspect" "chaos-risk")
+                                 :test #'string=))
+               ;; OR an internal record whose head is an ALL-CAPS tag: (DELEGATION :tool …)
+               (let ((sp (or (position #\Space s) (1- (length s)))))
+                 (and (> sp 2)
+                      (loop for i from 1 below sp for c = (char s i)
+                            always (or (char<= #\A c #\Z) (char= c #\-)))
+                      (search " :" s))))))))
 
 (defun %sanitize-repl-response (response)
   "Strip REPL framing that leaked into the response. Structural only: removes ;; comment
