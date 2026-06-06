@@ -167,6 +167,30 @@ CONTEXT END")
            (search "op=vault-set" prompt :test #'char-equal))
       (%redact-vault-value prompt) prompt))
 
+(defun %maybe-store-explicit-fact (prompt)
+  "Deterministic memory CREATION for explicit remember-intent. When the user says
+'remember/note/store/memorize … : <fact>' (or 'remember that <fact>'), store <fact> as a
+CLEAN recallable fact — independent of whether the model later calls (store). This is the
+foundation of memory-reliant work: an explicit 'remember X' must always yield a usable fact.
+memory-put dedups by content hash, so a model that also stores it causes no duplicate.
+Returns the stored fact string, or nil."
+  (when (stringp prompt)
+    (let* ((trimmed (string-trim '(#\Space #\Tab #\Newline) prompt))
+           (lower (string-downcase trimmed))
+           (first-word (and (plusp (length lower))
+                            (subseq lower 0 (or (position #\Space lower) (length lower))))))
+      (when (member first-word '("remember" "note" "store" "memorize") :test #'string=)
+        (let* ((colon (position #\: trimmed))
+               (after-that (search "remember that " lower))
+               (fact (cond
+                       (colon (string-trim '(#\Space #\.) (subseq trimmed (1+ colon))))
+                       (after-that (string-trim '(#\Space #\.) (subseq trimmed (+ after-that 14))))
+                       (t nil))))
+          (when (and fact (>= (length fact) 3) (<= (length fact) 500))
+            (handler-case
+                (progn (memory-put :daily fact :tags '(:user-stored :fact :explicit)) fact)
+              (error () nil))))))))
+
 ;;; --- Prompt entry point ---
 
 (defun feed-prompt (prompt)
@@ -574,6 +598,9 @@ made the model distrust and ignore its own recalled facts."
   "Core orchestration: compose prompt -> select model -> execute -> record."
   (memory-touch-activity)
   (handler-case (memory-maybe-journal-yesterday) (error () nil))
+  ;; Deterministic memory creation: an explicit "remember X" always yields a clean recallable
+  ;; fact BEFORE the model runs, so the auto-recall below + later turns see it.
+  (handler-case (%maybe-store-explicit-fact prompt) (error () nil))
   (let* ((safe-prompt (%sanitize-prompt-for-memory prompt))
          (llm-prompt (%compose-orchestration-prompt prompt signal))
          (model (%select-orchestration-model prompt))

@@ -35,16 +35,16 @@ needs_num(){ # needs_num <desc> <prompt> <expected-number>
 [ -S "$SOCK" ] || "$HARNESS" bringup || { echo "FATAL bringup"; exit 2; }
 
 echo "── Phase 1: BUILD memory (each step relies on recalling the last) ──"
-say "T1 store base"   "We are starting a calculation. Remember this fact: BASE equals 6."
-say "T2 derive SQ"    "Recall BASE from your memory, square it, and remember the result as SQ. Tell me SQ."
-say "T3 derive DIFF"  "Recall SQ and BASE from memory, compute SQ minus BASE, and remember it as DIFF. Tell me DIFF."
+say "T1 store base"   "Remember this fact: the value of the variable BASE is the number 6."
+say "T2 derive SQ"    "Recall the value of BASE from your memory, multiply it by itself, and remember the result as the value of SQ. Tell me the value of SQ."
+say "T3 derive DIFF"  "Recall the values of SQ and BASE from your memory, subtract BASE from SQ, and remember the result as the value of DIFF. Tell me the value of DIFF."
 
 echo "── Phase 2: RELY on the built memory to answer ────────────────────"
-needs_num "T4 combine from memory" "Using only what you remember, what is DIFF plus SQ? Answer with the number." 66
+needs_num "T4 combine from memory" "Recall the values of DIFF and SQ from your memory and add them together. Answer with just the number." 66
 
 echo "── Phase 3: SELF-CORRECTION (update memory, recompute) ────────────"
-say "T5 correction"   "Correction: BASE is actually 10, not 6. Update SQ and DIFF in your memory accordingly."
-needs_num "T6 recompute after correction" "With the corrected values, what is DIFF plus SQ now? Answer with the number." 190
+say "T5 correction"   "Correction: the value of BASE is now the number 10 instead of 6. Recompute the values of SQ and DIFF and remember the new values."
+needs_num "T6 recompute after correction" "Recall the new values of DIFF and SQ and add them together. Answer with just the number." 190
 
 echo "─────────────────────────────────────────────────────────────────────"
 echo "RESULT: $PASS passed, $FAIL failed"

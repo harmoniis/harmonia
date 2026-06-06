@@ -74,6 +74,15 @@
       ((listp policy) (member class policy :test #'eq))
       (t t))))
 
+(defun %field-index-entry-p (class tags)
+  "The field is the global CONTEXT MAP. Index knowledge, but NEVER conversational
+interactions/orchestration turns — those belong in chronicle (the log). Indexing Q&A into
+the field fills the context map with conversation that out-ranks real facts in recall, so
+they are excluded here. Genuine user facts (daily/soul/skill) stay indexed."
+  (and (%field-indexable-p class)
+       (not (member :interaction tags :test #'eq))
+       (not (member :orchestration tags :test #'eq))))
+
 (defun %palace-worthy-p (class depth)
   "Policy-driven: check routing config for palace-worthy classes.
    Falls back to hardcoded defaults if config not loaded."
@@ -106,8 +115,9 @@
                                        :access-count 0 :last-access nil)))
         (setf (gethash id *memory-store*) entry)
         (%push-class-id class id)
-        ;; L1: policy-selected classes enter the field graph.
-        (when (%field-indexable-p class)
+        ;; L1: policy-selected classes enter the field graph — but never conversational
+        ;; interactions (they stay in chronicle, the log), keeping the context map clean.
+        (when (%field-index-entry-p class all-tags)
           (setf indexed-concepts
                 (%index-entry-concepts id class depth content :tags all-tags)))))
     ;; L2: ALL entries persist to Chronicle (system log).
@@ -125,12 +135,12 @@
     ;; Reload field graph on every field-indexable put. Serialization now
     ;; happens under the memory lock (see memory-field-load-graph), so
     ;; eager reloads are safe and keep the field in sync with chronicle.
-    (when (and (%field-indexable-p class)
+    (when (and (%field-index-entry-p class all-tags)
                (fboundp 'memory-field-port-ready-p) (funcall 'memory-field-port-ready-p))
       (handler-case (funcall 'memory-field-load-graph) (error () nil)))
     (%pipeline-trace :memory-put :class class :depth depth
       :store-targets (format nil "chronicle~A~A"
-                       (if (%field-indexable-p class) "+field" "")
+                       (if (%field-index-entry-p class all-tags) "+field" "")
                        (if (%palace-worthy-p class depth) "+palace" ""))
       :content-len (length content))
     id))
@@ -369,7 +379,12 @@ entries remain contextual fallbacks only when no relevant candidate exists."
   (let* ((count (if (and (integerp limit) (plusp limit)) limit 10))
          (field (%memory-field-recall-entries query count))
          (lexical (%memory-substring-recall query count))
-         (relevant (%rank-memory-entries query (append field lexical)))
+         ;; Fact recall returns KNOWLEDGE, not conversation. Conversational interactions
+         ;; (Q&A turns) are chronicle log; excluding them here stops recent turns from
+         ;; out-ranking real facts (the clean stored fact has no :interaction tag → survives).
+         (candidates (remove-if (lambda (e) (%memory-entry-has-tag-p e :interaction))
+                                (append field lexical)))
+         (relevant (%rank-memory-entries query candidates))
          (results (or (and relevant
                            (subseq relevant 0 (min count (length relevant))))
                       (%memory-by-depth count 1)
