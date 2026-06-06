@@ -549,11 +549,25 @@ from keyword plists like `(:status …)` (colon right after the paren)."
                       for c = (char s i)
                       always (or (char<= #\a c #\z) (char= c #\-))))))))
 
+(defun %repl-internal-observation-p (text)
+  "True when TEXT is a raw INTERNAL observation/structure that leaked as an answer:
+a keyword-led s-expr plist (e.g. `(:STATUS …)`, `(:FIELD …)`, `(:BASIN …)`) or a
+basin/field status string (`basin=… dwell=…`). These are introspection outputs the
+model misfired (calling `(status)`/`(field)`/`(basin)` for a recall question), never a
+user-facing answer. Prose answers never take this shape, so this is safe."
+  (let ((s (string-trim '(#\Space #\Newline #\Tab) (or text ""))))
+    (and (> (length s) 2)
+         (or (and (char= (char s 0) #\()        ; whole-response keyword-led s-expr
+                  (char= (char s 1) #\:)
+                  (char= (char s (1- (length s))) #\)))
+             (and (search "basin=" s) (search "dwell=" s))))))
+
 (defun %sanitize-repl-response (response)
-  "Strip REPL framing that leaked into the response. Structural only:
-   removes ;; comment lines (REPL frame echo) and converts a bare tool-diagnostic
-   envelope (e.g. `(search: no results …)`) into a graceful line, so no internal
-   observation ever reaches the user as the answer. No agent-name matching."
+  "Strip REPL framing that leaked into the response. Structural only: removes ;; comment
+   lines (REPL frame echo) and converts a raw internal observation — a tool-diagnostic
+   envelope (`(search: …)`) OR a misfired introspection structure (`(:STATUS …)`,
+   `(:FIELD …)`, basin status) — into a graceful line, so no internal observation ever
+   reaches the user as the answer. No agent-name matching."
   (if (and response (stringp response))
       (let ((cleaned response))
         ;; Strip leading ;; comment lines (REPL framing echo)
@@ -565,6 +579,7 @@ from keyword plists like `(:status …)` (colon right after the paren)."
                        (return))))
         (cond
           ((%repl-diagnostic-envelope-p cleaned) "I couldn't find anything relevant for that.")
+          ((%repl-internal-observation-p cleaned) "I couldn't find anything relevant for that.")
           ((> (length cleaned) 0) cleaned)
           (t response)))
       response))
