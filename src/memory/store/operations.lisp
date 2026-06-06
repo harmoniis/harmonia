@@ -380,6 +380,24 @@ memory-field's semantic ordering."
                         #'> :key #'car))))
     (error () nil)))
 
+(defun %supersede-dedup (entries)
+  "Self-correction in append-only memory: when two recall results share the same SUBJECT —
+identical non-numeric words, differing only in a numeric value (e.g. 'B is 6' vs 'B is 10') —
+they are the same fact superseded by a newer value. ENTRIES are recency-ranked, so the first
+occurrence per subject is the newest; keep it and drop the stale duplicates. Entries with no
+numeric value, or a unique subject, are all kept (distinct facts are never merged)."
+  (let ((seen (make-hash-table :test 'equal))
+        (out '()))
+    (dolist (e entries (nreverse out))
+      (let* ((words (%split-words (%memory-entry-recall-text e)))
+             (key (let ((nonnum (remove-if (lambda (w) (some #'digit-char-p w)) words)))
+                    (when (and nonnum (some (lambda (w) (some #'digit-char-p w)) words))
+                      (format nil "~{~A~^ ~}" (sort (copy-list nonnum) #'string<))))))
+        (cond
+          ((null key) (push e out))                       ; no numeric value → not a superseding fact
+          ((gethash key seen))                            ; stale duplicate of a kept subject → drop
+          (t (setf (gethash key seen) t) (push e out)))))))
+
 (defun memory-recall (query &key (limit 10))
   "Recall through one ranked path.
 Field topology and lexical-store candidates are unioned before ranking so a
@@ -393,7 +411,8 @@ entries remain contextual fallbacks only when no relevant candidate exists."
          ;; out-ranking real facts (the clean stored fact has no :interaction tag → survives).
          (candidates (remove-if (lambda (e) (%memory-entry-has-tag-p e :interaction))
                                 (append field lexical)))
-         (relevant (%rank-memory-entries query candidates))
+         ;; Newest value supersedes a stale one for the same subject (self-correction).
+         (relevant (%supersede-dedup (%rank-memory-entries query candidates)))
          (results (or (and relevant
                            (subseq relevant 0 (min count (length relevant))))
                       (%memory-by-depth count 1)
