@@ -25,8 +25,10 @@
   ;; ── A. GENOME COMPLETENESS (the perfect genome is WHOLE) ──
   (format t "~%── A. GENOME COMPLETENESS ──~%")
   (%g "genome has IDENTITY (creator+pgp)" (equal (getf (getf *dna* :creator) :pgp) "88E016462EFF9672"))
-  (%g "genome has a PRIME-DIRECTIVE (non-nil)" (and (dna-prime-directive) (plusp (length (dna-prime-directive)))))
-  (%g "genome has LAWS (the constitution, non-empty)" (and (consp (dna-laws)) (>= (length (dna-laws)) 5)))
+  (%g "PRIME-DIRECTIVE present AND simple (one concise line, no prose flooding)"
+      (and (dna-prime-directive) (plusp (length (dna-prime-directive))) (< (length (dna-prime-directive)) 160)))
+  (%g "the hard laws ARE the :constraints (code, not prose) — non-empty"
+      (and (consp (dna-laws)) (>= (length (dna-laws)) 5)))
   (%g "genome has GENES, BOUNDS, FOUNDATION, IMMUNE"
       (and (getf *dna* :genes) (getf *dna* :bounds) (getf *dna* :foundation) (getf *dna* :immune)))
   ;; B. GENE INTEGRITY — every gene resolves to a real function (no dead mapping)

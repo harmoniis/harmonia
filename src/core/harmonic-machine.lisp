@@ -345,7 +345,7 @@ bounded (saturating reinforcement + dream decay), so cadence cannot run away.")
                                             (error () nil))
                                           0.0)
                           :vitruvian vitruvian
-                          :dna-laws (getf *dna* :laws))))
+                          :dna-laws (and (fboundp 'dna-laws) (dna-laws)))))
          (when ok
            (incf (runtime-state-rewrite-count runtime)))
          (when (%trace-level-p :verbose)

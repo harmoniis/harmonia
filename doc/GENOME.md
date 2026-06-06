@@ -37,22 +37,28 @@ genome into them. The genome and epigenetic behavior live in **all Lisp cells**.
 
 ---
 
-## 2. The perfect genome (the germline) — five chromosomes
+## 2. The genome (the germline) — SIMPLE: code, not prose
 
-`*dna*` becomes the **complete, single source** of behavioral specification. Immutable at runtime
-(germline); changed only by deliberate evolution.
+Guiding principle: **simple things simple, complex things possible.** The genome is the *irreducible*
+specification — **code, not prose** (its own rule: "descriptions live in the memory field, not the
+genome"). It is immutable at runtime; changed only by deliberate evolution. Six small chromosomes:
 
-1. **IDENTITY** — creator, spirit, **prime-directive**, **laws** (the constitution). The "self" the
-   immune system protects. (Adds the two missing chromosomes.)
-2. **GENES** — capability → expressing function. Cells call capabilities through `(dna-express-gene :k …)`,
-   so the genome is the live dispatch table. Genes are the *only* capabilities the LLM may invoke
-   (the homoiconic primitive frame is generated *from* the genes).
-3. **REGULATORY (bounds)** — for every tunable parameter, the `(min . max)` range within which
-   epigenetics may drift. **Every epigenetic mark is clamped to its genome bound** — the germline
-   constrains the soma. (Absorbs the W2 meditation ceilings, decay-λ, signalograd limits, etc.)
-4. **FOUNDATION** — the mathematical laws (vitruvian, lorenz, thomas, kolmogorov, lambdoma…). Already live.
-5. **IMMUNE** — self-identity (creator/PGP), boundary rules, and the **posture → behavior** map
-   (what `:elevated`/`:alert` actually *do*). The immune genes.
+1. **IDENTITY** — creator + spirit (`一期一会`) + a **one-line prime-directive**. The "self" the immune
+   system protects. (The prose elaboration belongs in the memory field, reached via recall — not the germline.)
+2. **GENES** — capability → expressing function. Kept as direct calls (compile-time safety); the genome
+   is made *load-bearing* by validating every gene is `fboundp` (a broken mapping fails loudly), not by
+   routing hot calls through a symbol table.
+3. **CONSTRAINTS** = **the hard laws, as code** (`dna-laws` ≡ `:constraints`). Not prose. The barriers the
+   organism cannot cross without evolving.
+4. **REGULATORY (bounds)** — for each tunable, the `(min . max)` range epigenetics may drift within.
+   **Marks are clamped to the genome bound AT THE WRITE SITE** (cold path) — the germline constrains the
+   soma with zero hot-path cost. (Absorbs the W2 meditation ceiling/decay/edge-count.)
+5. **FOUNDATION** — the mathematical laws (vitruvian, lorenz, thomas, kolmogorov, lambdoma…). Already live.
+6. **IMMUNE** — self-identity (creator/PGP) + the **posture → behavior** map (`:nominal`/`:elevated`/`:alert`
+   → chaos-max, swarm-fanout, allow-exec/datamine). Small, structured. `:nominal` == baseline (no autoimmunity).
+
+That is the whole genome — a few dozen lines. Complexity (the full constitution, descriptions, learned
+behavior) is *expressed* from it (memory field + epigenetics + immune response), never enumerated in it.
 
 ---
 

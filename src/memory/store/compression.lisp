@@ -34,7 +34,7 @@
          (ratio (/ new-size (float old-size)))
          (solomonoff (exp (- (/ new-size 40.0))))
          (occam-pass (<= ratio 1.1))
-         (laws (getf *dna* :laws)))
+         (laws (and (fboundp 'dna-laws) (dna-laws))))
     (list :kolmogorov-ratio ratio
           :old-size old-size
           :new-size new-size

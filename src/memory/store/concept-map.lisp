@@ -244,8 +244,8 @@ E.g. tag :identity connects to content words, so 'who are you' finds identity en
              *memory-concept-edges*)
     (list :schema :layered-memory-map-v1
           :dna (list :creator (getf *dna* :creator)
-                     :prime-directive (getf *dna* :prime-directive)
-                     :laws (getf *dna* :laws))
+                     :prime-directive (and (fboundp 'dna-prime-directive) (dna-prime-directive))
+                     :laws (and (fboundp 'dna-laws) (dna-laws)))
           :layers (list
                    (list :name :skill :count (length (gethash :skill *memory-by-class*)) :depth 1)
                    (list :name :daily :count (length (gethash :daily *memory-by-class*)) :depth 0)
