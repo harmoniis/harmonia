@@ -417,6 +417,10 @@
       (when (fboundp '%merge-graph-snapshot-into-field)
         (%merge-graph-snapshot-into-field))
     (error (e) (%log :warn "boot" "graph-snapshot merge failed: ~A" e) nil))
+  ;; Restore the REPL-fluency epigenetic mark — the agent remembers which models can
+  ;; drive its homoiconic REPL across restarts (heritable competence).
+  (handler-case (when (fboundp '%load-repl-fluency) (%load-repl-fluency))
+    (error (e) (%log :warn "boot" "load-repl-fluency failed: ~A" e) nil))
   ;; Always ensure genesis memories exist (idempotent — dedup by content hash).
   (memory-seed-soul-from-dna)
   (init-signalograd-port)

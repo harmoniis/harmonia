@@ -27,6 +27,22 @@ bounded (saturating reinforcement + dream decay), so cadence cannot run away.")
     (incf (gethash frontend *security-injection-counts* 0) injection-count))
   t)
 
+;;; ── Immune RESPONSE — the posture gates behavior, expressed from the genome ──
+;;; At :nominal the gated values equal the baseline defaults, so a HEALTHY organism is
+;;; never restricted (no autoimmunity). :elevated/:alert progressively tighten, and the
+;;; posture relaxes back to :nominal as the threat decays (see the :security-audit phase).
+(defun immune-gated (key &optional default)
+  "A numeric/flag behavior parameter gated by the current security posture (genome :immune)."
+  (if (fboundp 'dna-immune-gate) (dna-immune-gate *security-posture* key default) default))
+
+(defun immune-allows-p (capability)
+  "Whether the current posture permits a risky CAPABILITY (:exec / :datamine). Permitted at
+:nominal/:elevated; refused at :alert (defensive mode). Defaults to permit if no genome."
+  (let ((k (case capability (:exec :allow-exec) (:datamine :allow-datamine) (t nil))))
+    (if (and k (fboundp 'dna-immune-gate))
+        (and (dna-immune-gate *security-posture* k t) t)
+        t)))
+
 (defun %clamp (x lo hi)
   (max lo (min hi x)))
 
@@ -311,8 +327,11 @@ bounded (saturating reinforcement + dream decay), so cadence cannot run away.")
               (lorenz (getf ctx :lorenz))
               (vitruvian (%vitruvian-scores global local projection logistic lorenz map))
               (ok (and (getf projection :convergent-p)
+                       ;; Immune response: a threatened organism tolerates LESS chaos before
+                       ;; rewriting itself. Effective chaos-max = min(harmony, immune posture cap).
                        (< (getf logistic :chaos-risk)
-                          (signalograd-effective-harmony-number "rewrite-plan/chaos-max" 0.55 runtime))
+                          (min (signalograd-effective-harmony-number "rewrite-plan/chaos-max" 0.55 runtime)
+                               (immune-gated :chaos-risk-max 0.55)))
                        (>= (getf vitruvian :signal)
                            (signalograd-effective-harmony-number "rewrite-plan/signal-min" 0.62 runtime))))
               (plan (list :state-machine :harmonic
@@ -411,6 +430,8 @@ bounded (saturating reinforcement + dream decay), so cadence cannot run away.")
        ;; Auto-persist signalograd checkpoint to data directory.
        ;; Non-blocking: ignore-errors ensures IPC failure never stalls the machine.
        (ignore-errors (signalograd-checkpoint-latest :runtime runtime))
+       ;; Persist the heritable REPL-fluency mark on the same cadence as the other epigenome.
+       (ignore-errors (when (fboundp '%save-repl-fluency) (funcall '%save-repl-fluency)))
        ;; Auto-persist memory-field checkpoint via IPC (full sexp snapshot).
        (when (and (fboundp 'memory-field-port-ready-p)
                   (funcall 'memory-field-port-ready-p))

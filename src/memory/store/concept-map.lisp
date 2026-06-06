@@ -62,22 +62,31 @@ slowing indexing. Bounded scan over the (capped) edge set. Returns count refined
       (format nil "~A|~A" a b)
       (format nil "~A|~A" b a)))
 
-(defparameter *concept-edge-weight-max* 12.0
-  "Saturation ceiling for concept-edge weights — the single bound shared by both
-co-occurrence and meditation reinforcement (DNA bound). Caps runaway so a few hot
-edges can't crowd the weight-sorted graph snapshot (the 1B field warm-start input)
-and re-degenerate the spectrum; decay-on-dream keeps weights spread below the cap so
-the weight VARIANCE the spectral recall needs is preserved.")
+(defun %genome-bound-max (name default)
+  "The max of a genome :bounds range (germline), or DEFAULT if the genome isn't loaded
+yet (load-order safe). The genome is the canonical source of every epigenetic bound."
+  (or (and (fboundp 'dna-bound) (let ((b (dna-bound name))) (and b (cdr b)))) default))
+
+(defparameter *concept-edge-weight-max* (%genome-bound-max :concept-edge-weight 12.0)
+  "Germline ceiling for concept-edge weights (genome :bounds :concept-edge-weight). The
+single bound shared by co-occurrence and meditation reinforcement. Caps runaway so hot
+edges can't crowd the weight-sorted snapshot (1B warm-start) and re-degenerate the
+spectrum; decay-on-dream keeps weights spread so the spectral variance is preserved.")
 
 (defun %reinforce-weight (w0 boost)
-  "Bounded reinforcement: linear growth (preserves early growth + the denoise ≥2
-threshold) capped at *concept-edge-weight-max*. One rule for every edge-growth site."
-  (min *concept-edge-weight-max* (+ (max 0.0 (float (or w0 0))) (float boost))))
+  "Bounded reinforcement clamped to the genome's :concept-edge-weight bound — the germline
+constrains this epigenetic mark at the WRITE site (clamp-at-write, one rule for every
+edge-growth site). Linear growth preserves the denoise ≥2 threshold."
+  (let ((v (+ (max 0.0 (float (or w0 0))) (float boost))))
+    (if (fboundp 'dna-clamp-to-bound)
+        (dna-clamp-to-bound :concept-edge-weight v)
+        (min *concept-edge-weight-max* v))))
 
-(defparameter *concept-edge-prune-floor* 0.5
-  "Edges whose weight decays below this are evicted during dream (gentle forgetting).")
+(defparameter *concept-edge-prune-floor* (%genome-bound-max :concept-edge-prune 0.5)
+  "Germline floor (genome :bounds :concept-edge-prune): edges whose weight decays below
+this are evicted during dream (gentle forgetting).")
 
-(defparameter *concept-edge-max-count* 4096
+(defparameter *concept-edge-max-count* (truncate (%genome-bound-max :concept-edge-count 4096))
   "Hard ceiling on live concept-edge COUNT. Reinforcement (and auto-meditation) keep
 adding bridges; at the gentle DNA-bounded decay rate, weight-fade eviction alone can't
 keep pace — so dream also evicts the LOWEST-weight edges down to this cap. Keeping the

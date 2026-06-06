@@ -124,6 +124,41 @@ Only #\\ (character literal) is benign; all others are rejected."
   "model-id → (:code-ok N :code-error N :natural N :recall N :error N
                :unavailable N :total-ms N :calls N)")
 
+;;; REPL fluency is an EPIGENETIC MARK: which models can drive the homoiconic REPL,
+;;; learned by experience. It must be HERITABLE (was lost on every restart) so the
+;;; organism remembers its hard-won competence across boots.
+(defun %repl-fluency-path ()
+  (concatenate 'string
+               (or (and (fboundp 'config-get-for)
+                        (handler-case (config-get-for "model-policy" "state-root" "global") (error () nil)))
+                   (and (fboundp '%tmpdir-state-root) (funcall '%tmpdir-state-root))
+                   "/tmp")
+               "/repl_fluency.sexp"))
+
+(defun %save-repl-fluency ()
+  "Persist the REPL-fluency epigenetic mark (heritable across restarts)."
+  (handler-case
+      (let ((path (%repl-fluency-path)) (alist '()))
+        (maphash (lambda (m p) (push (cons m p) alist)) *repl-model-perf*)
+        (ensure-directories-exist path)
+        (with-open-file (out path :direction :output :if-exists :supersede :if-does-not-exist :create)
+          (prin1 alist out) (terpri out))
+        path)
+    (error () nil)))
+
+(defun %load-repl-fluency ()
+  "Restore the REPL-fluency mark at boot — the agent remembers which models can drive it,
+so model selection is steered by inherited competence from the first turn after restart."
+  (handler-case
+      (let ((path (%repl-fluency-path)))
+        (when (probe-file path)
+          (with-open-file (in path :direction :input)
+            (let ((*read-eval* nil))
+              (dolist (pair (read in nil '()))
+                (when (and (consp pair) (stringp (car pair)) (listp (cdr pair)))
+                  (setf (gethash (car pair) *repl-model-perf*) (cdr pair))))))))
+    (error () nil)))
+
 (defun %record-repl-perf (model outcome &key (latency-ms 0))
   "Record one REPL interaction outcome for a model."
   (when (and model (stringp model) (> (length model) 0))

@@ -418,6 +418,11 @@ CONTEXT END")
                                          orch-max-subagents 1))))
                             (setf orch-chain (model-escalation-chain prompt model)
                                   orch-max-subagents (parallel-get-subagent-count)))
+                        ;; Immune response: a threatened organism reduces its attack surface —
+                        ;; fewer parallel subagents under :elevated/:alert (genome :swarm-fanout).
+                        (when (fboundp 'immune-gated)
+                          (setf orch-max-subagents
+                                (max 1 (min (or orch-max-subagents 1) (immune-gated :swarm-fanout 3)))))
                         (let* ((chain orch-chain) (max-subs orch-max-subagents)
                                (prepared-prompt llm-prompt) (summary-model nil)
                                (swarm-response nil) (swarm-report nil)

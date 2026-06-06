@@ -259,6 +259,9 @@ The REPL has full Lisp power; Rust is the boundary."
         "(append-file: path required)")))
 
 (defun %prim-exec (&rest args)
+  ;; Immune response: terminal power is refused under :alert posture (defensive mode).
+  (when (and (fboundp 'immune-allows-p) (not (immune-allows-p :exec)))
+    (return-from %prim-exec "(exec: refused — immune posture :alert)"))
   (let ((cmd (first args))
         (cmd-args (rest args)))
     (if (and cmd (stringp cmd))
@@ -466,8 +469,11 @@ result plist, or nil if there are too few active concepts."
 
 (defun %prim-datamine (lode-id &rest args)
   "Datamine locally using a specific lode."
-  (%with-port-guard "terraphon" terraphon-port-ready-p "datamine"
-    (apply #'terraphon-datamine lode-id args)))
+  ;; Immune response: datamining is refused under :alert posture (defensive mode).
+  (if (and (fboundp 'immune-allows-p) (not (immune-allows-p :datamine)))
+      "(datamine: refused — immune posture :alert)"
+      (%with-port-guard "terraphon" terraphon-port-ready-p "datamine"
+        (apply #'terraphon-datamine lode-id args))))
 
 (defun %prim-datamine-remote (node-label lode-id &rest args)
   "Datamine on a remote node via Tailscale mesh. Routes through NodeRPC DatamineQuery."
