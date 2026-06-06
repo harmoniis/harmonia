@@ -277,17 +277,21 @@ so model selection is steered by inherited competence from the first turn after 
 ;; Computed at boot from *primitive-dispatch*. Identical every round — no model confusion.
 (defvar *repl-frame* nil "REPL instruction frame — computed from dispatch table.")
 
-(defun %build-repl-prompt (agent-name user-text &key round last-result)
+(defun %build-repl-prompt (agent-name user-text &key round last-result memory)
   "Build prompt as s-expression structure. Rendered to string at LLM boundary.
-   Homoiconic: the epigenetic system can structurally modify prompts."
+   Homoiconic: the epigenetic system can structurally modify prompts. MEMORY (recalled
+   SELF facts) is injected so the model answers from what it KNOWS — it must not web-search
+   for personal facts it was told."
   (unless *repl-frame* (setf *repl-frame* (%compute-repl-frame)))
   (if (or (null round) (= round 1))
       `(:prompt
         (:system ,(format nil "~A REPL. Complete the user request directly." agent-name))
+        ,@(when (and memory (stringp memory) (plusp (length memory))) (list (list :memory memory)))
         (:frame ,*repl-frame*)
         (:user ,user-text))
       `(:prompt
         (:system ,(format nil "~A REPL. Use the previous result, choose a different call, or respond." agent-name))
+        ,@(when (and memory (stringp memory) (plusp (length memory))) (list (list :memory memory)))
         (:context ,(%clip-prompt (or last-result "") 2000))
         (:frame ,*repl-frame*)
         (:user ,user-text))))
@@ -300,20 +304,21 @@ so model selection is steered by inherited competence from the first turn after 
             (content (cadr section)))
         (case kind
           (:system  (format out ";; ~A~%" content))
+          (:memory  (write-string content out) (terpri out))  ; pre-framed SELF-memory block
           (:frame   (write-string content out))
           (:context (format out ";; ~A~%" content))
           (:user    (format out ";; user: ~A" content)))))))
 
-(defun %repl-boot-prompt (agent-name user-text)
-  "L0 boot: REPL frame + user query."
-  (%render-prompt (%build-repl-prompt agent-name user-text)))
+(defun %repl-boot-prompt (agent-name user-text &optional memory)
+  "L0 boot: recalled SELF-memory (if any) + REPL frame + user query."
+  (%render-prompt (%build-repl-prompt agent-name user-text :memory memory)))
 
-(defun %repl-continuation-prompt (round agent-name last-result user-text)
-  "Continuation: same REPL frame + previous eval result. No 'R3' labels.
+(defun %repl-continuation-prompt (round agent-name last-result user-text &optional memory)
+  "Continuation: same recalled memory + REPL frame + previous eval result. No 'R3' labels.
    Structurally identical to boot — models cannot distinguish rounds."
   (declare (ignore round))
   (%render-prompt (%build-repl-prompt agent-name user-text
-                                       :round 2 :last-result last-result)))
+                                       :round 2 :last-result last-result :memory memory)))
 
 (defun %clip-prompt (text &optional (limit 256))
   (let ((s (or text "")))
@@ -359,7 +364,18 @@ so model selection is steered by inherited competence from the first turn after 
   (let* ((user-text (if (harmonia-signal-p prompt)
                         (harmonia-signal-payload prompt)
                         (if (stringp prompt) prompt (princ-to-string prompt))))
-         (current-prompt (%repl-boot-prompt (%agent-name) user-text))
+         ;; Inject recalled SELF-memory into the REPL prompt so the model answers from what
+         ;; it KNOWS (not web-search). Bounded; wrapped as trusted self-memory. The model may
+         ;; still (recall …) for more, but the relevant facts are already present.
+         (recall-block
+           (handler-case
+               (let ((raw (and (fboundp 'memory-semantic-recall-block)
+                               (funcall 'memory-semantic-recall-block user-text :limit 5 :max-chars 1200))))
+                 (if (and raw (stringp raw) (plusp (length raw)) (fboundp '%self-memory-wrap))
+                     (funcall '%self-memory-wrap raw)
+                     (or raw "")))
+             (error () "")))
+         (current-prompt (%repl-boot-prompt (%agent-name) user-text recall-block))
          (round 0)
          (last-eval-result nil)
          (last-presentable-result nil)
@@ -389,7 +405,7 @@ so model selection is steered by inherited competence from the first turn after 
                (let ((round-prompt
                        (if (= round 1)
                            current-prompt
-                           (%repl-continuation-prompt round (%agent-name) last-eval-result user-text)))
+                           (%repl-continuation-prompt round (%agent-name) last-eval-result user-text recall-block)))
                      (used-model (or (handler-case (%select-model user-text) (error () nil)) ""))
                      (call-start (get-internal-real-time)))
                  (setf attempted-model used-model
@@ -559,19 +575,27 @@ user-facing answer. Prose answers never take this shape, so this is safe."
     (and (> (length s) 2)
          (char= (char s 0) #\()
          (char= (char s (1- (length s))) #\))
-         (let ((head (let ((sp (or (position #\Space s) (1- (length s)))))
-                       (and (> sp 1) (subseq s 1 sp)))))
-           (or (char= (char s 1) #\:)                  ; keyword-led: (:STATUS …) (:field …)
-               ;; bare observation-primitive call leaked as the answer: (env) (status) (field) …
-               (and head (member (string-downcase head)
-                                 '("env" "status" "field" "basin" "models" "introspect" "chaos-risk")
-                                 :test #'string=))
-               ;; OR an internal record whose head is an ALL-CAPS tag: (DELEGATION :tool …)
-               (let ((sp (or (position #\Space s) (1- (length s)))))
-                 (and (> sp 2)
-                      (loop for i from 1 below sp for c = (char s i)
-                            always (or (char<= #\A c #\Z) (char= c #\-)))
-                      (search " :" s))))))))
+         (let* ((sp (or (position #\Space s) (1- (length s))))
+                (head (and (> sp 1) (string-downcase (subseq s 1 sp)))))
+           (and head
+                ;; (:ok …) and (:error …) are LEGITIMATE primitive result envelopes — a
+                ;; successful store/recall — never garbage; leave them for synthesis/handling.
+                (not (member head '(":ok" ":error" ":parse-error" ":unknown") :test #'string=))
+                (or
+                  ;; bare observation-primitive call leaked as the answer: (env) (status) (field) …
+                  (member head '("env" "status" "field" "basin" "models" "introspect" "chaos-risk")
+                          :test #'string=)
+                  ;; introspection-dump plist: (:status …) (:field …) (:basin …) (:cycle …) (:lorenz …)
+                  (member head '(":status" ":field" ":basin" ":cycle" ":lorenz" ":signalograd-snapshot"
+                                 ":harmonic" ":projection")
+                          :test #'string=)
+                  ;; ALL-CAPS internal record: (DELEGATION :tool …)
+                  (and (> sp 2)
+                       (loop for i from 1 below sp for c = (char s i)
+                             always (or (char<= #\A c #\Z) (char= c #\-)))
+                       (search " :" s))
+                  ;; basin/field status string
+                  (and (search "basin=" s) (search "dwell=" s))))))))
 
 (defun %sanitize-repl-response (response)
   "Strip REPL framing that leaked into the response. Structural only: removes ;; comment
