@@ -557,10 +557,16 @@ model misfired (calling `(status)`/`(field)`/`(basin)` for a recall question), n
 user-facing answer. Prose answers never take this shape, so this is safe."
   (let ((s (string-trim '(#\Space #\Newline #\Tab) (or text ""))))
     (and (> (length s) 2)
-         (or (and (char= (char s 0) #\()        ; whole-response keyword-led s-expr
-                  (char= (char s 1) #\:)
-                  (char= (char s (1- (length s))) #\)))
-             (and (search "basin=" s) (search "dwell=" s))))))
+         (char= (char s 0) #\()
+         (char= (char s (1- (length s))) #\))
+         (or (char= (char s 1) #\:)                    ; keyword-led: (:STATUS …) (:field …)
+             ;; OR an internal record whose head is an ALL-CAPS tag: (DELEGATION :tool …),
+             ;; (MEMORY …). Prose answers are never a whole upper-tag s-expr.
+             (let ((sp (or (position #\Space s) (1- (length s)))))
+               (and (> sp 2)
+                    (loop for i from 1 below sp for c = (char s i)
+                          always (or (char<= #\A c #\Z) (char= c #\-)))
+                    (search " :" s)))))))
 
 (defun %sanitize-repl-response (response)
   "Strip REPL framing that leaked into the response. Structural only: removes ;; comment
