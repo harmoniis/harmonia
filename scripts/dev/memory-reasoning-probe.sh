@@ -50,9 +50,13 @@ needs_num "T5 add DIFF+SQ from memory" "Recall the values of DIFF and SQ and add
 say "T6 recall non-derivable seed" "What is the secret build seed? State just the seed."
 if echo "$R" | grep -q "$SEED"; then ok "T6 non-derivable seed recalled ($SEED) — recall is REAL, not computed"; else no "T6 seed NOT recalled (memory recall not real)"; fi
 
-echo "── Phase 3: SELF-CORRECTION ──"
-say "T7 correction" "Correction: the value of B is now the number 10. Recompute SQ and DIFF and store the new values."
-needs_num "T8 add DIFF+SQ after correction" "Recall the new values of DIFF and SQ and add them together. Answer with just the number." 190
+echo "── Phase 3: SELF-CORRECTION (atomic steps, same granularity as T3/T4) ──"
+# Restate the relationships (SQ=B*B, DIFF=SQ-B) and recompute ONE value per turn — the agent
+# stores values, not derivation dependencies, and reliably does one compute+store per turn.
+say "T7a correction: new B" "Correction: the value of B is now the number 10. Store this new value of B."
+say "T7b recompute SQ"      "Recall the new value of B, multiply it by itself, and store the result as the new value of SQ."
+say "T7c recompute DIFF"    "Recall the new values of SQ and B, subtract B from SQ, and store the result as the new value of DIFF."
+needs_num "T8 add DIFF+SQ after correction" "Recall the most recent values of DIFF and SQ and add them together. Answer with just the number." 190
 
 echo "── Verify the INTERMEDIATES were actually STORED (anti mental-math) ──"
 ( stored SQ 36 || stored SQ 100 ) && ok "intermediate SQ was stored to chronicle (36 or 100)" || no "SQ never stored — model did not use memory for SQ"

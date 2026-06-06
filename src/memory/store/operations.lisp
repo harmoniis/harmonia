@@ -32,16 +32,25 @@
     (let ((routing (getf *memory-routing-config* :routing)))
       (when routing (getf routing key)))))
 
-(defun %memory-should-store-p (class content depth)
+(defun %memory-should-store-p (class content depth &optional tags)
   "Write filter: reject entries that add no information to the field.
    No class checks — the field topology decides importance, not labels.
    Returns NIL to reject, T to store."
   (declare (ignore class))
   ;; Entries with depth > 0 are crystallized/compressed — always store.
   (when (> depth 0) (return-from %memory-should-store-p t))
-  (let ((text (if (stringp content) content (prin1-to-string content))))
-    ;; Reject entries too short to carry semantic meaning.
-    (when (< (length text) 20)
+  (let ((text (if (stringp content) content (prin1-to-string content)))
+        ;; An EXPLICIT store ((store …) or a deterministic remember, tagged :user-stored)
+        ;; is an intentional fact — store it regardless of length. Short facts like
+        ;; "SQ is 36" / "B is 6" are exactly what memory-reliant reasoning needs; the
+        ;; length floor is only for auto-captured content.
+        (explicit (or (member :user-stored tags :test #'eq)
+                      (member :fact tags :test #'eq))))
+    ;; Reject entries too short to carry semantic meaning — unless explicitly stored.
+    (when (and (not explicit) (< (length text) 20))
+      (return-from %memory-should-store-p nil))
+    ;; Truly trivial explicit stores still rejected (empty/near-empty).
+    (when (< (length text) 3)
       (return-from %memory-should-store-p nil))
     ;; Reject near-duplicate: >80% word overlap with existing recent entry.
     (let ((words (%split-words text)))
@@ -101,7 +110,7 @@ they are excluded here. Genuine user facts (daily/soul/skill) stay indexed."
    L2 Chronicle: ALL classes → persistent system log
    L3 Palace:   policy-selected user knowledge → graph + drawers
    Thread-safe: RAM mutations under lock, IPC outside lock."
-  (unless (%memory-should-store-p class content depth)
+  (unless (%memory-should-store-p class content depth tags)
     (return-from memory-put nil))
   (let (id now all-tags indexed-concepts)
     (with-memory-lock ()
