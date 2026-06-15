@@ -380,23 +380,36 @@ memory-field's semantic ordering."
                         #'> :key #'car))))
     (error () nil)))
 
+(defun %entry-subject-words (entry)
+  "The SUBJECT of a numeric-valued fact = its non-numeric words. Nil for facts with no
+numeric value (those are never superseded). Robust to wording drift: subject is a SET."
+  (let ((words (%split-words (%memory-entry-recall-text entry))))
+    (when (some (lambda (w) (some #'digit-char-p w)) words)
+      (remove-if (lambda (w) (some #'digit-char-p w)) words))))
+
+(defun %subjects-same-p (a b)
+  "Two subjects name the same thing when their word sets are >=60% similar (Jaccard). This
+recognizes 'the value of B is 6' and 'the value of B is now 10' as the SAME subject (B),
+despite the 'now' — so a correction truly supersedes the stale value."
+  (when (and a b)
+    (let ((common (length (intersection a b :test #'string=)))
+          (uni (length (union a b :test #'string=))))
+      (and (plusp uni) (>= (/ common (float uni)) 0.60)))))
+
 (defun %supersede-dedup (entries)
-  "Self-correction in append-only memory: when two recall results share the same SUBJECT —
-identical non-numeric words, differing only in a numeric value (e.g. 'B is 6' vs 'B is 10') —
-they are the same fact superseded by a newer value. ENTRIES are recency-ranked, so the first
-occurrence per subject is the newest; keep it and drop the stale duplicates. Entries with no
-numeric value, or a unique subject, are all kept (distinct facts are never merged)."
-  (let ((seen (make-hash-table :test 'equal))
+  "Self-correction in append-only memory: when two recall results name the same SUBJECT
+differing only in a numeric value ('B is 6' vs 'B is now 10'), they are the same fact
+superseded by a newer value. ENTRIES are recency-ranked, so the first occurrence per subject
+is the newest; keep it and drop the stale duplicates. Distinct facts (different subject) and
+value-less facts are all kept — the model never sees a stale value competing with its update."
+  (let ((kept-subjects '())
         (out '()))
     (dolist (e entries (nreverse out))
-      (let* ((words (%split-words (%memory-entry-recall-text e)))
-             (key (let ((nonnum (remove-if (lambda (w) (some #'digit-char-p w)) words)))
-                    (when (and nonnum (some (lambda (w) (some #'digit-char-p w)) words))
-                      (format nil "~{~A~^ ~}" (sort (copy-list nonnum) #'string<))))))
+      (let ((subj (%entry-subject-words e)))
         (cond
-          ((null key) (push e out))                       ; no numeric value → not a superseding fact
-          ((gethash key seen))                            ; stale duplicate of a kept subject → drop
-          (t (setf (gethash key seen) t) (push e out)))))))
+          ((null subj) (push e out))                                   ; no numeric value → keep
+          ((some (lambda (k) (%subjects-same-p subj k)) kept-subjects)) ; stale dup → drop
+          (t (push subj kept-subjects) (push e out)))))))
 
 (defun %drawer-entry-id (path)
   "Read a palace drawer .sexp at absolute PATH and return its source memory-entry

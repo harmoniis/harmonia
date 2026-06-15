@@ -537,6 +537,12 @@ so model selection is steered by inherited competence from the first turn after 
            (outcome-prompt (if success completion-prompt attempted-prompt))
            (recorded-p (%record-repl-completion
                         user-text clean outcome-model outcome-prompt total-latency-ms success)))
+      ;; Deterministic memory for an explicit "store … as <NAME>": the model computed the
+      ;; value; the agent guarantees it is stored, regardless of whether the model called store.
+      (handler-case
+          (when (fboundp '%maybe-store-computed-result)
+            (funcall '%maybe-store-computed-result user-text clean))
+        (error () nil))
       (when success
         (%pipeline-trace :response-delivery
           :frontend (if (harmonia-signal-p prompt) (harmonia-signal-frontend prompt) "tui")

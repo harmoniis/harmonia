@@ -191,6 +191,55 @@ Returns the stored fact string, or nil."
                 (progn (memory-put :daily fact :tags '(:user-stored :fact :explicit)) fact)
               (error () nil))))))))
 
+(defun %split-simple-words (s)
+  "Whitespace split preserving original case (unlike %split-words)."
+  (let ((words '()) (start 0))
+    (dotimes (i (length s) (when (> (length s) start) (push (subseq s start) words)))
+      (when (member (char s i) '(#\Space #\Tab #\Newline) :test #'char=)
+        (when (> i start) (push (subseq s start i) words))
+        (setf start (1+ i))))
+    (nreverse words)))
+
+(defun %extract-first-number (s)
+  "First integer substring in S (as a string), or nil."
+  (when (stringp s)
+    (let ((start nil))
+      (dotimes (i (length s))
+        (if (digit-char-p (char s i))
+            (unless start (setf start i))
+            (when start (return-from %extract-first-number (subseq s start i)))))
+      (when start (subseq s start)))))
+
+(defun %extract-store-as-name (user-text as-pos)
+  "NAME after 'as' in 'store … as [the new value of] <NAME>' — the variable to store under."
+  (let* ((after (subseq user-text (min (length user-text) (+ as-pos 4))))
+         (words (remove-if
+                 (lambda (w) (member (string-downcase w)
+                                     '("the" "a" "an" "new" "value" "values" "of" "result")
+                                     :test #'string=))
+                 (%split-simple-words after))))
+    (when words
+      (let ((name (string-trim '(#\. #\, #\Space #\: #\; #\!) (first words))))
+        (when (and (plusp (length name)) (<= (length name) 24)) name)))))
+
+(defun %maybe-store-computed-result (user-text response)
+  "Deterministic memory for an explicit 'store/remember … as <NAME>' instruction: extract
+NAME from the instruction and the numeric value the model produced in RESPONSE, and store
+'<NAME> is <value>'. The model reasons/computes; the agent GUARANTEES the storage the user
+asked for — so an explicit store-as is honored regardless of model variance. Idempotent:
+memory-put dedups by content, and supersede-dedup keeps the newest value per subject."
+  (when (and (stringp user-text) (stringp response))
+    (let ((lower (string-downcase user-text)))
+      (let ((as-pos (search " as " lower)))
+        (when (and as-pos (or (search "store" lower) (search "remember" lower)))
+          (let ((name (%extract-store-as-name user-text as-pos))
+                (num (%extract-first-number response)))
+            (when (and name num)
+              (handler-case
+                  (memory-put :daily (format nil "~A is ~A" name num)
+                              :tags '(:user-stored :fact :computed))
+                (error () nil)))))))))
+
 ;;; --- Prompt entry point ---
 
 (defun feed-prompt (prompt)

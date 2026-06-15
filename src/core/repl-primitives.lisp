@@ -666,7 +666,11 @@ inline -c corrupts scripts containing spaces. A file path is stable data."
 (defprimitive route-check "(from to)" "Check harmonic matrix route." (apply #'%prim-route-check args))
 
 ;; ── Composition (common names models expect) ──────────────────────────
-(defprimitive format "(fmt &rest args)" "Format a string." (apply #'format nil args))
+(defprimitive format "(control &rest args)" "Format a string. A leading nil destination
+(standard CL style: (format nil \"~A\" x)) is accepted and dropped, so the model's natural
+call works as well as (format \"~A\" x)."
+  (let ((a (if (and args (null (first args))) (rest args) args)))
+    (if a (apply #'format nil a) "")))
 (defprimitive str "(&rest parts)" "Join parts into string." (apply #'concatenate 'string (mapcar #'princ-to-string args)))
 (defprimitive cat "(&rest parts)" "Alias for str." (apply #'concatenate 'string (mapcar #'princ-to-string args)))
 (defprimitive concat "(&rest parts)" "Alias for str." (apply #'concatenate 'string (mapcar #'princ-to-string args)))
