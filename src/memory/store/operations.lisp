@@ -380,12 +380,20 @@ memory-field's semantic ordering."
                         #'> :key #'car))))
     (error () nil)))
 
+(defparameter *subject-filler-words*
+  '("value" "values" "number" "now" "new" "result" "current" "updated" "set" "equals" "equal")
+  "Semantic filler removed when deriving a fact's SUBJECT, so 'the value of B is now 10' and
+'B is 6' reduce to the same distinctive identifier (B). Stopwords are already removed upstream.")
+
 (defun %entry-subject-words (entry)
-  "The SUBJECT of a numeric-valued fact = its non-numeric words. Nil for facts with no
-numeric value (those are never superseded). Robust to wording drift: subject is a SET."
+  "The SUBJECT of a numeric-valued fact = its distinctive (non-numeric, non-filler) words —
+the variable/entity being assigned. Nil for facts with no numeric value (never superseded).
+Reduces every phrasing of 'X = N' to X, so corrections supersede stale values robustly."
   (let ((words (%split-words (%memory-entry-recall-text entry))))
     (when (some (lambda (w) (some #'digit-char-p w)) words)
-      (remove-if (lambda (w) (some #'digit-char-p w)) words))))
+      (remove-if (lambda (w) (or (some #'digit-char-p w)
+                                 (member w *subject-filler-words* :test #'string=)))
+                 words))))
 
 (defun %subjects-same-p (a b)
   "Two subjects name the same thing when their word sets are >=60% similar (Jaccard). This
@@ -396,20 +404,40 @@ despite the 'now' — so a correction truly supersedes the stale value."
           (uni (length (union a b :test #'string=))))
       (and (plusp uni) (>= (/ common (float uni)) 0.60)))))
 
+(defun %entry-authority (e)
+  "Authority of a numeric fact: an explicit USER statement/correction (:explicit) is
+authoritative and outranks any DERIVED value (computed result or model store). This protects
+a user 'Correction: B is now 10' from a model's stray re-store of the stale B=6. Among derived
+values (all equal authority) the NEWEST wins — so a fresh recompute always supersedes a stale
+result. The winner per subject is highest authority, then recency."
+  (if (%memory-entry-has-tag-p e :explicit) 2 1))
+
 (defun %supersede-dedup (entries)
-  "Self-correction in append-only memory: when two recall results name the same SUBJECT
-differing only in a numeric value ('B is 6' vs 'B is now 10'), they are the same fact
-superseded by a newer value. ENTRIES are recency-ranked, so the first occurrence per subject
-is the newest; keep it and drop the stale duplicates. Distinct facts (different subject) and
-value-less facts are all kept — the model never sees a stale value competing with its update."
-  (let ((kept-subjects '())
-        (out '()))
-    (dolist (e entries (nreverse out))
+  "Newest AUTHORITATIVE value per subject wins. Numeric-valued facts naming the same SUBJECT
+(non-numeric words, >=60% similar — robust to 'B is 6' vs 'B is now 10') are the same fact
+superseded by an update. Within a subject group keep the highest-authority entry (explicit
+user fact > computed > incidental), ties broken by recency. Value-less facts and unique
+subjects are all kept; emitted in the original relevance order."
+  (let ((groups '()))                       ; ((subject-words . best-entry) …)
+    (dolist (e entries)
       (let ((subj (%entry-subject-words e)))
-        (cond
-          ((null subj) (push e out))                                   ; no numeric value → keep
-          ((some (lambda (k) (%subjects-same-p subj k)) kept-subjects)) ; stale dup → drop
-          (t (push subj kept-subjects) (push e out)))))))
+        (when subj
+          (let ((g (assoc subj groups :test #'%subjects-same-p)))
+            (cond
+              ((null g) (push (cons subj e) groups))
+              ((or (> (%entry-authority e) (%entry-authority (cdr g)))
+                   (and (= (%entry-authority e) (%entry-authority (cdr g)))
+                        (> (or (memory-entry-time e) 0) (or (memory-entry-time (cdr g)) 0))))
+               (setf (cdr g) e)))))))
+    (let ((emitted '()) (out '()))
+      (dolist (e entries (nreverse out))
+        (let ((subj (%entry-subject-words e)))
+          (if (null subj)
+              (push e out)
+              (let ((g (assoc subj groups :test #'%subjects-same-p)))
+                (when (and g (eq (cdr g) e) (not (member g emitted :test #'eq)))
+                  (push g emitted)
+                  (push e out)))))))))
 
 (defun %drawer-entry-id (path)
   "Read a palace drawer .sexp at absolute PATH and return its source memory-entry

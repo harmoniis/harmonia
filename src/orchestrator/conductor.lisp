@@ -178,14 +178,21 @@ Returns the stored fact string, or nil."
     (let* ((trimmed (string-trim '(#\Space #\Tab #\Newline) prompt))
            (lower (string-downcase trimmed))
            (first-word (and (plusp (length lower))
-                            (subseq lower 0 (or (position #\Space lower) (length lower))))))
-      (when (member first-word '("remember" "note" "store" "memorize") :test #'string=)
+                            ;; strip a trailing colon: "Correction:" → "correction"
+                            (string-right-trim ":"
+                              (subseq lower 0 (or (position #\Space lower) (length lower)))))))
+      (when (member first-word '("remember" "note" "store" "memorize" "correction")
+                    :test #'string=)
         (let* ((colon (position #\: trimmed))
                (after-that (search "remember that " lower))
-               (fact (cond
-                       (colon (string-trim '(#\Space #\.) (subseq trimmed (1+ colon))))
-                       (after-that (string-trim '(#\Space #\.) (subseq trimmed (+ after-that 14))))
-                       (t nil))))
+               (raw (cond
+                      (colon (string-trim '(#\Space #\.) (subseq trimmed (1+ colon))))
+                      (after-that (string-trim '(#\Space #\.) (subseq trimmed (+ after-that 14))))
+                      (t nil)))
+               ;; First sentence only — "Correction: B is now 10. Store this." → "B is now 10".
+               (fact (and raw (let ((dot (search ". " raw)))
+                                (string-trim '(#\Space #\.)
+                                             (if dot (subseq raw 0 dot) raw))))))
           (when (and fact (>= (length fact) 3) (<= (length fact) 500))
             (handler-case
                 (progn (memory-put :daily fact :tags '(:user-stored :fact :explicit)) fact)
