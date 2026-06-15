@@ -287,6 +287,7 @@
 (%load-module (%core-path "../ports/memory-field.lisp") "port/memory-field")
 (%load-module (%core-path "../ports/mempalace.lisp") "port/mempalace")
 (%load-module (%core-path "../ports/terraphon.lisp") "port/terraphon")
+(%load-module (%core-path "../ports/finder.lisp") "port/finder")
 (%load-module (%core-path "supervisor.lisp") "supervisor")
 (%load-module (%core-path "system-commands.lisp") "system-commands")
 (%load-module (%core-path "../orchestrator/parsing.lisp") "parsing")
@@ -453,6 +454,9 @@
   ;; Terraphon: platform datamining tools.
   (handler-case (init-terraphon-port)
     (error (e) (%log :warn "boot" "init-terraphon-port failed: ~A" e) nil))
+  ;; Finder: fff-search fuzzy file + content retrieval (default local search).
+  (handler-case (init-finder-port)
+    (error (e) (%log :warn "boot" "init-finder-port failed: ~A" e) nil))
   ;; Ouroboros: self-healing crash ledger.
   (handler-case (init-ouroboros-port)
     (error (e) (%log :warn "boot" "init-ouroboros-port failed: ~A" e) nil))

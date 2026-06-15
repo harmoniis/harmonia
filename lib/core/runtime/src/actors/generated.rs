@@ -8,6 +8,7 @@ use crate::components;
 // ComponentDescriptor-based actors: ONE line each.
 crate::macros::declare_component!(components::MemPalaceComponent, MemPalaceActor, MemPalaceActorState);
 crate::macros::declare_component!(components::TerraphonComponent, TerraphonActor, TerraphonActorState);
+crate::macros::declare_component!(components::FinderComponent, FinderActor, FinderActorState);
 crate::macros::declare_component!(components::ChronicleComponent, ChronicleComponentActor, ChronicleComponentState);
 crate::macros::declare_component!(components::McpComponent, McpActor, McpActorState);
 crate::macros::declare_component!(components::OuroborosComponent, OuroborosActor, OuroborosActorState);

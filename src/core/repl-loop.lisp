@@ -241,7 +241,8 @@ so model selection is steered by inherited competence from the first turn after 
     (fetch      . "(fetch \"https://example.com\")")
     (search     . "(search \"query\")")
     (read-file  . "(read-file \"/path/to/file\")")
-    (grep       . "(grep \"pattern\" \"/path\")")
+    (find       . "(find \"filename\")")
+    (grep       . "(grep \"pattern\")")
     (python     . "(python \"print(2+2)\")"))
   "Concrete call examples — the teaching surface for the restricted dialect.
    Dumb models copy what they see verbatim, so we show exact calls with real

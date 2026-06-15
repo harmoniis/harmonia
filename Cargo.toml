@@ -32,6 +32,7 @@ members = [
     "lib/core/memory-field",
     "lib/core/mempalace",
     "lib/core/terraphon",
+    "lib/core/finder",
 
     # Backends — provider protocol + LLM providers + storage + HTTP
     "lib/backends/llms/provider-protocol",

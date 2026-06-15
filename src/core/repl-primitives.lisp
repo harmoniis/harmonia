@@ -219,12 +219,28 @@ The REPL has full Lisp power; Rust is the boundary."
         "(read-file: path required)")))
 
 (defun %prim-grep (&rest args)
+  "Content search. Default substrate is the fff-search finder index (fast, persistent,
+whole-tree, frecency-ranked, bounded). A path-scoped grep falls back to the workspace shell."
   (let ((pattern (first args))
-        (path (or (second args) ".")))
-    (if (and pattern (stringp pattern))
-        (or (handler-case (workspace-grep pattern path) (error () nil))
-            "(grep: no results)")
-        "(grep: pattern required)")))
+        (path (second args)))
+    (cond
+      ((not (and pattern (stringp pattern))) "(grep: pattern required)")
+      ((and (fboundp 'finder-port-ready-p) (finder-port-ready-p)
+            (or (null path) (string= path ".") (string= path "")))
+       (handler-case (finder-grep pattern)
+         (error () (or (handler-case (workspace-grep pattern (or path ".")) (error () nil))
+                       "(grep: no results)"))))
+      (t (or (handler-case (workspace-grep pattern (or path ".")) (error () nil))
+             "(grep: no results)")))))
+
+(defun %prim-find (&rest args)
+  "Fuzzy file-path search via the finder index — the agent looking into files by name."
+  (let ((query (first args)))
+    (cond
+      ((not (and query (stringp query))) "(find: query required)")
+      ((and (fboundp 'finder-port-ready-p) (finder-port-ready-p))
+       (handler-case (finder-find query) (error () "(find: unavailable)")))
+      (t "(find: finder index unavailable)"))))
 
 (defun %prim-list-files (&rest args)
   (let ((path (or (first args) ".")))
@@ -701,7 +717,8 @@ inline -c corrupts scripts containing spaces. A file path is stable data."
 
 ;; ── Workspace tools (Rust actors) ─────────────────────────────────────
 (defprimitive read-file "(path &optional offset limit)" "Read file." (apply #'%prim-read-file args))
-(defprimitive grep "(pattern &optional path)" "Search files." (apply #'%prim-grep args))
+(defprimitive grep "(pattern &optional path)" "Search file contents." (apply #'%prim-grep args))
+(defprimitive find "(query)" "Fuzzy file-path search." (%prim-find (first args)))
 (defprimitive list-files "(&optional path)" "List directory." (apply #'%prim-list-files args))
 (defprimitive file-exists "(path)" "Check file exists." (%prim-file-exists (first args)))
 (defprimitive file-info "(path)" "File metadata." (%prim-file-info (first args)))

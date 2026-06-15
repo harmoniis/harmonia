@@ -31,6 +31,7 @@ harmonia-memory-field = { version = "0.1.9", path = "../memory-field" }
 harmonia-mcp = { version = "0.1.0", path = "../mcp" }
 harmonia-mempalace = { version = "0.1.9", path = "../mempalace" }
 harmonia-terraphon = { version = "0.1.9", path = "../terraphon" }
+harmonia-finder = { version = "0.1.9", path = "../finder" }
 harmonia-parallel-agents = { version = "0.1.9", path = "../parallel-agents" }
 
 # Frontends

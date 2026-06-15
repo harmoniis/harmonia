@@ -34,6 +34,20 @@ impl ComponentDescriptor for TerraphonComponent {
     }
 }
 
+// ── Finder (fff-search fuzzy file + content retrieval substrate) ─────
+pub struct FinderComponent;
+impl ComponentDescriptor for FinderComponent {
+    const NAME: &'static str = "finder";
+    type State = harmonia_finder::FinderState;
+    fn init() -> Self::State { harmonia_finder::FinderState::init() }
+    fn dispatch(state: &mut Self::State, sexp: &str) -> String {
+        harmonia_finder::dispatch(state, sexp)
+    }
+    fn capabilities() -> &'static [&'static str] {
+        &["fuzzy-file-search", "content-grep", "frecency-ranking"]
+    }
+}
+
 // ── Chronicle (actor-owned ChronicleState + GC tick) ────────────────
 
 pub struct ChronicleComponent;
@@ -131,6 +145,7 @@ pub fn capabilities_for(name: &str) -> &'static [&'static str] {
         "router" => &["model-selection", "tier-routing"],
         "mempalace" => MemPalaceComponent::capabilities(),
         "terraphon" => TerraphonComponent::capabilities(),
+        "finder" => FinderComponent::capabilities(),
         "sessions" => SessionComponent::capabilities(),
         _ => &[],
     }
