@@ -447,6 +447,47 @@ Bounded; only returns entries that already exist in the store (never foreign dat
         :hits (length hits) :mapped (length out))
       (nreverse out))))
 
+;;; ─── Lambdoma matrix: bounded harmonic selection ────────────────────
+;;; The agent never chooses from infinite possibilities — it chooses from a finite,
+;;; harmonically-ordered set (the "lambdoma matrix of possibilities"). This layer is the
+;;; explicit named operation over a BOUNDED candidate set: it preserves the dominant
+;;; relevance axis (the top stays the top) and refines the rest by HARMONIC RESONANCE,
+;;; reusing the learned field concept-edge graph (co-occurrence + meditation bridges) —
+;;; "harmony between memories", not numerology over invented ratios.
+
+(defun %concept-edge-weight (a b)
+  "Field-graph resonance between two concepts = the learned concept-edge weight, or 0."
+  (if (string= a b)
+      0.0
+      (let ((edge (gethash (%edge-key a b) *memory-concept-edges*)))
+        (if edge (float (or (getf edge :weight) 0)) 0.0))))
+
+(defun %lambdoma-resonance (query-words entry)
+  "How strongly ENTRY harmonizes with the query's conceptual neighborhood: the summed
+field-edge weight connecting the query's concepts to the entry's concepts. Pure reuse of
+the existing field topology — the resonance the agent has actually learned between ideas."
+  (let ((ewords (%split-words (%memory-entry-recall-text entry)))
+        (r 0.0))
+    (dolist (q query-words r)
+      (dolist (e ewords)
+        (incf r (%concept-edge-weight q e))))))
+
+(defun %lambdoma-select (query candidates &key (k 10))
+  "Project a relevance-ranked CANDIDATES list onto the lambdoma matrix: bound to K, keep
+the most-relevant candidate pinned at the top (relevance is the dominant axis — never
+sacrificed), and harmonically organize the remainder by field resonance with QUERY. The
+canonical 'choose from the finite matrix of harmonies' operation."
+  (let ((bounded (if (and (integerp k) (plusp k) (> (length candidates) k))
+                     (subseq candidates 0 k)
+                     candidates)))
+    (if (<= (length bounded) 2)
+        bounded
+        (let* ((qwords (%split-words query))
+               (head (first bounded))
+               (organized (stable-sort (copy-list (rest bounded)) #'>
+                                       :key (lambda (e) (%lambdoma-resonance qwords e)))))
+          (cons head organized)))))
+
 (defun memory-recall (query &key (limit 10))
   "Recall through one ranked path.
 Field topology, lexical-store, and finder (fff fuzzy over memory files) candidates
@@ -464,8 +505,9 @@ relevant candidate exists."
                                 (append field lexical finder)))
          ;; Newest value supersedes a stale one for the same subject (self-correction).
          (relevant (%supersede-dedup (%rank-memory-entries query candidates)))
-         (results (or (and relevant
-                           (subseq relevant 0 (min count (length relevant))))
+         ;; Choose from the lambdoma matrix: a BOUNDED, harmonically-ordered set
+         ;; (top relevance pinned, remainder organized by field resonance).
+         (results (or (and relevant (%lambdoma-select query relevant :k count))
                       (%memory-by-depth count 1)
                       (memory-recent :limit count)))
          (source (cond ((and field lexical finder) "field+substring+finder")
