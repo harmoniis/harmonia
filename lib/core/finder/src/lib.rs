@@ -1,20 +1,20 @@
 //! harmonia-finder — the default local retrieval substrate.
 //!
-//! A long-lived actor wrapping the `fff-search` engine: it holds a persistent
-//! `FilePicker` (background scan + filesystem watcher + mmap content cache +
-//! LMDB frecency) so repeated fuzzy file-path and content searches over the
-//! project tree and the on-disk memory files are fast and frecency-ranked.
+//! A long-lived actor wrapping the `fff-search` engine: persistent `FilePicker`
+//! indexes (background scan + filesystem watcher + mmap content cache + LMDB
+//! frecency) so repeated fuzzy file-path and content searches are fast and
+//! frecency-ranked. TWO indexes, one substrate:
+//!   - `proj` over the workspace root (project / source files)
+//!   - `mem`  over <state-root>/mempalace (the on-disk MEMORY files: drawers + graph)
+//! so a single `find`/`grep` mechanism covers project files AND memory files —
+//! the user's "default mechanism to search through memory files or project files".
 //!
-//! NO FFI: this is a pure Rust crate dependency. The Lisp side reaches it only
-//! through the s-expr IPC actor boundary, exactly like every other component.
+//! NO FFI: pure Rust crate dependency, reached from Lisp only through the s-expr
+//! IPC actor boundary, exactly like every other component.
 //!
-//! Two ops:
-//!   (:component "finder" :op "find-files" :query "..." :limit N)  → fuzzy path search
-//!   (:component "finder" :op "grep"       :query "..." :limit N)  → content search
-//!
-//! Both return a BOUNDED top-N set (never an unbounded list) — the retrieval
-//! half of "always choose from a finite matrix of possibilities". Harmonic
-//! ranking of that bounded set is layered on the Lisp side.
+//! Results are always a BOUNDED top-N set — never an unbounded list — the
+//! retrieval half of "always choose from a finite matrix of possibilities".
+//! Harmonic ranking of that bounded set is layered on the Lisp side.
 
 use std::path::PathBuf;
 use std::time::Duration;
@@ -28,7 +28,7 @@ use fff_search::{
 
 use harmonia_actor_protocol::extract_sexp_string;
 
-/// A fuzzy file-path hit (relative to the index base).
+/// A fuzzy file-path hit (path relative to the index base).
 pub struct FileHit {
     pub path: String,
 }
@@ -41,8 +41,8 @@ pub struct GrepHit {
     pub is_def: bool,
 }
 
-/// Actor-owned finder state: the persistent fff-search index.
-pub struct FinderState {
+/// One fff-search index over a single base directory.
+struct Index {
     picker: SharedFilePicker,
     #[allow(dead_code)]
     frecency: SharedFrecency,
@@ -50,53 +50,40 @@ pub struct FinderState {
     ready: bool,
 }
 
-impl Default for FinderState {
-    fn default() -> Self {
-        Self::init()
-    }
-}
-
-impl FinderState {
-    /// Build the index over the workspace root, with LMDB frecency under the
-    /// state root. Degrades gracefully: if anything fails, `ready=false` and
-    /// searches return empty so callers fall back to their existing path.
-    pub fn init() -> Self {
-        let base = harmonia_config_store::get_own("workspace", "root")
-            .ok()
-            .flatten()
-            .map(PathBuf::from)
-            .unwrap_or_else(|| std::env::current_dir().unwrap_or_else(|_| PathBuf::from(".")));
-
-        let db_dir = harmonia_config_store::paths::state_root().join("finder");
+impl Index {
+    fn open(label: &str, base: PathBuf, db_dir: PathBuf) -> Self {
         let _ = std::fs::create_dir_all(&db_dir);
-
+        // Ensure the base exists so the index + watcher start even before the first
+        // file lands (e.g. the memory dir on a fresh node) — the watcher then picks
+        // up drawers as the palace writes them.
+        let _ = std::fs::create_dir_all(&base);
         let picker = SharedFilePicker::default();
         let frecency = SharedFrecency::default();
         if let Ok(f) = FrecencyTracker::open(db_dir.join("frecency")) {
             let _ = frecency.init(f);
         }
-
-        let ready = FilePicker::new_with_shared_state(
-            picker.clone(),
-            frecency.clone(),
-            FilePickerOptions {
-                base_path: base.to_string_lossy().into_owned(),
-                mode: FFFMode::Ai,
-                enable_content_indexing: true,
-                enable_mmap_cache: true,
-                watch: true,
-                ..Default::default()
-            },
-        )
-        .is_ok();
-
+        let exists = base.exists();
+        let ready = exists
+            && FilePicker::new_with_shared_state(
+                picker.clone(),
+                frecency.clone(),
+                FilePickerOptions {
+                    base_path: base.to_string_lossy().into_owned(),
+                    mode: FFFMode::Ai,
+                    enable_content_indexing: true,
+                    enable_mmap_cache: true,
+                    watch: true,
+                    ..Default::default()
+                },
+            )
+            .is_ok();
         eprintln!(
-            "[INFO] [finder] index {} over {}",
-            if ready { "started" } else { "FAILED" },
+            "[INFO] [finder] {} index {} over {}",
+            label,
+            if ready { "started" } else { "skipped" },
             base.display()
         );
-
-        FinderState {
+        Index {
             picker,
             frecency,
             base,
@@ -104,16 +91,10 @@ impl FinderState {
         }
     }
 
-    pub fn base(&self) -> &PathBuf {
-        &self.base
-    }
-
-    /// Fuzzy file-path search → bounded top-`limit` paths, frecency-ranked.
-    pub fn find_files(&self, query: &str, limit: usize) -> Vec<FileHit> {
+    fn find(&self, query: &str, limit: usize) -> Vec<FileHit> {
         if !self.ready || query.is_empty() {
             return Vec::new();
         }
-        // First search blocks briefly for the background scan; later ones are instant.
         self.picker.wait_for_scan(Duration::from_secs(6));
         let guard = match self.picker.read() {
             Ok(g) => g,
@@ -129,10 +110,7 @@ impl FinderState {
             &q,
             None,
             FuzzySearchOptions {
-                pagination: PaginationArgs {
-                    offset: 0,
-                    limit,
-                },
+                pagination: PaginationArgs { offset: 0, limit },
                 ..Default::default()
             },
         );
@@ -140,13 +118,16 @@ impl FinderState {
             .items
             .iter()
             .map(|it| FileHit {
-                path: it.relative_path(picker),
+                path: self
+                    .base
+                    .join(it.relative_path(picker))
+                    .to_string_lossy()
+                    .into_owned(),
             })
             .collect()
     }
 
-    /// Content search (grep) → bounded top-`limit` matches.
-    pub fn grep(&self, query: &str, limit: usize) -> Vec<GrepHit> {
+    fn grep(&self, query: &str, limit: usize) -> Vec<GrepHit> {
         if !self.ready || query.is_empty() {
             return Vec::new();
         }
@@ -176,13 +157,86 @@ impl FinderState {
                 path: result
                     .files
                     .get(m.file_index)
-                    .map(|f| f.relative_path(picker))
+                    .map(|f| {
+                        self.base
+                            .join(f.relative_path(picker))
+                            .to_string_lossy()
+                            .into_owned()
+                    })
                     .unwrap_or_default(),
                 line: m.line_number,
                 text: m.line_content.clone(),
                 is_def: m.is_definition,
             })
             .collect()
+    }
+}
+
+/// Actor-owned finder: a project index + a memory index, one search substrate.
+pub struct FinderState {
+    proj: Index,
+    mem: Index,
+}
+
+impl Default for FinderState {
+    fn default() -> Self {
+        Self::init()
+    }
+}
+
+impl FinderState {
+    pub fn init() -> Self {
+        let proj_base = harmonia_config_store::get_own("workspace", "root")
+            .ok()
+            .flatten()
+            .map(PathBuf::from)
+            .unwrap_or_else(|| std::env::current_dir().unwrap_or_else(|_| PathBuf::from(".")));
+        let mem_base = harmonia_config_store::paths::state_root().join("mempalace");
+        let db = harmonia_config_store::paths::state_root().join("finder");
+        FinderState {
+            proj: Index::open("project", proj_base, db.join("proj")),
+            mem: Index::open("memory", mem_base, db.join("mem")),
+        }
+    }
+
+    /// Which indexes a scope covers. "all" merges project + memory.
+    fn indexes(&self, scope: &str) -> Vec<&Index> {
+        match scope {
+            "memory" | "mem" => vec![&self.mem],
+            "project" | "proj" => vec![&self.proj],
+            _ => vec![&self.proj, &self.mem],
+        }
+    }
+
+    pub fn find_files(&self, query: &str, limit: usize, scope: &str) -> Vec<FileHit> {
+        let mut out = Vec::new();
+        for idx in self.indexes(scope) {
+            out.extend(idx.find(query, limit));
+            if out.len() >= limit {
+                break;
+            }
+        }
+        out.truncate(limit);
+        out
+    }
+
+    pub fn grep(&self, query: &str, limit: usize, scope: &str) -> Vec<GrepHit> {
+        let mut out = Vec::new();
+        for idx in self.indexes(scope) {
+            out.extend(idx.grep(query, limit));
+            if out.len() >= limit {
+                break;
+            }
+        }
+        out.truncate(limit);
+        out
+    }
+
+    pub fn bases(&self) -> (String, String) {
+        (
+            self.proj.base.to_string_lossy().into_owned(),
+            self.mem.base.to_string_lossy().into_owned(),
+        )
     }
 }
 
@@ -203,17 +257,19 @@ fn esc(s: &str) -> String {
 }
 
 fn limit_of(sexp: &str, default: usize, cap: usize) -> usize {
-    harmonia_actor_protocol::sexp::extract_u64_or(sexp, ":limit", default as u64).min(cap as u64) as usize
+    harmonia_actor_protocol::sexp::extract_u64_or(sexp, ":limit", default as u64).min(cap as u64)
+        as usize
 }
 
-/// IPC dispatch — parses the op and returns an s-expr reply.
+/// IPC dispatch — parses op + optional :scope and returns an s-expr reply.
 pub fn dispatch(state: &mut FinderState, sexp: &str) -> String {
     let op = extract_sexp_string(sexp, ":op").unwrap_or_default();
+    let scope = extract_sexp_string(sexp, ":scope").unwrap_or_else(|| "all".into());
     match op.as_str() {
         "find-files" | "find" => {
             let query = extract_sexp_string(sexp, ":query").unwrap_or_default();
             let limit = limit_of(sexp, 12, 50);
-            let hits = state.find_files(&query, limit);
+            let hits = state.find_files(&query, limit, &scope);
             let body: String = hits
                 .iter()
                 .map(|h| format!("(:path \"{}\")", esc(&h.path)))
@@ -224,7 +280,7 @@ pub fn dispatch(state: &mut FinderState, sexp: &str) -> String {
         "grep" => {
             let query = extract_sexp_string(sexp, ":query").unwrap_or_default();
             let limit = limit_of(sexp, 20, 100);
-            let hits = state.grep(&query, limit);
+            let hits = state.grep(&query, limit, &scope);
             let body: String = hits
                 .iter()
                 .map(|h| {
@@ -240,8 +296,11 @@ pub fn dispatch(state: &mut FinderState, sexp: &str) -> String {
                 .join(" ");
             format!("(:ok :count {} :results ({}))", hits.len(), body)
         }
-        "base" => format!("(:ok :base \"{}\")", esc(&state.base().to_string_lossy())),
-        "ready" => format!("(:ok :ready {})", if state.ready { "t" } else { "nil" }),
+        "base" => {
+            let (p, m) = state.bases();
+            format!("(:ok :project \"{}\" :memory \"{}\")", esc(&p), esc(&m))
+        }
+        "ready" => "(:ok :ready t)".to_string(),
         other => format!("(:error \"finder: unknown op '{}'\")", esc(other)),
     }
 }

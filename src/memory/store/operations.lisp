@@ -398,26 +398,79 @@ numeric value, or a unique subject, are all kept (distinct facts are never merge
           ((gethash key seen))                            ; stale duplicate of a kept subject → drop
           (t (setf (gethash key seen) t) (push e out)))))))
 
+(defun %drawer-entry-id (path)
+  "Read a palace drawer .sexp at absolute PATH and return its source memory-entry
+id, or nil. The drawer :source is a string \"memory:<entry-id>\" (legacy plist
+form also handled). Safe: no eval, no crash. Maps finder hits back to entries."
+  (handler-case
+      (when (and (stringp path) (probe-file path))
+        (with-open-file (s path :direction :input :if-does-not-exist nil)
+          (when s
+            (let* ((*read-eval* nil)
+                   (form (read s nil nil))
+                   ;; A drawer is (:drawer :version .. :source "memory:<id>" ..) — :drawer
+                   ;; is a leading TAG, so the property list starts after it.
+                   (plist (if (and (consp form) (eq (car form) :drawer)) (cdr form) form))
+                   (src (and (listp plist) (getf plist :source))))
+              (cond
+                ((and (stringp src) (>= (length src) 8)
+                      (string-equal (subseq src 0 7) "memory:"))
+                 (subseq src 7))
+                ((listp src) (getf src :entry))
+                (t nil))))))
+    (error () nil)))
+
+(defun %memory-finder-recall-entries (query limit)
+  "Fuzzy/content recall over the on-disk MEMORY files via the fff-search finder
+(frizbee SIMD fuzzy + content grep over mempalace drawers). Each matching drawer
+maps back to its source memory-entry, returning real entry objects for unified
+ranking — adding fuzzy reach the in-RAM word-intersection lexical path can miss.
+Bounded; only returns entries that already exist in the store (never foreign data)."
+  (when (and (fboundp 'finder-port-ready-p) (funcall 'finder-port-ready-p))
+    (let* ((terms (%split-words query))
+           ;; Grep the content WORDS (Aho-Corasick OR), not the raw question — a full
+           ;; sentence never appears verbatim in a drawer.
+           (q (if terms (format nil "~{~A~^ ~}" terms) query))
+           (hits (handler-case
+                     (funcall 'finder-grep-entries q :limit limit :scope "memory")
+                   (error () nil)))
+           (out '())
+           (seen (make-hash-table :test 'equal)))
+      (dolist (h hits)
+        (let* ((path (getf h :path))
+               (id (and path (%drawer-entry-id path))))
+          (when (and id (stringp id) (not (gethash id seen)))
+            (setf (gethash id seen) t)
+            (let ((e (gethash id *memory-store*)))
+              (when e (push e out))))))
+      (%pipeline-trace :finder-recall :query (%clip-prompt q 40)
+        :hits (length hits) :mapped (length out))
+      (nreverse out))))
+
 (defun memory-recall (query &key (limit 10))
   "Recall through one ranked path.
-Field topology and lexical-store candidates are unioned before ranking so a
-weak semantic hit cannot starve an exact stored fact. High-depth and recent
-entries remain contextual fallbacks only when no relevant candidate exists."
+Field topology, lexical-store, and finder (fff fuzzy over memory files) candidates
+are unioned before ranking so a weak semantic hit cannot starve an exact stored
+fact. High-depth and recent entries remain contextual fallbacks only when no
+relevant candidate exists."
   (let* ((count (if (and (integerp limit) (plusp limit)) limit 10))
          (field (%memory-field-recall-entries query count))
          (lexical (%memory-substring-recall query count))
+         (finder (handler-case (%memory-finder-recall-entries query count) (error () nil)))
          ;; Fact recall returns KNOWLEDGE, not conversation. Conversational interactions
          ;; (Q&A turns) are chronicle log; excluding them here stops recent turns from
          ;; out-ranking real facts (the clean stored fact has no :interaction tag → survives).
          (candidates (remove-if (lambda (e) (%memory-entry-has-tag-p e :interaction))
-                                (append field lexical)))
+                                (append field lexical finder)))
          ;; Newest value supersedes a stale one for the same subject (self-correction).
          (relevant (%supersede-dedup (%rank-memory-entries query candidates)))
          (results (or (and relevant
                            (subseq relevant 0 (min count (length relevant))))
                       (%memory-by-depth count 1)
                       (memory-recent :limit count)))
-         (source (cond ((and field lexical) "field+substring")
+         (source (cond ((and field lexical finder) "field+substring+finder")
+                       ((and field lexical) "field+substring")
+                       (finder "finder")
                        (field "field")
                        (lexical "substring")
                        ((some (lambda (entry) (>= (memory-entry-depth entry) 1))

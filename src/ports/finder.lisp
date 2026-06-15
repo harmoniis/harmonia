@@ -24,20 +24,24 @@ readiness here just confirms the actor answers."
 
 ;;; ─── Raw result plists (for memory fusion + rendering) ───────────────
 
-(defun finder-find-entries (query &key (limit 12))
-  "Fuzzy file-path search → list of (:path \"...\") plists, bounded top-N."
+(defun finder-find-entries (query &key (limit 12) (scope "all"))
+  "Fuzzy file-path search → list of (:path \"...\") plists, bounded top-N.
+SCOPE is \"all\" (project+memory), \"project\", or \"memory\"."
   (when (and (finder-port-ready-p) (stringp query) (plusp (length query)))
     (getf (%parse-port-reply
            (ipc-call (%sexp-to-ipc-string
-                      `(:component "finder" :op "find-files" :query ,query :limit ,limit))))
+                      `(:component "finder" :op "find-files"
+                        :query ,query :limit ,limit :scope ,scope))))
           :results)))
 
-(defun finder-grep-entries (query &key (limit 20))
-  "Content search → list of (:path :line :def :text) plists, bounded top-N."
+(defun finder-grep-entries (query &key (limit 20) (scope "all"))
+  "Content search → list of (:path :line :def :text) plists, bounded top-N.
+SCOPE is \"all\" (project+memory), \"project\", or \"memory\"."
   (when (and (finder-port-ready-p) (stringp query) (plusp (length query)))
     (getf (%parse-port-reply
            (ipc-call (%sexp-to-ipc-string
-                      `(:component "finder" :op "grep" :query ,query :limit ,limit))))
+                      `(:component "finder" :op "grep"
+                        :query ,query :limit ,limit :scope ,scope))))
           :results)))
 
 ;;; ─── Rendered text (for the REPL primitives the model reads) ─────────
