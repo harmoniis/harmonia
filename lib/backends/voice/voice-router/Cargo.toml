@@ -17,3 +17,5 @@ harmonia-voice-protocol = { version = "0.1.9", path = "../voice-protocol" }
 harmonia-whisper = { version = "0.1.9", path = "../whisper" }
 harmonia-elevenlabs = { version = "0.1.9", path = "../elevenlabs" }
 harmonia-config-store = { version = "0.1.9", path = "../../../core/config-store" }
+harmonia-actor-protocol = { version = "0.1.9", path = "../../../core/actor-protocol" }
+serde_json = "1"

@@ -285,14 +285,8 @@ pub fn build_registry() -> Vec<ModuleEntry> {
             },
             shutdown_fn: noop_shutdown,
         },
-        ModuleEntry {
-            name: "voice-router".into(),
-            status: ModuleStatus::Unloaded,
-            core: false,
-            config_reqs: vec![],
-            init_fn: || harmonia_voice_router::init().map_err(|e| e.to_string()),
-            shutdown_fn: noop_shutdown,
-        },
+        // voice is now a dispatched ractor component (components.rs VoiceComponent +
+        // spawn.rs) — initialized by the actor's pre_start, not a lifecycle-only module.
         // ── Transport ─────────────────────────────────────────────
         ModuleEntry {
             name: "tailnet".into(),

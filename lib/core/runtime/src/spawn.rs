@@ -149,6 +149,7 @@ pub async fn spawn_all(module_registry: HashMap<String, crate::registry::ModuleE
     let mempalace_ref = spawn_linked("mempalace", actors::MemPalaceActor, (), &supervisor_ref).await;
     let terraphon_ref = spawn_linked("terraphon", actors::TerraphonActor, (), &supervisor_ref).await;
     let finder_ref = spawn_linked("finder", actors::FinderActor, (), &supervisor_ref).await;
+    let voice_ref = spawn_linked("voice", actors::VoiceActor, (), &supervisor_ref).await;
     let mcp_ref = spawn_linked("mcp", actors::McpActor, (), &supervisor_ref).await;
     let ouroboros_ref = spawn_linked("ouroboros", actors::OuroborosActor, (), &supervisor_ref).await;
     let session_ref = spawn_linked("sessions", actors::SessionActor, (), &supervisor_ref).await;
@@ -183,6 +184,7 @@ pub async fn spawn_all(module_registry: HashMap<String, crate::registry::ModuleE
     register_component(&supervisor_ref, "mempalace", &mempalace_ref);
     register_component(&supervisor_ref, "terraphon", &terraphon_ref);
     register_component(&supervisor_ref, "finder", &finder_ref);
+    register_component(&supervisor_ref, "voice", &voice_ref);
     register_component(&supervisor_ref, "mcp", &mcp_ref);
     register_component(&supervisor_ref, "ouroboros", &ouroboros_ref);
     register_component(&supervisor_ref, "sessions", &session_ref);
@@ -200,6 +202,7 @@ pub async fn spawn_all(module_registry: HashMap<String, crate::registry::ModuleE
         ("workspace", &workspace_ref), ("mempalace", &mempalace_ref),
         ("terraphon", &terraphon_ref),
         ("finder", &finder_ref),
+        ("voice", &voice_ref),
         ("mcp", &mcp_ref),
         ("ouroboros", &ouroboros_ref),
         ("sessions", &session_ref),

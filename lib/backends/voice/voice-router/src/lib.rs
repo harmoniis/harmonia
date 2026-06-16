@@ -1,16 +1,30 @@
-//! Harmonia Voice Router
+//! Harmonia Voice Router — speech-to-text + text-to-speech dispatch as a ractor component.
 //!
-//! Multi-backend dispatch for speech-to-text and text-to-speech operations.
-//! Routes to the appropriate voice provider based on model prefix and vault
-//! activation, with automatic fallback chains.
+//! Reached ONLY through the s-expr IPC actor boundary (NO FFI), exactly like every other
+//! component. The Lisp side owns ROUTING POLICY (which endpoint/tier — see voice-routing.lisp
+//! + voice-policy.sexp); this actor owns EXECUTION: given a resolved `model` hint it calls the
+//! right backend (Whisper STT, ElevenLabs TTS, or a CUSTOM OpenAI-compatible endpoint defined
+//! in config) and returns the result.
+//!
+//! Ops (`(:component "voice" :op …)`):
+//!   transcribe (:audio path :model id)              → (:ok :text "…")
+//!   synthesize (:text … :voice id :out path :model) → (:ok :path "…")
+//!   offerings                                        → (:ok :stt (…) :tts (…))
+//!   providers                                        → (:ok :providers (…))
+//!   ready                                            → (:ok :ready t)
+//!
+//! Separation of concerns: the actual HTTP call goes through the voice-protocol transport
+//! helpers (the swappable seam) — a streaming transport lands behind the same boundary in the
+//! streaming phase without touching this router.
 
-use std::ffi::{CStr, CString};
-use std::os::raw::c_char;
 use std::sync::OnceLock;
 
-use harmonia_voice_protocol::{clear_error, get_secret_any, last_error_message, set_error};
+use harmonia_actor_protocol::extract_sexp_string;
+use harmonia_voice_protocol::{
+    get_secret_any, get_timeout, strip_provider_prefix, ureq_post_json_bytes, ureq_post_multipart,
+};
 
-// ── Provider Registry ──────────────────────────────────────────────────────
+// ── Provider registry (vault-activated, like the LLM provider-router) ────────
 
 struct VoiceProvider {
     id: &'static str,
@@ -40,23 +54,20 @@ static PROVIDERS: &[VoiceProvider] = &[
     },
 ];
 
-// ── Active Provider Detection ──────────────────────────────────────────────
-
 static ACTIVE_PROVIDERS: OnceLock<Vec<String>> = OnceLock::new();
 
 fn active_providers() -> &'static Vec<String> {
     ACTIVE_PROVIDERS.get_or_init(|| {
-        let mut active = Vec::new();
-        for p in PROVIDERS {
-            if get_secret_any(p.vault_component, p.vault_symbols)
-                .ok()
-                .flatten()
-                .is_some()
-            {
-                active.push(p.id.to_string());
-            }
-        }
-        active
+        PROVIDERS
+            .iter()
+            .filter(|p| {
+                get_secret_any(p.vault_component, p.vault_symbols)
+                    .ok()
+                    .flatten()
+                    .is_some()
+            })
+            .map(|p| p.id.to_string())
+            .collect()
     })
 }
 
@@ -64,53 +75,102 @@ fn is_provider_active(id: &str) -> bool {
     active_providers().iter().any(|a| a == id)
 }
 
-/// Resolve a provider by matching the model hint against registered prefixes.
-fn resolve_provider(model_hint: &str) -> Option<&'static VoiceProvider> {
-    let lower = model_hint.to_ascii_lowercase();
-    PROVIDERS
-        .iter()
-        .find(|p| p.prefixes.iter().any(|pfx| lower.starts_with(pfx)))
+fn config_url(key: &str) -> Option<String> {
+    harmonia_config_store::get_own("voice", key)
+        .ok()
+        .flatten()
+        .filter(|u| !u.is_empty())
 }
 
-// ── Routing ────────────────────────────────────────────────────────────────
+fn is_custom(model_hint: &str) -> bool {
+    model_hint.to_ascii_lowercase().starts_with("custom/")
+}
+
+// ── Execution (the transport seam — batch now, streaming later) ──────────────
 
 pub fn transcribe(audio_path: &str, model_hint: &str) -> Result<String, String> {
-    // Route to specific whisper backend when model_hint matches a prefix.
-    if let Some(provider) = resolve_provider(model_hint) {
-        if is_provider_active(provider.id) {
-            return harmonia_whisper::backend::transcribe(audio_path, model_hint);
-        }
+    if is_custom(model_hint) {
+        return custom_transcribe(audio_path, model_hint);
     }
-    // Default: first active whisper provider, or fallback.
     harmonia_whisper::backend::transcribe(audio_path, model_hint)
 }
 
-pub fn tts_to_file(
+pub fn synthesize(
     text: &str,
     voice_id: &str,
     out_path: &str,
     model_hint: &str,
 ) -> Result<(), String> {
-    // Route to elevenlabs when model_hint matches its prefix.
-    if let Some(provider) = resolve_provider(model_hint) {
-        if is_provider_active(provider.id) && provider.id == "elevenlabs" {
-            return harmonia_elevenlabs::backend::tts_to_file(text, voice_id, out_path, model_hint);
-        }
+    if is_custom(model_hint) {
+        return custom_synthesize(text, voice_id, out_path, model_hint);
     }
     harmonia_elevenlabs::backend::tts_to_file(text, voice_id, out_path, model_hint)
 }
 
-pub fn list_providers() -> String {
-    let mut parts = Vec::new();
-    for p in PROVIDERS {
-        let active = is_provider_active(p.id);
-        parts.push(format!(
-            "(:id \"{}\" :active {})",
-            p.id,
-            if active { "t" } else { "nil" }
-        ));
+/// Custom OpenAI-compatible STT endpoint: config `voice/custom-stt-url`, vault `custom-stt-backend`.
+fn custom_transcribe(audio_path: &str, model: &str) -> Result<String, String> {
+    let url = config_url("custom-stt-url")
+        .ok_or_else(|| "custom STT endpoint not configured (config voice/custom-stt-url)".to_string())?;
+    let key = get_secret_any("custom-stt-backend", &["custom-stt-api-key", "custom-stt"])?
+        .ok_or_else(|| "custom STT key missing (vault custom-stt-backend)".to_string())?;
+    let native_model =
+        harmonia_config_store::get_own_or("voice", "custom-stt-model", strip_provider_prefix(model))
+            .unwrap_or_else(|_| strip_provider_prefix(model).to_string());
+    let timeout = get_timeout("custom-stt-backend", "HARMONIA_CUSTOM_STT", 10, 120);
+    let raw = ureq_post_multipart(&url, &key, &[("model", &native_model)], "file", audio_path, &timeout)?;
+    let v: serde_json::Value =
+        serde_json::from_str(&raw).map_err(|e| format!("custom STT: invalid JSON: {e}"))?;
+    Ok(v.get("text").and_then(|t| t.as_str()).unwrap_or("").to_string())
+}
+
+/// Custom OpenAI-compatible TTS endpoint: config `voice/custom-tts-url`, vault `custom-tts-backend`.
+fn custom_synthesize(text: &str, voice_id: &str, out_path: &str, model: &str) -> Result<(), String> {
+    let url = config_url("custom-tts-url")
+        .ok_or_else(|| "custom TTS endpoint not configured (config voice/custom-tts-url)".to_string())?;
+    let key = get_secret_any("custom-tts-backend", &["custom-tts-api-key", "custom-tts"])?
+        .ok_or_else(|| "custom TTS key missing (vault custom-tts-backend)".to_string())?;
+    let native_model =
+        harmonia_config_store::get_own_or("voice", "custom-tts-model", strip_provider_prefix(model))
+            .unwrap_or_else(|_| strip_provider_prefix(model).to_string());
+    let timeout = get_timeout("custom-tts-backend", "HARMONIA_CUSTOM_TTS", 10, 60);
+    let body = serde_json::json!({ "model": native_model, "input": text, "voice": voice_id });
+    let headers = vec![("Authorization".to_string(), format!("Bearer {key}"))];
+    let audio = ureq_post_json_bytes(&url, &headers, &body, &timeout, 50 * 1024 * 1024)?;
+    std::fs::write(out_path, &audio).map_err(|e| format!("custom TTS: write {out_path}: {e}"))
+}
+
+// ── Introspection ────────────────────────────────────────────────────────────
+
+fn bool_sexp(b: bool) -> &'static str {
+    if b {
+        "t"
+    } else {
+        "nil"
     }
+}
+
+pub fn list_providers() -> String {
+    let mut parts: Vec<String> = PROVIDERS
+        .iter()
+        .map(|p| format!("(:id \"{}\" :active {})", p.id, bool_sexp(is_provider_active(p.id))))
+        .collect();
+    parts.push(format!(
+        "(:id \"custom-stt\" :active {})",
+        bool_sexp(config_url("custom-stt-url").is_some())
+    ));
+    parts.push(format!(
+        "(:id \"custom-tts\" :active {})",
+        bool_sexp(config_url("custom-tts-url").is_some())
+    ));
     format!("({})", parts.join(" "))
+}
+
+fn offerings_sexp() -> String {
+    format!(
+        "(:ok :stt {} :tts {})",
+        harmonia_whisper::backend::list_offerings(),
+        harmonia_elevenlabs::backend::list_offerings()
+    )
 }
 
 pub fn init() -> Result<(), String> {
@@ -120,122 +180,68 @@ pub fn init() -> Result<(), String> {
     Ok(())
 }
 
-// ── FFI Exports ────────────────────────────────────────────────────────────
+// ── Actor-owned state + s-expr dispatch ──────────────────────────────────────
 
-const VERSION: &[u8] = b"harmonia-voice-router/0.1.0\0";
+#[derive(Default)]
+pub struct VoiceState;
 
-fn cstr_to_string(ptr: *const c_char) -> Result<String, String> {
-    if ptr.is_null() {
-        return Err("null pointer".to_string());
-    }
-    Ok(unsafe { CStr::from_ptr(ptr) }
-        .to_string_lossy()
-        .into_owned())
-}
-
-fn to_c(value: String) -> *mut c_char {
-    CString::new(value)
-        .map(|c| c.into_raw())
-        .unwrap_or(std::ptr::null_mut())
-}
-
-pub fn harmonia_voice_router_version() -> *const c_char {
-    VERSION.as_ptr().cast()
-}
-
-pub fn harmonia_voice_router_healthcheck() -> i32 {
-    1
-}
-
-pub fn harmonia_voice_router_init() -> i32 {
-    match init() {
-        Ok(()) => {
-            clear_error();
-            0
-        }
-        Err(e) => {
-            set_error(e);
-            -1
-        }
+impl VoiceState {
+    pub fn init() -> Self {
+        let _ = init();
+        eprintln!(
+            "[INFO] [voice] router started (active: {})",
+            active_providers().join(",")
+        );
+        VoiceState
     }
 }
 
-pub fn harmonia_voice_router_transcribe(
-    audio_path: *const c_char,
-    model_hint: *const c_char,
-) -> *mut c_char {
-    let path = match cstr_to_string(audio_path) {
-        Ok(v) => v,
-        Err(e) => {
-            set_error(e);
-            return std::ptr::null_mut();
-        }
-    };
-    let hint = cstr_to_string(model_hint).unwrap_or_default();
-    match transcribe(&path, &hint) {
-        Ok(text) => {
-            clear_error();
-            to_c(text)
-        }
-        Err(e) => {
-            set_error(e);
-            std::ptr::null_mut()
+fn esc(s: &str) -> String {
+    let mut out = String::with_capacity(s.len() + 8);
+    for c in s.chars() {
+        match c {
+            '\\' => out.push_str("\\\\"),
+            '"' => out.push_str("\\\""),
+            '\n' => out.push_str("\\n"),
+            '\r' => {}
+            '\t' => out.push(' '),
+            _ => out.push(c),
         }
     }
+    out
 }
 
-pub fn harmonia_voice_router_tts(
-    text: *const c_char,
-    voice_id: *const c_char,
-    out_path: *const c_char,
-    model_hint: *const c_char,
-) -> i32 {
-    let text = match cstr_to_string(text) {
-        Ok(v) => v,
-        Err(e) => {
-            set_error(e);
-            return -1;
+/// IPC dispatch — the ONLY entry point from Lisp (via the actor boundary).
+pub fn dispatch(_state: &mut VoiceState, sexp: &str) -> String {
+    let op = extract_sexp_string(sexp, ":op").unwrap_or_default();
+    match op.as_str() {
+        "transcribe" => {
+            let audio = extract_sexp_string(sexp, ":audio").unwrap_or_default();
+            let model = extract_sexp_string(sexp, ":model").unwrap_or_default();
+            if audio.is_empty() {
+                return "(:error \"voice transcribe: :audio required\")".to_string();
+            }
+            match transcribe(&audio, &model) {
+                Ok(text) => format!("(:ok :text \"{}\")", esc(&text)),
+                Err(e) => format!("(:error \"{}\")", esc(&e)),
+            }
         }
-    };
-    let voice = match cstr_to_string(voice_id) {
-        Ok(v) => v,
-        Err(e) => {
-            set_error(e);
-            return -1;
+        "synthesize" => {
+            let text = extract_sexp_string(sexp, ":text").unwrap_or_default();
+            let voice = extract_sexp_string(sexp, ":voice").unwrap_or_default();
+            let out = extract_sexp_string(sexp, ":out").unwrap_or_default();
+            let model = extract_sexp_string(sexp, ":model").unwrap_or_default();
+            if text.is_empty() || out.is_empty() {
+                return "(:error \"voice synthesize: :text and :out required\")".to_string();
+            }
+            match synthesize(&text, &voice, &out, &model) {
+                Ok(()) => format!("(:ok :path \"{}\")", esc(&out)),
+                Err(e) => format!("(:error \"{}\")", esc(&e)),
+            }
         }
-    };
-    let out = match cstr_to_string(out_path) {
-        Ok(v) => v,
-        Err(e) => {
-            set_error(e);
-            return -1;
-        }
-    };
-    let hint = cstr_to_string(model_hint).unwrap_or_default();
-    match tts_to_file(&text, &voice, &out, &hint) {
-        Ok(()) => {
-            clear_error();
-            0
-        }
-        Err(e) => {
-            set_error(e);
-            -1
-        }
-    }
-}
-
-pub fn harmonia_voice_router_list_providers() -> *mut c_char {
-    to_c(list_providers())
-}
-
-pub fn harmonia_voice_router_last_error() -> *mut c_char {
-    to_c(last_error_message())
-}
-
-pub fn harmonia_voice_router_free_string(ptr: *mut c_char) {
-    if !ptr.is_null() {
-        unsafe {
-            drop(CString::from_raw(ptr));
-        }
+        "offerings" => offerings_sexp(),
+        "providers" => format!("(:ok :providers {})", list_providers()),
+        "ready" => "(:ok :ready t)".to_string(),
+        other => format!("(:error \"voice: unknown op '{}'\")", esc(other)),
     }
 }

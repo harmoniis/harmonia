@@ -288,6 +288,8 @@
 (%load-module (%core-path "../ports/mempalace.lisp") "port/mempalace")
 (%load-module (%core-path "../ports/terraphon.lisp") "port/terraphon")
 (%load-module (%core-path "../ports/finder.lisp") "port/finder")
+(%load-module (%core-path "voice-routing.lisp") "voice-routing")
+(%load-module (%core-path "../ports/voice.lisp") "port/voice")
 (%load-module (%core-path "supervisor.lisp") "supervisor")
 (%load-module (%core-path "system-commands.lisp") "system-commands")
 (%load-module (%core-path "../orchestrator/parsing.lisp") "parsing")
@@ -457,6 +459,11 @@
   ;; Finder: fff-search fuzzy file + content retrieval (default local search).
   (handler-case (init-finder-port)
     (error (e) (%log :warn "boot" "init-finder-port failed: ~A" e) nil))
+  ;; Voice: STT/TTS routing policy + the voice actor port.
+  (handler-case (voice-policy-load)
+    (error (e) (%log :warn "boot" "voice-policy-load failed: ~A" e) nil))
+  (handler-case (init-voice-port)
+    (error (e) (%log :warn "boot" "init-voice-port failed: ~A" e) nil))
   ;; Ouroboros: self-healing crash ledger.
   (handler-case (init-ouroboros-port)
     (error (e) (%log :warn "boot" "init-ouroboros-port failed: ~A" e) nil))

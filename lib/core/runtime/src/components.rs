@@ -48,6 +48,20 @@ impl ComponentDescriptor for FinderComponent {
     }
 }
 
+// ── Voice (STT + TTS execution: whisper / elevenlabs / custom endpoint) ──
+pub struct VoiceComponent;
+impl ComponentDescriptor for VoiceComponent {
+    const NAME: &'static str = "voice";
+    type State = harmonia_voice_router::VoiceState;
+    fn init() -> Self::State { harmonia_voice_router::VoiceState::init() }
+    fn dispatch(state: &mut Self::State, sexp: &str) -> String {
+        harmonia_voice_router::dispatch(state, sexp)
+    }
+    fn capabilities() -> &'static [&'static str] {
+        &["speech-to-text", "text-to-speech", "custom-endpoint"]
+    }
+}
+
 // ── Chronicle (actor-owned ChronicleState + GC tick) ────────────────
 
 pub struct ChronicleComponent;
@@ -146,6 +160,7 @@ pub fn capabilities_for(name: &str) -> &'static [&'static str] {
         "mempalace" => MemPalaceComponent::capabilities(),
         "terraphon" => TerraphonComponent::capabilities(),
         "finder" => FinderComponent::capabilities(),
+        "voice" => VoiceComponent::capabilities(),
         "sessions" => SessionComponent::capabilities(),
         _ => &[],
     }

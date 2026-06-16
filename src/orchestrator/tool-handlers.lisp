@@ -317,17 +317,23 @@
     (values (harmonic-matrix-time-report (if since (%safe-parse-number since) 0))
             "harmonic-matrix")))
 
+(defun %nonblank (s) (and (stringp s) (plusp (length s)) s))
+
 (defun %tool-cmd-whisper-transcribe (prompt)
-  (%route-or-error "orchestrator" "whisper")
-  (values (whisper-transcribe (or (%extract-tag-value prompt "file") ""))
-          "whisper"))
+  "Speech-to-text via the voice actor (tier-routed STT, or :model override)."
+  (values (or (voice-transcribe (or (%extract-tag-value prompt "file") "")
+                                :model (%nonblank (%extract-tag-value prompt "model")))
+              "(voice: transcription unavailable)")
+          "voice"))
 
 (defun %tool-cmd-elevenlabs-tts (prompt)
-  (%route-or-error "orchestrator" "elevenlabs")
-  (values (elevenlabs-tts-to-file (or (%extract-tag-value prompt "text") "")
-                                  (or (%extract-tag-value prompt "voice") (%default-tts-voice))
-                                  (or (%extract-tag-value prompt "out") (%default-tts-output)))
-          "elevenlabs"))
+  "Text-to-speech via the voice actor (tier-routed TTS, or :model override)."
+  (values (or (voice-synthesize (or (%extract-tag-value prompt "text") "")
+                                :voice (%nonblank (%extract-tag-value prompt "voice"))
+                                :out (%nonblank (%extract-tag-value prompt "out"))
+                                :model (%nonblank (%extract-tag-value prompt "model")))
+              "(voice: synthesis unavailable)")
+          "voice"))
 
 ;;; --- Tool dispatch table ---
 

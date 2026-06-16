@@ -142,3 +142,32 @@ pub fn ureq_post_multipart(
 
     Ok(resp_body)
 }
+
+/// POST a JSON body and return the raw response BYTES (e.g. synthesized audio for TTS).
+/// The transport seam for batch synthesis — a streaming variant lands behind the same
+/// boundary in the streaming phase without changing the router.
+pub fn ureq_post_json_bytes(
+    url: &str,
+    headers: &[(String, String)],
+    body: &serde_json::Value,
+    timeout: &TimeoutConfig,
+    max_bytes: usize,
+) -> Result<Vec<u8>, String> {
+    let agent = ureq::AgentBuilder::new()
+        .timeout_connect(std::time::Duration::from_secs(timeout.connect_secs))
+        .timeout(std::time::Duration::from_secs(timeout.max_secs))
+        .build();
+    let mut req = agent.post(url).set("Content-Type", "application/json");
+    for (key, value) in headers {
+        req = req.set(key, value);
+    }
+    let resp = req
+        .send_string(&body.to_string())
+        .map_err(|e| format!("HTTP request failed: {e}"))?;
+    let mut out = Vec::new();
+    resp.into_reader()
+        .take(max_bytes as u64)
+        .read_to_end(&mut out)
+        .map_err(|e| format!("failed to read audio response: {e}"))?;
+    Ok(out)
+}
