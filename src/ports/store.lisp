@@ -28,16 +28,14 @@
   (ipc-config-get "admin" scope key))
 
 (defun config-list (&optional (scope ""))
+  ;; Generic cross-scope diagnostic lister — runs as an admin caller (:caller distinct from the
+  ;; :component routing target), so it can enumerate any scope's keys. The dispatch returns
+  ;; (:ok :keys ("k1" "k2" ...)) — a structured list, parsed via the shared safe reader.
   (let ((reply (ipc-call
                 (%sexp-to-ipc-string
-                 `(:component "config" :op "list"
+                 `(:component "config" :op "list" :caller "harmonia-cli"
                    :scope ,(or scope ""))))))
-    (if (and reply (ipc-reply-ok-p reply))
-        (let ((val (ipc-extract-value reply)))
-          (if (and val (> (length val) 0))
-              (%split-lines val)
-              '()))
-        '())))
+    (getf (%parse-port-reply reply) :keys)))
 
 ;;; --- Component-aware wrappers (policy-gated) ─────────────────────────
 
@@ -61,7 +59,7 @@
   (let ((reply (ipc-call
                 (%sexp-to-ipc-string
                  `(:component "config" :op "delete"
-                   :component ,component :scope ,scope :key ,key)))))
+                   :caller ,component :scope ,scope :key ,key)))))
     (when (ipc-reply-error-p reply)
       (error "Config store delete-for failed: ~A" reply))
     t))
@@ -71,7 +69,7 @@
   (let ((reply (ipc-call
                 (%sexp-to-ipc-string
                  `(:component "config" :op "dump"
-                   :component ,component :scope ,scope)))))
+                   :caller ,component :scope ,scope)))))
     (if (and reply (ipc-reply-ok-p reply))
         (let ((val (ipc-extract-value reply)))
           (if (and val (> (length val) 0))

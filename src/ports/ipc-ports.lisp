@@ -46,19 +46,21 @@
 (defun ipc-config-init ()
   (ipc-call (build-ipc-sexp :component "config" :op "init")))
 
+;; The routing target is :component "config"; the policy-gated CALLER identity travels as :caller
+;; (a distinct key) so it isn't shadowed by the routing component on the Rust side.
 (defun ipc-config-get (component scope key)
   (let ((reply (ipc-call
-                (build-ipc-sexp :component "config" :op "get" :component component :scope scope :key key))))
+                (build-ipc-sexp :component "config" :op "get" :caller component :scope scope :key key))))
     (ipc-extract-value reply)))
 
 (defun ipc-config-get-or (component scope key default)
   (let ((reply (ipc-call
-                (build-ipc-sexp :component "config" :op "get-or" :component component :scope scope :key key :default default))))
+                (build-ipc-sexp :component "config" :op "get-or" :caller component :scope scope :key key :default default))))
     (or (ipc-extract-value reply) default)))
 
 (defun ipc-config-set (component scope key value)
   (ipc-call
-   (build-ipc-sexp :component "config" :op "set" :component component :scope scope :key key :value value)))
+   (build-ipc-sexp :component "config" :op "set" :caller component :scope scope :key key :value value)))
 
 ;;; ─── Chronicle ──────────────────────────────────────────────────────
 
