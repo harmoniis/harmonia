@@ -49,7 +49,7 @@
 TASK_KIND=<kind> MODEL=<model-id>
 
 Rules:
-- x-ai/grok ONLY for truth-seeking or controversial topics
+- anthropic/claude-opus-4.6 for truth-seeking, controversial topics, or critical reasoning
 - minimax for fast reasoning
 - cli:claude-code for software-dev tasks
 - inception/mercury for general/planning tasks

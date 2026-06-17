@@ -28,6 +28,12 @@ pub fn select_model(task_hint: &str) -> String {
     harmonia_openrouter::client::select_model_for_task(task_hint)
 }
 
+/// Currently-available model IDs from the live OpenRouter catalogue (delegates to openrouter).
+/// Returns a sexp list `("id" ...)`; empty = unknown/not-yet-synced.
+pub fn available_models() -> String {
+    harmonia_openrouter::client::available_models_sexp()
+}
+
 pub fn backend_status_sexp(name: &str) -> Option<String> {
     if name.is_empty() || name == "openrouter" {
         return Some(

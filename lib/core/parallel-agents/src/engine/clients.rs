@@ -29,7 +29,7 @@ pub(super) fn preferred_truth_seeking_model() -> String {
     harmonia_config_store::get_config(COMPONENT, "prompts", "truth-seeking-model")
         .ok()
         .flatten()
-        .unwrap_or_else(|| "x-ai/grok-4.1-fast".to_string())
+        .unwrap_or_else(|| "anthropic/claude-opus-4.6".to_string())
 }
 
 pub(super) fn truth_seeking_prompt(prompt: &str) -> bool {

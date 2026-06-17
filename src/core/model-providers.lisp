@@ -36,6 +36,9 @@
 (defun model-policy-load ()
   (let ((src (%model-policy-load-source)))
     (setf *model-profiles* (copy-tree (getf src :profiles))
+          ;; Curated favorites snapshot — the source for availability re-sanitization. *model-profiles*
+          ;; is the live (availability-filtered) view selection actually uses; this stays the full set.
+          *model-profiles-all* (copy-tree (getf src :profiles))
           *model-harmony-weights* (copy-tree (getf src :weights))
           *model-task-routing* (copy-tree (getf src :task-routing))
           *model-evolution-policy*
@@ -270,7 +273,9 @@
   (max 1 (or (getf *model-evolution-policy* :seed-min-samples) 3)))
 
 (defun %last-resort-models ()
-  (or (getf *model-evolution-policy* :last-resort-models) '()))
+  ;; Filtered through %profile-by-id so availability-pruned models drop out of the deep fallback too.
+  (remove-if-not #'%profile-by-id
+                 (or (getf *model-evolution-policy* :last-resort-models) '())))
 
 (defun %rewrite-capable-models ()
   (or (getf *model-evolution-policy* :rewrite-capable-models) (%last-resort-models)))
@@ -343,7 +348,7 @@
 TASK_KIND=<kind> MODEL=<model-id>
 
 Rules:
-- x-ai/grok ONLY for truth-seeking or controversial topics
+- anthropic/claude-opus-4.6 for truth-seeking, controversial topics, or critical reasoning
 - minimax for fast reasoning
 - cli:claude-code for software-dev tasks
 - inception/mercury for general/planning tasks

@@ -44,6 +44,10 @@ pub(crate) fn dispatch(sexp: &str) -> String {
             let result = harmonia_provider_router::status::select_model(&task);
             format!("(:ok :result \"{}\")", esc(&result))
         }
+        "available-models" => {
+            let result = harmonia_provider_router::status::available_models();
+            format!("(:ok :result \"{}\")", esc(&result))
+        }
         "list-backends" => {
             let result = harmonia_provider_router::status::all_backends_sexp();
             format!("(:ok :result \"{}\")", esc(&result))

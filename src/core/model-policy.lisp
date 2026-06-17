@@ -17,7 +17,10 @@
                                 (%tmpdir-state-root))))
                   (concatenate 'string root "/model-policy.sexp"))))))
 
-(defparameter *model-profiles* '())
+(defparameter *model-profiles* '()
+  "Live (availability-sanitized) model favorites — what selection uses.")
+(defparameter *model-profiles-all* '()
+  "Curated favorites as loaded from model-policy.sexp — the re-sanitization source of truth.")
 (defparameter *model-harmony-weights* '())
 (defparameter *model-task-routing* '())
 (defparameter *default-model-evolution-policy*
@@ -26,11 +29,10 @@
     :active-provider "unified"
     :seed-weights (:price 0.35 :speed 0.20 :success 0.20 :reasoning 0.15 :vitruvian 0.10)
     :seed-min-samples 3
-    :last-resort-models ("x-ai/grok-4.1-fast"
+    :last-resort-models ("google/gemini-2.5-flash-lite-preview-09-2025"
                          "qwen/qwen3.6-plus:free"
                          "anthropic/claude-opus-4.6")
-    :rewrite-capable-models ("anthropic/claude-opus-4.6"
-                             "x-ai/grok-4.20")
+    :rewrite-capable-models ("anthropic/claude-opus-4.6")
     :cli-preference ("claude-code" "codex")
     :cli-task-kinds (:software-dev :coding :critical-reasoning)
     :actor-stall-threshold 180

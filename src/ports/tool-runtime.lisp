@@ -62,7 +62,7 @@ Return concise markdown with these headings only: Summary, Evidence, Uncertainty
   "Return the first model with :truth-seeking feature, or fallback."
   (or (and (fboundp '%truth-seeking-models)
            (car (funcall '%truth-seeking-models)))
-      "x-ai/grok-4.1-fast"))
+      "anthropic/claude-opus-4.6"))
 
 (defun search-grok-live (query)
   (backend-complete (%grok-live-search-prompt query)

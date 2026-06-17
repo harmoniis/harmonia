@@ -264,6 +264,7 @@
 (%load-module (%core-path "model-policy.lisp"))
 (%load-module (%core-path "model-providers.lisp") "model-providers")
 (%load-module (%core-path "model-routing.lisp") "model-routing")
+(%load-module (%core-path "model-availability.lisp") "model-availability")
 (%load-module (%core-path "harmonic-machine.lisp"))
 (%load-module (%core-path "evolution-versioning.lisp"))
 (%load-module (%core-path "../ports/ipc-client.lisp") "port/ipc-client")
@@ -464,6 +465,10 @@
     (error (e) (%log :warn "boot" "voice-policy-load failed: ~A" e) nil))
   (handler-case (init-voice-port)
     (error (e) (%log :warn "boot" "init-voice-port failed: ~A" e) nil))
+  ;; Self-healing model favorites: prune any favorite OpenRouter no longer serves (re-runs on
+  ;; every harmonic :stabilize, so deprecations self-clean without a restart). Fail-safe.
+  (handler-case (sanitize-model-favorites)
+    (error (e) (%log :warn "boot" "sanitize-model-favorites failed: ~A" e) nil))
   ;; Ouroboros: self-healing crash ledger.
   (handler-case (init-ouroboros-port)
     (error (e) (%log :warn "boot" "init-ouroboros-port failed: ~A" e) nil))

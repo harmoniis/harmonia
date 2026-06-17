@@ -363,6 +363,22 @@ pub fn select_model_for_task(task_hint: &str) -> String {
     select_from_pool(OFFERINGS, task_hint)
 }
 
+/// Currently-available model IDs from the latest OpenRouter sync, as a sexp list `("id" ...)`.
+/// Kicks a non-blocking background refresh when the catalogue is stale (TTL 1h). An empty list
+/// means "no sync yet / unknown" — the favorites sanitizer treats that as do-not-prune.
+pub fn available_models_sexp() -> String {
+    if let Ok(key) = api_key() {
+        harmonia_provider_protocol::ensure_available_fresh(&key, 3600);
+    }
+    let ids = harmonia_provider_protocol::available_model_ids();
+    let body = ids
+        .iter()
+        .map(|id| format!("\"{}\"", id.replace('\\', "\\\\").replace('"', "\\\"")))
+        .collect::<Vec<_>>()
+        .join(" ");
+    format!("({body})")
+}
+
 #[cfg(test)]
 mod tests {
     use harmonia_provider_protocol::*;

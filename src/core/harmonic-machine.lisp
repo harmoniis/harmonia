@@ -450,6 +450,8 @@ bounded (saturating reinforcement + dream decay), so cadence cannot run away.")
        (ignore-errors (when (fboundp '%meditate-recent) (funcall '%meditate-recent)))
        (when (zerop (mod *harmonic-stabilize-count* *harmonic-dream-interval*))
          (ignore-errors (when (fboundp '%dream-once) (funcall '%dream-once))))
+       ;; Self-healing favorites: prune any model OpenRouter has stopped serving (no restart needed).
+       (ignore-errors (when (fboundp 'model-availability-tick) (funcall 'model-availability-tick)))
        ;; Routing: maybe rewrite routing rules based on accumulated experience
        (ignore-errors (%maybe-rewrite-routing-rules ctx))
        (setf (runtime-state-harmonic-phase runtime) :observe))
