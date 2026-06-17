@@ -265,6 +265,7 @@
 (%load-module (%core-path "model-providers.lisp") "model-providers")
 (%load-module (%core-path "model-routing.lisp") "model-routing")
 (%load-module (%core-path "model-availability.lisp") "model-availability")
+(%load-module (%core-path "formal-verification.lisp") "formal-verification")
 (%load-module (%core-path "harmonic-machine.lisp"))
 (%load-module (%core-path "evolution-versioning.lisp"))
 (%load-module (%core-path "../ports/ipc-client.lisp") "port/ipc-client")
