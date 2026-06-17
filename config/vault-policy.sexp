@@ -29,6 +29,8 @@
   ;; Voice
   ("whisper-backend"          ("groq-api-key" "groq" "openai-api-key" "openai"))
   ("elevenlabs-backend"       ("elevenlabs-api-key" "elevenlabs"))
+  ("custom-stt-backend"       ("custom-stt-api-key" "custom-stt"))
+  ("custom-tts-backend"       ("custom-tts-api-key" "custom-tts"))
   ;; Frontends
   ("email-frontend"           ("email-imap-password" "email-password"
                                "email-smtp-password" "email-api-key"))

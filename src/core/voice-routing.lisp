@@ -28,19 +28,30 @@
         :endpoints))
 
 (defun %voice-tier-eligible-p (endpoint tier)
-  "Tier pool membership — the voice analogue of %tier-model-pool."
+  "Tier pool membership for the EXTERNAL fallback ladder — the voice analogue of %tier-model-pool."
   (let ((etier (or (getf endpoint :tier) :eco)))
     (case tier
       (:free    (eq etier :free))
       (:eco     (member etier '(:free :eco) :test #'eq))
       (:premium (member etier '(:eco :premium :pro :frontier) :test #'eq))
-      (:auto    t)
-      (t        t))))
+      (t        t))))            ; :auto, :call, anything else → whole pool (ranked below)
 
-(defun voice-select-endpoint (kind &optional (tier *routing-tier*))
-  "Choose the STT/TTS endpoint id for KIND (:stt|:tts) at TIER. For calls latency rules:
-within the eligible tier pool prefer the fastest (:speed); :premium prefers quality. Falls
-back to a sane low-latency default per kind when the policy is absent or empty."
+(defun %voice-custom-url-key (kind)
+  (ecase kind (:stt "custom-stt-url") (:tts "custom-tts-url")))
+
+(defun %voice-custom-id (kind)
+  (ecase kind (:stt "custom/stt") (:tts "custom/tts")))
+
+(defun %voice-custom-configured-p (kind)
+  "Is the self-hosted custom OpenAI-compatible endpoint for KIND configured (its url is set)?
+Reads config voice/custom-*-url; safe — never errors or blocks selection."
+  (let ((url (and (fboundp 'config-get-for)
+                  (ignore-errors (config-get-for "voice" (%voice-custom-url-key kind))))))
+    (and (stringp url) (plusp (length url)))))
+
+(defun %voice-select-external (kind tier)
+  "External-provider selection used only when the self-hosted cluster is NOT configured:
+:eco/:auto rank by latency (:speed); :premium ranks by :quality. Pure over the policy."
   (let* ((endpoints (%voice-endpoints kind))
          (pool (or (remove-if-not (lambda (e) (%voice-tier-eligible-p e tier)) endpoints)
                    endpoints))
@@ -52,3 +63,12 @@ back to a sane low-latency default per kind when the policy is absent or empty."
         (ecase kind
           (:stt "groq/whisper-large-v3-turbo")
           (:tts "elevenlabs/eleven_turbo_v2_5")))))
+
+(defun voice-select-endpoint (kind &optional (tier *routing-tier*))
+  "Endpoint id for KIND (:stt|:tts). The co-located SELF-HOSTED cluster is the DEFAULT for ALL
+voice — SIP, WhatsApp, or ANY audio source — whenever it is configured (lowest controlled latency,
+no external hop or rate limit). It falls back to an external provider only when the self-hosted
+endpoint is not configured. An explicit :model overrides this entirely."
+  (if (%voice-custom-configured-p kind)
+      (%voice-custom-id kind)
+      (%voice-select-external kind tier)))

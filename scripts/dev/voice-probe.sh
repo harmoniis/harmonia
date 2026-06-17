@@ -21,17 +21,26 @@ cat > "$ASSERT" <<'LISP'
   (va "voice actor reachable via IPC (no FFI)" (voice-port-ready-p))
   (va "voice-policy loaded (stt + tts endpoints)"
       (and (%voice-endpoints :stt) (%voice-endpoints :tts)))
-  (va "eco STT routes to the FASTEST (groq turbo)"
-      (string= (voice-select-endpoint :stt :eco) "groq/whisper-large-v3-turbo"))
-  (va "eco TTS routes to the FASTEST (elevenlabs turbo, low-latency)"
-      (string= (voice-select-endpoint :tts :eco) "elevenlabs/eleven_turbo_v2_5"))
-  (va "auto STT favours low latency (turbo)"
-      (string= (voice-select-endpoint :stt :auto) "groq/whisper-large-v3-turbo"))
-  (va "premium STT differs from eco (quality-selected, not speed)"
-      (not (string= (voice-select-endpoint :stt :premium)
-                    (voice-select-endpoint :stt :eco))))
-  (va "premium TTS = expressive multilingual (quality)"
-      (string= (voice-select-endpoint :tts :premium) "elevenlabs/eleven_multilingual_v2"))
+  ;; Self-hosted cluster is the DEFAULT for ALL voice (SIP, WhatsApp, any audio) when configured.
+  (va "STT default = self-hosted when configured, else external"
+      (string= (voice-select-endpoint :stt)
+               (if (%voice-custom-configured-p :stt) "custom/stt" (%voice-select-external :stt *routing-tier*))))
+  (va "TTS default = self-hosted when configured, else external"
+      (string= (voice-select-endpoint :tts)
+               (if (%voice-custom-configured-p :tts) "custom/tts" (%voice-select-external :tts *routing-tier*))))
+  (va "every tier prefers self-hosted when configured (SIP/WhatsApp/any source)"
+      (or (not (%voice-custom-configured-p :stt))
+          (every (lambda (t*) (string= (voice-select-endpoint :stt t*) "custom/stt"))
+                 '(:eco :auto :premium :call :free))))
+  ;; External FALLBACK ladder (pure, config-independent): used only when self-hosted is absent.
+  (va "external eco STT = fastest (groq turbo)"
+      (string= (%voice-select-external :stt :eco) "groq/whisper-large-v3-turbo"))
+  (va "external eco TTS = fastest (elevenlabs turbo)"
+      (string= (%voice-select-external :tts :eco) "elevenlabs/eleven_turbo_v2_5"))
+  (va "external premium STT differs from eco (quality, not speed)"
+      (not (string= (%voice-select-external :stt :premium) (%voice-select-external :stt :eco))))
+  (va "external premium TTS = expressive multilingual (quality)"
+      (string= (%voice-select-external :tts :premium) "elevenlabs/eleven_multilingual_v2"))
 
   (format t "~%── B. introspection ──~%")
   (va "offerings: stt + tts pools present"
@@ -43,7 +52,7 @@ cat > "$ASSERT" <<'LISP'
   (format t "~%── C. graceful degradation (no crash) ──~%")
   (va "transcribe with no key/file -> nil (graceful)"
       (null (voice-transcribe "/nonexistent/harmonia-voice-probe.wav")))
-  (va "custom endpoint unconfigured -> graceful nil (clear error path)"
+  (va "custom STT on a missing file -> nil (no crash, config-agnostic)"
       (null (voice-transcribe "/nonexistent.wav" :model "custom/stt")))
   (va "synthesize with empty text -> nil (guarded)"
       (null (voice-synthesize "")))

@@ -4,12 +4,16 @@
 ;;;; KIND (stt/tts) and tier; the Rust voice actor executes it. For CALLS the default favours
 ;;;; the lowest-latency endpoint in the eligible tier.
 ;;;;
-;;;; To plug a CUSTOM OpenAI-compatible STT/TTS endpoint, keep its entry below and set:
+;;;; To plug a CUSTOM OpenAI-compatible STT/TTS endpoint (e.g. a self-hosted Whisper + Chatterbox
+;;;; cluster), keep its entry below and set:
 ;;;;   config-store:  voice/custom-stt-url   voice/custom-stt-model
 ;;;;                  voice/custom-tts-url   voice/custom-tts-model
 ;;;;   vault:         custom-stt-backend/custom-stt-api-key
 ;;;;                  custom-tts-backend/custom-tts-api-key
-;;;; then route to it with tier :premium or by passing :model "custom/stt" | "custom/tts".
+;;;; Once configured, the self-hosted cluster is the DEFAULT for ALL voice — SIP, WhatsApp, or any
+;;;; audio source (lowest controlled latency, no external hop or rate limit). The endpoints below are
+;;;; the FALLBACK ladder used only when the self-hosted endpoint is not configured (:eco/:auto rank
+;;;; by latency, :premium by quality). An explicit :model "custom/stt" | "custom/tts" forces it.
 
 (:speech-to-text
  (:default-tier :eco

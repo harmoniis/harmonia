@@ -56,6 +56,8 @@ fn default_component_patterns(component: &str) -> &'static [&'static str] {
         "search-brave-tool" => &["brave-api-key"],
         "whisper-backend" => &["groq-api-key", "groq", "openai-api-key", "openai"],
         "elevenlabs-backend" => &["elevenlabs-api-key", "elevenlabs"],
+        "custom-stt-backend" => &["custom-stt-api-key", "custom-stt"],
+        "custom-tts-backend" => &["custom-tts-api-key", "custom-tts"],
         "email-frontend" => &[
             "email-imap-password", "email-password",
             "email-smtp-password", "email-api-key",
