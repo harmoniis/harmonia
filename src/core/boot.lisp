@@ -435,6 +435,11 @@
   ;; Memory-field: initialize port, push graph, warm-start basin.
   (handler-case (init-memory-field-port)
     (error (e) (%log :warn "boot" "init-memory-field-port failed: ~A" e) nil))
+  ;; Bound the concept-edge count to the engine's working set BEFORE the push. The rebuild from
+  ;; accumulated memories can produce a dense ~10^5-edge mesh that overflows the 10MB IPC frame and
+  ;; silently loads an EMPTY field (graph-n=0). %decay-concept-edges with lambda 0 is cap-only (no
+  ;; fade): it evicts the weakest edges down to *concept-edge-max-count* so the push always fits.
+  (ignore-errors (when (fboundp '%decay-concept-edges) (%decay-concept-edges 0.0)))
   ;; Push the concept graph to the Rust field engine (nodes + edges).
   (handler-case
       (when (and (fboundp 'memory-field-port-ready-p) (memory-field-port-ready-p))

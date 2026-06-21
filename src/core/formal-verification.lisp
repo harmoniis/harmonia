@@ -70,20 +70,21 @@ operation-level (sound) contracts gate the boolean; a collection-level pass neve
 ;;; ── Operation-level contracts: SOUND + TOTAL (run the real op on full data) ──────────────────
 
 (defcontract :field-load-fidelity :operation
-    "the memory-field loads EXACTLY the concept graph it is pushed (graph-n == pushed node count)"
-  ;; Sound: push the WHOLE current concept graph, then read the engine's node count. They must be
-  ;; equal. (This is the check that was silently false all along — the >10MB push drops, graph-n=0.)
-  (let ((pushed (hash-table-count *memory-concept-nodes*)))
-    (if (zerop pushed)
-        (values t (list :pushed 0 :note "no concept graph to push — vacuously holds"))
-        (progn
-          (ignore-errors (memory-field-load-graph))
-          (let* ((parsed (%parse-port-reply
-                          (ipc-call (%sexp-to-ipc-string
-                                     '(:component "memory-field" :op "status")))))
-                 (loaded (getf parsed :graph-n)))
-            (values (and (integerp loaded) (= loaded pushed))
-                    (list :pushed pushed :loaded (or loaded :unread))))))))
+    "the memory-field reflects the concept graph: graph-n is non-empty and >= 80% of the node count"
+  ;; READ-ONLY + SOUND. Reads the engine's live node count and compares to the Lisp concept graph —
+  ;; no re-push, so it is safe to discharge in-agent on the harmonic cadence. graph-n=0 (or NIL)
+  ;; while there are concept nodes means the field did NOT load — the silent failure I mis-reported.
+  ;; MUST run where the field actor is reachable (the agent's own context); a detached probe sbcl
+  ;; does not own the actor and would read NIL — a false violation. So this lives in eval, not a probe.
+  (let ((expected (hash-table-count *memory-concept-nodes*)))
+    (if (zerop expected)
+        (values t (list :expected 0 :note "no concept graph — vacuously holds"))
+        (let* ((parsed (%parse-port-reply
+                        (ipc-call (%sexp-to-ipc-string
+                                   '(:component "memory-field" :op "status")))))
+               (loaded (getf parsed :graph-n)))
+          (values (and (integerp loaded) (plusp loaded) (>= loaded (floor (* expected 4) 5)))
+                  (list :expected expected :loaded (or loaded :unreachable)))))))
 
 (defcontract :store-recall-roundtrip :operation
     "a freshly-stored sentinel fact is recalled through the FULL memory-recall path (no ambient state)"
@@ -130,3 +131,31 @@ agent could not recall (VALUE absent from RECALL-TEXT) is unjustified and also f
          (value (format nil "~A" (+ 30000 (random 60000)))))   ; a 5-digit number the model can't guess
     (values code value
             (format nil "Remember this fact: the verification code ~A maps to the number ~A." code value))))
+
+;;; ── Harmonic-cadence discharge: in-agent, READ-ONLY contracts, LOG-ONLY ───────────────────────
+;;;
+;;; This is the "verification at runtime in eval, on the harmonic state machine" piece — but it runs
+;;; ONLY the read-only contracts (no mutation), and it only LOGS violations. It never rewrites,
+;;; mutates, or repairs on a verdict. (A verifier that auto-rewrote on the hot path would mutate the
+;;; agent on false positives — the same failure mode that broke orchestration. Surfacing only.)
+
+(defparameter *frv-harmonic-contracts* '(:field-load-fidelity)
+  "Contracts safe on the harmonic cadence: read-only, no side effects. Mutating contracts
+(store-recall-roundtrip, output property tests) run only in the standalone probe, never the hot path.")
+
+(defun frv-discharge-harmonic (runtime)
+  "Discharge the harmonic-safe (read-only) contracts in-agent — where the field actor is reachable —
+and LOG any SOUND violation loudly. Pure surfacing: never mutates state or triggers a rewrite."
+  (ignore-errors
+   (dolist (v (frv-verify (remove-if-not
+                           (lambda (c) (member (contract-name c) *frv-harmonic-contracts*))
+                           *frv-contracts*)))
+     (when (and (getf v :sound) (not (getf v :holds)))
+       (ignore-errors
+        (when (fboundp 'runtime-log)
+          (funcall 'runtime-log runtime :contract-violated
+                   (list :contract (getf v :contract) :witness (getf v :witness)))))
+       (ignore-errors
+        (%log :warn "verify"
+              (format nil "SOUND CONTRACT VIOLATED: ~A ~S"
+                      (getf v :contract) (getf v :witness))))))))

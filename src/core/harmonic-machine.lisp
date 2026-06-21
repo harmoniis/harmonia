@@ -281,6 +281,10 @@ bounded (saturating reinforcement + dream decay), so cadence cannot run away.")
       (:evaluate-global
        (let* ((map (getf ctx :map))
               (global (%global-harmony map)))
+         ;; Formal runtime contracts, discharged IN-AGENT (the field actor is reachable here, unlike a
+         ;; detached probe). READ-ONLY + LOG-ONLY: surfaces sound violations, never mutates or rewrites.
+         (ignore-errors
+          (when (fboundp 'frv-discharge-harmonic) (funcall 'frv-discharge-harmonic runtime)))
          (setf (runtime-state-harmonic-context runtime)
                (append (list :global global) ctx))
          (setf (runtime-state-harmonic-phase runtime) (%next-phase phase))))
