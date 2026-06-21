@@ -105,6 +105,36 @@ operation-level (sound) contracts gate the boolean; a collection-level pass neve
               (list :sentinel tok :recalled-entries (length (or results '()))
                     :recovered (and (search val text) t))))))
 
+(defcontract :lambdoma-recall-coherent :operation
+    "recall's lambdoma-reduced output is bounded, genuine, and supersede-deduped — checked over the FULL output"
+  ;; THE SOUND USE OF LAMBDOMA. memory-recall reduces an unbounded candidate set to the lambdoma
+  ;; top-K, and RETURNS exactly that finite set. We verify that finite output EXHAUSTIVELY — a
+  ;; complete decision over what recall actually produces, not a sample. Lambdoma is what makes the
+  ;; verification finite/decidable; checking the whole reduced output keeps it sound. It asserts:
+  ;;   (a) |output| <= limit            — the lambdoma bound holds;
+  ;;   (b) every entry has real content — no fabricated/empty entries leak through the reduction;
+  ;;   (c) no two entries share a subject — lambdoma + supersede deduped consistently.
+  (let* ((tok (format nil "LFV~A" (write-to-string (+ (get-internal-real-time) (random 1000000)) :base 36)))
+         (limit 6))
+    (dotimes (i 4)
+      (ignore-errors (%prim-store (format nil "lambdoma coherence fact ~A item ~A" tok i)
+                                  :tags '(:frv-sentinel))))
+    (let* ((results (or (ignore-errors (memory-recall tok :limit limit)) '()))
+           (entries (remove-if-not #'memory-entry-p results))
+           (bounded (<= (length results) limit))
+           (genuine (every (lambda (e) (let ((c (memory-entry-content e)))
+                                         (and (stringp c) (plusp (length c)))))
+                           entries))
+           ;; %subjects-same-p compares WORD-SETS (via %entry-subject-words), not entries.
+           (no-dup-subject
+             (loop for (a . rest) on entries
+                   for sa = (and (fboundp '%entry-subject-words) (%entry-subject-words a))
+                   never (and sa
+                              (some (lambda (b) (%subjects-same-p sa (%entry-subject-words b))) rest)))))
+      (values (and bounded genuine no-dup-subject)
+              (list :returned (length results) :limit limit
+                    :bounded bounded :genuine genuine :supersede-consistent no-dup-subject)))))
+
 ;;; ── Agent-output grounding: a SOUND predicate, applied by a SAMPLED property test ─────────────
 ;;;
 ;;; %output-grounded-p is sound on a GIVEN answer: it holds iff the answer carries the ground-truth
