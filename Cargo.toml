@@ -64,6 +64,7 @@ members = [
     "lib/tools/search-brave",
     "lib/tools/hfetch",
     "lib/tools/zoom",
+    "lib/tools/dynamics-verify",
 
     # Frontends — hot-pluggable communication channels
     "lib/frontends/push",

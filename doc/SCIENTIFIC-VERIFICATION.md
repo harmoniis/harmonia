@@ -61,24 +61,24 @@ A **plastic CTRNN / echo-state reservoir** (`signalograd-architecture.md:5-12,74
 
 These produce numbers compared to literature; filled as probes run.
 
-- **Invariants (Phase 2) — MEASURED** (`scripts/dev/analysis/invariants.py`; estimator self-checked on canonical RK4 Lorenz → λ_max=+0.906 ✓, so the estimator is trusted). Heat-kernel semigroup / Betti still **PENDING** (need the field actor or a faithful re-impl).
+- **Invariants (Phase 2) — MEASURED** (Rust: `lib/tools/dynamics-verify`, run via `cargo test/run -p harmonia-dynamics-verify` — integrators copied verbatim from the cited source lines; estimator self-checked on canonical RK4 Lorenz → λ_max=+0.909 ✓). Heat-kernel semigroup / Betti still **PENDING** (need the field actor).
 
   | System (as built) | λ_max measured | literature | verdict |
   |---|---|---|---|
-  | Lorenz Euler, `harmonic-machine.lisp:207` (dt=0.01) | **+1.030** | +0.906 | chaotic ✓, Euler inflates λ ~14% |
-  | Lorenz Euler, signalograd base `kernel.rs` (dt=0.008) | **+0.993** | +0.906 | chaotic ✓, Euler inflates λ ~10% |
+  | Lorenz Euler, `harmonic-machine.lisp:207` (dt=0.01) | **+1.035** | +0.906 | chaotic ✓, Euler inflates λ ~14% |
+  | Lorenz Euler, signalograd base `kernel.rs` (dt=0.008) | **+0.989** | +0.906 | chaotic ✓, Euler inflates λ ~9% |
   | Thomas RK4 **+ `soft_saturate(·,3)`**, `attractor.rs:92` (b=0.208) | **−1.585** | >0 | **NOT chaotic — collapses to a fixed point** |
 
   **FINDING F1 — per-step saturation kills Thomas's chaos; impact is a dead recall-signal, not broken routing.** Evidence chain: (1) bare Thomas is chaotic (λ=+0.24 @ b=0.19, +0.21 @ b=0.208); the per-step `soft_saturate(out,3.0)` (`attractor.rs:92`, Jacobian `sech²(x/3)<1` contracts every step) collapses it to a fixed point (λ≈−1.6, std=0). (2) The drive is **b-modulation** (`attractor_api.rs:35` `b_eff=b_base+b_scale·(signal−noise)` over [0.18,0.24]), **not** additive forcing, and state persists → the collapse happens *in situ*: across the whole b-range and 60 random ICs the system reaches **only basin 0**. (3) **But node-basin routing ignores the Thomas state** — `assign_node_basins` (`basin.rs:135`) takes `_thomas` **unused** and assigns `domain_to_thomas_basin(domain)`; routing is domain-based and diverse/correct regardless of the collapse. The collapse only degrades the **soft** basin-affinity signal (`classify_thomas_basin_soft`), one of six recall-scoring signals (weight 0.20), now stuck peaked at basin 0 → **uninformative dead weight, not a routing bug**. (Aside: `assign_node_basins` also computes-then-discards the Halvorsen lobe `_h_lobe`; only Aizawa depth + domain drive hard assignment.) **Net:** the "edge of chaos / 6 coexisting chaotic attractors" narrative (`attractor.rs:11,39`) is **inaccurate** and Thomas's recall contribution is largely vestigial — but routing is intact. **Phase-7:** relabel honestly; decide whether the soft-affinity signal is worth a saturation redesign that restores informativeness *without* losing the coordinate bounding (do **not** merely weaken the clamp).
 
   **FINDING F2 — Euler drift.** Both Lorenz integrators are genuinely chaotic and bounded, but forward Euler inflates λ_max by 10–14% vs RK4. Harmless for a reservoir basis (it wants rich chaos), but the dynamics are not textbook Lorenz; RK4 removes the drift if fidelity is ever required.
-- **D1 symbolic recovery (Phase 4) — DONE** (`scripts/dev/d1-symbolic-recovery/d1.py`). Redesigned per advisor: the discriminator is **basis expressiveness**, not gauge/L1 (clean Lorenz alone doesn't discriminate — plain SINDy recovers it exactly). Same selector (STLSQ + MDL/description-length) for **both** arms; the only variable is the library.
+- **D1 symbolic recovery (Phase 4) — DONE** (Rust: `lib/tools/dynamics-verify`, hand-rolled least squares — no linalg dep). Redesigned per advisor: the discriminator is **basis expressiveness**, not gauge/L1 (clean Lorenz alone doesn't discriminate — plain SINDy recovers it exactly). Same selector (STLSQ + MDL/description-length) for **both** arms; the only variable is the library.
 
   | system | Arm A: fixed polynomial basis | Arm B: poly + sin/cos (transcendental) |
   |---|---|---|
   | **Lorenz** (control, polynomial law) | exact, 7 terms, dynR²=1.000 | exact, 7 terms, dynR²=1.000 |
   | **Thomas** (treatment, `ẋ=sin y − bx`) | **30 spurious terms, dynR²=0.969, NOT exact** | **`(- (sin y) (* 0.19 x))` exact, 6 terms, dynR²=1.000** |
-  | description length / `exp(−size/40)` (Thomas) | 585 chars → 4.5e-7 | 99 chars → **8.4e-2** |
+  | description length / `exp(−size/40)` (Thomas) | 585 chars → 4.5e-7 | 93 chars → **9.8e-2** |
 
   **FINDING D1.** Lorenz ties (both methods sound; the Thomas gap is real, not an artifact). On Thomas, the fixed polynomial basis **structurally cannot** represent the transcendental law — it Taylor-approximates `sin` with 30 spurious terms and residual — while a library containing `sin` recovers it **exactly**, and harmonia's own `exp(−size/40)` prior ranks the exact law **~10⁵× higher**. This is the honest demonstration the campaign set out to make: harmonia's **Kolmogorov-over-programs** frame recovers governing laws DYSCO's fixed polynomial basis cannot — on harmonia's own attractor, with no rigging (the win is basis expressiveness, not gauge or L1). The recovered s-expr `(- (sin y) (* 0.19 x))` is the artifact Phase 8 installs. *(Method note: greedy/OMP fails on collinear polynomial dictionaries — picks `x·z⁴` before `x·z`; STLSQ is the correct SINDy core and recovers cleanly.)*
 - **D2 well-posedness (Phase 5)** — approximate Solomonoff/compression on the emergent cognitive trajectory (no Markov needed); predictive description length / compression ratio. **PENDING**

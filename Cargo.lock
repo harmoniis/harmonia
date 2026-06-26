@@ -2986,6 +2986,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "harmonia-dynamics-verify"
+version = "0.1.0"
+
+[[package]]
 name = "harmonia-elevenlabs"
 version = "0.1.9"
 dependencies = [
