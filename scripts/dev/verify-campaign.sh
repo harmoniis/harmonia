@@ -20,6 +20,10 @@ block() { echo "[BLOCKED] $1"; BLOCK=$((BLOCK+1)); }
 run "Phase2+4  dynamics-verify (F1 saturation / F2 Euler / D1 recovery)" \
     cargo test --release -p harmonia-dynamics-verify
 
+# ── Phase 8 — self-rewrite loop: identify -> s-expr -> real sexp-eval -> bounded param ──
+run "Phase8    self-rewrite loop (equation-identify, real sexp-eval, offline)" \
+    bash scripts/dev/run-equation-identify.sh
+
 # ── Phase 6 (offline) — core Rust crate tests touched by the audit ──
 run "Phase6    core Rust tests (memory-field, signalograd, mempalace, chronicle)" \
     cargo test -p harmonia-memory-field -p harmonia-signalograd \

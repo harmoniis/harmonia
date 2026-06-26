@@ -253,6 +253,7 @@
 (%load-module (%core-path "sexp-eval.lisp") "sexp-eval")
 (%load-module (%core-path "repl-primitives.lisp") "repl-primitives")
 (%load-module (%core-path "repl-loop.lisp") "repl-loop")
+(%load-module (%core-path "equation-identify.lisp") "equation-identify")
 (%load-module (%core-path "supervision-state.lisp") "supervision-state")
 (%load-module (%core-path "../harmony/scorer.lisp") "harmony-scorer")
 (%load-module (%core-path "harmony-policy.lisp"))

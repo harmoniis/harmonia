@@ -693,6 +693,14 @@ call works as well as (format \"~A\" x)."
 (defprimitive - "(&rest nums)" "Subtraction." (apply #'- args))
 (defprimitive * "(&rest nums)" "Multiplication." (apply #'* args))
 (defprimitive / "(a b)" "Division." (/ (first args) (second args)))
+;; Elementary & transcendental — so the agent can eval a recovered governing law
+;; (e.g. a Thomas term (sin y)) through its own sexp-eval. Used by equation-identify.lisp.
+(defprimitive sin "(x)" "Sine." (sin (first args)))
+(defprimitive cos "(x)" "Cosine." (cos (first args)))
+(defprimitive sqrt "(x)" "Square root." (sqrt (first args)))
+(defprimitive exp "(x)" "e raised to x." (exp (first args)))
+(defprimitive abs "(x)" "Absolute value." (abs (first args)))
+(defprimitive expt "(base power)" "Exponentiation." (expt (first args) (second args)))
 (defprimitive > "(a b)" "Greater than." (> (first args) (second args)))
 (defprimitive < "(a b)" "Less than." (< (first args) (second args)))
 (defprimitive = "(a b)" "Numeric equal." (= (first args) (second args)))
