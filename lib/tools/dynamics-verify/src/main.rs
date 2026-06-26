@@ -290,6 +290,45 @@ fn print_arm(label: &str, n_lib: usize, r: &ArmResult, true_terms: usize) {
     println!("    dx/dt = {}", r.first);
 }
 
+// ───────────────────────── Phase 5 / D2: forced (non-Markov) Lorenz ─────────────────────────
+// rho(t) = 28 + A·sin(ω t) makes the system NON-autonomous: (x,y,z) alone is not Markov.
+// An autonomous (x,y,z) basis — DYSCO's frame — cannot see the forcing and leaves residual;
+// once the basis includes the forcing "view" (x·sin ωt), the law is recovered/compressible.
+// Returns (autonomous dynR², forcing-aware dynR²) for the ẏ component.
+fn d2_forced_lorenz() -> (f64, f64) {
+    let (dt, omega, amp) = (0.01_f64, 0.3_f64, 8.0_f64);
+    let (n, transient) = (6000usize, 4000usize);
+    let mut s = [1.0, 1.0, 1.0];
+    let mut t = 0.0_f64;
+    let step = |s: V3, t: f64| -> V3 {
+        let rho = 28.0 + amp * (omega * t).sin();
+        let d = [10.0 * (s[1] - s[0]), s[0] * (rho - s[2]) - s[1], s[0] * s[1] - (8.0 / 3.0) * s[2]];
+        [s[0] + dt * d[0], s[1] + dt * d[1], s[2] + dt * d[2]]
+    };
+    for _ in 0..transient { s = step(s, t); t += dt; }
+    let (mut cx, mut cxz, mut cy, mut cxf, mut ydot) =
+        (Vec::new(), Vec::new(), Vec::new(), Vec::new(), Vec::new());
+    for _ in 0..n {
+        let f = (omega * t).sin();
+        let rho = 28.0 + amp * f;
+        let yd = s[0] * (rho - s[2]) - s[1]; // 28x + amp·x·f − xz − y
+        cx.push(s[0]); cxz.push(s[0] * s[2]); cy.push(s[1]); cxf.push(s[0] * f); ydot.push(yd);
+        s = step(s, t); t += dt;
+    }
+    let dynr2 = |cols: &[&Vec<f64>], y: &[f64]| -> f64 {
+        let xi = lstsq(cols, y);
+        let m: f64 = y.iter().sum::<f64>() / y.len() as f64;
+        let (mut num, mut den) = (0.0, 0.0);
+        for k in 0..y.len() {
+            let pred: f64 = cols.iter().zip(&xi).map(|(c, b)| b * c[k]).sum();
+            num += (y[k] - pred).powi(2);
+            den += (y[k] - m).powi(2);
+        }
+        1.0 - num / den
+    };
+    (dynr2(&[&cx, &cxz, &cy], &ydot), dynr2(&[&cx, &cxz, &cy, &cxf], &ydot))
+}
+
 // ───────────────────────── report ─────────────────────────
 
 fn main() {
@@ -353,6 +392,15 @@ fn main() {
     let tb = run_arm(&xt, &yt, tlb, thomas_true);
     let tlb_len = { let mut t = poly_library(&xt, 2); t.extend(trig_features(&xt)); t.len() };
     print_arm("B  poly(deg 2) + sin/cos transcendental", tlb_len, &tb, 6);
+
+    println!("\n{}", "=".repeat(78));
+    println!("PHASE 5 — D2: forced (non-Markov) Lorenz  rho(t)=28+8 sin(0.3 t)");
+    println!("{}", "=".repeat(78));
+    let (d2_auto, d2_forced) = d2_forced_lorenz();
+    println!("  autonomous (x,y,z) basis [DYSCO Markov] : dynR^2(ydot) = {:.4}  (cannot see the forcing)", d2_auto);
+    println!("  forcing-aware basis (+ x*sin(0.3 t))    : dynR^2(ydot) = {:.4}  (recovers it)", d2_forced);
+    println!("  => the forced/emergent law is well-posed as COMPRESSION once the basis includes the");
+    println!("     forcing 'view'; autonomous Markov identification (DYSCO's frame) structurally fails.");
 }
 
 // ───────────────────────── assertions ─────────────────────────
@@ -399,5 +447,14 @@ mod tests {
         let b = run_arm(&x, &y, lb, t);                            // with sin: exact
         assert!(!a.exact, "polynomial basis must FAIL to recover Thomas exactly");
         assert!(b.exact && b.dynr2 > 0.999, "transcendental basis must recover Thomas exactly, got {:?}/{}", b.exact, b.dynr2);
+    }
+
+    #[test]
+    fn d2_forced_needs_forcing_view() {
+        // Non-Markov forced Lorenz: the autonomous (Markov) basis can't see the forcing;
+        // adding the forcing "view" recovers it. (DYSCO's multi-view denoising, the thing we lack.)
+        let (auto, forced) = d2_forced_lorenz();
+        assert!(forced > 0.999, "forcing-aware basis should recover ydot, got {}", forced);
+        assert!(auto < forced - 0.02, "autonomous (Markov) basis must lose to forcing-aware: auto={} forced={}", auto, forced);
     }
 }
