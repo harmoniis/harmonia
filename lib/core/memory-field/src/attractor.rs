@@ -8,8 +8,14 @@
 /// These live in memory-field, separate from Signalograd's Lorenz attractor,
 /// maintaining clean separation of concerns.
 
-/// Soft saturation — smooth version of clamp that preserves attractor geometry.
-/// Uses R * tanh(x / R) which asymptotes to +/-R but is differentiable everywhere.
+/// Soft saturation — R*tanh(x/R): a smooth, differentiable bound on each coordinate
+/// (asymptotes to ±R). It does NOT preserve a chaotic attractor's geometry: applied per
+/// RK4 step it is dissipative (Jacobian sech²(x/R) < 1), and for the weakly-chaotic Thomas
+/// system at b∈[0.18,0.24] it collapses the trajectory to a fixed point (verified by the
+/// tool at lib/tools/dynamics-verify — finding F1). Its role here is BOUNDING the basin
+/// coordinates; node-basin routing reads `domain`, not the Thomas state (see assign_node_basins,
+/// basin.rs), so a bounded fixed-point-per-input regime is correct for stable routing — the
+/// realized system is simply not chaotic.
 fn soft_saturate(x: f64, radius: f64) -> f64 {
     radius * (x / radius).tanh()
 }
@@ -30,15 +36,16 @@ pub(crate) trait BasinClassifier {
 
 // ─── Thomas Attractor ───────────────────────────────────────────────────────
 
-/// Thomas attractor state (cyclically symmetric chaotic system).
+/// Thomas attractor state (cyclically symmetric; the BARE ODE is weakly chaotic).
 ///
 /// dx/dt = sin(y) - b·x
 /// dy/dt = sin(z) - b·y
 /// dz/dt = sin(x) - b·z
 ///
-/// At b ≈ 0.208 the system has maximum coexisting attractors (up to 6),
-/// ideal for multi-domain memory routing. The cyclic symmetry models
-/// biological feedback loops (A→B→C→A).
+/// The bare system is weakly chaotic near b≈0.208; as integrated here (RK4 + per-step
+/// soft_saturate) it collapses to a bounded fixed-point-per-input regime (finding F1),
+/// used for stable octant/basin classification, NOT chaotic exploration. The cyclic
+/// symmetry models biological feedback loops (A→B→C→A).
 #[derive(Clone, Debug)]
 pub(crate) struct ThomasState {
     pub(crate) x: f64,
